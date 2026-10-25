@@ -184,6 +184,9 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
     private boolean favoriteBusy;
     private MusicTrack lastBoundTrack;
 
+    /** 通知不可用提示条：本进程内只主动挂一次（同会话不反复弹）；挂上后回页复检、恢复即撤。 */
+    private static boolean notifHintShownOnce;
+
     /** 后台播放分家（批 0 点名迁移，旧页 :517-533 同口径）：onStop 因音乐后台关暂停时置位，回页只续同一首。 */
     private boolean bgPausedMusic;
     private String bgPausedTrackKey;
@@ -280,6 +283,9 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         // 冷进不崩：只经 MusicController 绑定，服务未就绪时 Controller 积压重放，本页不直调服务。
         MusicController.get().bind(this);
         MusicController.get().addListener(listener);
+        if (binding.notifHintGo != null) {
+            binding.notifHintGo.setOnClickListener(v -> Notify.openNotificationSettings(this));
+        }
         attachPageSwipe();
         setupLyricPage();
         applyTheme();
@@ -293,6 +299,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         super.onResume();
         MusicController.get().removeListener(listener);
         MusicController.get().addListener(listener);
+        refreshNotifHintOnResume();
         setPlaying(MusicController.get().isPlaying());
         if (appleTheme) refreshVolumeSlider();
         // 后台关暂停的回页续播（旧页原样迁移）：只有 onStop 亲手暂停的才续，且必须是同一首。
@@ -884,7 +891,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         }
         View chipLyric = find(R.id.tpChipLyric);
         if (chipLyric != null) {
-            chipLyric.setOnClickListener(v -> showToolsSheetLyric());
+            chipLyric.setOnClickListener(v -> openLyricVersionDialog());
             attachPressScale(chipLyric, 0.96f);
         }
         if (lyricView != null) {
@@ -961,7 +968,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         }
         View lyricVer = find(R.id.tpCdBtnLyricVer);
         if (lyricVer != null) {
-            lyricVer.setOnClickListener(v -> showToolsSheetLyric());
+            lyricVer.setOnClickListener(v -> openLyricVersionDialog());
             attachPressScale(lyricVer, 0.9f);
         }
         if (cdBtnFavView != null) {
@@ -1420,10 +1427,10 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
             attachPressScale(next, 0.88f);
         }
         if (playTopView != null) attachPressScale(playTopView, 0.9f);
-        // 功能行：第一键是歌词菜单（不是进歌词页）——批 4 已换接新歌词设置子面板
-        // （MusicToolsSheetDialog 直达 PANEL_LYRIC：字号双滑杆／粗细／对齐／模糊三档／主歌词／高级动效，批 4 补齐模糊行）
+        // 功能行：第一键是歌词菜单（不是进歌词页）——直开歌词版本弹窗（照瓜子歌词筹去向：
+        // 点开即版本列表＋筛选签，空态带搜索入口；样式设置在工具面板歌词设置子面板，不在此串）
         View lyricMenu = find(R.id.tpBtnLyricMenu);
-        if (lyricMenu != null) lyricMenu.setOnClickListener(v -> showToolsSheetLyric());
+        if (lyricMenu != null) lyricMenu.setOnClickListener(v -> openLyricVersionDialog());
         View qualityFunc = find(R.id.tpBtnQualityFunc);
         if (qualityFunc != null) qualityFunc.setOnClickListener(v -> showQualityDialog());
         View queue = find(R.id.tpBtnQueue);
@@ -1530,8 +1537,41 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
 
     private android.animation.ObjectAnimator playBreathAnimator;
 
+    /**
+     * 通知不可用明示（播放页）：起播后首次检出不可用才挂条，同进程只挂一次，
+     * 不反复弹；检测只读系统状态（Notify.notificationBlockReason），不拖起播。
+     * 挂条后从设置页回页（onResume）复检，恢复则自动撤下。
+     */
+    private void maybeShowNotifHint() {
+        if (notifHintShownOnce || binding == null || binding.notifHintStrip == null) return;
+        if (binding.notifHintStrip.getVisibility() == View.VISIBLE) return;
+        int reason = Notify.notificationBlockReason(this);
+        if (reason == Notify.NOTIF_OK) return;
+        notifHintShownOnce = true;
+        if (reason == Notify.NOTIF_NO_PERMISSION) {
+            binding.notifHintText.setText("通知权限未开启，后台放歌时通知栏不会显示播放条");
+        } else if (reason == Notify.NOTIF_APP_OFF) {
+            binding.notifHintText.setText("通知已被系统关闭，后台放歌时通知栏不会显示播放条");
+        } else if (reason == Notify.NOTIF_CHANNEL_OFF) {
+            binding.notifHintText.setText("播放通知渠道已被关闭，后台放歌时通知栏不会显示播放条");
+        } else {
+            binding.notifHintText.setText("播放通知渠道未就绪，后台放歌时通知栏不会显示播放条");
+        }
+        binding.notifHintStrip.setVisibility(View.VISIBLE);
+    }
+
+    /** 提示条挂着时回页复检：通知恢复可用即自动撤下（仍不可用则原样留着，不重挂不闪烁）。 */
+    private void refreshNotifHintOnResume() {
+        if (binding == null || binding.notifHintStrip == null) return;
+        if (binding.notifHintStrip.getVisibility() != View.VISIBLE) return;
+        if (Notify.notificationBlockReason(this) == Notify.NOTIF_OK) {
+            binding.notifHintStrip.setVisibility(View.GONE);
+        }
+    }
+
     private void setPlaying(boolean value) {
         playing = value;
+        if (value) maybeShowNotifHint();
         syncRhythmSource();
         if (lyricView != null) lyricView.setPlaying(value);
         if (appleLyricView != null) appleLyricView.setPlaying(value);
@@ -3348,19 +3388,9 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
     // ================= 工具面板 =================
 
     private void showToolsSheet() {
-        showToolsSheet(false);
-    }
-
-    private void showToolsSheetLyric() {
-        showToolsSheet(true);
-    }
-
-    private void showToolsSheet(boolean lyricPanel) {
         if (isFinishing() || isDestroyed()) return;
         try {
-            MusicToolsSheetDialog.Listener listener = toolsSheetListener();
-            if (lyricPanel) MusicToolsSheetDialog.showLyricPanel(this, listener);
-            else MusicToolsSheetDialog.show(this, listener);
+            MusicToolsSheetDialog.show(this, toolsSheetListener());
         } catch (Throwable ignored) {
         }
     }

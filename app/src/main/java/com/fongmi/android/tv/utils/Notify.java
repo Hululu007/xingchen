@@ -2,8 +2,14 @@ package com.fongmi.android.tv.utils;
 
 import android.Manifest;
 import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.content.Context;
+import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.net.Uri;
+import android.os.Build;
+import android.provider.Settings;
 import android.text.TextUtils;
 import android.view.LayoutInflater;
 
@@ -33,6 +39,57 @@ public class Notify {
     public static void createChannel() {
         NotificationManagerCompat notifyMgr = NotificationManagerCompat.from(App.get());
         notifyMgr.createNotificationChannel(new NotificationChannelCompat.Builder(DEFAULT, NotificationManagerCompat.IMPORTANCE_LOW).setName("TV").build());
+    }
+
+    /** 媒体会话通知所用渠道 id（media3 DefaultMediaNotificationProvider 的 DEFAULT_CHANNEL_ID 字面） */
+    public static final String MEDIA_CHANNEL_ID = "default_channel_id";
+
+    /** 通知自检：可用 */
+    public static final int NOTIF_OK = 0;
+    /** 通知自检：运行时权限未授权（Android 13+） */
+    public static final int NOTIF_NO_PERMISSION = 1;
+    /** 通知自检：应用通知总开关被关闭 */
+    public static final int NOTIF_APP_OFF = 2;
+    /** 通知自检：媒体渠道重要性被关（IMPORTANCE_NONE） */
+    public static final int NOTIF_CHANNEL_OFF = 3;
+    /** 通知自检：媒体渠道尚不存在（未就绪） */
+    public static final int NOTIF_CHANNEL_MISSING = 4;
+
+    /**
+     * 通知可用性自检（只读系统状态，轻量同步，不改任何通知设置）：渠道一经创建
+     * 参数 App 改不动，只能检测。顺序：运行时权限 → 应用总开关 → 媒体渠道
+     * （不存在按未就绪论、重要性 NONE 按被关论），任一命中即不可用。
+     */
+    public static int notificationBlockReason(Context context) {
+        if (Build.VERSION.SDK_INT >= 33
+                && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+            return NOTIF_NO_PERMISSION;
+        }
+        if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return NOTIF_APP_OFF;
+        if (Build.VERSION.SDK_INT >= 26) {
+            NotificationManager manager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+            NotificationChannel channel = manager == null ? null : manager.getNotificationChannel(MEDIA_CHANNEL_ID);
+            if (channel == null) return NOTIF_CHANNEL_MISSING;
+            if (channel.getImportance() == NotificationManager.IMPORTANCE_NONE) return NOTIF_CHANNEL_OFF;
+        }
+        return NOTIF_OK;
+    }
+
+    /** 跳系统「应用通知」设置页（本应用那页）；个别系统打不开时退到应用详情页。 */
+    public static void openNotificationSettings(Context context) {
+        try {
+            Intent intent = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS);
+            intent.putExtra(Settings.EXTRA_APP_PACKAGE, context.getPackageName());
+            context.startActivity(intent);
+        } catch (Throwable ignored) {
+            try {
+                Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                intent.setData(Uri.parse("package:" + context.getPackageName()));
+                context.startActivity(intent);
+            } catch (Throwable ignored2) {
+            }
+        }
     }
 
     public static String getError(int resId, Throwable e) {

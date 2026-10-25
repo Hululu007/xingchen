@@ -254,32 +254,29 @@ public class MusicActivity extends BaseActivity {
     // ================= 通知权限提示条 =================
 
     /**
-     * 通知权限明示（App 自己摆明面，不推给用户排查）：POST_NOTIFICATIONS 未授权时
-     * 前台通知被系统藏起、用户只会觉得「通知没了」。首页实读权限：没授权挂提示条
-     * （深底白字＋黄钮），已授权或安卓 13 以下永远不出现、不占位；从设置页回来
-     * onResume 再实读一次，开好即自动撤下。
+     * 通知不可用明示（App 自己摆明面，不推给用户排查）：运行时权限未授权、应用
+     * 通知总开关被关、媒体渠道被关或未就绪，任一命中通知都会被系统藏起、用户
+     * 只会觉得「通知没了」。首页实读系统状态：命中挂提示条（深底白字＋黄钮，
+     * 文案按命中项说事实），全通则不出现、不占位；从设置页回来 onResume 再实读
+     * 一次，恢复即自动撤下。渠道参数 App 改不动，只能检测＋提示。
      */
     private void refreshNotifPermStrip() {
-        boolean granted = Build.VERSION.SDK_INT < 33
-                || ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
-                == PackageManager.PERMISSION_GRANTED;
-        binding.notifPermStrip.setVisibility(granted ? View.GONE : View.VISIBLE);
+        int reason = Notify.notificationBlockReason(this);
+        binding.notifPermStrip.setVisibility(reason == Notify.NOTIF_OK ? View.GONE : View.VISIBLE);
+        if (reason == Notify.NOTIF_NO_PERMISSION) {
+            binding.notifPermText.setText("通知权限未开启，后台放歌时通知栏不会显示播放条");
+        } else if (reason == Notify.NOTIF_APP_OFF) {
+            binding.notifPermText.setText("通知已被系统关闭，后台放歌时通知栏不会显示播放条");
+        } else if (reason == Notify.NOTIF_CHANNEL_OFF) {
+            binding.notifPermText.setText("播放通知渠道已被关闭，后台放歌时通知栏不会显示播放条");
+        } else if (reason == Notify.NOTIF_CHANNEL_MISSING) {
+            binding.notifPermText.setText("播放通知渠道未就绪，后台放歌时通知栏不会显示播放条");
+        }
     }
 
     /** 跳系统「应用通知」设置页（本应用那页）；个别系统打不开时退到应用详情页。 */
     private void openAppNotificationSettings() {
-        try {
-            Intent intent = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS);
-            intent.putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName());
-            startActivity(intent);
-        } catch (Throwable ignored) {
-            try {
-                Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
-                intent.setData(Uri.parse("package:" + getPackageName()));
-                startActivity(intent);
-            } catch (Throwable ignored2) {
-            }
-        }
+        Notify.openNotificationSettings(this);
     }
 
     // ================= 榜单卡（数据只用酷我＋QQ 真榜） =================

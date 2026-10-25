@@ -457,6 +457,17 @@ public final class LyricWordEngine {
         return Math.min(amount, 1.2f);
     }
 
+    /**
+     * 滚动弹簧刚度函数（瓜子 amllPosYComposeStiffness 本体，smali 深挖 §15.1 第 6 项）：
+     * t＝(clamp(行时长ms,100,800)−100)/700，刚度＝((pow(1−t,0.2)×50)＋170)/0.9。
+     * 参考点：100ms→244.44、450ms→237.25、800ms→188.89。
+     */
+    public static float amllPosYComposeStiffness(long durationMs) {
+        long clamped = Math.max(100L, Math.min(800L, durationMs));
+        double t = (clamped - 100L) / 700.0;
+        return (float) (((Math.pow(1.0 - t, 0.2) * 50.0) + 170.0) / 0.9);
+    }
+
     /** 模糊档位系数（§6.1）：off 0／light 0.45／medium（含其余）1.0。 */
     public static float blurCoefficient(int level) {
         if (level == 0) return 0f;

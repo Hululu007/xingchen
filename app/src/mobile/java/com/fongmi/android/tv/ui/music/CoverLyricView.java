@@ -35,8 +35,9 @@ import java.util.Map;
  * 距离项沿旧引擎应用侧等价式，见 drawIdleMain 注，不冒充瓜子公式。
  * 歌词字带一点斜：SKEW=-0.12（定案，非瓜子值），由 LyricLineDrawer 统一挂画笔。
  * 点行＝回调行首时间（定案点歌词行快进）；超长行截断加省略号（D-11 承接）。
- * 展示窗口平滑滚动（2026-10-25）：窗口首行偏移做成连续量（scrollOffsetPx），当前行推进时
- * 按 FullLyricView 同口径每帧 0.18 指数趋近、0.5px 收口——窗口随当前行滚，不是整窗跳变。
+ * 展示窗口平滑滚动：窗口首行偏移由 LyricScrollSpring 驱动（瓜子引擎 SpringSpec 等价，
+ * cover 档 ζ1.08/k＝刚度函数（行时长差）×1.1、seek 档 ζ0.833/k100、|差|＞视高×1.5 snap；
+ * 2026-10-25 smali 深挖 §15.1 第 1/6 项，旧 τ84ms 指数趋近作废）——窗口随当前行滚，不是整窗跳变。
  * 点行只认点按（位移小于触摸阈值）：滑动（页级竖滑切歌）松手不许误触 seek。
  * 播放中自驱帧循环：以宿主 setPosition 为锚点按真实时间推进显示位置，逐字动画逐帧走，暂停即停。
  */
@@ -69,8 +70,11 @@ public class CoverLyricView extends View {
     private long anchorPosMs;
     private long anchorElapsedMs;
     private boolean framePosted;
-    /** 窗口滚动连续偏移（px）：趋近目标＝windowStart×槽高，见 stepScroll。 */
-    private float scrollOffsetPx;
+    /** 窗口滚动弹簧（瓜子 AnchoredLyricEngine 的 SpringSpec 等价，见 LyricScrollSpring）：
+     * 值＝窗口首行连续偏移（px），目标＝windowStart×槽高，见 stepScroll。 */
+    private final LyricScrollSpring scrollSpring = new LyricScrollSpring();
+    /** seek 跳变档标志：setPosition 大跳变时置位，本轮滚动走 seek 弹簧（ζ0.833/k100），收敛后清。 */
+    private boolean seekSpringMode;
     /** 上一帧时间戳（ns），供 stepScroll 按帧时长换算趋近（帧率无关）。 */
     private long lastFrameNanos;
     private float tapSlopPx;
@@ -195,7 +199,8 @@ public class CoverLyricView extends View {
         if (subLines != null) subs.addAll(subLines);
         blurApproach.clear();
         currentIndex = -1;
-        scrollOffsetPx = 0f;
+        scrollSpring.snapTo(0f);
+        seekSpringMode = false;
         anchorPosMs = 0;
         anchorElapsedMs = SystemClock.elapsedRealtime();
         invalidate();
@@ -207,7 +212,8 @@ public class CoverLyricView extends View {
         subs.clear();
         blurApproach.clear();
         currentIndex = -1;
-        scrollOffsetPx = 0f;
+        scrollSpring.snapTo(0f);
+        seekSpringMode = false;
         invalidate();
     }
 
@@ -223,6 +229,9 @@ public class CoverLyricView extends View {
 
     /** 当前行随播放进度推进（position 已含歌词偏移，调用方加）；同时作自驱帧循环的锚点。 */
     public void setPosition(long positionMs) {
+        // 与当前显示位置差 >1.2s 视为 seek 跳变（点行/拖动/切歌）：本轮滚动走 seek 弹簧档
+        // （引擎 posSpringSpec 三路选档的星辰映射，§15.1 第 1 项）。
+        if (Math.abs(positionMs - displayPositionMs()) > 1200L) seekSpringMode = true;
         anchorPosMs = positionMs;
         anchorElapsedMs = SystemClock.elapsedRealtime();
         updateCurrentIndex(positionMs);
@@ -301,16 +310,37 @@ public class CoverLyricView extends View {
     }
 
     private boolean scrollAnimating() {
-        return Math.abs(targetScrollPx() - scrollOffsetPx) > 0.5f;
+        return scrollSpring.active(targetScrollPx());
+    }
+
+    /** 封面路行时长差（引擎 coverLyricPosSpring 入参：本行 timeMs−上一行 timeMs，缺失回落 450）。 */
+    private long coverLineDurationMs() {
+        if (currentIndex <= 0 || currentIndex >= lines.size()) return 450L;
+        long d = lines.get(currentIndex).getTimeMs() - lines.get(currentIndex - 1).getTimeMs();
+        return d > 0 ? d : 450L;
     }
 
     private void stepScroll(long dtMs) {
         float target = targetScrollPx();
-        float diff = target - scrollOffsetPx;
-        if (Math.abs(diff) <= 0.5f) scrollOffsetPx = target;
-        // 帧率无关趋近：原固定 0.18/帧是 60Hz 下的等效值（τ≈84ms），120Hz 会翻倍；
-        // τ 为星辰等效换算、非瓜子值（瓜子趋近公式抠不到，见 gz-full-parity-1025 §7.4）。
-        else scrollOffsetPx += diff * (1f - (float) Math.exp(-dtMs / 84.0));
+        // snap 判据（引擎原式）：|值−目标|＞视高×1.5 直接落位，不走弹簧。
+        float viewH = getHeight();
+        if (viewH > 0 && Math.abs(target - scrollSpring.value) > viewH * 1.5f) {
+            scrollSpring.snapTo(target);
+            seekSpringMode = false;
+            return;
+        }
+        // 选档（引擎 posSpringSpec 三路）：seek 跳变→seek 档（ζ0.833/k100）；
+        // 常规行进→cover 档（ζ1.08、k＝amllPosYComposeStiffness(行时长差)×1.1）。
+        float stiffness;
+        float damping;
+        if (seekSpringMode) {
+            stiffness = 100f;
+            damping = 0.833f;
+        } else {
+            stiffness = LyricWordEngine.amllPosYComposeStiffness(coverLineDurationMs()) * 1.1f;
+            damping = 1.08f;
+        }
+        if (!scrollSpring.step(dtMs / 1000f, target, stiffness, damping)) seekSpringMode = false;
     }
 
     private long lineDurationMs(int index) {
@@ -342,9 +372,10 @@ public class CoverLyricView extends View {
         float slot = slotHeightPx();
         // 平滑滚动：首行由连续偏移导出，行块带分数位移绘出（滚动态上下各露半行属预期）。
         // 绘制行数仍守窗口口径（前 2 后 6＋滚入缓冲 1 行），不高视图多画。
-        int start = Math.max(0, (int) Math.floor(scrollOffsetPx / slot));
+        float scrollNow = scrollSpring.value;
+        int start = Math.max(0, (int) Math.floor(scrollNow / slot));
         if (start >= lines.size()) start = Math.max(0, lines.size() - 1);
-        float frac = scrollOffsetPx - start * slot;
+        float frac = scrollNow - start * slot;
         // 静止守窗口 9 行；滚动中多画 1 行滚入缓冲，免底边随滚动露白
         int end = Math.min(lines.size(),
                 start + WINDOW_BEFORE + WINDOW_AFTER + 1 + (frac > 0.5f ? 1 : 0));
@@ -485,7 +516,7 @@ public class CoverLyricView extends View {
                     float y = event.getY() - getPaddingTop();
                     if (y >= 0) {
                         // 行号按视觉位置（连续滚动偏移）算，与画面逐像素对齐。
-                        int idx = (int) Math.floor((y + scrollOffsetPx) / slotHeightPx());
+                        int idx = (int) Math.floor((y + scrollSpring.value) / slotHeightPx());
                         if (idx >= 0 && idx < lines.size()) {
                             lineClickListener.onLineClick(idx, lines.get(idx).getTimeMs());
                             performClick();

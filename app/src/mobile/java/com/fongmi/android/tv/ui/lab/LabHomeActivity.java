@@ -57,6 +57,12 @@ public class LabHomeActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         reload();
+        // 注册表恢复/读坏提示：load 时留的，人话弹一次给人看（读一次即清），
+        // 不许再出现「列表凭空变空、什么都不说」的静默清空
+        String notice = LabRegistry.takeLoadNotice();
+        if (notice != null && !notice.isEmpty()) {
+            android.widget.Toast.makeText(this, notice, android.widget.Toast.LENGTH_LONG).show();
+        }
         // 自动更新检测：后台比一次版本，有新版的卡片标「可更新」，查完回来再刷一次卡片
         LabEnvUpdateCheck.maybeCheck(this, updatables -> runOnUiThread(() -> {
             if (!isFinishing() && !isDestroyed()) reload();

@@ -2,6 +2,8 @@ package com.fongmi.android.tv.ui.lab;
 
 import android.text.TextUtils;
 
+import com.google.gson.annotations.SerializedName;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -32,59 +34,95 @@ import java.util.List;
  */
 public class LabManifest {
 
+    @SerializedName("id")
     public String id;
+    @SerializedName("name")
     public String name;
+    @SerializedName("desc")
     public String desc;
+    @SerializedName("icon")
     public String icon;
+    @SerializedName("version")
     public String version;
     /** 分组 id（上游 Item.group，如 network；兼容导入时落进来），无分组为空串 */
+    @SerializedName("group")
     public String group = "";
+    @SerializedName("runtime")
     public String runtime = "none";
+    @SerializedName("autoStart")
     public boolean autoStart = false;
     /** 包声明预建目录（上游 Item.mkdir 口径：{sdcard} 等占位、相对落包内），安装时真建 */
+    @SerializedName("mkdir")
     public final List<String> mkdir = new ArrayList<>();
     /** 包声明环境变量（上游 Item.var_path 口径）：PATH 并入进程 PATH，其余作环境变量注入 */
+    @SerializedName("varPath")
     public final java.util.Map<String, String> varPath = new java.util.LinkedHashMap<>();
+    @SerializedName("commands")
     public final List<LabCommand> commands = new ArrayList<>();
     /** 包设置项（复用变量表 UI）：{key,name,type,defaultValue,hint,required,...} */
+    @SerializedName("settings")
     public final List<LabVar> settings = new ArrayList<>();
+    @SerializedName("output")
     public LabOutput output;
 
     public static class LabCommand {
+        @SerializedName("id")
         public String id;
+        @SerializedName("name")
         public String name;
+        @SerializedName("desc")
         public String desc;
+        @SerializedName("command")
         public String command;
+        @SerializedName("background")
         public boolean background = true;
+        @SerializedName("autoExecute")
         public boolean autoExecute = false;
         /** 运行后是否展示输出（上游 show_output，缺省 true；false=只在后台跑、输出只进记录） */
+        @SerializedName("showOutput")
         public boolean showOutput = true;
         /** 包声明最低 App versionCode，不够就提示升级 */
+        @SerializedName("minVersion")
         public int minVersion = 0;
         /** 运行前依赖：先把 url 下到包内 file 再跑 */
+        @SerializedName("download")
         public LabDownload download;
         /** 命令变量表（上游 Variable 口径）：text/text_multiline/number/select/switch/file/directory */
+        @SerializedName("variables")
         public final List<LabVar> variables = new ArrayList<>();
     }
 
     /** 命令变量一项（名字＋必填标记渲染；hint 只做输入框 placeholder，不单独成行） */
     public static class LabVar {
+        @SerializedName("key")
         public String key;
+        @SerializedName("name")
         public String name;
+        @SerializedName("type")
         public String type = "text";
+        @SerializedName("defaultValue")
         public String defaultValue;
+        @SerializedName("hint")
         public String hint;
+        @SerializedName("required")
         public boolean required;
         /** 上游 Setting.editable：false=只给看不给改（变量表里置灰）；缺省 null 按可改 */
+        @SerializedName("editable")
         public Boolean editable;
+        @SerializedName("filter")
         public String filter;
+        @SerializedName("min")
         public String min;
+        @SerializedName("max")
         public String max;
+        @SerializedName("options")
         public final List<LabOption> options = new ArrayList<>();
     }
 
     public static class LabOption {
+        @SerializedName("label")
         public String label;
+        @SerializedName("value")
         public String value;
     }
 
@@ -98,21 +136,30 @@ public class LabManifest {
      * 路径都可带 {sdcard}/{pkgDir} 等占位，运行时展开。
      */
     public static class LabDownload {
+        @SerializedName("url")
         public String url;
+        @SerializedName("file")
         public String file;
+        @SerializedName("checkFile")
         public String checkFile;
+        @SerializedName("extractTo")
         public String extractTo;
+        @SerializedName("required")
         public boolean required;
     }
 
     public static class LabOutput {
         /** live | vod | pan | tool */
+        @SerializedName("kind")
         public String kind = "";
         /** 地址模板，支持 {port} */
+        @SerializedName("target")
         public String target = "";
         /** auto 或固定端口号 */
+        @SerializedName("port")
         public String port = "auto";
         /** 主动作按钮文案，缺省按 kind 取默认 */
+        @SerializedName("actionLabel")
         public String actionLabel = "";
     }
 

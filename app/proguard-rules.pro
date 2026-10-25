@@ -170,6 +170,22 @@
 # 没装。整类保名。
 -keep class com.fongmi.android.tv.ui.lab.LabNodeProcessHost { *; }
 
+# 实验室落盘模型（注册表 registry.json＋包内 lab.json）：全是 Gson 反射
+# 落盘、跨版本读回的表。成员被 R8 改名/剥离时，旧版写的文件新版按新名
+# 读回——字段对不上轻则全空、重则类型冲突令整表被当坏文件改名清空
+# （1.4.27→1.4.28 真机实证：Svc 的布尔位在新版变 int 端口位，fromJson
+# 抛 JsonSyntaxException，两个服务凭空消失）。整类保名保成员，落盘名
+# 再由 @SerializedName 钉死（LabRegistry/LabManifest 已钉），双保险。
+-keep class com.fongmi.android.tv.ui.lab.LabRegistry { *; }
+-keep class com.fongmi.android.tv.ui.lab.LabRegistry$Svc { *; }
+-keep class com.fongmi.android.tv.ui.lab.LabRegistry$Runtime { *; }
+-keep class com.fongmi.android.tv.ui.lab.LabManifest { *; }
+-keep class com.fongmi.android.tv.ui.lab.LabManifest$LabCommand { *; }
+-keep class com.fongmi.android.tv.ui.lab.LabManifest$LabVar { *; }
+-keep class com.fongmi.android.tv.ui.lab.LabManifest$LabOption { *; }
+-keep class com.fongmi.android.tv.ui.lab.LabManifest$LabDownload { *; }
+-keep class com.fongmi.android.tv.ui.lab.LabManifest$LabOutput { *; }
+
 # Node 桥版本登记口（第 4 步接线）：NodeLabInfo 在 main 源集按类名
 # Class.forName 触发 LabNodeInfo 加载自登记（同第 3 步口径），类名被
 # R8 改名会让模块页 NODEJS 行的版本登记静默失效、误报没装。整类保名。

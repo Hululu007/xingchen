@@ -1104,18 +1104,43 @@ public class MusicToolsSheet {
     }
 
     // ---------- 外观设置子面板 ----------
+    // 瓜子构成：段标「背景动效」→「动态流体背景」开关＋展开区（「流动速度」标签＋慢速/标准/快速筹）→「音乐律动」开关。
+    // 「高级动效」在歌词样式子面板、「播放页不熄屏」在主面板卡内开关行，都不在这里。
     private void showAppearance() {
         clearPanel();
         mPanelBox.addView(subHeader("外观设置", this::showMain));
         mPanelBox.addView(sectionLabel("背景动效", 16));
         LinearLayout card = cardBox();
-        card.addView(toggleRow("高级动效", MusicStore.isAdvancedFx(), () -> {
-            MusicStore.setAdvancedFx(!MusicStore.isAdvancedFx());
+        card.addView(toggleRow("动态流体背景", MusicPlayerSettings.isFluidBg(), () -> {
+            MusicPlayerSettings.setFluidBg(!MusicPlayerSettings.isFluidBg());
             if (mCallback != null) mCallback.onSettingsChanged();
+            showAppearance();
         }));
+        if (MusicPlayerSettings.isFluidBg()) {
+            card.addView(divider());
+            LinearLayout speedBox = new LinearLayout(mActivity);
+            speedBox.setOrientation(LinearLayout.VERTICAL);
+            speedBox.setPadding(dp(16), dp(10), dp(16), dp(12));
+            TextView speedLabel = new TextView(mActivity);
+            speedLabel.setText("流动速度");
+            speedLabel.setTextColor(TEXT_MED);
+            speedLabel.setTextSize(12);
+            LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            llp.bottomMargin = dp(10);
+            speedBox.addView(speedLabel, llp);
+            int speed = MusicPlayerSettings.getFluidSpeed();
+            int sel = speed == 0 ? 0 : speed == 2 ? 2 : 1;
+            speedBox.addView(chipRow(new String[]{"慢速", "标准", "快速"}, sel, idx -> {
+                MusicPlayerSettings.setFluidSpeed(idx == 0 ? 0 : idx == 2 ? 2 : 1);
+                if (mCallback != null) mCallback.onSettingsChanged();
+                showAppearance();
+            }));
+            card.addView(speedBox);
+        }
         card.addView(divider());
-        card.addView(toggleRow("播放页不熄屏", MusicStore.isPlayerKeepScreenOn(), () -> {
-            MusicStore.setPlayerKeepScreenOn(!MusicStore.isPlayerKeepScreenOn());
+        card.addView(toggleRow("音乐律动", MusicPlayerSettings.isFluidBeat(), () -> {
+            MusicPlayerSettings.setFluidBeat(!MusicPlayerSettings.isFluidBeat());
             if (mCallback != null) mCallback.onSettingsChanged();
         }));
         mPanelBox.addView(card);
@@ -1182,8 +1207,9 @@ public class MusicToolsSheet {
                 info = MusicController.get().audioInfo();
             } catch (Throwable ignored) {
             }
+            // 音质只报实测（他的口径：取不到就不显示，永不拿所选档名垫场）
             card.addView(infoRow("音质", info != null && info.describe() != null && !info.describe().isEmpty()
-                    ? info.describe() : MusicStore.qualityName(MusicController.get().getQuality())));
+                    ? info.describe() : ""));
             if (!TextUtils.isEmpty(t.platform)) {
                 card.addView(divider());
                 card.addView(infoRow("来源", t.platform));

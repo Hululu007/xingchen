@@ -8,6 +8,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -21,38 +22,89 @@ import com.fongmi.android.tv.music.MusicLibrary;
 
 import java.util.List;
 
-/** 加到歌单选择器（工具面板／队列共用）：深色玻璃风底板，歌单行＋新建歌单。 */
+/**
+ * 加到歌单面板（瓜子 AddToPlaylistSheet 规格，数值照抠值全表第十八节）：
+ * 底板 sheetPanelBg（深 #FF1C1C1E）、横内边距 16、底内边距 10；头「添加到歌单（N 首）」17sp；
+ * 提示 11sp sheetTextLow、内边距 (0,12,0,10)；新建行盒 52、圆角 16、红渐变、图标 28、
+ * 「新建歌单」18sp/800/字距 −0.3；输入框高 48、圆角 14、底 inset、字 14sp；
+ * 列表框圆角 16、最大高 320、底 sheetListBg；歌单行高 56、横内边距 16、封面 36 圆角 10。
+ * 星辰口径：底板走深色（不用白底），不放介绍文字。
+ */
 public final class MusicPlaylistPicker {
 
+    private static final int BG = 0xFF1C1C1E;
+    private static final int LIST_BG = 0xFF2C2C2E;
+    private static final int TEXT_HIGH = 0xFFF2F2F7;
+    private static final int TEXT_LOW = 0xFF636366;
+    private static final int ACCENT = 0xFFFA243C;
+
     private MusicPlaylistPicker() {
+    }
+
+    private static int dp(AppCompatActivity a, float v) {
+        return Math.round(v * a.getResources().getDisplayMetrics().density);
     }
 
     public static void show(AppCompatActivity activity, MusicTrack track) {
         if (activity == null || track == null) return;
         Dialog dialog = new Dialog(activity);
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-        float density = activity.getResources().getDisplayMetrics().density;
 
         LinearLayout root = new LinearLayout(activity);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding((int) (16 * density), (int) (12 * density), (int) (16 * density), (int) (16 * density));
+        root.setPadding(dp(activity, 16), dp(activity, 12), dp(activity, 16), dp(activity, 10));
         GradientDrawable bg = new GradientDrawable();
-        bg.setColor(0xF21C1C1E);
-        bg.setCornerRadii(new float[]{16 * density, 16 * density, 16 * density, 16 * density, 0, 0, 0, 0});
+        bg.setColor(BG);
+        bg.setCornerRadii(new float[]{dp(activity, 16), dp(activity, 16), dp(activity, 16), dp(activity, 16), 0, 0, 0, 0});
         root.setBackground(bg);
 
+        // 头：标题居中（带首数）＋右侧 × 关（他的铁律：不放返回箭头，× 可以）
+        FrameLayout header = new FrameLayout(activity);
         TextView title = new TextView(activity);
-        title.setText("添加到歌单");
-        title.setTextColor(0xFFF2F2F7);
+        title.setText("添加到歌单（1 首）");
+        title.setTextColor(TEXT_HIGH);
         title.setTextSize(17);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        title.setLetterSpacing(-0.3f / 17f);
         title.setGravity(Gravity.CENTER);
-        root.addView(title, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (int) (44 * density)));
+        header.addView(title, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 44)));
+        TextView close = new TextView(activity);
+        close.setText("×");
+        close.setTextColor(TEXT_HIGH);
+        close.setTextSize(18);
+        close.setGravity(Gravity.CENTER);
+        FrameLayout.LayoutParams clp = new FrameLayout.LayoutParams(dp(activity, 40), dp(activity, 40));
+        clp.gravity = Gravity.END | Gravity.CENTER_VERTICAL;
+        header.addView(close, clp);
+        close.setOnClickListener(v -> dialog.dismiss());
+        root.addView(header);
 
+        // 新建歌单行（点开变输入区）；瓜子原面板有一行 11sp 提示位，星辰不放介绍文字、不摆
+        LinearLayout createBox = new LinearLayout(activity);
+        createBox.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams cblp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        cblp.topMargin = dp(activity, 12);
+        root.addView(createBox, cblp);
+        showCreateRow(activity, createBox, track, dialog);
+
+        // 歌单列表框
         ScrollView scroll = new ScrollView(activity);
         LinearLayout listBox = new LinearLayout(activity);
         listBox.setOrientation(LinearLayout.VERTICAL);
+        GradientDrawable lbg = new GradientDrawable();
+        lbg.setColor(LIST_BG);
+        lbg.setCornerRadius(dp(activity, 16));
+        lbg.setStroke(1, 0x0D000000);
+        listBox.setBackground(lbg);
+        listBox.setClipToOutline(true);
         scroll.addView(listBox);
-        root.addView(scroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        slp.topMargin = dp(activity, 12);
+        scroll.setLayoutParams(slp);
+        root.addView(scroll);
 
         dialog.setContentView(root);
         if (dialog.getWindow() != null) {
@@ -61,99 +113,160 @@ public final class MusicPlaylistPicker {
             dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
         }
 
-        Runnable load = () -> MusicLibrary.playlists(new MusicLibrary.DataCallback<List<MusicPlaylist>>() {
+        MusicLibrary.playlists(new MusicLibrary.DataCallback<List<MusicPlaylist>>() {
             @Override
             public void onResult(List<MusicPlaylist> sheets) {
                 listBox.removeAllViews();
-                // 新建歌单行
-                TextView create = row(activity, "＋ 新建歌单", null);
-                create.setOnClickListener(v -> showCreate(activity, track, dialog));
-                listBox.addView(create);
-                if (sheets != null) {
-                    for (MusicPlaylist sheet : sheets) {
-                        TextView row = row(activity, sheet.getName(), null);
-                        row.setOnClickListener(v -> MusicLibrary.addToPlaylist(sheet.getId(), track,
-                                new MusicLibrary.DataCallback<Boolean>() {
-                                    @Override
-                                    public void onResult(Boolean ok) {
-                                        Toast.makeText(activity, Boolean.TRUE.equals(ok) ? "已添加" : "添加失败", Toast.LENGTH_SHORT).show();
-                                        dialog.dismiss();
-                                    }
+                if (sheets == null) return;
+                boolean first = true;
+                for (MusicPlaylist sheet : sheets) {
+                    if (!first) listBox.addView(divider(activity));
+                    first = false;
+                    listBox.addView(playlistRow(activity, sheet, v ->
+                            MusicLibrary.addToPlaylist(sheet.getId(), track, 
+                                    new MusicLibrary.DataCallback<Boolean>() {
+                                        @Override
+                                        public void onResult(Boolean ok) {
+                                            Toast.makeText(activity, Boolean.TRUE.equals(ok) ? "已添加" : "添加失败", Toast.LENGTH_SHORT).show();
+                                            dialog.dismiss();
+                                        }
 
-                                    @Override
-                                    public void onError(Throwable t) {
-                                        Toast.makeText(activity, "添加失败", Toast.LENGTH_SHORT).show();
-                                    }
-                                }));
-                        listBox.addView(row);
-                    }
+                                        @Override
+                                        public void onError(Throwable t) {
+                                            Toast.makeText(activity, "添加失败", Toast.LENGTH_SHORT).show();
+                                        }
+                                    })));
                 }
+                // 列表框最大高 320dp（瓜子规格）
+                scroll.post(() -> {
+                    if (listBox.getHeight() > dp(activity, 320)) {
+                        ViewGroup.LayoutParams lp = scroll.getLayoutParams();
+                        lp.height = dp(activity, 320);
+                        scroll.setLayoutParams(lp);
+                    }
+                });
             }
         });
-        load.run();
         dialog.show();
     }
 
-    private static TextView row(AppCompatActivity activity, String text, String sub) {
-        float density = activity.getResources().getDisplayMetrics().density;
-        TextView tv = new TextView(activity);
-        tv.setText(text);
-        tv.setTextColor(0xFFF2F2F7);
-        tv.setTextSize(15);
-        tv.setGravity(Gravity.CENTER_VERTICAL);
-        tv.setPadding((int) (16 * density), 0, (int) (16 * density), 0);
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(0xFF2C2C2E);
-        bg.setCornerRadius(16 * density);
-        tv.setBackground(bg);
+    private static View divider(AppCompatActivity a) {
+        View v = new View(a);
+        GradientDrawable d = new GradientDrawable();
+        d.setColor(0x14FFFFFF);
+        v.setBackground(d);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, (int) (56 * density));
-        lp.topMargin = (int) (8 * density);
-        tv.setLayoutParams(lp);
-        return tv;
+                ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, dp(a, 0.5f)));
+        lp.leftMargin = dp(a, 16);
+        v.setLayoutParams(lp);
+        return v;
     }
 
-    private static void showCreate(AppCompatActivity activity, MusicTrack track, Dialog parent) {
-        float density = activity.getResources().getDisplayMetrics().density;
-        Dialog dialog = new Dialog(activity);
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-        LinearLayout box = new LinearLayout(activity);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding((int) (20 * density), (int) (16 * density), (int) (20 * density), (int) (16 * density));
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(0xF22C2C2E);
-        bg.setCornerRadius(14 * density);
-        box.setBackground(bg);
+    private static LinearLayout playlistRow(AppCompatActivity a, MusicPlaylist sheet, View.OnClickListener onClick) {
+        LinearLayout row = new LinearLayout(a);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(a, 16), 0, dp(a, 16), 0);
+        row.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(a, 56)));
+        row.setOnClickListener(onClick);
 
-        TextView title = new TextView(activity);
-        title.setText("新建歌单");
-        title.setTextColor(0xFFF2F2F7);
-        title.setTextSize(16);
-        box.addView(title);
+        FrameLayout cover = new FrameLayout(a);
+        GradientDrawable cg = new GradientDrawable();
+        cg.setColor(0x1F8E8E93);
+        cg.setCornerRadius(dp(a, 10));
+        cover.setBackground(cg);
+        TextView glyph = new TextView(a);
+        glyph.setText("♪");
+        glyph.setTextColor(TEXT_HIGH);
+        glyph.setTextSize(16);
+        glyph.setGravity(Gravity.CENTER);
+        cover.addView(glyph, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        row.addView(cover, new LinearLayout.LayoutParams(dp(a, 36), dp(a, 36)));
 
-        EditText input = new EditText(activity);
+        LinearLayout texts = new LinearLayout(a);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        TextView name = new TextView(a);
+        name.setText(sheet.getName());
+        name.setTextColor(TEXT_HIGH);
+        name.setTextSize(15);
+        name.setMaxLines(1);
+        texts.addView(name);
+        if (sheet.trackCount >= 0) {
+            TextView count = new TextView(a);
+            count.setText(sheet.trackCount + " 首");
+            count.setTextColor(TEXT_LOW);
+            count.setTextSize(12);
+            texts.addView(count);
+        }
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        tlp.leftMargin = dp(a, 12);
+        row.addView(texts, tlp);
+        return row;
+    }
+
+    private static void showCreateRow(AppCompatActivity a, LinearLayout box, MusicTrack track, Dialog dialog) {
+        box.removeAllViews();
+        LinearLayout row = new LinearLayout(a);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(a, 16), 0, dp(a, 16), 0);
+        GradientDrawable g = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
+                new int[]{ACCENT, 0x38FA243C});
+        g.setCornerRadius(dp(a, 16));
+        row.setBackground(g);
+        row.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(a, 52)));
+        TextView plus = new TextView(a);
+        plus.setText("＋");
+        plus.setTextColor(0xFFFFFFFF);
+        plus.setTextSize(20);
+        plus.setGravity(Gravity.CENTER);
+        row.addView(plus, new LinearLayout.LayoutParams(dp(a, 28), dp(a, 28)));
+        TextView label = new TextView(a);
+        label.setText("新建歌单");
+        label.setTextColor(0xFFFFFFFF);
+        label.setTextSize(18);
+        label.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        label.setLetterSpacing(-0.3f / 18f);
+        LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        llp.leftMargin = dp(a, 10);
+        row.addView(label, llp);
+        row.setOnClickListener(v -> showCreateInput(a, box, track, dialog));
+        box.addView(row);
+    }
+
+    private static void showCreateInput(AppCompatActivity a, LinearLayout box, MusicTrack track, Dialog dialog) {
+        box.removeAllViews();
+        EditText input = new EditText(a);
         input.setSingleLine(true);
         input.setInputType(InputType.TYPE_CLASS_TEXT);
-        input.setTextColor(0xFFF2F2F7);
+        input.setTextColor(TEXT_HIGH);
         input.setHintTextColor(0x668E8E93);
         input.setHint("歌单名");
-        LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, (int) (48 * density));
-        ilp.topMargin = (int) (12 * density);
-        box.addView(input, ilp);
+        input.setTextSize(14);
+        input.setPadding(dp(a, 14), 0, dp(a, 14), 0);
+        GradientDrawable ig = new GradientDrawable();
+        ig.setColor(0x1AFFFFFF);
+        ig.setCornerRadius(dp(a, 14));
+        input.setBackground(ig);
+        box.addView(input, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(a, 48)));
 
-        TextView ok = new TextView(activity);
+        TextView ok = new TextView(a);
         ok.setText("创建并添加");
         ok.setTextColor(0xFFFFFFFF);
         ok.setTextSize(14);
         ok.setGravity(Gravity.CENTER);
         GradientDrawable obg = new GradientDrawable();
-        obg.setColor(0xFFFA243C);
-        obg.setCornerRadius(8 * density);
+        obg.setColor(ACCENT);
+        obg.setCornerRadius(dp(a, 8));
         ok.setBackground(obg);
         LinearLayout.LayoutParams olp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, (int) (44 * density));
-        olp.topMargin = (int) (12 * density);
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(a, 44));
+        olp.topMargin = dp(a, 10);
         box.addView(ok, olp);
         ok.setOnClickListener(v -> {
             String name = input.getText().toString().trim();
@@ -165,21 +278,13 @@ public final class MusicPlaylistPicker {
                         MusicLibrary.addToPlaylist(sheet.getId(), track, new MusicLibrary.DataCallback<Boolean>() {
                             @Override
                             public void onResult(Boolean added) {
-                                Toast.makeText(activity, "已添加", Toast.LENGTH_SHORT).show();
+                                Toast.makeText(a, "已添加", Toast.LENGTH_SHORT).show();
                             }
                         });
                     }
                     dialog.dismiss();
-                    parent.dismiss();
                 }
             });
         });
-
-        dialog.setContentView(box);
-        if (dialog.getWindow() != null) {
-            dialog.getWindow().setLayout((int) (300 * density), ViewGroup.LayoutParams.WRAP_CONTENT);
-            dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
-        }
-        dialog.show();
     }
 }

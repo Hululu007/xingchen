@@ -23,12 +23,16 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 经典页内歌词（瓜子 CurrentLyricLine→CoverCurrentLyric 引擎口径）：
- * 默认 22sp（读封面歌词字号设置）、行高 ×4/3、行距 20dp、底部留 45dp；
- * 锚点走 lyricAnchor 设置（top 0.0／center 0.5／bottom 1.0）；逐字上浮 −0.09em、长音光晕近似；
- * 色（沉浸深色供给）：已唱 #FFEAEAEA、当前行未唱 白 0.42、非当前 白 0.30、翻译 白 0.55；
- * 底部淡出 bottomFadeKeep 分段表；逐行模糊 A 组公式（经典页内传 false→A 组）×档位系数，
- * View 体系以 BlurMaskFilter 落地（瓜子原作是逐行 RenderEffect，机制不同、半径值照公式）。
+ * 经典页内歌词（瓜子 CoverCurrentLyric 引擎口径，数值照对照表回补 1–7）：
+ * 默认 22sp（读封面歌词字号设置）、行高 ×4/3、行距 20dp、字距不指定（平台默认）；
+ * 副行字号＝主字号 ×0.62、行高 ×4/3，间距按类型累加（音译 +4dp、翻译/原文 +6dp）；
+ * 锚点：当前行块顶＋行内对齐点（lyricAnchor 设置 top/center/bottom）− 0.75×行高；
+ * 淡出：上方 smoothstep（行顶/0.75×行高），下方起始 0.9×高、bottomFadeKeep 分段表（地板 0.45）；
+ * 色（沉浸深色供给）：已唱 #FFEAEAEA、当前行未唱 白 0.42、非当前 白 0.30、副行 白 0.55，不带自编系数；
+ * 逐字上浮 −0.09em、缓动分母 max(1100ms, 字长）；长音（≥1000ms）光晕＋放大上限 1.2＋−0.05em 浮动＋行末 400ms 拖尾；
+ * 无逐字行不估已唱比例（整行按未唱色，唱过由行级已唱色承担）；
+ * 逐行模糊 A 组（上 min(2+k,5)、下 min(k+1,5)）×档位系数，View 体系以 BlurMaskFilter 落地
+ * （瓜子原作是逐行 RenderEffect，机制不同、半径值照公式）。
  * 星辰产品项：歌词带一点斜（skew −0.12，他定）；点行＝跳到那行唱（他定）。
  */
 public class InPageLyricsView extends View {
@@ -41,8 +45,11 @@ public class InPageLyricsView extends View {
     private static final int COLOR_SUNG = 0xFFEAEAEA;
     private static final float ALPHA_CUR_UNSUNG = 0.42f;
     private static final float ALPHA_NONCUR = 0.30f;
-    private static final float ALPHA_TRANS = 0.55f;
+    private static final float ALPHA_SUB = 0.55f;
     private static final float SKEW = -0.12f;
+    private static final float FADE_START = 0.9f;
+    private static final long LIFT_MIN_MS = 1100L;
+    private static final long EMPH_TAIL_MS = 400L;
 
     private static final float[] FADE_IN = {0f, 0.3f, 0.55f, 0.78f, 1f};
     private static final float[] FADE_OUT = {1f, 0.85f, 0.62f, 0.48f, 0.45f};
@@ -59,6 +66,21 @@ public class InPageLyricsView extends View {
         return FADE_OUT[FADE_OUT.length - 1];
     }
 
+    private static float smoothstep(float t) {
+        t = Math.max(0f, Math.min(1f, t));
+        return t * t * (3f - 2f * t);
+    }
+
+    private static class SubRow {
+        final String text;
+        final float gapDp;
+
+        SubRow(String text, float gapDp) {
+            this.text = text;
+            this.gapDp = gapDp;
+        }
+    }
+
     private final float mDensity;
     private final float mScaled;
     private final Paint mMainPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -67,6 +89,7 @@ public class InPageLyricsView extends View {
 
     private List<RichLyrics.Line> mLines = new ArrayList<>();
     private List<float[]> mLayout = new ArrayList<>(); // 每行 [top, mainHeight, totalHeight]
+    private List<List<SubRow>> mSubs = new ArrayList<>();
     private boolean mHasTime = true;
     private long mPosition;
     private int mCurrent = -1;
@@ -120,7 +143,6 @@ public class InPageLyricsView extends View {
     private void applyPaintSettings() {
         mMainPaint.setTextSize(mFontSp * mScaled);
         mMainPaint.setTextSkewX(SKEW);
-        mMainPaint.setLetterSpacing(-0.2f / mFontSp);
         if (mWeight >= 2) {
             mMainPaint.setTypeface(Typeface.create("sans-serif-black", Typeface.NORMAL));
             mMainPaint.setFakeBoldText(false);
@@ -131,7 +153,7 @@ public class InPageLyricsView extends View {
             mMainPaint.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
             mMainPaint.setFakeBoldText(true);
         }
-        mSubPaint.setTextSize(mFontSp * 0.6f * mScaled);
+        mSubPaint.setTextSize(mFontSp * 0.62f * mScaled);
         mSubPaint.setTextSkewX(SKEW);
         mSubPaint.setTypeface(mMainPaint.getTypeface());
     }
@@ -145,8 +167,7 @@ public class InPageLyricsView extends View {
                 break;
             }
         }
-        if (!mHasTime && mLines.size() > 1) {
-            // 全 0 时间戳视作纯文本：无当前行、不滚动
+        if (!mHasTime) {
             mCurrent = -1;
         }
         relayout();
@@ -175,22 +196,40 @@ public class InPageLyricsView extends View {
         return line.main.getText();
     }
 
-    private String subText(RichLyrics.Line line) {
-        if (line == null || line.main == null || mPrimary != 0) return null;
-        if (mShowTrans && line.translation != null && !line.translation.isEmpty()) return line.translation;
-        if (mShowRoma && line.romanization != null && !line.romanization.isEmpty()) return line.romanization;
-        return null;
+    /** 副行（照瓜子 measureCoverCurrentBlock 的分支与间距）：音译 +4dp、翻译/原文 +6dp。 */
+    private List<SubRow> subRows(RichLyrics.Line line) {
+        List<SubRow> out = new ArrayList<>();
+        if (line == null || line.main == null) return out;
+        String original = line.main.getText();
+        boolean hasTrans = line.translation != null && !line.translation.isEmpty();
+        boolean hasRoma = line.romanization != null && !line.romanization.isEmpty();
+        if (mPrimary == 1) {
+            if (mShowRoma && hasRoma) out.add(new SubRow(line.romanization, 4f));
+            out.add(new SubRow(original, 6f));
+        } else if (mPrimary == 2) {
+            if (mShowTrans && hasTrans) out.add(new SubRow(line.translation, 6f));
+            out.add(new SubRow(original, 6f));
+        } else {
+            if (mShowRoma && hasRoma) out.add(new SubRow(line.romanization, 4f));
+            if (mShowTrans && hasTrans) out.add(new SubRow(line.translation, 6f));
+        }
+        return out;
     }
 
     private float lineHeight() {
         return mFontSp * mScaled * 4f / 3f;
     }
 
+    private float subLineHeight() {
+        return mFontSp * 0.62f * mScaled * 4f / 3f;
+    }
+
     private void relayout() {
         mLayout = new ArrayList<>();
+        mSubs = new ArrayList<>();
         int w = getWidth();
         float lh = lineHeight();
-        float subH = mFontSp * 0.6f * mScaled * 1.3f;
+        float subH = subLineHeight();
         float gap = 20f * mDensity;
         float top = 0f;
         for (RichLyrics.Line line : mLines) {
@@ -201,8 +240,11 @@ public class InPageLyricsView extends View {
                 rows = Math.max(1, Math.min(2, (int) Math.ceil(tw / Math.max(1, w))));
             }
             float mainH = rows * lh;
-            float total = mainH + (subText(line) != null ? subH + 4f * mDensity : 0);
+            List<SubRow> subs = subRows(line);
+            float total = mainH;
+            for (SubRow s : subs) total += s.gapDp * mDensity + subH;
             mLayout.add(new float[]{top, mainH, total});
+            mSubs.add(subs);
             top += total + gap;
         }
     }
@@ -233,8 +275,8 @@ public class InPageLyricsView extends View {
     private float targetScrollFor(int idx) {
         if (idx < 0 || idx >= mLayout.size()) return 0f;
         float[] lay = mLayout.get(idx);
-        float anchorY = mAnchorFraction * Math.max(0, getHeight() - lay[1]);
-        return Math.max(0f, lay[0] - anchorY);
+        float anchorInBlock = mAnchorFraction * lay[2];
+        return Math.max(0f, lay[0] + anchorInBlock - 0.75f * lineHeight());
     }
 
     private void updateCurrent(boolean instant) {
@@ -283,15 +325,23 @@ public class InPageLyricsView extends View {
         }
     }
 
+    /** 行淡出（全行统一）：上＝smoothstep（行顶/顶淡高），下＝行底过起始线后乘 bottomFadeKeep。 */
+    private float fadeFor(float top, float blockH, int h) {
+        float fade = smoothstep(top / Math.max(1f, 0.75f * lineHeight()));
+        float startY = Math.min(FADE_START, 0.999f) * h;
+        float bottom = top + blockH;
+        if (bottom > startY && h > startY) {
+            fade *= bottomFadeKeep((bottom - startY) / (h - startY));
+        }
+        return fade;
+    }
+
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
         int w = getWidth(), h = getHeight();
         if (w <= 0 || h <= 0 || mLines.isEmpty()) return;
         long now = now();
-        float lh = lineHeight();
-        float anchorY = mCurrent >= 0 && mCurrent < mLayout.size()
-                ? mAnchorFraction * Math.max(0, h - mLayout.get(mCurrent)[1]) : 0f;
 
         for (int i = 0; i < mLines.size(); i++) {
             float[] lay = mLayout.get(i);
@@ -300,87 +350,62 @@ public class InPageLyricsView extends View {
             if (bottom < -dp(60) || top > h + dp(60)) continue;
             RichLyrics.Line line = mLines.get(i);
             String main = mainText(line);
-            float fade;
-            if (i == mCurrent) {
-                fade = 1f;
-            } else if (top + lay[1] <= anchorY + 1) {
-                int dist = Math.abs(i - Math.max(0, mCurrent));
-                fade = Math.max(0.3f, 1f - dist * 0.22f);
-            } else {
-                float t = (top - anchorY) / Math.max(1f, h - anchorY);
-                fade = bottomFadeKeep(t);
-            }
+            float fade = fadeFor(top, lay[2], h);
 
-            // 模糊（A 组）
+            // 模糊（A 组：带符号行距——上 min(2+k,5)、下 min(k+1,5)，k＝距当前行数）
             mMainPaint.setMaskFilter(null);
             mSubPaint.setMaskFilter(null);
             if (mBlurCoeff > 0 && i != mCurrent && mCurrent >= 0) {
-                int dist = Math.abs(i - mCurrent);
-                float r = i < mCurrent
-                        ? Math.max(0f, Math.min(2.0f - dist, 5f))
-                        : Math.min(dist + 1.0f, 5f);
+                int k = Math.abs(i - mCurrent);
+                float r = i < mCurrent ? Math.min(2f + k, 5f) : Math.min(k + 1f, 5f);
                 BlurMaskFilter bf = blurFor(r * mBlurCoeff);
                 mMainPaint.setMaskFilter(bf);
                 mSubPaint.setMaskFilter(bf);
             }
 
             float baseline = top - mMainPaint.ascent();
-            if (i == mCurrent && mPrimary == 0 && line.main != null) {
+            if (i == mCurrent && mPrimary == 0 && line.main != null && line.main.hasWords()) {
                 drawCurrentLine(canvas, line.main, now, fade, baseline);
             } else if (i == mCurrent) {
-                // 当前行（主显非原文或纯文本）：整行未唱色打底，唱过比例以亮色覆写
+                // 当前行（无逐字或主显非原文）：整行未唱色，不估已唱比例
                 mMainPaint.setColor(0xFFFFFFFF);
                 mMainPaint.setAlpha(Math.round(255 * ALPHA_CUR_UNSUNG * fade));
                 canvas.drawText(main, alignX(main, mMainPaint), baseline, mMainPaint);
-                drawSungPortion(canvas, line, main, now, baseline);
             } else if (mCurrent >= 0 && i < mCurrent) {
-                // 已唱过的行：亮色（已唱色），随距锚点淡出
                 mMainPaint.setColor(COLOR_SUNG);
-                mMainPaint.setAlpha(Math.round(255 * 0.9f * fade));
+                mMainPaint.setAlpha(Math.round(255 * fade));
                 canvas.drawText(main, alignX(main, mMainPaint), baseline, mMainPaint);
             } else {
-                // 未唱行：白 0.30 × 淡出
                 mMainPaint.setColor(0xFFFFFFFF);
                 mMainPaint.setAlpha(Math.round(255 * ALPHA_NONCUR * fade));
                 canvas.drawText(main, alignX(main, mMainPaint), baseline, mMainPaint);
             }
             mMainPaint.setMaskFilter(null);
 
-            String sub = subText(line);
-            if (sub != null) {
-                float subBase = top + lay[1] - mSubPaint.ascent() + dp(4);
-                mSubPaint.setColor(0xFFFFFFFF);
-                mSubPaint.setAlpha(Math.round(255 * ALPHA_TRANS * fade * (i == mCurrent ? 1f : 0.6f)));
-                canvas.drawText(sub, alignXSub(sub), subBase, mSubPaint);
+            List<SubRow> subs = mSubs.get(i);
+            if (subs != null && !subs.isEmpty()) {
+                float subTop = top + lay[1];
+                for (SubRow s : subs) {
+                    subTop += s.gapDp * mDensity;
+                    float subBase = subTop - mSubPaint.ascent();
+                    mSubPaint.setColor(0xFFFFFFFF);
+                    mSubPaint.setAlpha(Math.round(255 * ALPHA_SUB * fade));
+                    canvas.drawText(s.text, alignX(s.text, mSubPaint), subBase, mSubPaint);
+                    subTop += subLineHeight();
+                }
                 mSubPaint.setMaskFilter(null);
             }
         }
     }
 
-    private float alignXSub(String text) {
-        int w = getWidth();
-        float tw = mSubPaint.measureText(text);
-        switch (mAlign) {
-            case 1:
-                return Math.max(0, (w - tw) / 2f);
-            case 2:
-                return Math.max(0, w - tw);
-            default:
-                return 0;
-        }
-    }
-
-    /** 当前行逐字：唱过的字亮色、正在唱的字上浮 −0.09em（easeOut），长字带光晕（shadow 近似）。 */
+    /**
+     * 当前行逐字：唱过的字以已唱色覆写（按字内进度裁剪）；正在唱的字上浮 −0.09em
+     * （easeOut，进度分母 max(1100ms, 字长）)；长音字（≥1000ms）带光晕＋放大（上限约 1.2)
+     * ＋−0.05em 正弦浮动，发音结束后拖尾 400ms。
+     */
     private void drawCurrentLine(Canvas canvas, LyricsLine main, long now, float fade, float baseline) {
         List<LyricsWord> words = main.getWords();
         String text = main.getText();
-        if (words == null || words.isEmpty()) {
-            mMainPaint.setColor(0xFFFFFFFF);
-            mMainPaint.setAlpha(Math.round(255 * ALPHA_CUR_UNSUNG * fade));
-            canvas.drawText(text, alignX(text, mMainPaint), baseline, mMainPaint);
-            drawSungPortion(canvas, wrapLine(main), text, now, baseline);
-            return;
-        }
         float x = alignX(text, mMainPaint);
         long lineStart = main.getTimeMs();
         float em = mFontSp * mScaled;
@@ -389,60 +414,50 @@ public class InPageLyricsView extends View {
             float ww = mMainPaint.measureText(wt);
             long ws = lineStart + word.getStartOffsetMs();
             long wd = Math.max(1, word.getDurationMs());
-            float p = Math.max(0f, Math.min(1f, (float) (now - ws) / (float) wd));
+            long elapsed = now - ws;
+            float p = Math.max(0f, Math.min(1f, (float) elapsed / (float) wd));
+
             float lift = 0f;
-            if (mAdvancedFx && p > 0f && p < 1f) {
-                float e = 1f - (float) Math.pow(1f - p, 3);
+            if (mAdvancedFx && elapsed > 0) {
+                float lp = Math.max(0f, Math.min(1f, (float) elapsed / (float) Math.max(LIFT_MIN_MS, wd)));
+                float e = 1f - (float) Math.pow(1f - lp, 3);
                 lift = -0.09f * em * e;
+            }
+
+            // 长音强调：发音中至结束后 400ms 内，包络＝sin(π × elapsed/(字长＋拖尾）)
+            float emph = 0f;
+            if (mAdvancedFx && wd >= 1000 && elapsed > 0 && elapsed < wd + EMPH_TAIL_MS) {
+                emph = (float) Math.sin(Math.PI * Math.min(1f, (float) elapsed / (float) (wd + EMPH_TAIL_MS)));
+            }
+            float scale = 1f + 0.2f * emph;
+            float floatY = -0.05f * em * emph;
+
+            canvas.save();
+            if (emph > 0f) {
+                canvas.translate(x + ww / 2f, baseline);
+                canvas.scale(scale, scale);
+                canvas.translate(-(x + ww / 2f), -baseline);
             }
             // 未唱底
             mMainPaint.setColor(0xFFFFFFFF);
             mMainPaint.setAlpha(Math.round(255 * ALPHA_CUR_UNSUNG * fade));
             mMainPaint.setShadowLayer(0, 0, 0, 0);
-            canvas.drawText(wt, x, baseline + lift, mMainPaint);
+            canvas.drawText(wt, x, baseline + lift + floatY, mMainPaint);
             if (p > 0f) {
-                // 已唱覆写（按字内进度裁剪）
                 mMainPaint.setColor(COLOR_SUNG);
                 mMainPaint.setAlpha(Math.round(255 * fade));
-                if (mAdvancedFx && wd >= 1000 && p < 1f) mMainPaint.setShadowLayer(dp(6), 0, 0, COLOR_SUNG);
+                if (emph > 0f) {
+                    mMainPaint.setMaskFilter(new BlurMaskFilter(dp(6) * emph, BlurMaskFilter.Blur.OUTER));
+                }
                 canvas.save();
-                canvas.clipRect(x, baseline - em * 1.6f + lift, x + ww * p, baseline + em * 0.6f + lift);
-                canvas.drawText(wt, x, baseline + lift, mMainPaint);
+                canvas.clipRect(x, baseline - em * 1.6f + lift + floatY, x + ww * p, baseline + em * 0.6f + lift + floatY);
+                canvas.drawText(wt, x, baseline + lift + floatY, mMainPaint);
                 canvas.restore();
-                mMainPaint.setShadowLayer(0, 0, 0, 0);
+                mMainPaint.setMaskFilter(null);
             }
+            canvas.restore();
             x += ww;
         }
-    }
-
-    private RichLyrics.Line wrapLine(LyricsLine main) {
-        for (RichLyrics.Line l : mLines) if (l.main == main) return l;
-        return null;
-    }
-
-    /** 无逐字当前行：按行时间进度把已唱部分以亮色覆写（裁剪宽度比例）。 */
-    private void drawSungPortion(Canvas canvas, RichLyrics.Line line, String text, long now, float baseline) {
-        if (line == null || line.main == null) return;
-        int idx = mLines.indexOf(line);
-        long start = line.main.getTimeMs();
-        long end;
-        if (idx >= 0 && idx + 1 < mLines.size() && mLines.get(idx + 1).main != null) {
-            end = mLines.get(idx + 1).main.getTimeMs();
-        } else {
-            end = start + 4000;
-        }
-        if (end <= start) return;
-        float p = Math.max(0f, Math.min(1f, (float) (now - start) / (float) (end - start)));
-        if (p <= 0f) return;
-        float x = alignX(text, mMainPaint);
-        float tw = mMainPaint.measureText(text);
-        float em = mFontSp * mScaled;
-        mMainPaint.setColor(COLOR_SUNG);
-        mMainPaint.setAlpha(255);
-        canvas.save();
-        canvas.clipRect(x, baseline - em * 1.6f, x + tw * p, baseline + em * 0.6f);
-        canvas.drawText(text, x, baseline, mMainPaint);
-        canvas.restore();
     }
 
     private float dp(float v) {

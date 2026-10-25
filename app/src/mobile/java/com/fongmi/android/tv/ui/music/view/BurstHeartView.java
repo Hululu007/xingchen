@@ -13,7 +13,8 @@ import java.util.Random;
 
 /**
  * 双击封面收藏的爱心爆发（瓜子经典 BurstHeart）：总进度 tween 1200ms 线性；
- * 粒子 8（随机）/5：angle −60~+60°、travel 42–90dp、size 9–19dp、rotation −25~+25°、
+ * 粒子数＝双击变成已收藏 8 颗／取消收藏 5 颗，随机以触发计数为种子：
+ * angle −60~+60°、travel 42–90dp、size 9–19dp、rotation −25~+25°、
  * delay＝随机×0.08＋序×0.035；位移 easeOutQuad、缩放 Overshoot(0.34,1.56,0.64,1)、
  * 进度 >0.55 后线性淡出。只在爆发时跑帧，平时不画、不耗电。
  */
@@ -52,13 +53,13 @@ public class BurstHeartView extends View {
         mHeart.close();
     }
 
-    /** 在 (cx, cy) 处爆发一轮（双击点）。 */
-    public void burst(float cx, float cy) {
+    /** 在 (cx, cy) 处爆发一轮（双击点）；toFav＝这次双击变成已收藏（8 颗）还是取消（5 颗），seed＝触发计数。 */
+    public void burst(float cx, float cy, boolean toFav, int seed) {
         mCx = cx;
         mCy = cy;
         mParticles.clear();
-        Random rnd = new Random();
-        int n = rnd.nextBoolean() ? 8 : 5;
+        Random rnd = new Random(seed);
+        int n = toFav ? 8 : 5;
         for (int i = 0; i < n; i++) {
             Particle p = new Particle();
             p.angleDeg = -60f + rnd.nextFloat() * 120f;
@@ -78,11 +79,22 @@ public class BurstHeartView extends View {
         return 1f - (1f - t) * (1f - t);
     }
 
-    private static float overshoot(float t) {
-        // OvershootInterpolator 近似 (0.34,1.56,0.64,1) 贝塞尔的观感：用标准 overshoot 曲线族近似
-        float c1 = 1.56f;
-        float c3 = c1 + 1f;
-        return 1f + c3 * (float) Math.pow(t - 1f, 3) + c1 * (float) Math.pow(t - 1f, 2);
+    /** 三次贝塞尔 (0.34, 1.56, 0.64, 1) 的 y 值（瓜子粒子缩放曲线本体，非近似族）。 */
+    private static float overshoot(float x) {
+        if (x <= 0f) return 0f;
+        if (x >= 1f) return 1f;
+        double x1 = 0.34, y1 = 1.56, x2 = 0.64, y2 = 1.0;
+        double lo = 0, hi = 1, t = x;
+        for (int i = 0; i < 24; i++) {
+            double u = 1 - t;
+            double cx = 3 * u * u * t * x1 + 3 * u * t * t * x2 + t * t * t;
+            if (Math.abs(cx - x) < 1e-5) break;
+            if (cx < x) lo = t;
+            else hi = t;
+            t = (lo + hi) / 2;
+        }
+        double u = 1 - t;
+        return (float) (3 * u * u * t * y1 + 3 * u * t * t * y2 + t * t * t);
     }
 
     @Override
@@ -102,7 +114,7 @@ public class BurstHeartView extends View {
             double rad = Math.toRadians(p.angleDeg - 90f); // 0°＝正上
             float x = mCx + (float) Math.cos(rad) * dist;
             float y = mCy + (float) Math.sin(rad) * dist;
-            float scale = overshoot(Math.min(1f, lt * 1.4f)) * p.sizeDp * mDensity;
+            float scale = overshoot(lt) * p.sizeDp * mDensity;
             float alpha = lt > 0.55f ? 1f - (lt - 0.55f) / 0.45f : 1f;
             mPaint.setAlpha(Math.round(255 * Math.max(0f, alpha)));
             canvas.save();

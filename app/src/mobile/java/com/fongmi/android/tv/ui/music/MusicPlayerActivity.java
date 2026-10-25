@@ -48,9 +48,9 @@ import com.fongmi.android.tv.utils.ImgUtil;
 import java.util.List;
 
 /**
- * 音乐播放页（从零重写，本批＝经典主题／默认主题，照瓜子全表第三节＋定案截图 113250）：
- * 外壳氛围（dominant 色 450ms＋糊封面）→封面（占满父级、竖滑切歌、双击收藏爆发、暂停缩放 0.9）→
- * 歌名行三键（菜单＝工具面板／队列／播停）→歌手♡专辑→页内歌词→进度条。
+ * 音乐播放页（从零重写，本批＝经典主题／默认主题，照瓜子源码抠值全表第三节＋对照表回补）：
+ * 外壳氛围（dominant 色 450ms＋糊封面）→封面（权重盒占满、竖滑切歌、双击收藏爆发、暂停缩放 0.9）→
+ * 歌名行三键（菜单＝工具面板／队列／播停）→歌手♡专辑（歌手/专辑可点跳搜索）→页内歌词→进度条。
  * 其余主题渲染器随后续批次点亮（主题存档与面板入口本批已通）。
  */
 public class MusicPlayerActivity extends AppCompatActivity implements MusicController.Listener {
@@ -62,13 +62,27 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
         context.startActivity(intent);
     }
 
+    private static final PathInterpolator BS4_A = new PathInterpolator(0.2f, 0f, 0f, 1f);
+    private static final PathInterpolator BS4_B = new PathInterpolator(0f, 0f, 0f, 1f);
     private static final PathInterpolator BS4_E = new PathInterpolator(0.05f, 0.7f, 0.1f, 1f);
     private static final PathInterpolator BS4_C = new PathInterpolator(0.3f, 0f, 1f, 1f);
     private static final PathInterpolator BS4_F = new PathInterpolator(0.3f, 0f, 0.8f, 0.15f);
 
+    /** 播停图标偏转回正的弹簧（瓜子 spring 阻尼 0.55、刚度 600 的数值近似）。 */
+    private static class SpringBackInterpolator implements android.view.animation.Interpolator {
+        @Override
+        public float getInterpolation(float t) {
+            double zeta = 0.55, omega = Math.sqrt(600.0);
+            double wd = omega * Math.sqrt(1 - zeta * zeta);
+            double decay = Math.exp(-zeta * omega * t * 2.2);
+            return (float) (1 - decay * (Math.cos(wd * t * 2.2) + (zeta * omega / wd) * Math.sin(wd * t * 2.2)));
+        }
+    }
+
     private final Handler mTickHandler = new Handler(Looper.getMainLooper());
     private CoverAmbientView mAmbient;
     private FrameLayout mCoverBox;
+    private View mMeta;
     private ImageView mCover, mCoverOut;
     private BurstHeartView mBurst;
     private TextView mTitle, mArtist, mAlbum;
@@ -83,6 +97,8 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
     private String mTrackKey;
     private Bitmap mCoverBitmap;
     private boolean mFavorite;
+    private int mFavTriggerCount;
+    private Boolean mPlayingUi;
     private int mLastDir = 1;
     private boolean mFirstBind = true;
 
@@ -113,6 +129,9 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
 
         mAmbient = findViewById(R.id.playerAmbient);
         mCoverBox = findViewById(R.id.playerCoverBox);
+        mMeta = findViewById(R.id.playerMeta);
+        // 歌名列与封面零间隔、渲染下移 12dp（瓜子 offset，只移渲染不动布局）
+        mMeta.setTranslationY(dp(12));
         mCover = findViewById(R.id.playerCover);
         mCoverOut = findViewById(R.id.playerCoverOut);
         mBurst = findViewById(R.id.playerBurst);
@@ -127,9 +146,24 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
         mScrubber = findViewById(R.id.playerScrubber);
         mMiniProgress = findViewById(R.id.playerMiniProgress);
 
+        // 歌名 800 字重＋行高 24sp、歌手行高 18sp（API 28+；低版本退回粗体与默认行高）
+        if (android.os.Build.VERSION.SDK_INT >= 28) {
+            mTitle.setTypeface(android.graphics.Typeface.create(mTitle.getTypeface(), 800, false));
+            mTitle.setLineHeight((int) dp(24));
+            mArtist.setLineHeight((int) dp(18));
+        }
+
         applyKeepScreenOn();
         wireActions();
-        sizeCoverBox();
+        // 音质面板关掉时进度条恢复全宽（收缩画法的菜单态来源）
+        getSupportFragmentManager().registerFragmentLifecycleCallbacks(
+                new androidx.fragment.app.FragmentManager.FragmentLifecycleCallbacks() {
+                    @Override
+                    public void onFragmentViewDestroyed(@NonNull androidx.fragment.app.FragmentManager fm,
+                                                        @NonNull androidx.fragment.app.Fragment f) {
+                        if (f instanceof MusicQualityPanelDialog) mScrubber.setMenuOpen(false);
+                    }
+                }, false);
 
         MusicController.get().bind(this);
         MusicController.get().addListener(this);
@@ -158,24 +192,6 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
         return v * getResources().getDisplayMetrics().density;
     }
 
-    /** 封面测量驱动：宽占满父级，高＝min(宽, 内容高−元信息−歌词最小区−进度条)，下限 180dp。 */
-    private void sizeCoverBox() {
-        final View root = findViewById(R.id.playerRoot);
-        root.getViewTreeObserver().addOnGlobalLayoutListener(new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
-            @Override
-            public void onGlobalLayout() {
-                int w = root.getWidth(), h = root.getHeight();
-                if (w <= 0 || h <= 0) return;
-                int coverH = (int) Math.min(w, h - dp(52 + 24 + 140 + 92));
-                coverH = Math.max((int) dp(180), coverH);
-                if (mCoverBox.getLayoutParams().height != coverH) {
-                    mCoverBox.getLayoutParams().height = coverH;
-                    mCoverBox.requestLayout();
-                }
-            }
-        });
-    }
-
     private void wireActions() {
         mBtnPlay.setOnClickListener(v -> MusicController.get().toggle());
         mBtnQueue.setOnClickListener(v -> MusicQueueDialog.show(this));
@@ -192,6 +208,26 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
             }
         }));
         mBtnFav.setOnClickListener(v -> toggleFavorite());
+        // 爱心按压缩放 0.85（瓜子 SongMeta 同款）
+        mBtnFav.setOnTouchListener((v, e) -> {
+            if (e.getActionMasked() == MotionEvent.ACTION_DOWN) v.animate().scaleX(0.85f).scaleY(0.85f).setDuration(100).start();
+            else if (e.getActionMasked() == MotionEvent.ACTION_UP || e.getActionMasked() == MotionEvent.ACTION_CANCEL)
+                v.animate().scaleX(1f).scaleY(1f).setDuration(150).start();
+            return false;
+        });
+        // 歌手/专辑可点跳搜索（瓜子：search?q=歌手&tab=artist／q=专辑&tab=album，星辰搜索页无页签、直带词搜）
+        mArtist.setOnClickListener(v -> {
+            String first = firstArtist(mTrack == null ? null : mTrack.displayArtist());
+            if (first != null) {
+                com.fongmi.android.tv.ui.activity.MusicSearchActivity.startSearch(this, first);
+            }
+        });
+        mAlbum.setOnClickListener(v -> {
+            if (mTrack == null || TextUtils.isEmpty(mTrack.album)) return;
+            String album = mTrack.album.trim();
+            if (album.isEmpty() || "—".equals(album) || "未知专辑".equals(album)) return;
+            com.fongmi.android.tv.ui.activity.MusicSearchActivity.startSearch(this, album);
+        });
         mLyrics.setListener(timeMs -> MusicController.get().seekTo(timeMs));
         // 迷你进度条：点开完整进度栈；展开后交互刷新闲置计时（点栈任意处都算）
         mMiniProgress.setOnClickListener(v -> setScrubberExpanded(true));
@@ -206,8 +242,14 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
             }
 
             @Override
+            public void onScrubPreview(long ms) {
+                // 预览时间由进度条顶盒/底行自己显示；歌词预览重同步瓜子有、星辰页内歌词跟随播放位置即可
+            }
+
+            @Override
             public void onQualityChip() {
                 if (mTrack == null) return;
+                mScrubber.setMenuOpen(true);
                 MusicQualityPanelDialog.show(MusicPlayerActivity.this, mTrack,
                         MusicController.get().getQuality(),
                         q -> {
@@ -231,8 +273,13 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
         final GestureDetector gd = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
             @Override
             public boolean onDoubleTap(MotionEvent e) {
+                // 瓜子封面双击：震动＋把「!当前收藏态」传给粒子（变已收藏 8 颗／取消 5 颗，种子＝触发计数）
+                boolean target = !mFavorite;
+                mCoverBox.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK);
+                mFavTriggerCount++;
+                mBurst.burst(e.getX(), e.getY(), target, mFavTriggerCount);
+                animateCoverFavPulse();
                 toggleFavorite();
-                mBurst.burst(e.getX(), e.getY());
                 return true;
             }
         });
@@ -365,16 +412,28 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
         boolean same = key.equals(mTrackKey);
         mTrackKey = key;
         if (same && !mFirstBind) return;
+        boolean wasFirst = mFirstBind;
         mFirstBind = false;
 
-        // 歌名切换动画：出 fadeOut 150/bs4.c → 换字 → 入 fadeIn 200/bs4.e
+        // 歌名切换动画：出 fadeOut 150/bs4.c → 换字 → 入 fadeIn＋尺寸 200/bs4.e
         final String title = TextUtils.isEmpty(track.displayTitle()) ? "未在播放" : track.displayTitle();
-        mTitle.animate().alpha(0f).setDuration(150).setInterpolator(BS4_C)
-                .withEndAction(() -> {
-                    mTitle.setText(title);
-                    mTitle.animate().alpha(1f).setDuration(200).setInterpolator(BS4_E).start();
-                }).start();
+        if (wasFirst) {
+            mTitle.setText(title);
+        } else {
+            mTitle.animate().alpha(0f).setDuration(150).setInterpolator(BS4_C)
+                    .withEndAction(() -> {
+                        mTitle.setText(title);
+                        mTitle.setScaleX(0.94f);
+                        mTitle.setScaleY(0.94f);
+                        mTitle.setPivotX(0f);
+                        mTitle.setPivotY(mTitle.getHeight() / 2f);
+                        mTitle.animate().alpha(1f).scaleX(1f).scaleY(1f)
+                                .setDuration(200).setInterpolator(BS4_E).start();
+                    }).start();
+        }
         mArtist.setText(track.displayArtist());
+        // 歌手透明档：有点击回调且歌手可解析 → 白 0.45，否则 0.34（瓜子 SongMeta 两档）
+        mArtist.setTextColor(firstArtist(track.displayArtist()) != null ? 0x73FFFFFF : 0x57FFFFFF);
         if (TextUtils.isEmpty(track.album)) {
             mAlbum.setVisibility(View.GONE);
         } else {
@@ -386,6 +445,7 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
         mAmbient.setCover(track.cover);
         refreshFavorite(track);
         refreshChips();
+        mScrubber.resetForTrack();
         mScrubber.setProgress(0, track.duration > 0 ? track.duration : MusicController.get().duration());
         mLyrics.setLines(null);
         tryLoadLyric(track);
@@ -460,7 +520,8 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
     private void applyFavUi() {
         mBtnFav.setImageResource(mFavorite
                 ? R.drawable.ic_music_heart_fill : R.drawable.ic_music_heart);
-        mBtnFav.setAlpha(mFavorite ? 0.45f : 0.30f);
+        // 爱心 tint 两档（已收藏 白 0.45／未收藏 0.30），300ms 动画（瓜子 songMetaFavTint）
+        mBtnFav.animate().alpha(mFavorite ? 0.45f : 0.30f).setDuration(300).setInterpolator(BS4_A).start();
         mBtnFav.setColorFilter(0xFFFFFFFF);
     }
 
@@ -473,7 +534,50 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
         });
     }
 
+    /** 首位歌手（瓜子 qk5.e0 口径）：去空白后为空/—/未知歌手/未知艺术家 → null；否则取分隔后的第一位。 */
+    private static String firstArtist(String artist) {
+        if (artist == null) return null;
+        String s = artist.trim();
+        if (s.isEmpty() || "—".equals(s) || "未知歌手".equals(s) || "未知艺术家".equals(s)) return null;
+        String norm = s.replaceAll("(?i)\\s+(feat\\.|ft\\.|featuring)\\s+", "、");
+        String[] parts = norm.split("[、/,&]|\\s+&\\s+");
+        for (String p : parts) {
+            String t = p == null ? "" : p.trim();
+            if (!t.isEmpty()) return t;
+        }
+        return s;
+    }
+
+    /** 封面收藏动效（瓜子 favScale）：升到 1.045（200ms/bs4.b）→spring(0.9,300) 回 1，作用于封面整体。 */
+    private void animateCoverFavPulse() {
+        mCover.animate().cancel();
+        android.animation.ValueAnimator up = android.animation.ValueAnimator.ofFloat(mCover.getScaleX(), 1.045f);
+        up.setDuration(200);
+        up.setInterpolator(BS4_B);
+        up.addUpdateListener(a -> {
+            float v = (float) a.getAnimatedValue();
+            mCover.setScaleX(v);
+            mCover.setScaleY(v);
+        });
+        up.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override
+            public void onAnimationEnd(android.animation.Animator animation) {
+                android.animation.ValueAnimator back = android.animation.ValueAnimator.ofFloat(1.045f, 1f);
+                back.setDuration(300);
+                back.setInterpolator(new android.view.animation.OvershootInterpolator(0.9f));
+                back.addUpdateListener(a -> {
+                    float v = (float) a.getAnimatedValue();
+                    mCover.setScaleX(v);
+                    mCover.setScaleY(v);
+                });
+                back.start();
+            }
+        });
+        up.start();
+    }
+
     private void refreshChips() {
+        // 音质筹只报真实音质（他的口径：取不到就不显示，永不拿所选档名垫场）
         String q = "";
         try {
             com.fongmi.android.tv.music.MusicAudioInfo info = MusicController.get().audioInfo();
@@ -483,7 +587,6 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
             }
         } catch (Throwable ignored) {
         }
-        if (q.isEmpty()) q = MusicStore.qualityName(MusicController.get().getQuality());
         mScrubber.setChips(q, lyricChipLabel());
     }
 
@@ -536,12 +639,29 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
     }
 
     private void updatePlayUi(boolean playing) {
+        mScrubber.setPlaying(playing);
         mBtnPlay.setImageResource(playing ? R.drawable.ic_music_pause : R.drawable.ic_music_play);
-        // 播停图标尺寸（瓜子：播放中 28dp／暂停 25dp，300ms 过渡）——以 padding 动画近似尺寸变化
-        int pad = (int) dp(playing ? 6 : 7.5f);
-        mBtnPlay.setPadding(pad, pad, pad, pad);
+        // 播停图标：播放中 28dp／暂停 25dp，300ms 尺寸过渡（以 padding 补间实现）；切换先偏转 ±15° 再弹簧回正
+        int fromPad = mBtnPlay.getPaddingLeft();
+        int toPad = Math.round(dp(playing ? 6 : 7.5f));
+        if (fromPad != toPad) {
+            android.animation.ValueAnimator va = android.animation.ValueAnimator.ofInt(fromPad, toPad);
+            va.setDuration(300);
+            va.setInterpolator(BS4_A);
+            va.addUpdateListener(a -> {
+                int p = (int) a.getAnimatedValue();
+                mBtnPlay.setPadding(p, p, p, p);
+            });
+            va.start();
+        }
+        if (mPlayingUi != null && mPlayingUi != playing) {
+            mBtnPlay.setRotation(playing ? 15f : -15f);
+            mBtnPlay.animate().rotation(0f).setDuration(650)
+                    .setInterpolator(new SpringBackInterpolator()).start();
+        }
+        mPlayingUi = playing;
         float target = playing ? 1f : 0.9f;
-        mCoverBox.animate().scaleX(target).scaleY(target).setDuration(300).start();
+        mCoverBox.animate().scaleX(target).scaleY(target).setDuration(300).setInterpolator(BS4_A).start();
     }
 
     // ---------- MusicController.Listener ----------

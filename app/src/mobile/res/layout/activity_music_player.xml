@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 音乐播放页·经典主题（默认，从零重写，照瓜子经典＋定案截图 113250）：
-     根＝氛围层（封面 dominant 色＋糊封面）满铺；内容列：封面（占满父级宽、正方形、贴顶）→
-     歌名行（18sp＋右三键：菜单/队列/播停）→ 歌手♡专辑行 → 页内歌词（weight 1）→ 进度条。
+<!-- 音乐播放页·经典主题（默认，从零重写，照瓜子源码抠值全表第三节＋对照表回补）：
+     根＝氛围层（封面 dominant 色＋糊封面）满铺；内容列（瓜子原列结构）：封面权重盒 →
+     歌名列（与封面零间隔、渲染下移 12dp 在代码里给、底部内边距 8dp）→ 页内歌词（weight 1）
+     → 间隔 6dp → 进度条 → 间隔 45dp。歌名行（18sp＋右三键：菜单/队列/播停）、歌手♡专辑行。
      无自带返回箭头（铁律）、无上一首/下一首运输行（经典靠封面竖滑切歌，瓜子原样）。 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/playerRoot"
@@ -23,7 +24,8 @@
         <FrameLayout
             android:id="@+id/playerCoverBox"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content">
+            android:layout_height="0dp"
+            android:layout_weight="1">
 
             <ImageView
                 android:id="@+id/playerCoverOut"
@@ -46,12 +48,13 @@
         </FrameLayout>
 
         <LinearLayout
+            android:id="@+id/playerMeta"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginStart="28dp"
-            android:layout_marginTop="14dp"
             android:layout_marginEnd="28dp"
-            android:orientation="vertical">
+            android:orientation="vertical"
+            android:paddingBottom="8dp">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -65,7 +68,7 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:ellipsize="end"
-                    android:letterSpacing="-0.022"
+                    android:letterSpacing="-0.0222"
                     android:maxLines="1"
                     android:textColor="#F2FFFFFF"
                     android:textSize="18sp"
@@ -147,16 +150,18 @@
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_marginStart="28dp"
-            android:layout_marginTop="10dp"
             android:layout_marginEnd="28dp"
             android:layout_weight="1" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="6dp" />
 
         <FrameLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginStart="28dp"
-            android:layout_marginEnd="28dp"
-            android:layout_marginBottom="12dp">
+            android:layout_marginEnd="28dp">
 
             <com.fongmi.android.tv.ui.music.view.MiniProgressView
                 android:id="@+id/playerMiniProgress"
@@ -169,5 +174,9 @@
                 android:layout_height="wrap_content"
                 android:visibility="gone" />
         </FrameLayout>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="45dp" />
     </LinearLayout>
 </FrameLayout>

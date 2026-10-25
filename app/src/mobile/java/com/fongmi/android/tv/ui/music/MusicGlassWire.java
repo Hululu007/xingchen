@@ -1,9 +1,13 @@
 package com.fongmi.android.tv.ui.music;
 
 import android.content.Context;
+import android.graphics.PorterDuff;
 import android.graphics.drawable.Drawable;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.EditText;
+import android.widget.ImageView;
+import android.widget.TextView;
 
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -78,6 +82,29 @@ public final class MusicGlassWire {
     };
 
     private static Map<Drawable.ConstantState, Float> sTable; // 懒建（ConstantState → 圆角 dp）
+
+    // 选中族（样张口径：选中态是一颗带颜色的玻璃）：这三件的身份是「选中/当前」，
+    // 换成同源玻璃件时同步挂 tone 还原带色——色取样张选中青 #305F67 家族，alpha 0.55 读得出色。
+    // （XML 下限里它们原是粉色身份；样张定案后以样张青为准，XML 下限未及同步、仅取样失败时短暂可见。）
+    private static final int[] TONE_IDS = {
+            R.drawable.bg_music_glass_chip_selected,
+            R.drawable.bg_music_glass_row_current,
+            R.drawable.card_music_current,
+    };
+    private static final int SELECTED_TONE_COLOR = 0xFF305F67;
+    private static final float SELECTED_TONE_ALPHA = 0.55f;
+    private static Map<Drawable.ConstantState, Integer> sToneTable; // 懒建（ConstantState → tone 色）
+
+    private static synchronized Map<Drawable.ConstantState, Integer> toneTable(Context ctx) {
+        if (sToneTable != null) return sToneTable;
+        Map<Drawable.ConstantState, Integer> m = new HashMap<>();
+        for (int id : TONE_IDS) {
+            Drawable d = ctx.getResources().getDrawable(id, ctx.getTheme());
+            if (d != null && d.getConstantState() != null) m.put(d.getConstantState(), SELECTED_TONE_COLOR);
+        }
+        sToneTable = m;
+        return m;
+    }
     private static final Set<RecyclerView> sScrollHooked =
             Collections.newSetFromMap(new WeakHashMap<>());
 
@@ -97,14 +124,18 @@ public final class MusicGlassWire {
         return IDS.length;
     }
 
-    /** 单件换玻璃：背景命中识别表才换，返回是否换了。已是玻璃件不重复包。 */
+    /** 单件换玻璃：背景命中识别表才换，返回是否换了。已是玻璃件不重复包。选中族同步挂 tone 成带色玻璃。 */
     public static boolean glassifyView(View v) {
         if (v == null) return false;
         Drawable bg = v.getBackground();
         if (bg == null || bg instanceof MusicGlassDrawable) return false;
         Float r = table(v.getContext()).get(bg.getConstantState());
         if (r == null) return false;
-        v.setBackground(new MusicGlassDrawable(v.getContext(), r));
+        MusicGlassDrawable glass = new MusicGlassDrawable(v.getContext(), r);
+        Integer tone = toneTable(v.getContext()).get(bg.getConstantState());
+        if (tone != null) glass.setToneColor(tone, SELECTED_TONE_ALPHA);
+        v.setBackground(glass);
+        flipForeground(v);
         return true;
     }
 
@@ -112,6 +143,48 @@ public final class MusicGlassWire {
     public static void glassifyView(View v, float radiusDp) {
         if (v == null || v.getBackground() instanceof MusicGlassDrawable) return;
         v.setBackground(new MusicGlassDrawable(v.getContext(), radiusDp));
+        flipForeground(v);
+    }
+
+    // ---------- 件内前景翻白（样张口径：玻璃件上的字与图标一律白系） ----------
+    // 主字 #F1F4F5、图标 #F1F3F5（样张逐区实测）；副字样张实测白 .45，但星辰合成面经
+    // WCAG 口径核算 .45→2.46–2.72、.55→tone 面 2.93 均不过 3:1 门，逐级提到 .60 才全过
+    // （三面 3.18–3.60，见 w2-glass.md 第八节）。
+    // 边界：只翻「已换玻璃底的件」内部；页面底（浅色）上的标题、非玻璃区域文字不动。
+    private static final int FG_MAIN = 0xFFF1F4F5;
+    private static final int FG_SUB = 0x99FFFFFF; // 白 .60
+    private static final int FG_ICON = 0xFFF1F3F5;
+
+    /**
+     * 换玻璃成功后同步翻件内前景：子树内最大字号的 TextView 为主字、其余为副字；
+     * 自带独立背景的 TextView（角标/小片，有自己的面）跳过不翻；ImageView 只转已有
+     * tint 的单色字形图标，无 tint 的全彩图（封面、彩色快捷图标）不动。
+     */
+    private static void flipForeground(View root) {
+        java.util.List<TextView> texts = new java.util.ArrayList<>();
+        java.util.List<ImageView> icons = new java.util.ArrayList<>();
+        collectForeground(root, texts, icons);
+        float max = 0;
+        for (TextView t : texts) max = Math.max(max, t.getTextSize());
+        for (TextView t : texts) {
+            t.setTextColor(t.getTextSize() >= max - 0.5f ? FG_MAIN : FG_SUB);
+            if (t instanceof EditText) ((EditText) t).setHintTextColor(FG_SUB);
+        }
+        for (ImageView im : icons) {
+            if (im.getColorFilter() != null) im.setColorFilter(FG_ICON, PorterDuff.Mode.SRC_IN);
+        }
+    }
+
+    private static void collectForeground(View v, java.util.List<TextView> texts, java.util.List<ImageView> icons) {
+        if (v instanceof TextView) {
+            Drawable own = v.getBackground();
+            if (own == null || own instanceof MusicGlassDrawable) texts.add((TextView) v);
+        }
+        if (v instanceof ImageView) icons.add((ImageView) v);
+        if (v instanceof ViewGroup) {
+            ViewGroup g = (ViewGroup) v;
+            for (int i = 0; i < g.getChildCount(); i++) collectForeground(g.getChildAt(i), texts, icons);
+        }
     }
 
     /** tone 染色接口：v 的背景是玻璃件时把 tone 色交给它平铺（alpha 0.16 在件内），返回是否吃上。 */
@@ -140,6 +213,7 @@ public final class MusicGlassWire {
     public static void glassifyPanel(View root, float radiusDp) {
         if (root == null) return;
         root.setBackground(new MusicGlassDrawable(root.getContext(), radiusDp, true));
+        flipForeground(root);
         if (root instanceof ViewGroup) glassifyChildren((ViewGroup) root);
     }
 

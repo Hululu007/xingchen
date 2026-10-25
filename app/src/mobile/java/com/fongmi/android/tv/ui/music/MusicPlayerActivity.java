@@ -149,6 +149,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
     private ImageView cdBtnModeView;
     private ImageView cdBtnFavView;
     private View cdBtnLyricVerView;
+    private View cdBtnQualityView;
     private String cdSummaryShown = "";
     private ShelfStageView shelfStageView;
     private ShelfLyricView shelfLyricView;
@@ -1174,6 +1175,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         }
         View quality = find(R.id.tpCdBtnQuality);
         if (quality != null) {
+            cdBtnQualityView = quality;
             quality.setOnClickListener(v -> showQualityDialog());
             attachPressScale(quality, 0.9f);
         }
@@ -1838,6 +1840,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
     private void attachPressScale(View view, float scale) {
         if (view == null) return;
         view.setOnTouchListener((v, e) -> {
+            if (!v.isEnabled()) return false;
             if (e.getActionMasked() == MotionEvent.ACTION_DOWN) {
                 v.animate().scaleX(scale).scaleY(scale).setDuration(150).setInterpolator(INTERP_FOSI).start();
             } else if (e.getActionMasked() == MotionEvent.ACTION_UP
@@ -2938,7 +2941,33 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
      * LuminousCdPlayerKt 五图标行）；点击仍开版本弹窗（空态与搜索入口在弹窗内，星辰口径不变）。 */
     private void paintCdLyricVerAlpha() {
         if (cdBtnLyricVerView != null) {
-            cdBtnLyricVerView.setAlpha(currentLyricVersions.isEmpty() ? 0.35f : 1f);
+            boolean enabled = !currentLyricVersions.isEmpty();
+            cdBtnLyricVerView.setAlpha(enabled ? 1f : 0.35f);
+            cdBtnLyricVerView.setEnabled(enabled);
+        }
+        paintCdUtilityGates();
+    }
+
+    /**
+     * CD 五图标行余键门控（瓜子 CdUtilityAction 真值，smali 深挖 §15.2 第 6 项）：
+     * 信息/表面两键恒可用（不落本方法）；音质＝宿主可用∧可选音质，收藏＝宿主可用。
+     * 星辰侧「宿主可用」＝有当前曲目；「可选音质」＝四档请求档恒在（选档面板恒可开），
+     * 故两键同以有无当前曲目为门。禁用时图形 alpha ×0.35 且退出按压/点击链
+     * （setEnabled(false)＋attachPressScale 的 enabled 守卫）。
+     */
+    private void paintCdUtilityGates() {
+        boolean hasTrack = false;
+        try {
+            hasTrack = MusicController.get().current() != null;
+        } catch (Throwable ignored) {
+        }
+        if (cdBtnQualityView != null) {
+            cdBtnQualityView.setEnabled(hasTrack);
+            cdBtnQualityView.setAlpha(hasTrack ? 1f : 0.35f);
+        }
+        if (cdBtnFavView != null) {
+            cdBtnFavView.setEnabled(hasTrack);
+            cdBtnFavView.setAlpha(hasTrack ? 1f : 0.35f);
         }
     }
 

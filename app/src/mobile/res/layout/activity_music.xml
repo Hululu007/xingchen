@@ -158,6 +158,7 @@
                     android:layout_width="40dp"
                     android:layout_height="40dp"
                     android:layout_marginStart="4dp"
+                    android:background="@drawable/bg_music_glass_circle"
                     android:contentDescription="@string/home_more"
                     android:padding="9dp"
                     android:src="@drawable/ic_music_more" />
@@ -468,7 +469,7 @@
                     android:progressDrawable="@drawable/bg_music_continue_progress" />
             </LinearLayout>
 
-            <!-- 三彩卡横排垫底：卡面本体＝各自渐变（粉／蓝绿／绿黄），光晕只作卡内淡水印（代码装环，压在内容下层） -->
+            <!-- 三彩卡横排垫底：XML 渐变只是可见下限，运行时由 MusicGlassWire 换液态玻璃（圆角 20、不带 tone——他 10-25 23:02 令）；光晕只作卡内淡水印（代码装环，压在内容下层） -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"

@@ -57,6 +57,9 @@ public final class MusicGlassWire {
             R.drawable.home_bg_search,
             R.drawable.bg_search_capsule,
             R.drawable.bg_pill_overview,
+            R.drawable.home_bg_card_pink,
+            R.drawable.home_bg_card_teal,
+            R.drawable.home_bg_card_lime,
     };
     private static final float[] RADII_DP = {
             16f,   // bg_music_glass_card
@@ -79,6 +82,9 @@ public final class MusicGlassWire {
             24f,   // home_bg_search
             999f,  // bg_search_capsule（胶囊全圆）
             12f,   // bg_pill_overview
+            20f,   // home_bg_card_pink（三彩卡·猜你喜欢，与原 shape 圆角一致；不带 tone——他 10-25 23:02 令颜色不必留、跟其它卡一套玻璃）
+            20f,   // home_bg_card_teal（三彩卡·排行榜）
+            20f,   // home_bg_card_lime（三彩卡·随心听）
     };
 
     private static Map<Drawable.ConstantState, Float> sTable; // 懒建（ConstantState → 圆角 dp）

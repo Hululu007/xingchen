@@ -9,6 +9,7 @@ import android.content.Intent;
 import android.content.ServiceConnection;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
+import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
@@ -712,7 +713,11 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
         stopHomeSpin();
         Context c = app;
         View bar = LayoutInflater.from(c).inflate(R.layout.home_minibar_music, null, false);
-        bar.setBackground(new MusicGlassDrawable(bar.getContext(), 999));
+        // 真液态玻璃（QmDeve 开源，vendored）：安卓 13+ 且能拿到音乐页根时，条底改走实时背板——
+        // 每帧录制身后真实内容（背景＋滚动层）再模糊＋折射＋色散，后面的内容能透出来；
+        // 拿不到根／低版本回落原 MusicGlassDrawable 静态采样，不留空白。
+        View liveBar = tryWrapLiveGlass(bar);
+        if (liveBar == null) bar.setBackground(new MusicGlassDrawable(bar.getContext(), 999));
         ivVinyl = bar.findViewById(R.id.homeCover);
         // 条重建＝封面视图是新的：已绑地址记账清掉，bindMusicSession 会在新视图上重新加载
         musicBoundCover = null;
@@ -722,7 +727,7 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
         tvTitle = bar.findViewById(R.id.homeTitle);
         homeNextBtn = bar.findViewById(R.id.homeNext);
         if (homeNextBtn != null) {
-            homeNextBtn.setImageTintList(ColorStateList.valueOf(0xFF3A3A3A));
+            homeNextBtn.setImageTintList(ColorStateList.valueOf(0xFFFFFFFF));
             // 下一首防呆：先判 canNext() 为真才 next()（置灰逻辑在 bindMusicSession）
             homeNextBtn.setOnClickListener(v -> {
                 try {
@@ -738,7 +743,7 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
             // 大圆播放键＝液态玻璃（用户 2026-10-25 点名「别忘了，这个也是液态玻璃」）：
             // 与条底同源 MusicGlassDrawable(999)；refreshPlayIcon 只换 src、不碰底
             btnPlay.setBackground(new MusicGlassDrawable(bar.getContext(), 999));
-            btnPlay.setImageTintList(ColorStateList.valueOf(0xFF3A3A3A));
+            btnPlay.setImageTintList(ColorStateList.valueOf(0xFFFFFFFF));
             btnPlay.setOnClickListener(v -> {
                 try {
                     musicCtl().toggle();
@@ -749,8 +754,60 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
         }
         // 条身（非按钮区，含封面）点按进播放页
         bar.setOnClickListener(v -> openMusicPlayer());
-        barView = bar;
+        barView = liveBar != null ? liveBar : bar;
         startHomeProgress();
+    }
+
+    /**
+     * 把迷你条包进 QmDeve LiquidGlass 实时背板：包装层＝[玻璃层（录制 musicRoot 真实内容作背板）＋条本体（透底)]。
+     * 玻璃层与条同尺寸，条挂到 decor 后玻璃录的是页面根（条不在根内，无自录递归）。
+     * 条件不满足（低版本／宿主不是音乐页／拿不到根）返回 null，调用方走原静态玻璃。
+     */
+    private View tryWrapLiveGlass(View bar) {
+        try {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return null;
+            Activity host = hostRef == null ? null : hostRef.get();
+            if (host == null) return null;
+            View root = host.findViewById(R.id.musicRoot);
+            if (!(root instanceof ViewGroup)) return null;
+            float density = bar.getResources().getDisplayMetrics().density;
+            com.qmdeve.liquidglass.Config cfg = new com.qmdeve.liquidglass.Config();
+            cfg.CORNER_RADIUS_PX = 34f * density;
+            cfg.ECCENTRIC_FACTOR = 1.0f;
+            cfg.REFRACTION_HEIGHT = 20f * density;
+            cfg.REFRACTION_OFFSET = -70f * density;
+            cfg.BLUR_RADIUS = 24f;
+            cfg.DISPERSION = 0.5f;
+            cfg.DEPTH_EFFECT = 0.3f;
+            cfg.CONTRAST = 0f;
+            cfg.WHITE_POINT = 0f;
+            cfg.CHROMA_MULTIPLIER = 1f;
+            // 深烟熏 tint（样张口径：深透玻璃＋白字），压在模糊氛围底上显形
+            cfg.TINT_COLOR_RED = 0.05f;
+            cfg.TINT_COLOR_GREEN = 0.05f;
+            cfg.TINT_COLOR_BLUE = 0.07f;
+            cfg.TINT_ALPHA = 0.34f;
+            com.qmdeve.liquidglass.LiquidGlass glass = new com.qmdeve.liquidglass.LiquidGlass(bar.getContext(), cfg);
+            FrameLayout wrap = new FrameLayout(bar.getContext());
+            wrap.addView(glass, new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+            wrap.addView(bar, new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT));
+            wrap.setElevation(12f * density);
+            glass.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+                int w = r - l, h = b - t;
+                if (w > 0 && h > 0 && (cfg.WIDTH != w || cfg.HEIGHT != h)) {
+                    cfg.WIDTH = w;
+                    cfg.HEIGHT = h;
+                    glass.updateParameters();
+                }
+            });
+            bar.setBackground(null);
+            glass.init((ViewGroup) root);
+            return wrap;
+        } catch (Throwable ignored) {
+            return null;
+        }
     }
 
     /** 条身回播放页（spec §5.5）：反射 Intent 直开播放页＋NEW_TASK（宿主作 Context、无则用 app）。 */

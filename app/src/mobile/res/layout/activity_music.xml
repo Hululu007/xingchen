@@ -9,9 +9,10 @@
      玻璃件一律先挂 bg_music_glass_* XML 件作可见下限，运行时 MusicGlassWire 升级同源液态玻璃。
      顶栏只有左对齐标题、无返回箭头（铁律）；界面只放名字和状态，无介绍文字。 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/musicRoot"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@drawable/home_bg_page">
+    android:background="#121218">
 
     <com.fongmi.android.tv.ui.music.MusicGlassBackgroundView
         android:id="@+id/homeGlassBg"
@@ -148,7 +149,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginStart="8dp"
                         android:text="@string/home_search_hint"
-                        android:textColor="#8E8E93"
+                        android:textColor="#C9C9D1"
                         android:textSize="15sp" />
                 </LinearLayout>
 
@@ -193,7 +194,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="4dp"
                         android:text="@string/home_favorite"
-                        android:textColor="#141414"
+                        android:textColor="#FFFFFF"
                         android:textSize="14sp"
                         android:textStyle="bold" />
 
@@ -203,7 +204,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="2dp"
                         android:text="0"
-                        android:textColor="#B2B2B2"
+                        android:textColor="#B9B9C2"
                         android:textSize="13sp" />
                 </LinearLayout>
 
@@ -232,7 +233,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="4dp"
                         android:text="@string/home_sheets"
-                        android:textColor="#141414"
+                        android:textColor="#FFFFFF"
                         android:textSize="14sp"
                         android:textStyle="bold" />
 
@@ -242,7 +243,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="2dp"
                         android:text="0"
-                        android:textColor="#B2B2B2"
+                        android:textColor="#B9B9C2"
                         android:textSize="13sp" />
                 </LinearLayout>
 
@@ -271,7 +272,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="4dp"
                         android:text="@string/home_device"
-                        android:textColor="#141414"
+                        android:textColor="#FFFFFF"
                         android:textSize="14sp"
                         android:textStyle="bold" />
 
@@ -281,7 +282,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="2dp"
                         android:text="0"
-                        android:textColor="#B2B2B2"
+                        android:textColor="#B9B9C2"
                         android:textSize="13sp" />
                 </LinearLayout>
 
@@ -310,7 +311,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="4dp"
                         android:text="@string/home_recent"
-                        android:textColor="#141414"
+                        android:textColor="#FFFFFF"
                         android:textSize="14sp"
                         android:textStyle="bold" />
 
@@ -320,7 +321,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="2dp"
                         android:text="0"
-                        android:textColor="#B2B2B2"
+                        android:textColor="#B9B9C2"
                         android:textSize="13sp" />
                 </LinearLayout>
 
@@ -349,7 +350,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="4dp"
                         android:text="@string/home_download"
-                        android:textColor="#141414"
+                        android:textColor="#FFFFFF"
                         android:textSize="14sp"
                         android:textStyle="bold" />
 
@@ -359,7 +360,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="2dp"
                         android:text="0"
-                        android:textColor="#B2B2B2"
+                        android:textColor="#B9B9C2"
                         android:textSize="13sp" />
                 </LinearLayout>
             </LinearLayout>
@@ -401,7 +402,7 @@
                         android:layout_weight="1"
                         android:ellipsize="end"
                         android:singleLine="true"
-                        android:textColor="#999999"
+                        android:textColor="#B9B9C2"
                         android:textSize="12sp" />
 
                     <ImageView
@@ -714,7 +715,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="心情电台"
-                        android:textColor="#1C1C1E"
+                        android:textColor="#FFFFFF"
                         android:textSize="17sp"
                         android:textStyle="bold" />
 
@@ -723,7 +724,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="8dp"
-                        android:textColor="#3A3A3C"
+                        android:textColor="#E8E8ED"
                         android:textSize="14sp"
                         android:textStyle="bold" />
 
@@ -735,7 +736,7 @@
                         android:layout_weight="1"
                         android:ellipsize="end"
                         android:singleLine="true"
-                        android:textColor="#8E8E93"
+                        android:textColor="#A9A9B3"
                         android:textSize="12sp" />
                 </LinearLayout>
 

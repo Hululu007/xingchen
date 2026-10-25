@@ -40,6 +40,7 @@ import com.fongmi.android.tv.music.MusicStore;
 import com.fongmi.android.tv.music.DeviceMusicStore;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.ui.minibar.ListenMiniBar;
+import com.fongmi.android.tv.ui.music.MusicGlassBackgroundView;
 import com.fongmi.android.tv.ui.music.MusicGlassDrawable;
 import com.fongmi.android.tv.ui.music.MusicGlassWire;
 import com.fongmi.android.tv.ui.music.MusicPlayerActivity;
@@ -145,6 +146,9 @@ public class MusicActivity extends BaseActivity {
 
     @Override
     protected void initView(Bundle savedInstanceState) {
+        // 背景切深底氛围（封面重糊底，他 2026-10-25 深夜终定）：本页前景已翻白，启用深底
+        MusicGlassBackgroundView homeBg = rootView.findViewById(R.id.homeGlassBg);
+        if (homeBg != null) homeBg.useDarkAmbient(true);
         // 玻璃升级：XML 半透件是可见下限，这里走树换同源液态玻璃（取样失效也有下限成形）
         MusicGlassWire.glassifyTree(rootView);
         MusicRepository.ensureDebugFake();
@@ -196,6 +200,8 @@ public class MusicActivity extends BaseActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        // 深底页：系统栏图标转浅（离页在 onPause 还原浅色页口径）
+        ReadingSkin.setSystemBarIconAppearance(this, true);
         // 滚动只恢复一次（一次性门）
         if (!scrollRestoreDone && pendingScrollY > 0 && homeScroll != null) {
             final int y = pendingScrollY;
@@ -216,6 +222,13 @@ public class MusicActivity extends BaseActivity {
             MusicController.get().refreshMiniBar();
         } catch (Throwable ignored) {
         }
+    }
+
+    @Override
+    protected void onPause() {
+        // 离页还原浅色页口径的系统栏图标（其它页都是浅底）
+        ReadingSkin.setSystemBarIconAppearance(this, false);
+        super.onPause();
     }
 
     @Override
@@ -353,7 +366,7 @@ public class MusicActivity extends BaseActivity {
         LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1);
         dlp.setMarginStart(dp(62));
         divider.setLayoutParams(dlp);
-        divider.setBackgroundColor(0x14000000);
+        divider.setBackgroundColor(0x14FFFFFF);
         card.addView(divider);
         card.addView(menuRow(R.drawable.ic_nav_setting, 0xFFFF2D55, "设置",
                 "", v -> MusicSettingsActivity.start(this)));
@@ -434,7 +447,7 @@ public class MusicActivity extends BaseActivity {
         row.addView(box);
         TextView tv = new TextView(this);
         tv.setText(title);
-        tv.setTextColor(0xFF1A1A1A);
+        tv.setTextColor(0xFFF5F5F7);
         tv.setTextSize(16);
         tv.getPaint().setFakeBoldText(true);
         LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
@@ -443,7 +456,7 @@ public class MusicActivity extends BaseActivity {
         row.addView(tv);
         TextView rv = new TextView(this);
         rv.setText(right);
-        rv.setTextColor(0xFF9A9AA0);
+        rv.setTextColor(0xFFB9B9C2);
         rv.setTextSize(12);
         row.addView(rv);
         return row;
@@ -611,6 +624,19 @@ public class MusicActivity extends BaseActivity {
                 } catch (Throwable ignored) {
                 }
             });
+        }
+        // 氛围底取材：本页真实封面喂给统一背景拼重模糊底（同一批地址自动跳过，不重复加载）
+        try {
+            MusicGlassBackgroundView bg = findViewById(R.id.homeGlassBg);
+            if (bg != null && tracks != null) {
+                List<String> covers = new ArrayList<>();
+                for (MusicTrack t : tracks) {
+                    if (t != null && t.cover != null && !t.cover.isEmpty()) covers.add(t.cover);
+                    if (covers.size() >= 6) break;
+                }
+                bg.setAmbientCoverUrls(covers);
+            }
+        } catch (Throwable ignored) {
         }
     }
 

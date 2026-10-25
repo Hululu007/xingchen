@@ -257,16 +257,17 @@ public class CdLyricWindowView extends View {
             }
             boolean current = i == currentIndex;
             LyricsLine line = lines.get(i);
-            // 当前行已唱部分用 sung 色（＝ink 本色，palette sung=ink）、未唱用 activeUnsung(ink×0.42)：
-            // 本窗行级渲染（逐字走批 2 引擎口径不在本窗职责内），整行当前＝ink、其余＝ink×0.55 alpha（任务口径）。
-            mainPaint.setColor(inkColor);
-            mainPaint.setAlpha(current ? 255 : Math.round(255f * 0.55f));
+            // 调色走 palette 四值（LuminousCdPlayerKt.java:3661-3662）：当前行＝ink（sung 色）、
+            // 非当前主行＝ink×0.38、副行＝ink×0.42，均不再整行乘 alpha（原非当前 0.55、副行叠乘后约 0.23 不符）。
+            // 当前行已唱/未唱分段（未唱 ink×0.42）需逐字口径、本窗行级渲染不做，记对照表。
+            mainPaint.setColor(current ? inkColor : withAlpha(inkColor, 0.38f));
+            mainPaint.setAlpha(255);
             drawCentered(canvas, line.getText() == null ? "" : line.getText(), mainPaint, x0, baseline + i * slot, width);
             if (showSub) {
                 String sub = i < subs.size() ? subs.get(i) : null;
                 if (sub != null && !sub.isEmpty()) {
                     subPaint.setColor(withAlpha(inkColor, 0.42f));
-                    subPaint.setAlpha(current ? 255 : Math.round(255f * 0.55f));
+                    subPaint.setAlpha(255);
                     drawCentered(canvas, sub, subPaint, x0, baseline + i * slot + subHeightPx() * 0.92f, width);
                 }
             }

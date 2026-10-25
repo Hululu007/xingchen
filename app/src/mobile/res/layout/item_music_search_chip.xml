@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 源横排 chip：底走共用玻璃件 bg_music_glass_chip／选中态 bg_music_glass_chip_selected（代码切换） -->
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:layout_marginEnd="8dp"
+    android:background="@drawable/bg_music_glass_chip"
+    android:gravity="center"
+    android:paddingStart="14dp"
+    android:paddingTop="7dp"
+    android:paddingEnd="14dp"
+    android:paddingBottom="7dp"
+    android:singleLine="true"
+    android:textColor="#3A3A3C"
+    android:textSize="13sp" />

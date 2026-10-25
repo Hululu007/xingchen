@@ -1368,10 +1368,22 @@ public class MusicRepository {
     private static class PendingLyric {
         final MusicLyric lyric;
         final double gzLevel;
+        /** 候选歌元数据（跨源命中当场带下来，随版本进弹窗行展示，见 LyricVersion 同名字段） */
+        final String candidateTitle;
+        final String candidateArtist;
+        final int durationDeltaSec;
 
         PendingLyric(MusicLyric lyric, double gzLevel) {
+            this(lyric, gzLevel, null, null, 0);
+        }
+
+        PendingLyric(MusicLyric lyric, double gzLevel, String candidateTitle, String candidateArtist,
+                     int durationDeltaSec) {
             this.lyric = lyric;
             this.gzLevel = gzLevel;
+            this.candidateTitle = candidateTitle;
+            this.candidateArtist = candidateArtist;
+            this.durationDeltaSec = durationDeltaSec;
         }
     }
 
@@ -1654,10 +1666,16 @@ public class MusicRepository {
                     if (alt != null && (alt.sourceName == null || alt.sourceName.isEmpty())) {
                         alt.sourceName = siteNameForPlatform(hit.platform);
                     }
+                    // 候选歌元数据随版本带下去（弹窗行显候选自己的歌名·歌手与时长偏差，瓜子 LyricsCandidate 同名字段）：
+                    // 时长差＝|候选时长−目标时长| 秒（双方时长都已知才算，未知记 0＝不显）
+                    int deltaSec = track.duration > 0 && hit.duration > 0
+                            ? (int) Math.round(Math.abs(hit.duration - track.duration) / 1000.0) : 0;
                     if (sink != null) {
-                        if (alt != null && alt.hasLyric()) sink.add(new PendingLyric(alt, gzLevel));
+                        if (alt != null && alt.hasLyric()) {
+                            sink.add(new PendingLyric(alt, gzLevel, hit.title, hit.artist, deltaSec));
+                        }
                     } else {
-                        addVersion(out, seen, alt, hitLevel, gzLevel);
+                        addVersion(out, seen, alt, hitLevel, gzLevel, hit.title, hit.artist, deltaSec);
                     }
                 } catch (Throwable t) {
                     rethrowKeyIssue(t);
@@ -1776,7 +1794,8 @@ public class MusicRepository {
             // 二-8：次级（包含级）版本殿后，跟随来源模式下同样不许排在精确命中前面；
             // 次级列只由包含遍喂入，星辰级别在此明写包含级，瓜子等级用命中当场定好的那份
             for (PendingLyric deferred : containsLyrics) {
-                addVersion(out, seen, deferred.lyric, MATCH_CONTAINS, deferred.gzLevel);
+                addVersion(out, seen, deferred.lyric, MATCH_CONTAINS, deferred.gzLevel,
+                        deferred.candidateTitle, deferred.candidateArtist, deferred.durationDeltaSec);
             }
             return new LyricRichAllResult(out, complete);
         }
@@ -1802,7 +1821,8 @@ public class MusicRepository {
         out.addAll(plain);
         // 二-8：次级（包含级）版本殿后追加（自动路径次级列恒空，此处为空操作）；级别口径同上
         for (PendingLyric deferred : containsLyrics) {
-            addVersion(out, seen, deferred.lyric, MATCH_CONTAINS, deferred.gzLevel);
+            addVersion(out, seen, deferred.lyric, MATCH_CONTAINS, deferred.gzLevel,
+                        deferred.candidateTitle, deferred.candidateArtist, deferred.durationDeltaSec);
         }
         return new LyricRichAllResult(out, complete);
     }
@@ -1846,6 +1866,14 @@ public class MusicRepository {
     /** 全级别收集合并：gzLevel 为瓜子等级（GzLyricMatch 定级；未定级传 GZ_LEVEL_UNKNOWN）。 */
     private static void addVersion(List<LyricVersion> out, Set<String> seen, MusicLyric lyric,
                                    int matchLevel, double gzLevel) {
+        addVersion(out, seen, lyric, matchLevel, gzLevel, null, null, 0);
+    }
+
+    /** 带候选歌元数据的收集合并：candidateTitle/Artist/durationDeltaSec 只在跨源命中当场拿得到，
+     * 其余产出步走上面的重载（null/0，弹窗行回落当前歌曲、不显偏差）。 */
+    private static void addVersion(List<LyricVersion> out, Set<String> seen, MusicLyric lyric,
+                                   int matchLevel, double gzLevel, String candidateTitle,
+                                   String candidateArtist, int durationDeltaSec) {
         if (lyric == null || !lyric.hasLyric()) return;
         String key = lyric.rawLrc == null ? "" : lyric.rawLrc.trim();
         if (key.isEmpty()) {
@@ -1854,7 +1882,8 @@ public class MusicRepository {
         }
         if (key.isEmpty() || !seen.add(key)) return;
         boolean[] kinds = versionKinds(lyric);
-        out.add(new LyricVersion(lyric, lyric.sourceName, kinds[0], kinds[1], matchLevel, gzLevel));
+        out.add(new LyricVersion(lyric, lyric.sourceName, kinds[0], kinds[1], matchLevel, gzLevel,
+                candidateTitle, candidateArtist, durationDeltaSec));
     }
 
     /** 版本档位判定（解析正文）：[0]＝任一行带逐字时间、[1]＝任一行带行时间戳 */

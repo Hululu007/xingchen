@@ -37,7 +37,7 @@ import java.util.Map;
  * 点行＝回调行首时间（定案点歌词行快进）；超长行截断加省略号（D-11 承接）。
  * 展示窗口平滑滚动（2026-10-25）：窗口首行偏移做成连续量（scrollOffsetPx），当前行推进时
  * 按 FullLyricView 同口径每帧 0.18 指数趋近、0.5px 收口——窗口随当前行滚，不是整窗跳变。
- * 点行只认点按（位移小于触摸阈值）：滑动（页级竖滑／歌词区横滑切歌）松手不许误触 seek。
+ * 点行只认点按（位移小于触摸阈值）：滑动（页级竖滑切歌）松手不许误触 seek。
  * 播放中自驱帧循环：以宿主 setPosition 为锚点按真实时间推进显示位置，逐字动画逐帧走，暂停即停。
  */
 public class CoverLyricView extends View {
@@ -479,7 +479,7 @@ public class CoverLyricView extends View {
                 touchDownY = event.getY();
                 break;
             case MotionEvent.ACTION_UP:
-                // 点行只认点按：位移超阈值是滑（页级竖滑切歌／歌词区横滑切歌），不许误触 seek。
+                // 点行只认点按：位移超阈值是滑（页级竖滑切歌），不许误触 seek。
                 if (lineClickListener != null && !lines.isEmpty()
                         && Math.hypot(event.getX() - touchDownX, event.getY() - touchDownY) < tapSlopPx) {
                     float y = event.getY() - getPaddingTop();

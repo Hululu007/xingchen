@@ -1595,8 +1595,15 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         // 预览跟随本面板唯一滑杆（封面歌词字号）；全屏字号的预览在设置页字号对话框内
         lyricPreview.setTextSize(MusicStore.getCoverLyricFontSize());
         int w = MusicStore.getLyricWeight();
-        lyricPreview.setTypeface(w == MusicStore.LYRIC_WEIGHT_NORMAL ? Typeface.DEFAULT : Typeface.DEFAULT_BOLD);
-        lyricPreview.getPaint().setFakeBoldText(w == MusicStore.LYRIC_WEIGHT_BLACK);
+        // 预览字重与渲染同映射（GZ lyricFontWeightOf：标准 700／加粗 800／特粗 900）
+        int target = w == MusicStore.LYRIC_WEIGHT_BLACK ? 900 : w == MusicStore.LYRIC_WEIGHT_BOLD ? 800 : 700;
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+            lyricPreview.setTypeface(Typeface.create(Typeface.DEFAULT, target, false));
+            lyricPreview.getPaint().setFakeBoldText(false);
+        } else {
+            lyricPreview.setTypeface(Typeface.DEFAULT_BOLD);
+            lyricPreview.getPaint().setFakeBoldText(w == MusicStore.LYRIC_WEIGHT_BLACK);
+        }
         lyricPreview.getPaint().setTextSkewX(-0.12f);
         int a = MusicStore.getLyricAlign();
         int horizontal = a == MusicStore.LYRIC_ALIGN_CENTER ? Gravity.CENTER_HORIZONTAL

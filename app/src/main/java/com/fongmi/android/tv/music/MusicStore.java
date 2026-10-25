@@ -876,7 +876,10 @@ public class MusicStore {
 
     /** 歌词粗细：0 标准 1 加粗 2 特粗（默认加粗：瓜子 lyricFontWeight／coverLyricFontWeight 均 "bold"＝700，PlayerViewModel.java:1027,1031） */
     public static int getLyricWeight() {
-        return Prefers.getInt(K_LYRIC_WEIGHT, LYRIC_WEIGHT_BOLD);
+        // 默认档回 0（「标准」）：瓜子三档名与字重对位为 标准=BOLD 700／加粗=extraBold 800／特粗=900
+        // （lyricFontWeightOf，LyricsViewKt.java:11579-11591；面板档名 PlayerToolsSheetKt.java:1462）——
+        // 默认取「标准」即 GZ 默认 bold 700。此前把默认改到 1 的做法在新映射下会变 800，已纠正。
+        return Prefers.getInt(K_LYRIC_WEIGHT, LYRIC_WEIGHT_NORMAL);
     }
 
     public static void setLyricWeight(int weight) {

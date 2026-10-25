@@ -75,27 +75,24 @@ public class LyricLineDrawer {
     }
 
     /**
-     * 主歌词字重（批 7 补线：键 music_lyric_weight 0 标准／1 加粗／2 特粗，此前只进了工具面板预览）。
-     * 映射照面板预览 applyPreview 的既有先例：0→400（低版 DEFAULT）、1→700（DEFAULT_BOLD）、
-     * 2→900（低版 DEFAULT_BOLD＋fakeBold 近似）。只挂主行画笔，副行 §6.1 字重 500 不动。
-     * 光晕位图键不含字重，换字重必须作废缓存，否则光晕仍按旧字重出图。
+     * 主歌词字重（键 music_lyric_weight 0 标准／1 加粗／2 特粗）。
+     * 映射照瓜子 lyricFontWeightOf（LyricsViewKt.java:11579-11591）与面板三档名对位
+     * （PlayerToolsSheetKt.java:1462：BOLD→「标准」、extraBold→「加粗」、其余→「特粗」）：
+     * 0→700、1→800、2→900。此前 0→400/1→700 的映射整体错位一档（B 路复核纠正）。
+     * 低版本无字重 API：0/1 回落 DEFAULT_BOLD、2 回落 DEFAULT_BOLD＋fakeBold 近似。
+     * 只挂主行画笔，副行字重 500 不动。光晕位图键不含字重，换字重必须作废缓存。
      */
     public void setLyricWeight(int weight) {
         Typeface base;
         boolean fake = false;
-        if (weight >= 2) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                base = Typeface.create(Typeface.DEFAULT, 900);
-            } else {
-                base = Typeface.DEFAULT_BOLD;
-                fake = true;
-            }
-        } else if (weight == 1) {
+        int target = weight >= 2 ? 900 : weight == 1 ? 800 : 700;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            base = Typeface.create(Typeface.DEFAULT, target);
+        } else if (weight >= 2) {
             base = Typeface.DEFAULT_BOLD;
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            base = Typeface.create(Typeface.DEFAULT, 400);
+            fake = true;
         } else {
-            base = Typeface.DEFAULT;
+            base = Typeface.DEFAULT_BOLD;
         }
         mainPaint.setTypeface(base);
         mainPaint.setFakeBoldText(fake);

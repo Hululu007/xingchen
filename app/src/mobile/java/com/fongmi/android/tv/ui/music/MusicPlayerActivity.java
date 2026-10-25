@@ -2977,12 +2977,8 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
             cdBtnFavView.setImageResource(favorited
                     ? R.drawable.ic_music_heart_fill : R.drawable.ic_music_heart);
             cdBtnFavView.setImageTintList(ColorStateList.valueOf(cdDarkSurface ? 0xB8F2F2F7 : 0xFF282D36));
-            MusicTrack curFav = null;
-            try {
-                curFav = MusicController.get().current();
-            } catch (Throwable ignored) {
-            }
-            cdBtnFavView.setAlpha(curFav == null ? 0.35f : 1f);
+            // alpha 与 enabled 归 paintCdUtilityGates 一处管（同判据：有无当前曲目），此处不重复写
+            paintCdUtilityGates();
         }
         // Apple 头右收藏玻璃钮：图标随收藏态换实心/描边（底与 alpha 0.85 由布局给）
         View appleFav = find(R.id.tpAppleFav);

@@ -874,9 +874,9 @@ public class MusicStore {
         Prefers.put(K_COVER_LYRIC_BLUR, Math.max(LYRIC_BLUR_OFF, Math.min(LYRIC_BLUR_MEDIUM, blur)));
     }
 
-    /** 歌词粗细：0 标准 1 加粗 2 特粗（默认标准） */
+    /** 歌词粗细：0 标准 1 加粗 2 特粗（默认加粗：瓜子 lyricFontWeight／coverLyricFontWeight 均 "bold"＝700，PlayerViewModel.java:1027,1031） */
     public static int getLyricWeight() {
-        return Prefers.getInt(K_LYRIC_WEIGHT, LYRIC_WEIGHT_NORMAL);
+        return Prefers.getInt(K_LYRIC_WEIGHT, LYRIC_WEIGHT_BOLD);
     }
 
     public static void setLyricWeight(int weight) {

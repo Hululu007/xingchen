@@ -10,4 +10,8 @@
     <string name="music_wave2_cd_surface_auto">切换表面，当前自动</string>
     <string name="music_wave2_volume_low">音量小</string>
     <string name="music_wave2_volume_high">音量大</string>
+    <string name="player_tools">播放工具</string>
+    <string name="player_queue">播放列表</string>
+    <string name="player_play_pause">播放或暂停</string>
+    <string name="player_favorite">收藏</string>
 </resources>

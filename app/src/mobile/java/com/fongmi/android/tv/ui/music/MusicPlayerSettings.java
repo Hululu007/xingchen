@@ -190,6 +190,34 @@ public class MusicPlayerSettings {
         MusicStore.setFluidBeat(on);
     }
 
+    // ===== #15 经典页内歌词锚点（自有；"top"/"center"/"bottom"，默认 "top"——瓜子 lyricAnchor 默认） =====
+
+    private static final String K_LYRIC_ANCHOR = "music_lyric_anchor";
+    public static final String ANCHOR_TOP = "top";
+    public static final String ANCHOR_CENTER = "center";
+    public static final String ANCHOR_BOTTOM = "bottom";
+
+    public static String getLyricAnchor() {
+        String a = Prefers.getString(K_LYRIC_ANCHOR, ANCHOR_TOP);
+        return ANCHOR_CENTER.equals(a) || ANCHOR_BOTTOM.equals(a) ? a : ANCHOR_TOP;
+    }
+
+    public static void setLyricAnchor(String anchor) {
+        Prefers.put(K_LYRIC_ANCHOR, ANCHOR_CENTER.equals(anchor) || ANCHOR_BOTTOM.equals(anchor) ? anchor : ANCHOR_TOP);
+    }
+
+    /** 锚点→行内对齐 fraction（瓜子 alignmentFraction：top 0.0／center 0.5／bottom 1.0）。 */
+    public static float lyricAnchorFraction() {
+        switch (getLyricAnchor()) {
+            case ANCHOR_CENTER:
+                return 0.5f;
+            case ANCHOR_BOTTOM:
+                return 1.0f;
+            default:
+                return 0.0f;
+        }
+    }
+
     /** 节拍响应倍率（喂包络的 beatScale）：slow 0.7／normal 1.0／fast 1.6。 */
     public static float fluidBeatFactor() {
         switch (getFluidSpeed()) {

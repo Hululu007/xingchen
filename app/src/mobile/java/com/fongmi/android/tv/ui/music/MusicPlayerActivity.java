@@ -50,6 +50,7 @@ import com.fongmi.android.tv.music.MusicController;
 import com.fongmi.android.tv.music.MusicDownloadStore;
 import com.fongmi.android.tv.music.MusicLibrary;
 import com.fongmi.android.tv.music.MusicLyricCache;
+import com.fongmi.android.tv.music.MusicQueue;
 import com.fongmi.android.tv.music.MusicRepository;
 import com.fongmi.android.tv.music.MusicStore;
 import com.fongmi.android.tv.music.RichLyrics;
@@ -201,6 +202,8 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
     private final List<String> lyricTrans = new ArrayList<>();
     private final List<String> lyricRomas = new ArrayList<>();
     private final List<LyricVersion> currentLyricVersions = new ArrayList<>();
+    /** 当前实际在播的那份词构成的版本（补单②：在用词本身必须在版本列表里，见 loadLyric） */
+    private LyricVersion currentLyricVersion;
     private String currentLyricKey;
     private String currentLyricFormat;
     /** 当前已应用歌词的来源名（MusicLyric.sourceName／LyricVersion.getSource，信息页「匹配来源」行数据源） */
@@ -881,7 +884,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         }
         View chipLyric = find(R.id.tpChipLyric);
         if (chipLyric != null) {
-            chipLyric.setOnClickListener(v -> openLyricVersionDialog());
+            chipLyric.setOnClickListener(v -> showToolsSheetLyric());
             attachPressScale(chipLyric, 0.96f);
         }
         if (lyricView != null) {
@@ -958,7 +961,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         }
         View lyricVer = find(R.id.tpCdBtnLyricVer);
         if (lyricVer != null) {
-            lyricVer.setOnClickListener(v -> openLyricVersionDialog());
+            lyricVer.setOnClickListener(v -> showToolsSheetLyric());
             attachPressScale(lyricVer, 0.9f);
         }
         if (cdBtnFavView != null) {
@@ -1417,10 +1420,10 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
             attachPressScale(next, 0.88f);
         }
         if (playTopView != null) attachPressScale(playTopView, 0.9f);
-        // 功能行：第一键是歌词菜单（不是进歌词页）——直开歌词版本弹窗（照瓜子歌词筹去向：
-        // 点开即版本列表＋筛选签，空态带搜索入口；样式设置在工具面板歌词设置子面板，不在此串）
+        // 功能行：第一键是歌词菜单（不是进歌词页）——批 4 已换接新歌词设置子面板
+        // （MusicToolsSheetDialog 直达 PANEL_LYRIC：字号双滑杆／粗细／对齐／模糊三档／主歌词／高级动效，批 4 补齐模糊行）
         View lyricMenu = find(R.id.tpBtnLyricMenu);
-        if (lyricMenu != null) lyricMenu.setOnClickListener(v -> openLyricVersionDialog());
+        if (lyricMenu != null) lyricMenu.setOnClickListener(v -> showToolsSheetLyric());
         View qualityFunc = find(R.id.tpBtnQualityFunc);
         if (qualityFunc != null) qualityFunc.setOnClickListener(v -> showQualityDialog());
         View queue = find(R.id.tpBtnQueue);
@@ -2761,6 +2764,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         lyricTrans.clear();
         lyricRomas.clear();
         currentLyricVersions.clear();
+        currentLyricVersion = null;
         currentLyricFormat = null;
         currentLyricKey = null;
         currentLyricSource = null;
@@ -2785,11 +2789,18 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
             String richSource = null;
             boolean richProvided = false;
             LxKeyIssue keyIssue = null;
+            // 在用词本体（补单②）：mains 实际取自哪份词就记哪份，聚合缺失／未回时它就是版本列表的底
+            MusicLyric inUseLyric = null;
+            String inUseSource = null;
             String sidecarLrc = MusicDownloadStore.readSidecarLyric(track);
             if (sidecarLrc != null && !sidecarLrc.trim().isEmpty()) {
                 mains = LyricsParser.parseWordLyric(sidecarLrc);
                 richProvided = !mains.isEmpty();
                 if (richProvided) richKey = sidecarLrc.trim();
+                if (!mains.isEmpty()) {
+                    inUseLyric = new MusicLyric(sidecarLrc);
+                    inUseSource = "本地";
+                }
             }
             MusicLyric cached = force ? null : MusicLyricCache.get(track);
             try {
@@ -2797,6 +2808,10 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
                 if (rich != null) {
                     if (rich.rawLrc != null && !rich.rawLrc.isEmpty()) {
                         mains = LyricsParser.parseWordLyric(rich.rawLrc);
+                        if (!mains.isEmpty()) {
+                            inUseLyric = rich;
+                            inUseSource = rich.sourceName;
+                        }
                     }
                     List<LyricsLine> transLines = rich.translation == null || rich.translation.isEmpty()
                             ? null : LyricsParser.parseWordLyric(rich.translation);
@@ -2821,7 +2836,11 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
                     String lrc = MusicRepository.lyric(track, force);
                     if (lrc != null && !lrc.isEmpty()) {
                         mains = LyricsParser.parseWordLyric(lrc);
-                        if (!mains.isEmpty()) MusicLyricCache.putPlain(track, lrc);
+                        if (!mains.isEmpty()) {
+                            MusicLyricCache.putPlain(track, lrc);
+                            inUseLyric = new MusicLyric(lrc);
+                            inUseSource = MusicRepository.sourceDisplayName(track.platform);
+                        }
                     }
                 }
                 if (force && mains.isEmpty() && keyIssue == null) MusicLyricCache.remove(track);
@@ -2835,6 +2854,8 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
             String resultFormat = richProvided ? richFormat : null;
             String resultKey = richProvided ? richKey : null;
             String resultSource = richProvided ? richSource : null;
+            MusicLyric resultLyric = inUseLyric;
+            String resultLyricSource = inUseSource;
             LxKeyIssue resultKeyIssue = keyIssue;
             runOnUiThread(() -> {
                 MusicTrack cur = MusicController.get().current();
@@ -2844,6 +2865,12 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
                 currentLyricKey = resultKey;
                 currentLyricSource = resultSource;
                 applyLyricData(resultMains, resultTrans, resultRomas);
+                // 补单②：在用词先行入列（不等聚合回来）——词在播时版本数至少为 1，
+                // 设置面板不许再出现「播着词却暂无版本」；聚合回来后由 ensureCurrentLyricListed 合并
+                currentLyricVersion = resultMains.isEmpty() ? null
+                        : MusicRepository.displayedVersion(resultLyric, resultLyricSource);
+                currentLyricVersions.clear();
+                if (currentLyricVersion != null) currentLyricVersions.add(currentLyricVersion);
                 lyricEmpty = resultMains.isEmpty();
                 lyricLoading = false;
                 if (resultMains.isEmpty() && lyricView != null) {
@@ -2873,10 +2900,65 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
                         if (cur2 == null || !trackKey(cur2).equals(trackKey(track))) return;
                         currentLyricVersions.clear();
                         currentLyricVersions.addAll(resultVersions);
+                        ensureCurrentLyricListed();
+                        maybeUpgradeLyricByPriority(track);
                     });
                 });
             });
         });
+    }
+
+    /** 补单②合并：聚合列表里有同文版本时以聚合版为准（带真实定级）并认它作在用版本；
+     * 没有（聚合缺失／旁路词／纯文本兜底词不在聚合视野里）时把在用词条补进列表首位——
+     * 列表为空只许是真的全链无词。 */
+    private void ensureCurrentLyricListed() {
+        if (currentLyricVersion == null || currentLyricVersion.getLyric() == null) return;
+        String raw = currentLyricVersion.getLyric().rawLrc;
+        String key = raw == null ? "" : raw.trim();
+        if (key.isEmpty()) return;
+        for (LyricVersion v : currentLyricVersions) {
+            if (v.getLyric() != null && v.getLyric().rawLrc != null
+                    && key.equals(v.getLyric().rawLrc.trim())) {
+                currentLyricVersion = v;
+                return;
+            }
+        }
+        currentLyricVersions.add(0, currentLyricVersion);
+    }
+
+    /**
+     * 补单①：默认选用认「在线歌词优先级」设置。聚合每播必跑——聚合里若有比在用词更合
+     * 设置的版本（默认逐字优先：在用是逐行／文本而聚合有逐字版），自动换成那份并写歌词
+     * 缓存，下次播放直接从它起步（治旧逐行词被缓存长期压住：播放页读缓存在取词链之前，
+     * 缓存里的旧词靠自身永远等不到逐字版）。手动选过版本的曲目不许动；跟随来源模式不升级。
+     * 只换在用词、不动取词链与聚合总序。
+     */
+    private void maybeUpgradeLyricByPriority(MusicTrack track) {
+        if (currentLyricVersion == null) return;
+        String stored = MusicStore.getManualLyricChoice(MusicQueue.trackKey(track));
+        if (stored != null && !MusicStore.manualLyricChoiceKey(stored).isEmpty()) return;
+        String priority = MusicStore.getLyricPriority();
+        LyricVersion best = null;
+        if (MusicStore.LYRIC_PRIORITY_WORD_BY_WORD.equals(priority)) {
+            if (currentLyricVersion.isWordTimed()) return;
+            for (LyricVersion v : currentLyricVersions) if (v.isWordTimed()) { best = v; break; }
+        } else if (MusicStore.LYRIC_PRIORITY_LINE_BY_LINE.equals(priority)) {
+            if (currentLyricVersion.isLineTimed() && !currentLyricVersion.isWordTimed()) return;
+            for (LyricVersion v : currentLyricVersions) {
+                if (v.isLineTimed() && !v.isWordTimed()) { best = v; break; }
+            }
+        } else if (MusicStore.LYRIC_PRIORITY_AMLL_FIRST.equals(priority)) {
+            if ("AMLL".equals(currentLyricVersion.getSource())) return;
+            for (LyricVersion v : currentLyricVersions) {
+                if ("AMLL".equals(v.getSource())) { best = v; break; }
+            }
+        } else {
+            return;
+        }
+        if (best == null || best == currentLyricVersion || best.getLyric() == null) return;
+        String bestRaw = best.getLyric().rawLrc == null ? "" : best.getLyric().rawLrc.trim();
+        if (bestRaw.isEmpty() || bestRaw.equals(currentLyricKey)) return;
+        applyVersionData(track, best, true);
     }
 
     private void searchLyric() {
@@ -2918,6 +3000,11 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         MusicTrack track = MusicController.get().current();
         if (track == null) return;
         MusicRepository.saveManualLyricChoice(track, version);
+        applyVersionData(track, version, false);
+    }
+
+    /** 把某版本的词应用到播放页并认作在用版本；cachePick 时同时写歌词缓存（聚合升级用）。 */
+    private void applyVersionData(MusicTrack track, LyricVersion version, boolean cachePick) {
         MusicLyric rich = version.getLyric();
         Task.execute(() -> {
             List<LyricsLine> mains = new ArrayList<>();
@@ -2947,6 +3034,9 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
                 currentLyricFormat = rich.format;
                 currentLyricKey = rich.rawLrc == null ? null : rich.rawLrc.trim();
                 currentLyricSource = version.getSource();
+                currentLyricVersion = version;
+                if (!resultMains.isEmpty()) lyricEmpty = false;
+                if (cachePick) MusicLyricCache.put(track, rich);
                 applyLyricData(resultMains, resultTrans, resultRomas);
             });
         });
@@ -3258,9 +3348,19 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
     // ================= 工具面板 =================
 
     private void showToolsSheet() {
+        showToolsSheet(false);
+    }
+
+    private void showToolsSheetLyric() {
+        showToolsSheet(true);
+    }
+
+    private void showToolsSheet(boolean lyricPanel) {
         if (isFinishing() || isDestroyed()) return;
         try {
-            MusicToolsSheetDialog.show(this, toolsSheetListener());
+            MusicToolsSheetDialog.Listener listener = toolsSheetListener();
+            if (lyricPanel) MusicToolsSheetDialog.showLyricPanel(this, listener);
+            else MusicToolsSheetDialog.show(this, listener);
         } catch (Throwable ignored) {
         }
     }

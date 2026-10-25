@@ -19,6 +19,8 @@ import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.bean.music.LyricVersion;
 import com.fongmi.android.tv.bean.music.MusicLyric;
 import com.fongmi.android.tv.bean.music.MusicTrack;
+import com.fongmi.android.tv.music.GzLyricMatch;
+import com.fongmi.android.tv.music.LyricVersionOrdering;
 import com.fongmi.android.tv.music.MusicStore;
 import com.fongmi.android.tv.databinding.DialogMusicLyricVersionsBinding;
 import com.fongmi.android.tv.ui.dialog.BaseBottomSheetDialog;
@@ -37,8 +39,10 @@ import java.util.regex.Pattern;
  * 筛选签（全部／逐字／逐行／翻译／音译／文本）、版本行卡（来源＋行数＋歌名·歌手＋类型签＋匹配度％，
  * L9：选中与非选中同底、只用透明度区分（当前 0.95／非当前 0.58），不再粉底红字）。
  * 点行即切换版本（回调播放页 applyLyricVersion）并关面板。
- * 匹配度公式 GZ 未抠到：此处按 [ti:]/[ar:] 标签与当前曲名／歌手比对（两项各 50，无标签按 100），
- * 表里标未对齐，不冒充瓜子公式。行数按带时间戳的行计（不含 [ti:] 等元信息行）。
+ * 匹配度照瓜子真算法（GzLyricMatch 移植瓜子 sq4.t 分级＋gq4 分数映射＋
+ * LyricsCandidate.getMatchPercentText 显示口径）：分数在聚合产出版本时按目标曲与
+ * 候选歌的标题／歌手／时长定级算好、随版本带下来，弹窗只显示不重算；未定级与被
+ * 瓜子门淘汰（0 级）的版本不显分数，不冒充。行数按带时间戳的行计（不含 [ti:] 等元信息行）。
  * 第三波残留 L9 分工（定死，不两处语义打架）：全屏页内条＝版本切换（在已聚合的版本
  * 间直接切，旧页内条已随播放页重建下线、归批 2 全屏歌词页），本对话框＝类型筛（先按
  * 全部／逐字／逐行／翻译／音译／文本筛候选，再点行选版）；页内不另加类型筛选条，
@@ -51,8 +55,6 @@ public class MusicLyricVersionDialog extends BaseBottomSheetDialog {
     }
 
     private static final Pattern TIME_TAG = Pattern.compile("\\[(\\d{1,2}):(\\d{2})(?:[.:]\\d{1,3})?\\]");
-    private static final Pattern TITLE_TAG = Pattern.compile("(?m)^\\[ti:(.*?)\\]");
-    private static final Pattern ARTIST_TAG = Pattern.compile("(?m)^\\[ar:(.*?)\\]");
 
     public interface OnSearchLyric {
         void onSearchLyric();
@@ -238,19 +240,15 @@ public class MusicLyricVersionDialog extends BaseBottomSheetDialog {
     }
 
     /**
-     * 排序：匹配度主序、在线歌词优先级次序。匹配度仍优先（错歌的词不许靠优先级排到对歌的词前面）；
-     * 无 [ti:]/[ar:] 标签时匹配度全是 100，次序即优先级序，与 lyricRichAll 的分区一致，面板与
-     * 首屏不再各排各的。跟随来源模式下优先级次序全相等，等于只按匹配度排、保全量列表收集序。
-     * 逐行＝行时间且无词时间；AMLL 只认 getSource()＝"AMLL"，不判 format（Worker 版 format 是 TTML）。
+     * 排序：LyricVersionOrdering 口径——对歌级别第一层（瓜子定级优先，错歌的词不许靠
+     * 偏好排到对歌的词前面）、逐字／逐行偏好第二层（读他既有「在线歌词优先级」设置，
+     * 默认逐字优先：同级里逐字版排在逐行版前面）、星辰级别第三层、末层保收集序。
      */
     private void applyFilter() {
         shown.clear();
         List<LyricVersion> sorted = new ArrayList<>(versions);
-        sorted.sort((a, b) -> {
-            int byMatch = Integer.compare(matchPercent(b), matchPercent(a));
-            if (byMatch != 0) return byMatch;
-            return Integer.compare(lyricPriorityRank(a), lyricPriorityRank(b));
-        });
+        String priority = MusicStore.getLyricPriority();
+        sorted.sort((a, b) -> LyricVersionOrdering.compare(a, b, priority));
         for (LyricVersion v : sorted) {
             if (filter == 0) shown.add(v);
             else if (filter == 1 && v.isWordTimed()) shown.add(v);
@@ -262,26 +260,10 @@ public class MusicLyricVersionDialog extends BaseBottomSheetDialog {
         if (adapter != null) adapter.notifyDataSetChanged();
     }
 
-    /** 在线歌词优先级序位（越小越前；跟随来源全 0，即不参与次序） */
-    private int lyricPriorityRank(LyricVersion v) {
-        String p = MusicStore.getLyricPriority();
-        if (MusicStore.LYRIC_PRIORITY_FOLLOW_SOURCE.equals(p)) return 0;
-        boolean word = v.isWordTimed();
-        boolean line = v.isLineTimed() && !word;
-        if (MusicStore.LYRIC_PRIORITY_AMLL_FIRST.equals(p)) {
-            if ("AMLL".equals(v.getSource())) return 0;
-            if (word) return 1;
-            if (line) return 2;
-            return 3;
-        }
-        if (MusicStore.LYRIC_PRIORITY_LINE_BY_LINE.equals(p)) {
-            if (line) return 0;
-            if (word) return 1;
-            return 2;
-        }
-        if (word) return 0;
-        if (line) return 1;
-        return 2;
+    /** 匹配度显示（瓜子口径）：有瓜子定级且过门才显百分数；未定级／0 级留空，不冒充 */
+    private String percentText(LyricVersion v) {
+        if (!v.hasGzScore()) return "";
+        return GzLyricMatch.percentForLevel(v.getGzLevel()) + "%";
     }
 
     private boolean isSelected(LyricVersion v) {
@@ -295,35 +277,6 @@ public class MusicLyricVersionDialog extends BaseBottomSheetDialog {
         Matcher m = TIME_TAG.matcher(v.getLyric().rawLrc);
         while (m.find()) n++;
         return n;
-    }
-
-    private int matchPercent(LyricVersion v) {
-        if (track == null) return 100;
-        if (v.getLyric() == null || v.getLyric().rawLrc == null) return 100;
-        String raw = v.getLyric().rawLrc;
-        String ti = tagValue(TITLE_TAG, raw);
-        String ar = tagValue(ARTIST_TAG, raw);
-        if (ti == null && ar == null) return 100;
-        int score = 0;
-        if (ti != null && containsIgnoreCase(ti, track.displayTitle())) score += 50;
-        if (ar != null && containsIgnoreCase(ar, track.displayArtist())) score += 50;
-        return score;
-    }
-
-    private static String tagValue(Pattern p, String raw) {
-        Matcher m = p.matcher(raw);
-        if (!m.find()) return null;
-        String s = m.group(1);
-        if (s == null) return null;
-        s = s.trim();
-        return s.isEmpty() ? null : s;
-    }
-
-    private static boolean containsIgnoreCase(String a, String b) {
-        if (a == null || b == null || a.isEmpty() || b.isEmpty()) return false;
-        String x = a.toLowerCase();
-        String y = b.toLowerCase();
-        return x.contains(y) || y.contains(x);
     }
 
     private static boolean hasText(String s) {
@@ -366,7 +319,7 @@ public class MusicLyricVersionDialog extends BaseBottomSheetDialog {
                 if (hasText(v.getLyric().translation)) addChip(h, getString(R.string.music_primary_translation));
                 if (hasText(v.getLyric().romanization)) addChip(h, getString(R.string.music_primary_romanization));
             }
-            h.b.tvPct.setText(matchPercent(v) + "%");
+            h.b.tvPct.setText(percentText(v));
             h.b.tvPct.setTextColor(0xFF1A1A1A);
             h.b.root.setOnClickListener(view -> {
                 if (onSelect != null) onSelect.onVersionSelected(v);

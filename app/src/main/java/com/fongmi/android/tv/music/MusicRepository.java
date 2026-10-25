@@ -1145,6 +1145,12 @@ public class MusicRepository {
                 if (firstAmll != null) return firstAmll;
                 if (firstWord != null) return firstWord;
                 if (firstLineOnly != null) return firstLineOnly;
+            } else if (MusicStore.LYRIC_PRIORITY_WORD_BY_WORD.equals(priority)) {
+                // 逐字模式此前漏了本分支：终局裁定直接落 firstRaw（链序首个），与 note 的
+                // 逐字即时返回不对称——只要桶里有逐字版（无论哪一步收进来的），终局都该它赢，
+                // 不许让先到的逐行版靠链序压过逐字版（默认选用认逐字优先）
+                if (firstWord != null) return firstWord;
+                if (firstLineOnly != null) return firstLineOnly;
             }
             if (firstRaw != null) return firstRaw;
             if (own != null && own.hasLyric()) return own;
@@ -1161,6 +1167,17 @@ public class MusicRepository {
     private static class CrossCollect {
         final List<MusicLyric> lyrics = new ArrayList<>();
         LxKeyIssue keyIssue;
+    }
+
+    /** 次级（包含级）待入列版本：歌词本体＋命中当场定好的瓜子等级（入列时一并带进 LyricVersion） */
+    private static class PendingLyric {
+        final MusicLyric lyric;
+        final double gzLevel;
+
+        PendingLyric(MusicLyric lyric, double gzLevel) {
+            this.lyric = lyric;
+            this.gzLevel = gzLevel;
+        }
     }
 
     /**
@@ -1415,7 +1432,7 @@ public class MusicRepository {
      * 密钥问题照旧解包重抛、中止整链，与原内联版一致）。
      */
     private static boolean collectAllCrossPass(MusicTrack track, MusicSource self, List<LocalTrackMeta.Query> queries,
-                                               int level, List<LyricVersion> out, Set<String> seen, List<MusicLyric> sink) {
+                                               int level, List<LyricVersion> out, Set<String> seen, List<PendingLyric> sink) {
         boolean complete = true;
         for (LocalTrackMeta.Query q : queries) {
             for (MusicSource other : SOURCES) {
@@ -1427,14 +1444,22 @@ public class MusicRepository {
                             ? matchSong(target, candidates)
                             : matchSongAtLevel(target, candidates, level);
                     if (hit == null) continue;
+                    // 对歌级别在命中当场定：分级遍即本遍级别，不分级遍按单候选口径补判，
+                    // 随版本带下去供弹窗排序/打分（sink 次级列只由包含遍喂，级别恒包含级）
+                    int hitLevel = level == MATCH_ANY ? matchLevel(target, hit) : level;
+                    // 瓜子等级在命中当场按瓜子输入定级（目标＝在播曲目本身、候选＝命中歌，
+                    // 标题／歌手／时长／源内 id 齐全）：选歌仍走星辰 matchSong（定案不动），
+                    // 瓜子只给定级与分数；被瓜子门淘汰（0 级）的版本星辰照收、弹窗不显分数
+                    double gzLevel = GzLyricMatch.level(track.title, track.artist, track.duration,
+                            hit.title, hit.artist, hit.duration, hit.id);
                     MusicLyric alt = normalizeRich(richOf(other, hit));
                     if (alt != null && (alt.sourceName == null || alt.sourceName.isEmpty())) {
                         alt.sourceName = siteNameForPlatform(hit.platform);
                     }
                     if (sink != null) {
-                        if (alt != null && alt.hasLyric()) sink.add(alt);
+                        if (alt != null && alt.hasLyric()) sink.add(new PendingLyric(alt, gzLevel));
                     } else {
-                        addVersion(out, seen, alt);
+                        addVersion(out, seen, alt, hitLevel, gzLevel);
                     }
                 } catch (Throwable t) {
                     rethrowKeyIssue(t);
@@ -1459,7 +1484,9 @@ public class MusicRepository {
             if (ownRich != null && (ownRich.sourceName == null || ownRich.sourceName.isEmpty())) {
                 ownRich.sourceName = siteNameForPlatform(track.platform);
             }
-            addVersion(out, seen, ownRich);
+            // 本源自有词即本曲本源产出：星辰级别记精确级（不是跨源匹配，不存在对错歌问题）；
+            // 瓜子等级照瓜子自有候选口径记 3.0（瓜子自有／在用候选构造分恒 1.0）
+            addVersion(out, seen, ownRich, MATCH_EXACT, 3.0);
         } catch (Throwable t) {
             rethrowKeyIssue(t);
             complete = false;
@@ -1490,7 +1517,7 @@ public class MusicRepository {
         // 等全链收完、主列分区排定后才逐个过 addVersion 追加到最末（去重仍走 seen，
         // 与主列／后续步同文版本不重复）：包含级版本仍可列给用户手动选，但不许排在
         // 精确命中前面。自动路径（force＝false）单遍原口径、次级列恒空，行为不变。
-        List<MusicLyric> containsLyrics = new ArrayList<>();
+        List<PendingLyric> containsLyrics = new ArrayList<>();
         if (force) {
             if (!collectAllCrossPass(track, s, queries, MATCH_EXACT, out, seen, null)) complete = false;
             if (!collectAllCrossPass(track, s, queries, MATCH_CONTAINS, out, seen, containsLyrics)) complete = false;
@@ -1548,8 +1575,11 @@ public class MusicRepository {
         // followSource 不分区：原样返回收集序。AMLL 只认 getSource()＝"AMLL"，不判 format。
         String priority = MusicStore.getLyricPriority();
         if (MusicStore.LYRIC_PRIORITY_FOLLOW_SOURCE.equals(priority)) {
-            // 二-8：次级（包含级）版本殿后，跟随来源模式下同样不许排在精确命中前面
-            for (MusicLyric deferred : containsLyrics) addVersion(out, seen, deferred);
+            // 二-8：次级（包含级）版本殿后，跟随来源模式下同样不许排在精确命中前面；
+            // 次级列只由包含遍喂入，星辰级别在此明写包含级，瓜子等级用命中当场定好的那份
+            for (PendingLyric deferred : containsLyrics) {
+                addVersion(out, seen, deferred.lyric, MATCH_CONTAINS, deferred.gzLevel);
+            }
             return new LyricRichAllResult(out, complete);
         }
         List<LyricVersion> amll = new ArrayList<>();
@@ -1572,8 +1602,10 @@ public class MusicRepository {
             out.addAll(line);
         }
         out.addAll(plain);
-        // 二-8：次级（包含级）版本殿后追加（自动路径次级列恒空，此处为空操作）
-        for (MusicLyric deferred : containsLyrics) addVersion(out, seen, deferred);
+        // 二-8：次级（包含级）版本殿后追加（自动路径次级列恒空，此处为空操作）；级别口径同上
+        for (PendingLyric deferred : containsLyrics) {
+            addVersion(out, seen, deferred.lyric, MATCH_CONTAINS, deferred.gzLevel);
+        }
         return new LyricRichAllResult(out, complete);
     }
 
@@ -1600,8 +1632,22 @@ public class MusicRepository {
         return null;
     }
 
-    /** B2：版本收集合并——无词跳过；rawLrc.trim() 去重（纯译文／纯音译版本用三格拼接去重）；档位由解析结果判定 */
+    /** B2：版本收集合并——无词跳过；rawLrc.trim() 去重（纯译文／纯音译版本用三格拼接去重）；档位由解析结果判定。
+     * 本重载用于产出链拿不到对歌判定的步（本源其它插件／歌词型插件／Worker／平台直连／酷我／AMLL）：
+     * 星辰级别按包含级兜底、瓜子等级记未定级，都不冒充（弹窗排序与匹配度据此拉开真差异）。 */
     private static void addVersion(List<LyricVersion> out, Set<String> seen, MusicLyric lyric) {
+        addVersion(out, seen, lyric, MATCH_CONTAINS, LyricVersion.GZ_LEVEL_UNKNOWN);
+    }
+
+    /** 带对歌级别的收集合并：级别只在产出当场由对歌判定带下来（本源自有词＝精确级、跨源命中＝命中级别），
+     * 去重命中已有版本时首个产出为准，后来同文版本不改级别（与「同文只留首个」同口径）。 */
+    private static void addVersion(List<LyricVersion> out, Set<String> seen, MusicLyric lyric, int matchLevel) {
+        addVersion(out, seen, lyric, matchLevel, LyricVersion.GZ_LEVEL_UNKNOWN);
+    }
+
+    /** 全级别收集合并：gzLevel 为瓜子等级（GzLyricMatch 定级；未定级传 GZ_LEVEL_UNKNOWN）。 */
+    private static void addVersion(List<LyricVersion> out, Set<String> seen, MusicLyric lyric,
+                                   int matchLevel, double gzLevel) {
         if (lyric == null || !lyric.hasLyric()) return;
         String key = lyric.rawLrc == null ? "" : lyric.rawLrc.trim();
         if (key.isEmpty()) {
@@ -1609,6 +1655,12 @@ public class MusicRepository {
                     + "|" + (lyric.romanization == null ? "" : lyric.romanization.trim());
         }
         if (key.isEmpty() || !seen.add(key)) return;
+        boolean[] kinds = versionKinds(lyric);
+        out.add(new LyricVersion(lyric, lyric.sourceName, kinds[0], kinds[1], matchLevel, gzLevel));
+    }
+
+    /** 版本档位判定（解析正文）：[0]＝任一行带逐字时间、[1]＝任一行带行时间戳 */
+    private static boolean[] versionKinds(MusicLyric lyric) {
         boolean word = false;
         boolean line = false;
         try {
@@ -1620,7 +1672,26 @@ public class MusicRepository {
             }
         } catch (Throwable ignored) {
         }
-        out.add(new LyricVersion(lyric, lyric.sourceName, word, line));
+        return new boolean[]{word, line};
+    }
+
+    /**
+     * 在用词条（瓜子 buildDisplayedLyricCandidate 同口径）：当前实际在播的那份词本身即一个版本，
+     * 构造分恒满分（瓜子等级 3.0／星辰级别精确级），来源名由调用方给出（rich 自带／旁路词＝本地／
+     * 纯文本兜底＝曲目来源名）。播放页据此保证「播着词却暂无版本」不再出现；聚合列表里已有
+     * 同文版本时以聚合版为准（带真实定级），本词条只补聚合缺失／未回的空窗。
+     */
+    public static LyricVersion displayedVersion(MusicLyric lyric, String sourceName) {
+        if (lyric == null || !lyric.hasLyric()) return null;
+        boolean[] kinds = versionKinds(lyric);
+        String source = sourceName != null ? sourceName : lyric.sourceName;
+        return new LyricVersion(lyric, source, kinds[0], kinds[1],
+                LyricVersion.MATCH_LEVEL_EXACT, 3.0);
+    }
+
+    /** platform → 站点显示名（版本来源标注用；查不到返回空） */
+    public static String sourceDisplayName(String platform) {
+        return siteNameForPlatform(platform);
     }
 
     /** 单源取 rich 歌词：FreeJS/落雪走 rich 通道，其它源只有纯文本就包一层 */

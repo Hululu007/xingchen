@@ -2229,7 +2229,8 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
             cdDiscView.setCoverBitmap(null, 1);
             return;
         }
-        ImgUtil.load(cover, new CustomTarget<Bitmap>() {
+        // 盘面显示径上限 400dp（§4 瓜子值）：按显示尺寸取图，不用 96dp 小图拉糊
+        ImgUtil.load(cover, 400, new CustomTarget<Bitmap>() {
             @Override
             public void onResourceReady(@NonNull Bitmap resource, @Nullable Transition<? super Bitmap> transition) {
                 if (destroyed || !cdTheme) return;
@@ -2283,7 +2284,8 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         if (slotTrack == null) return;
         String cover = effectiveCover(slotTrack);
         if (cover == null || cover.isEmpty()) return;
-        ImgUtil.load(cover, new CustomTarget<Bitmap>() {
+        // 袖套封面铺满袖面（显示尺寸远超 96dp）：按 400dp 取图
+        ImgUtil.load(cover, 400, new CustomTarget<Bitmap>() {
             @Override
             public void onResourceReady(@NonNull Bitmap resource, @Nullable Transition<? super Bitmap> transition) {
                 if (destroyed || !shelfTheme || gen != shelfCoverGen || shelfStageView == null) return;

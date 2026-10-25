@@ -55,8 +55,14 @@ public class ImgUtil {
     }
 
     public static void load(String url, CustomTarget<Bitmap> target) {
+        load(url, 96, target);
+    }
+
+    /** 带目标尺寸的位图取图：大图面（CD 盘面／唱片架袖套，显示径可达 400dp）须按显示尺寸取，
+     *  96dp 默认档贴到大面必然糊。默认重载保持 96 不动（首页小卡／榜单等小图面共用）。 */
+    public static void load(String url, int sizeDp, CustomTarget<Bitmap> target) {
         try {
-            Glide.with(App.get()).asBitmap().load(getUrl(url)).override(ResUtil.dp2px(96), ResUtil.dp2px(96)).error(R.drawable.artwork).into(target);
+            Glide.with(App.get()).asBitmap().load(getUrl(url)).override(ResUtil.dp2px(sizeDp), ResUtil.dp2px(sizeDp)).error(R.drawable.artwork).into(target);
         } catch (Throwable e) {
             e.printStackTrace();
         }

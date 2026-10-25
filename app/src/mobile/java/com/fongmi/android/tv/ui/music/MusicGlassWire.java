@@ -114,6 +114,17 @@ public final class MusicGlassWire {
         v.setBackground(new MusicGlassDrawable(v.getContext(), radiusDp));
     }
 
+    /** 消费面契约（未重写页面的既有调用点）：单件同源换玻璃，等同 glassifyView 的识别换。 */
+    public static void glassify(View v) {
+        glassifyView(v);
+    }
+
+    /** 消费面契约（未重写页面的既有调用点）：列表行一框——先按识别表换，未命中按行圆角 14dp 直换。 */
+    public static void frameRow(View row) {
+        if (row == null || row.getBackground() instanceof MusicGlassDrawable) return;
+        if (!glassifyView(row)) glassifyView(row, 14f);
+    }
+
     /** 面板根底：仅顶角玻璃（贴底无缺口），再走树换内件。radiusDp 与原面板 shape 顶角对应。 */
     public static void glassifyPanel(View root, float radiusDp) {
         if (root == null) return;

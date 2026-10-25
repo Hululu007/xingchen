@@ -47,8 +47,7 @@
                     android:ellipsize="marquee"
                     android:marqueeRepeatLimit="marquee_forever"
                     android:singleLine="true"
-                    android:textSize="15sp"
-                    android:textStyle="bold" />
+                    android:textSize="15sp" />
 
                 <TextView
                     android:id="@+id/tpArtist"
@@ -97,7 +96,7 @@
                 android:id="@+id/tpCdLyric"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:paddingHorizontal="28dp" />
+                android:paddingHorizontal="12dp" />
 
             <ScrollView
                 android:id="@+id/tpInfoScroll"
@@ -163,6 +162,12 @@
                 android:layout_height="52dp"
                 android:orientation="vertical">
 
+                <com.fongmi.android.tv.ui.music.CdSeekBarView
+                    android:id="@+id/tpCdSeek"
+                    android:layout_width="match_parent"
+                    android:layout_height="10dp"
+                    android:layout_marginHorizontal="8dp" />
+
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="34dp"
@@ -187,12 +192,6 @@
                         android:layout_height="wrap_content"
                         android:textSize="9sp" />
                 </LinearLayout>
-
-                <com.fongmi.android.tv.ui.music.CdSeekBarView
-                    android:id="@+id/tpCdSeek"
-                    android:layout_width="match_parent"
-                    android:layout_height="10dp"
-                    android:layout_marginHorizontal="8dp" />
             </LinearLayout>
 
             <!-- 五图标行 52dp：信息／音质／歌词版本／收藏／表面切换，图标 26dp、五格均分 -->

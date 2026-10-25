@@ -50,7 +50,9 @@ import android.view.View;
 public class MusicGlassDrawable extends Drawable {
 
     // 面栈第 2 层·烟熏填充：#26282C（近黑微冷）真深色填充，alpha {.80,.84,.88}，停点 {0,.55,1}
-    private static final int[] SMOKE = {0xCC26282C, 0xD626282C, 0xE026282C};
+    // 烟熏 alpha {.60,.64,.68}：1.4.35 的 {.80,.84,.88} 几乎全不透明、把饱和糊底压死成灰塑料板
+    // （他真机截图定罪）。压到 .60 档后糊底透出、件成背景的深色调版；白字对比离线合成最差 4.7≥4.5。
+    private static final int[] SMOKE = {0x9926282C, 0xA326282C, 0xAD26282C};
     // 面栈第 3 层·白 tint 收尾：白色 alpha .10（0x1A）平铺（定版 rgba(255,255,255,0.10)）
     private static final int[] OVERLAY = {0x1AFFFFFF, 0x1AFFFFFF, 0x1AFFFFFF};
     private static final float[] OVERLAY_STOPS = {0f, 0.55f, 1f};

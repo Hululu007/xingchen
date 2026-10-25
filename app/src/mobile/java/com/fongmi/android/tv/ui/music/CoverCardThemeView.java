@@ -421,6 +421,7 @@ public class CoverCardThemeView extends LinearLayout implements PlayerThemeFace 
         key.setLayoutParams(lp);
         key.setBackgroundResource(R.drawable.bg_player_glass_btn);
         key.setImageResource(icon);
+        key.setColorFilter(0xFFFFFFFF);
         key.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
         key.setPadding(ResUtil.dp2px(11), ResUtil.dp2px(11), ResUtil.dp2px(11), ResUtil.dp2px(11));
         key.setClickable(true);
@@ -437,6 +438,7 @@ public class CoverCardThemeView extends LinearLayout implements PlayerThemeFace 
     private ImageView buildBarButton(Context context, int icon) {
         ImageView btn = new ImageView(context);
         btn.setImageResource(icon);
+        btn.setColorFilter(0xFFFFFFFF);
         btn.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
         btn.setPadding(ResUtil.dp2px(10), ResUtil.dp2px(10), ResUtil.dp2px(10), ResUtil.dp2px(10));
         btn.setClickable(true);

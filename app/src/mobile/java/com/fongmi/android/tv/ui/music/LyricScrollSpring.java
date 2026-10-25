@@ -13,15 +13,18 @@ final class LyricScrollSpring {
 
     float value;
     float velocity;
+    /** 收敛判据（默认 px 单位；以「行」为单位的消费方（唱片架）改小，见 ShelfLyricView）。 */
+    float settleDistance = 0.5f;
+    float settleVelocity = 10f;
 
     void snapTo(float target) {
         value = target;
         velocity = 0f;
     }
 
-    /** 是否仍在动（距目标 >0.5px 或速度未衰减到 10px/s 以下）。 */
+    /** 是否仍在动（距目标超收敛距或速度未衰减到收敛速度以下）。 */
     boolean active(float target) {
-        return Math.abs(target - value) > 0.5f || Math.abs(velocity) > 10f;
+        return Math.abs(target - value) > settleDistance || Math.abs(velocity) > settleVelocity;
     }
 
     /**
@@ -31,7 +34,7 @@ final class LyricScrollSpring {
     boolean step(float dtSec, float target, float stiffness, float dampingRatio) {
         if (dtSec <= 0f) return active(target);
         float diff = target - value;
-        if (Math.abs(diff) <= 0.5f && Math.abs(velocity) <= 10f) {
+        if (Math.abs(diff) <= settleDistance && Math.abs(velocity) <= settleVelocity) {
             snapTo(target);
             return false;
         }
@@ -43,7 +46,7 @@ final class LyricScrollSpring {
             velocity += (float) (accel * h);
             value += velocity * h;
         }
-        if (Math.abs(target - value) <= 0.5f && Math.abs(velocity) <= 10f) {
+        if (Math.abs(target - value) <= settleDistance && Math.abs(velocity) <= settleVelocity) {
             snapTo(target);
             return false;
         }

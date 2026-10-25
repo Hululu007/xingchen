@@ -32,9 +32,10 @@ import java.util.List;
  * 有兼容面，本面行数少走面具模糊，效果口径等价、半径数值同源）。
  * X-11：歌词数据从空→有才淡入——setLines 时若此前无词，本面 300ms 从 alpha 0 淡入（时长无 GZ 字面值，
  * 报告明记星辰侧近似）；同歌重复喂数不重播淡入。点行＝回调行首时间 seek（页级口径）。
- * 跟滚（2026-10-25）：当前行锚位做成连续量 displayCur（单位=行），按 FullLyricView 同口径
- * 每帧 0.18 指数趋近——歌词面随当前行平滑滚，不再整槽跳变；点行只认点按（位移小于触摸
- * 阈值），滑动松手不许误触 seek。
+ * 跟滚：当前行锚位由 LyricScrollSpring 驱动（单位=行）——与封面面同一引擎口径
+ * （cover 档 ζ1.08/k＝刚度函数（行时长差）×1.1、seek 档 ζ0.833/k100、视高×1.5 snap，
+ * smali 深挖 §15.1 第 1/6/7 项；旧每帧 0.18 指数趋近作废）——歌词面随当前行平滑滚，
+ * 不再整槽跳变；点行只认点按（位移小于触摸阈值），滑动松手不许误触 seek。
  */
 public class ShelfLyricView extends View {
 
@@ -68,8 +69,11 @@ public class ShelfLyricView extends View {
     private long anchorElapsedMs;
     private long fadeStartMs = -1;
     private boolean framePosted;
-    /** 当前行锚位的连续值（单位=行）：向 currentIndex 趋近，见 stepScroll。 */
-    private float displayCur;
+    /** 当前行锚位弹簧（单位=行）：与封面面同一引擎（CoverCurrentLyric→AnchoredLyricEngine，
+     * smali 深挖 §15.1 第 7 项），cover 档 ζ1.08/k＝刚度函数（行时长差）×1.1、seek 档 ζ0.833/k100。 */
+    private final LyricScrollSpring anchorSpring = new LyricScrollSpring();
+    private boolean seekSpringMode;
+    private long lastStepMs;
     private float tapSlopPx;
     private float touchDownX;
     private float touchDownY;
@@ -105,23 +109,49 @@ public class ShelfLyricView extends View {
 
     private void init() {
         tapSlopPx = ViewConfiguration.get(getContext()).getScaledTouchSlop();
+        // 弹簧收敛判据按行单位（值单位是行、不是 px）
+        anchorSpring.settleDistance = 0.004f;
+        anchorSpring.settleVelocity = 0.05f;
         applyTextSizes();
     }
 
-    /** 锚位趋近一帧：返回是否仍在滚动中（FullLyricView 同口径 0.18 趋近、亚行收口）。 */
+    /** 锚位弹簧一帧：返回是否仍在滚动中。收敛判据按行单位（0.004 行/0.05 行每秒，构造时设定）。 */
     private boolean stepScroll() {
         float target = Math.max(0, currentIndex);
-        float diff = target - displayCur;
-        if (Math.abs(diff) < 0.004f) {
-            displayCur = target;
+        long now = SystemClock.elapsedRealtime();
+        float dtSec = lastStepMs == 0 ? 0.016f : Math.min(0.05f, (now - lastStepMs) / 1000f);
+        lastStepMs = now;
+        // snap 判据（引擎原式）：|值−目标|＞视高×1.5（视高按可见行数计）直接落位。
+        float slot = slotHeightPx();
+        float visibleLines = slot > 0f && getHeight() > 0 ? getHeight() / slot : 0f;
+        if (visibleLines > 0f && Math.abs(target - anchorSpring.value) > visibleLines * 1.5f) {
+            anchorSpring.snapTo(target);
+            seekSpringMode = false;
             return false;
         }
-        displayCur += diff * 0.18f;
-        return true;
+        float stiffness;
+        float damping;
+        if (seekSpringMode) {
+            stiffness = 100f;
+            damping = 0.833f;
+        } else {
+            stiffness = LyricWordEngine.amllPosYComposeStiffness(coverLineDurationMs()) * 1.1f;
+            damping = 1.08f;
+        }
+        boolean running = anchorSpring.step(dtSec, target, stiffness, damping);
+        if (!running) seekSpringMode = false;
+        return running;
     }
 
     private boolean scrollAnimating() {
-        return Math.abs(Math.max(0, currentIndex) - displayCur) >= 0.004f;
+        return anchorSpring.active(Math.max(0, currentIndex));
+    }
+
+    /** 封面路行时长差（本行 timeMs−上一行 timeMs，缺失回落 450，与 CoverLyricView 同式）。 */
+    private long coverLineDurationMs() {
+        if (currentIndex <= 0 || currentIndex >= lines.size()) return 450L;
+        long d = lines.get(currentIndex).getTimeMs() - lines.get(currentIndex - 1).getTimeMs();
+        return d > 0 ? d : 450L;
     }
 
     private void applyTextSizes() {
@@ -219,7 +249,8 @@ public class ShelfLyricView extends View {
         if (mains != null) lines.addAll(mains);
         if (subLines != null) subs.addAll(subLines);
         currentIndex = -1;
-        displayCur = 0f;
+        anchorSpring.snapTo(0f);
+        seekSpringMode = false;
         anchorPosMs = 0;
         anchorElapsedMs = SystemClock.elapsedRealtime();
         // X-11：词到才淡入——仅「空→有」触发，同批重复喂数不重播
@@ -234,7 +265,8 @@ public class ShelfLyricView extends View {
         lines.clear();
         subs.clear();
         currentIndex = -1;
-        displayCur = 0f;
+        anchorSpring.snapTo(0f);
+        seekSpringMode = false;
         fadeStartMs = -1;
         invalidate();
     }
@@ -249,6 +281,7 @@ public class ShelfLyricView extends View {
     }
 
     public void setPosition(long positionMs) {
+        if (Math.abs(positionMs - displayPositionMs()) > 1200L) seekSpringMode = true;
         anchorPosMs = positionMs;
         anchorElapsedMs = SystemClock.elapsedRealtime();
         updateCurrentIndex(positionMs);
@@ -358,7 +391,7 @@ public class ShelfLyricView extends View {
             return;
         }
         float slot = slotHeightPx();
-        float cur = Math.max(0f, displayCur);
+        float cur = Math.max(0f, anchorSpring.value);
         float anchorY = anchorY();
         float baseTop = anchorY - cur * slot;
         float density = getResources().getDisplayMetrics().density;
@@ -407,8 +440,8 @@ public class ShelfLyricView extends View {
                         && Math.hypot(event.getX() - touchDownX, event.getY() - touchDownY) < tapSlopPx) {
                     float slot = slotHeightPx();
                     float anchorY = anchorY();
-                    // 行号按视觉锚位（displayCur）算，与滚动态画面对齐。
-                    int idx = Math.round(displayCur + (event.getY() - anchorY - mainPaint.getTextSize() / 2f) / slot);
+                    // 行号按视觉锚位（弹簧值）算，与滚动态画面对齐。
+                    int idx = Math.round(anchorSpring.value + (event.getY() - anchorY - mainPaint.getTextSize() / 2f) / slot);
                     if (idx >= 0 && idx < lines.size()) {
                         lineClickListener.onLineClick(idx, lines.get(idx).getTimeMs());
                         performClick();

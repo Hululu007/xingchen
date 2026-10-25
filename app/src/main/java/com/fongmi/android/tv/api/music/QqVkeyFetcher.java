@@ -39,7 +39,8 @@ public final class QqVkeyFetcher {
     private static final int TIMEOUT = 8000;
 
     /** 未登录弹统一登录框的进程内节流（与 FreeJsBridge 同口径 10 分钟）：取链回落会反复进来，
-     * 没有节流就是连环弹窗；弹与不弹都不拦本次调用，本次照常按失败返回。 */
+     * 没有节流就是连环弹窗；弹与不弹都不拦本次调用，本次照常按失败返回。
+     * 戳只在投递被接受后写（见 maybePromptLogin），投不出去的那次不占节流窗。 */
     private static final long LOGIN_PROMPT_INTERVAL_MS = 10 * 60 * 1000L;
     private static volatile long lastLoginPromptAt = 0;
 
@@ -53,8 +54,9 @@ public final class QqVkeyFetcher {
             if (isLoggedIn()) return;
             long now = System.currentTimeMillis();
             if (now - lastLoginPromptAt < LOGIN_PROMPT_INTERVAL_MS) return;
-            lastLoginPromptAt = now;
-            LoginManager.requestLogin(QQLoginProvider.ID);
+            // 节流戳后写：requestLogin 回 true（弹窗已投递）才落戳。先写戳后投递
+            // 时，无前台界面的那次空投也会把节流窗占满，之后真能弹时反被自己堵死
+            if (LoginManager.requestLogin(QQLoginProvider.ID)) lastLoginPromptAt = now;
         } catch (Throwable ignored) {
         }
     }

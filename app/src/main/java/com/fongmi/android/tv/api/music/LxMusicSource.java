@@ -11,17 +11,24 @@ import com.fongmi.android.tv.music.MusicQueue;
 import com.fongmi.android.tv.music.MusicSource;
 import com.fongmi.android.tv.player.lyrics.LyricsParser;
 import com.fongmi.android.tv.utils.Task;
+import com.fongmi.quickjs.bean.Req;
+import com.fongmi.quickjs.utils.Connect;
 import com.github.catvod.crawler.SpiderDebug;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
+import org.json.JSONObject;
+
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
+import okhttp3.Response;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.TimeUnit;
@@ -170,6 +177,8 @@ public class LxMusicSource implements MusicSource {
 
     /** 单个落雪脚本取链上限：一个脚本卡住不许拖垮整条取链（对差清单 D2） */
     private static final long PLUGIN_TIMEOUT_MS = 8000;
+    /** 脚本链实测验链的探测超时（毫秒）：只读响应码即断、不读体，见 probeUrlDead 口径 */
+    private static final int PROBE_TIMEOUT_MS = 3000;
     /** 取链总预算（与播放服务 20 秒看门狗同口径）：到点还没出链就按失败返回 */
     private static final long TOTAL_TIMEOUT_MS = 20000;
 
@@ -192,6 +201,8 @@ public class LxMusicSource implements MusicSource {
         }
         String want = lxQuality(MusicQuality.fromInt(quality));
         String deadKey = MusicQueue.trackKey(track);
+        // 实测验链结果只在本次取链内按 URL 缓存：同一条链被多个脚本重复给出时不反复敲
+        Map<String, Boolean> probeCache = new HashMap<>();
         for (MusicSite plugin : sites()) {
             // 服务看门狗／停播取消取链时中断本线程：中断后不许继续逐个脚本试下去
             if (Thread.currentThread().isInterrupted()) return null;
@@ -241,6 +252,12 @@ public class LxMusicSource implements MusicSource {
                     // QQ 幻影链（已死后端模板拼的只有域名、没有文件段的地址）：当空链处理，
                     // 继续换脚本，最终回落官方 vkey 兜底，不许拿它当成功链交出去
                     SpiderDebug.log("music", "lx playUrl qq fileless url dropped plugin=%s", plugin.name);
+                    url = null;
+                }
+                if (!TextUtils.isEmpty(url) && isProbeDeadUrl(url, probeCache)) {
+                    // 实测验链定罪的死链：带文件名的模板拼链形态判定拦不住，真敲一次
+                    // 回 403 类才落网。当空链处理，继续换脚本，全灭后回落兜底段
+                    SpiderDebug.log("music", "lx playUrl probe-dead url dropped plugin=%s", plugin.name);
                     url = null;
                 }
                 if (!TextUtils.isEmpty(url)) {
@@ -293,6 +310,49 @@ public class LxMusicSource implements MusicSource {
     }
 
     /**
+     * 验链带缓存口：true＝实测定罪死链，false＝放行（含验不到）。缓存活在单次
+     * 取链调用内（见两处出口旁的 probeCache），同一条链被多个脚本重复给出时只真敲一次。
+     */
+    private static boolean isProbeDeadUrl(String url, Map<String, Boolean> probeCache) {
+        Boolean cached = probeCache.get(url);
+        if (cached != null) return cached;
+        boolean dead = probeUrlDead(url);
+        probeCache.put(url, dead);
+        return dead;
+    }
+
+    /**
+     * 脚本链实测验链（isFilelessUrl 形态判定之后的第二道）：长青类已死后端不经
+     * 服务器、本地按模板拼出带文件名的完整地址，形态上挑不出毛病，播放器真请求
+     * 它回 403 零字节——取链若原样交出去，兜底段（官方 vkey＋登录弹窗）永远轮
+     * 不到执行。接受前先真敲一次：GET 带 Range 只取首字节，走壳子 OkHttp 出口
+     * （与 QqVkeyFetcher 同出口，吃代理/DoH/节点定向），跟随重定向看最终态，
+     * 只读响应码即断开、不读体。
+     * 口径只许定罪不许误杀：403／404／410 才算死链；2xx／3xx 最终态、其它状态
+     * 码（416、5xx 等）、超时、网络异常一律放行——验不到不许杀真链（有些后端
+     * 对无 Cookie 的探测请求回怪码、带播放器上下文却能播）。
+     * 阻塞方法，只能在取链线程（音乐池）调，与 playUrl 同线程口径。
+     */
+    private static boolean probeUrlDead(String url) {
+        try {
+            JSONObject reqJson = new JSONObject();
+            reqJson.put("method", "GET");
+            JSONObject headers = new JSONObject();
+            headers.put("Range", "bytes=0-0");
+            reqJson.put("headers", headers);
+            reqJson.put("timeout", PROBE_TIMEOUT_MS);
+            reqJson.put("redirect", 1);
+            Req req = Req.objectFrom(reqJson.toString());
+            try (Response res = Connect.to(url, req).execute()) {
+                int code = res.code();
+                return code == 403 || code == 404 || code == 410;
+            }
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /**
      * 清理轮 R-C7：单插件取链（播放路由指派用）。只试 srcUrl 命中的那一个启用落雪脚本，
      * 不遍历其它脚本：取不到返回 null，由仓库按策略决定是回落还是停住，不在这里跨脚本。
      * 单步口径与 playUrl 的单次迭代一致：QQ mediaMid 补齐、档位 pickQuality、单脚本
@@ -319,6 +379,8 @@ public class LxMusicSource implements MusicSource {
         if (com.fongmi.android.tv.music.MusicStore.isPlatformBlocked(srcUrl, p.platform)) return null;
         // P-3d：仓库指派单试失败后回落到源内遍历时，本步不再重进同一死插件。
         String deadKey = MusicQueue.trackKey(track);
+        // 实测验链结果只在本次取链内按 URL 缓存（同 playUrl 口径）
+        Map<String, Boolean> probeCache = new HashMap<>();
         String want = lxQuality(MusicQuality.fromInt(quality));
         if (isDeadPlugin(deadKey, srcUrl, want)) return null;
         if (Thread.currentThread().isInterrupted()) return null;
@@ -353,6 +415,11 @@ public class LxMusicSource implements MusicSource {
                 return null;
             }
             String url = extractUrl(r);
+            if (!TextUtils.isEmpty(url) && isProbeDeadUrl(url, probeCache)) {
+                // 实测验链定罪的死链（同 playUrl 口径）：当空链处理，返回 null 交仓库回落
+                SpiderDebug.log("music", "lx playUrlWithPlugin probe-dead url dropped plugin=%s", target.name);
+                url = null;
+            }
             if (!TextUtils.isEmpty(url)) {
                 com.fongmi.android.tv.music.MusicStore.notePluginLatency(
                         PLATFORM, target.srcUrl, System.currentTimeMillis() - lxT0, false);

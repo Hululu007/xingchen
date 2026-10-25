@@ -280,6 +280,19 @@ public class LoginManager {
         App.post(() -> get().loginQQ(activity, null));
     }
 
+    /**
+     * 同 loginQQ，但回执投递结果：无前台界面／界面正在关闭时弹窗根本投不出去，
+     * loginQQ 是静默空转、调用方无从知晓——需要按「弹窗已投递」落节流戳的调用方
+     * （QqVkeyFetcher.maybePromptLogin）走这条。只补 QQ 一条路的回执语义，
+     * 谷歌/快手的静态桥与行为不动。
+     */
+    public static boolean loginQQDelivered() {
+        FragmentActivity activity = currentActivity();
+        if (activity == null || activity.isFinishing()) return false;
+        App.post(() -> get().loginQQ(activity, null));
+        return true;
+    }
+
     /** QQ 是否已登录（托管 Cookie 含账号标识＋音乐钥匙） */
     public static boolean isQQLoggedIn() {
         return isLoggedIn(QQLoginProvider.ID);
@@ -296,7 +309,8 @@ public class LoginManager {
     }
 
     /**
-     * 通用：按提供方 id 请壳子弹统一登录框（异步），已分发的返回 true。
+     * 通用：按提供方 id 请壳子弹统一登录框（异步），已分发的返回 true
+     * （QQ 路径回执的是投递结果：无前台界面投不出去回 false，见 loginQQDelivered）。
      * 给不知道具体提供方 UI 细节的调用方（如 FreeJS 桥按插件声明的
      * loginProvider 触发）用；新增网页型提供方时在此登记一行分发。
      */
@@ -311,8 +325,9 @@ public class LoginManager {
             return true;
         }
         if (QQLoginProvider.ID.equals(providerId)) {
-            loginQQ();
-            return true;
+            // 回执如实：走带回执的投递，投不出去（无前台界面）回 false，
+            // 按投递结果落节流戳的调用方（QqVkeyFetcher）据此不落戳
+            return loginQQDelivered();
         }
         if ("115".equals(providerId)) {
             login115();

@@ -63,9 +63,14 @@ public class FullLyricView extends View {
     private static final float LINE_HEIGHT_RATIO = 1.3f;
     /** 非当前行压暗平台：深色面 palette 非当前档白 0.30（LyricsViewKt 深色回落值）。 */
     private static final float IDLE_ALPHA_BASE = 0.30f;
-    /** 浏览停手后回锚延时：瓜子值未抠到，沿旧实现 5 秒（重做报告清单标注未证）。 */
+    /** 浏览停手后回锚延时：全屏/Apple 面 5000ms（瓜子字段 APPLE_BROWSE_REANCHOR_DELAY＝0x1388，
+     * 2026-10-25 smali 深挖 §15.1 第 1 项证实；封面面为 3000ms、不属本页）。 */
     private static final long REANCHOR_MS = 5000L;
     private static final long BLUR_RETRY_COOLDOWN_MS = 30000L;
+    /** anchorReveal 规格（smali 深挖 §15.1 第 1 项）：TweenSpec 250ms、CubicBezier(0.2,0,0,1)。 */
+    private static final android.view.animation.PathInterpolator REVEAL_INTERP =
+            new android.view.animation.PathInterpolator(0.2f, 0f, 0f, 1f);
+    private static final long REVEAL_MS = 250L;
 
     private final LyricLineDrawer drawer = new LyricLineDrawer();
     private final LyricRowApproach blurApproach = new LyricRowApproach();
@@ -89,6 +94,13 @@ public class FullLyricView extends View {
     private float scrollOffset;
     private float contentHeight;
     private int layoutWidth = -1;
+    /** 跟随滚动弹簧（瓜子引擎 SpringSpec 等价，见 LyricScrollSpring）：settle 档 ζ1.16/k237.25、
+     * seek 档 ζ0.833/k100；浏览/甩动直写 scrollOffset 时同步 snap 对齐弹簧值。 */
+    private final LyricScrollSpring followSpring = new LyricScrollSpring();
+    private boolean seekSpringMode;
+    /** anchorReveal：正唱行换位且带副行时，副行高按 250ms 贝塞尔展开（见 ensureLayout）。 */
+    private int revealForIndex = -1;
+    private long revealStartMs;
 
     private boolean playing;
     private long anchorPosMs;
@@ -107,6 +119,7 @@ public class FullLyricView extends View {
             stepFrame();
             invalidate();
             if (playing || scroller.computeScrollOffset() || browsing || followAnimating()
+                    || revealRunning()
                     || blurApproach.hasRunning(SystemClock.elapsedRealtime())) postFrame();
         }
     };
@@ -217,6 +230,9 @@ public class FullLyricView extends View {
         blurApproach.clear();
         currentIndex = -1;
         scrollOffset = 0f;
+        followSpring.snapTo(0f);
+        seekSpringMode = false;
+        revealForIndex = -1;
         browsing = false;
         layoutWidth = -1;
         anchorPosMs = 0;
@@ -245,6 +261,8 @@ public class FullLyricView extends View {
     }
 
     public void setPosition(long positionMs) {
+        // 与当前显示位置差 >1.2s 视为 seek 跳变：本轮跟随滚动走 seek 弹簧档（引擎三路选档的星辰映射）。
+        if (Math.abs(positionMs - displayPositionMs()) > 1200L) seekSpringMode = true;
         anchorPosMs = positionMs;
         anchorElapsedMs = SystemClock.elapsedRealtime();
         updateCurrentIndex(positionMs);
@@ -269,6 +287,14 @@ public class FullLyricView extends View {
             currentIndex = idx;
             // 副行只挂正唱行：正唱行换位即块高变，布局随之重排（位移由跟随滚动吸收）。
             layoutWidth = -1;
+            // anchorReveal 起点：新正唱行带副行时，副行高走 250ms 展开（GZ 本体 target＝
+            // 行高＋0.6×样本高；星辰结构映射为本行副行高的展开系数，见 ensureLayout）。
+            if (idx >= 0 && subOf(idx) != null) {
+                revealForIndex = idx;
+                revealStartMs = SystemClock.elapsedRealtime();
+            } else {
+                revealForIndex = -1;
+            }
         }
     }
 
@@ -322,7 +348,16 @@ public class FullLyricView extends View {
                 block.mainHeight = block.textRows.size() * mainRowHeightPx();
             }
             // 副行只占正唱行的块高（实帧口径），闲行不预留副行位。
-            if (i == currentIndex && subOf(i) != null) block.subHeight = subRowHeightPx();
+            // anchorReveal：正唱行副行高按 250ms 贝塞尔从 0 展开到全高（展开期间 stepFrame 逐帧重排）。
+            if (i == currentIndex && subOf(i) != null) {
+                float factor = 1f;
+                if (i == revealForIndex) {
+                    long elapsed = SystemClock.elapsedRealtime() - revealStartMs;
+                    factor = elapsed >= REVEAL_MS ? 1f
+                            : REVEAL_INTERP.getInterpolation(elapsed / (float) REVEAL_MS);
+                }
+                block.subHeight = subRowHeightPx() * factor;
+            }
             blocks.add(block);
             y += block.height() + gapPx();
         }
@@ -389,7 +424,12 @@ public class FullLyricView extends View {
 
     private boolean followAnimating() {
         if (browsing || currentIndex < 0 || currentIndex >= blocks.size()) return false;
-        return Math.abs(targetScroll() - scrollOffset) > 0.5f;
+        return followSpring.active(targetScroll());
+    }
+
+    private boolean revealRunning() {
+        return revealForIndex >= 0
+                && SystemClock.elapsedRealtime() - revealStartMs < REVEAL_MS;
     }
 
     private void stepFrame() {
@@ -397,26 +437,39 @@ public class FullLyricView extends View {
         float dtMs = lastFrameMs == 0 ? 16f : Math.min(50f, now - lastFrameMs);
         lastFrameMs = now;
         updateCurrentIndex(displayPositionMs());
+        if (revealRunning()) layoutWidth = -1;
         ensureLayout();
         if (scroller.computeScrollOffset()) {
             scrollOffset = scroller.getCurrY();
+            followSpring.snapTo(scrollOffset);
             return;
         }
         if (browsing) {
-            if (now - lastBrowseMs > REANCHOR_MS) browsing = false;
+            followSpring.snapTo(scrollOffset);
+            if (now - lastBrowseMs > REANCHOR_MS) {
+                browsing = false;
+                // 回锚 snap 判据（引擎原式）：手动偏移｜值−目标｜＞视高×1.5 直接落位、否则弹簧回锚。
+                if (currentIndex >= 0 && currentIndex < blocks.size()
+                        && Math.abs(scrollOffset - targetScroll()) > getHeight() * 1.5f) {
+                    scrollOffset = targetScroll();
+                    followSpring.snapTo(scrollOffset);
+                }
+            }
             return;
         }
         if (currentIndex >= 0 && currentIndex < blocks.size()) {
             float target = targetScroll();
-            float diff = target - scrollOffset;
-            if (Math.abs(diff) > 0.5f) {
-                // 跟随趋近：阻尼按帧时长换算（帧率无关）。瓜子引擎的滚动动画规格未抠到
-                // （引擎本体未反编译），此式为近似、不冒充真值——见重做报告清单。
-                float k = 1f - (float) Math.exp(-dtMs / 90.0);
-                scrollOffset += diff * k;
+            if (getHeight() > 0 && Math.abs(target - followSpring.value) > getHeight() * 1.5f) {
+                followSpring.snapTo(target);
+                seekSpringMode = false;
             } else {
-                scrollOffset = target;
+                // 选档（引擎 posSpringSpec）：seek 跳变→seek 档（ζ0.833/k100）；
+                // 常规跟随/回锚→settle 档（ζ1.16、k＝amllPosYComposeStiffness(450)＝237.25）。
+                float stiffness = seekSpringMode ? 100f : LyricWordEngine.amllPosYComposeStiffness(450L);
+                float damping = seekSpringMode ? 0.833f : 1.16f;
+                if (!followSpring.step(dtMs / 1000f, target, stiffness, damping)) seekSpringMode = false;
             }
+            scrollOffset = followSpring.value;
         }
     }
 

@@ -1173,6 +1173,11 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         card.addView(preview, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, previewH));
         TextView name = text(getString(nameRes), 12, COLOR_TEXT, selected);
         name.setGravity(Gravity.CENTER);
+        // 名称行截断（GZ ThemePreviewCard 真值，smali 深挖 §15.1 第 11 项）：
+        // 单行＋TextOverflow.Ellipsis＋不软换行，居中（上方已设）；行 padding 水平 8/垂直 9 由卡片内边距承担。
+        name.setMaxLines(1);
+        name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        name.setSingleLine(true);
         LinearLayout.LayoutParams nlp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         nlp.topMargin = dp(8);

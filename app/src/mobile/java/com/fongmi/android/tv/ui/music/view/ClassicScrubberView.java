@@ -371,7 +371,7 @@ public class ClassicScrubberView extends View {
                 (aTop << 24) | 0x00FFFFFF, (aBot << 24) | 0x00FFFFFF, Shader.TileMode.CLAMP));
         canvas.drawRoundRect(mTmp, rad, rad, mChipBgPaint);
         mChipBgPaint.setShader(null);
-        mChipStrokePaint.setAlpha(Math.round(255 * mChipA));
+        mChipStrokePaint.setAlpha(Math.round(255 * 0.14f * mChipA));
         canvas.drawRoundRect(mTmp, rad, rad, mChipStrokePaint);
         mChipStrokePaint.setAlpha(255);
         mChipTextPaint.setAlpha(Math.round(255 * 0.72f * mChipA));

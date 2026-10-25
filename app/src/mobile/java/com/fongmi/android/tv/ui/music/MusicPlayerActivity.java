@@ -318,8 +318,9 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
                             axisLocked = Math.abs(totalDy) > Math.abs(totalDx) * 1.5f;
                             if (!axisLocked) return true;
                         }
-                        if (axisLocked && !deadZone) {
-                            float clamped = Math.max(-mCoverBox.getHeight(), Math.min(mCoverBox.getHeight(), totalDy));
+                        if (axisLocked && !(deadZone && totalDy > 0)) {
+                            float anchor = anchorDistancePx();
+                            float clamped = Math.max(-anchor, Math.min(anchor, totalDy));
                             mCoverBox.setTranslationY(clamped);
                             if (!hapticDone && Math.abs(totalDy) > dp(36)) {
                                 hapticDone = true;
@@ -336,7 +337,7 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
                         float vy = vt != null ? vt.getYVelocity() : 0;
                         if (vt != null) vt.recycle();
                         vt = null;
-                        if (axisLocked && !deadZone
+                        if (axisLocked && !(deadZone && totalDy > 0)
                                 && (Math.abs(totalDy) > dp(36) || Math.abs(vy) > dp(600))) {
                             commitSwipe(totalDy < 0 ? 1 : -1);
                         } else {
@@ -350,10 +351,18 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
         });
     }
 
+    /** 竖滑锚点距（瓜子口径）：clamp(屏高×0.42, 240dp, 400dp)；拖动钳制与提交目标都走它。 */
+    private float anchorDistancePx() {
+        float screenHDp = getResources().getDisplayMetrics().heightPixels
+                / getResources().getDisplayMetrics().density;
+        float d = Math.max(240f, Math.min(400f, screenHDp * 0.42f));
+        return d * getResources().getDisplayMetrics().density;
+    }
+
     private void commitSwipe(int dir) {
         mCoverBackSpring.cancel();
         mLastDir = dir;
-        final float target = dir > 0 ? -mCoverBox.getHeight() : mCoverBox.getHeight();
+        final float target = dir > 0 ? -anchorDistancePx() : anchorDistancePx();
         mCoverBox.animate().translationY(target).setDuration(150).setInterpolator(BS4_F)
                 .withEndAction(() -> {
                     mCoverBox.setTranslationY(0);

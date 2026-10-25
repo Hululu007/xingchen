@@ -2680,8 +2680,8 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
     /**
      * 一层满幅糊底合成（后台线程）：照瓜子 CoverAmbientKt.BlurredCoverAmbient 原式
      * （CoverAmbientKt.java:149-401；播放页调用点 PlayerScreenKt.java:21191 两参全走默认）——
-     * 封面请求 64×64、满幅 Crop 绘制、糊 24dp（API<31 位图层 FastBlur 25 近似回落；
-     * API31+ 由视图层 RenderEffect 落地，位图层跳过）、图层 alpha 0.4（默认值，组件入参）
+     * 封面请求 64×64、满幅 Crop 绘制、糊 24dp（API31+ 由视图层 RenderEffect 落地；
+     * API<31 按能力门回落不画糊图层、罩 +0.2，见合成内注）、图层 alpha 0.4（默认值，组件入参）
      * 压在氛围基准色垫底上（瓜子在组件外先满幅填基准色 j，PlayerScreenKt.java:21109），
      * 上盖四段氛围罩——停点 0/0.4/0.78/1、alpha 0.76/0.82/0.80/0.86、底色两端明度 +0.05/−0.04。
      * 糊图无任何缩放放大：此前注释谎称的「图层中心放大 1.85 瓜子原值」在瓜子 ui/ 与
@@ -2706,38 +2706,43 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
             // 垫底＝氛围基准色本身（瓜子组件外满幅填 j，PlayerScreenKt.java:21109；
             // 基准色即 drawAmbientVeil 用的 toneAdjust(ambient)——CoverAmbientKt.d() 同式）
             canvas.drawColor(CoverColor.toneAdjust(ambient));
-            Paint paint = new Paint(Paint.FILTER_BITMAP_FLAG);
-            paint.setAlpha(Math.round(0.4f * 255));
-            // 糊图请求 64×64（CoverAmbientKt hk3.d(64, 64)）；此前 64×等比高与原式不符
-            Bitmap small = Bitmap.createScaledBitmap(work, 64, 64, true);
-            if (android.os.Build.VERSION.SDK_INT < 31) {
-                Bitmap blurred = FastBlur.blur(small, 25, true);
-                if (blurred != null) small = blurred;
+            // 能力门（GZ il0.p() 真值，smali 深挖 §15.5）：RenderEffect 预检须 SDK≥31 才可能为真；
+            // 门为假时瓜子不画糊图层、只给罩 alpha +0.2 补偿。星辰 API<31 同此回落——
+            // 旧 FastBlur 25 位图近似与瓜子回落形态不符，摘除。
+            boolean blurCapable = android.os.Build.VERSION.SDK_INT >= 31;
+            if (blurCapable) {
+                Paint paint = new Paint(Paint.FILTER_BITMAP_FLAG);
+                paint.setAlpha(Math.round(0.4f * 255));
+                // 糊图请求 64×64（CoverAmbientKt hk3.d(64, 64)）；此前 64×等比高与原式不符
+                Bitmap small = Bitmap.createScaledBitmap(work, 64, 64, true);
+                // 满幅 Crop 直绘、无放大（瓜子满幅 Crop＋Modifier.blur(24dp)，无 scale 字面值）：
+                // 按画布宽高比取 64×64 的居中源矩形填满，等价 Crop 内容缩放
+                float viewAspect = viewW / (float) viewH;
+                android.graphics.Rect srcRect;
+                if (viewAspect < 1f) {
+                    int sw = Math.max(1, Math.round(64f * viewAspect));
+                    int left = (64 - sw) / 2;
+                    srcRect = new android.graphics.Rect(left, 0, left + sw, 64);
+                } else {
+                    int sh = Math.max(1, Math.round(64f / viewAspect));
+                    int top = (64 - sh) / 2;
+                    srcRect = new android.graphics.Rect(0, top, 64, top + sh);
+                }
+                canvas.drawBitmap(small, srcRect, new RectF(0, 0, viewW, viewH), paint);
+                small.recycle();
             }
-            // 满幅 Crop 直绘、无放大（瓜子满幅 Crop＋Modifier.blur(24dp)，无 scale 字面值）：
-            // 按画布宽高比取 64×64 的居中源矩形填满，等价 Crop 内容缩放
-            float viewAspect = viewW / (float) viewH;
-            android.graphics.Rect srcRect;
-            if (viewAspect < 1f) {
-                int sw = Math.max(1, Math.round(64f * viewAspect));
-                int left = (64 - sw) / 2;
-                srcRect = new android.graphics.Rect(left, 0, left + sw, 64);
-            } else {
-                int sh = Math.max(1, Math.round(64f / viewAspect));
-                int top = (64 - sh) / 2;
-                srcRect = new android.graphics.Rect(0, top, 64, top + sh);
-            }
-            canvas.drawBitmap(small, srcRect, new RectF(0, 0, viewW, viewH), paint);
-            small.recycle();
-            drawAmbientVeil(canvas, viewW, viewH, ambient);
+            drawAmbientVeil(canvas, viewW, viewH, ambient, blurCapable ? 0f : 0.2f);
             return out;
         } finally {
             if (copied) work.recycle();
         }
     }
 
-    /** 四段氛围罩（§1）：停点 0/0.4/0.78/1；alpha 0.76/0.82/0.80/0.86；色＝取色经 toneAdjust，两端明度 +0.05/−0.04。 */
-    private static void drawAmbientVeil(Canvas canvas, int viewW, int viewH, int ambient) {
+    /**
+     * 四段氛围罩（§1）：停点 0/0.4/0.78/1；alpha 0.76/0.82/0.80/0.86；色＝取色经 toneAdjust，两端明度 +0.05/−0.04。
+     * alphaAdd＝能力门为假时的罩补偿（Blurred 版 +0.2，smali 深挖 §15.5；逐停点加后钳 1.0）。
+     */
+    private static void drawAmbientVeil(Canvas canvas, int viewW, int viewH, int ambient, float alphaAdd) {
         int base = CoverColor.toneAdjust(ambient);
         float[] hsv = new float[3];
         Color.colorToHSV(base, hsv);
@@ -2745,7 +2750,8 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         int topColor = Color.HSVToColor(new float[]{hsv[0], hsv[1], topV});
         float bottomV = Math.max(0.1f, Math.min(0.68f, hsv[2] - 0.04f));
         int bottomColor = Color.HSVToColor(new float[]{hsv[0], hsv[1], bottomV});
-        int[] alphas = {Math.round(0.76f * 255), Math.round(0.82f * 255), Math.round(0.80f * 255), Math.round(0.86f * 255)};
+        int[] alphas = {Math.round(Math.min(1f, 0.76f + alphaAdd) * 255), Math.round(Math.min(1f, 0.82f + alphaAdd) * 255),
+                Math.round(Math.min(1f, 0.80f + alphaAdd) * 255), Math.round(Math.min(1f, 0.86f + alphaAdd) * 255)};
         int[] colors = {topColor, base, base, bottomColor};
         int[] argb = new int[4];
         for (int i = 0; i < 4; i++) {

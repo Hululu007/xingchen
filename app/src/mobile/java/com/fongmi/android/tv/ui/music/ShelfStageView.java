@@ -55,6 +55,7 @@ public class ShelfStageView extends View {
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint bitmapPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
     private final RectF rect = new RectF();
+    private final RectF coverDst = new RectF();
     private final Path clipPath = new Path();
     private final Matrix noteMatrix = new Matrix();
     private final Path notePath = new Path();
@@ -301,7 +302,11 @@ public class ShelfStageView extends View {
             float sc = Math.max(sleevePx / cover.getWidth(), sleevePx / cover.getHeight());
             float dw = cover.getWidth() * sc;
             float dh = cover.getHeight() * sc;
-            canvas.drawBitmap(cover, sleeveLeft + (sleevePx - dw) / 2f, sleeveTop + (sleevePx - dh) / 2f, bitmapPaint);
+            // 必须走目标矩形重载：(Bitmap, x, y) 重载按原图尺寸画、sc/dw/dh 全被忽略——
+            // 旧写法封面只剩袖套左上角一小块、其余露出袖面灰渐变（2026-10-25 真机图 113185 实证）。
+            coverDst.set(sleeveLeft + (sleevePx - dw) / 2f, sleeveTop + (sleevePx - dh) / 2f,
+                    sleeveLeft + (sleevePx + dw) / 2f, sleeveTop + (sleevePx + dh) / 2f);
+            canvas.drawBitmap(cover, null, coverDst, bitmapPaint);
             canvas.restoreToCount(save);
         } else {
             // 无封面占位（GZ 实证）：袖面居中音符矢量 Rounded.MusicNote、边长 0.18×f、tint ShelfMuted，
@@ -358,7 +363,11 @@ public class ShelfStageView extends View {
             clipPath.addCircle(discCx, discCy, centerR, Path.Direction.CW);
             canvas.clipPath(clipPath);
             float sc = Math.max(centerR * 2f / cover.getWidth(), centerR * 2f / cover.getHeight());
-            canvas.drawBitmap(cover, discCx - cover.getWidth() * sc / 2f, discCy - cover.getHeight() * sc / 2f, bitmapPaint);
+            // 同 drawSlot：(x, y) 重载忽略缩放，中心图会按原图尺寸溢出圆裁、只露局部放大块
+            float dw = cover.getWidth() * sc;
+            float dh = cover.getHeight() * sc;
+            coverDst.set(discCx - dw / 2f, discCy - dh / 2f, discCx + dw / 2f, discCy + dh / 2f);
+            canvas.drawBitmap(cover, null, coverDst, bitmapPaint);
             canvas.restoreToCount(save);
         } else {
             paint.setColor(0xFFD4D0C5);

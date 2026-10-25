@@ -182,6 +182,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
     private boolean coverExpanded;
     private boolean coverInfoMode;
     private String glassLyricShown = "";
+    private boolean glassLyricPlaceholder;
     private FullLyricView appleLyricView;
     private MusicVolumeSliderView volumeSliderView;
     private AudioManager audioManager;
@@ -1708,13 +1709,19 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         }
         View queue = find(R.id.tpBtnQueue);
         if (queue != null) {
-            queue.setOnClickListener(v -> MusicQueueDialog.show(this));
+            queue.setOnClickListener(v -> {
+                // 展开态队列键：先退出信息态再开队列（GZ PlayerScreenKt.java:9187-9190）
+                if (coverInfoMode) setCoverInfoMode(false);
+                MusicQueueDialog.show(this);
+            });
             attachPressScale(queue, 0.88f);
         }
         if (infoBtnView != null) {
             infoBtnView.setOnClickListener(v -> setCoverInfoMode(!coverInfoMode));
             attachPressScale(infoBtnView, 0.88f);
         }
+        // 封面主题歌手按压 0.97（PlayerScreenKt.java:8633）
+        if (artistView != null) attachPressScale(artistView, 0.97f);
     }
 
     private void wireAppleTheme() {
@@ -1832,12 +1839,11 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         }
     }
 
-    /** 玻璃条两态：默认态＝收藏＋单行歌词＋播放；展开（信息）态＝整条「返回到封面模式」（CoverLyricGlassBar 实读文案 13sp）。 */
+    /** 玻璃条两态：默认态中槽＝单行歌词；展开态中槽＝「返回到封面模式」文案。
+     * 收藏键与播放键两态都在（GZ PlayerScreenKt.java:9680-9703 全行结构），只换中槽。 */
     private void paintGlassBarMode() {
         boolean backMode = coverExpanded;
-        if (glassFavView != null) glassFavView.setVisibility(backMode ? View.GONE : View.VISIBLE);
         if (glassLyricView != null) glassLyricView.setVisibility(backMode ? View.GONE : View.VISIBLE);
-        if (glassPlayView != null) glassPlayView.setVisibility(backMode ? View.GONE : View.VISIBLE);
         if (glassBackView != null) glassBackView.setVisibility(backMode ? View.VISIBLE : View.GONE);
     }
 
@@ -1937,9 +1943,16 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
             if (shelfLyricView != null) shelfLyricView.setPlaying(value);
             return;
         }
-        // 封面卡片玻璃条播放键（盒 40dp、图标 24dp 由布局给）
+        // 封面卡片玻璃条播放键（盒 40dp、图标 24dp 由布局给）；
+        // 图标 alpha＝有曲 1.0／无曲 0.35（GZ PlayerScreenKt.java:9789,9794；加载态另记对照表，星辰无加载信号）
         if (glassPlayView != null) {
             glassPlayView.setImageResource(value ? R.drawable.ic_music_pause : R.drawable.ic_music_play);
+            boolean hasTrack = false;
+            try {
+                hasTrack = MusicController.get().current() != null;
+            } catch (Throwable ignored) {
+            }
+            glassPlayView.setAlpha(hasTrack ? 1f : 0.35f);
         }
         // Apple 运输行：播放键只切图标（尺寸/按压由布局与接线给）；禁用 alpha 在 bindTrackViews 刷
         if (appleTheme) {
@@ -2027,19 +2040,26 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
     private void updateGlassLyricLine() {
         if (glassLyricView == null) return;
         String text;
+        boolean placeholder;
         List<LyricsLine> mains = effectiveMains();
         if (mains.isEmpty()) {
             text = getString(R.string.music_no_lyric);
+            placeholder = true;
         } else {
             int idx = lyricView == null ? -1 : lyricView.currentIndex();
             if (idx < 0) idx = 0;
             if (idx >= mains.size()) idx = mains.size() - 1;
             text = mains.get(idx).getText();
             if (text == null) text = "";
+            placeholder = text.isEmpty();
+            if (placeholder) text = " · · · ";
         }
-        if (!text.equals(glassLyricShown)) {
+        // 空态口径（GZ PlayerScreenKt.java:8217,8225-8229）：无词与空行都显占位、alpha 0.45；正常行 0.92。
+        if (!text.equals(glassLyricShown) || placeholder != glassLyricPlaceholder) {
             glassLyricShown = text;
+            glassLyricPlaceholder = placeholder;
             glassLyricView.setText(text);
+            glassLyricView.setTextColor(placeholder ? 0x73FFFFFF : 0xEBFFFFFF);
         }
     }
 

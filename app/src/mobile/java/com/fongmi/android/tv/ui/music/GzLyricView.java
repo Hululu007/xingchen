@@ -25,7 +25,7 @@ public class GzLyricView extends ViewGroup {
     public static final int MODE_FULL = 0;
     public static final int MODE_EMBED = 1;
 
-    private static final float FULL_ANCHOR_FRACTION = 0.60f;
+    private static final float FULL_ANCHOR_FRACTION = 0.45f;
     private static final long REANCHOR_DELAY_MS = 5000L;
 
     private final List<GzLyricLineView> pool = new ArrayList<>();

@@ -43,6 +43,8 @@ public class CdThemeView extends FrameLayout implements PlayerThemeFace {
         int accent;
         float solidAlpha;
         float bgMix;
+        boolean dark;
+        float accentMaxLum;
     }
 
     private final LinearGradientView bgView;
@@ -355,6 +357,7 @@ public class CdThemeView extends FrameLayout implements PlayerThemeFace {
 
     private void initPalette(boolean dark, Integer coverColor) {
         palette = new CdPalette();
+        palette.dark = dark;
         if (dark) {
             palette.base = 0xFF14161C;
             palette.mist = 0xFF14161C;
@@ -362,6 +365,7 @@ public class CdThemeView extends FrameLayout implements PlayerThemeFace {
             palette.muted = 0xFF8E96A3;
             palette.solidAlpha = 0.72f;
             palette.bgMix = 1.0f;
+            palette.accentMaxLum = 0.45f;
         } else {
             palette.base = 0xFFF4F2EE;
             palette.mist = 0xFFE9EFF5;
@@ -369,10 +373,19 @@ public class CdThemeView extends FrameLayout implements PlayerThemeFace {
             palette.muted = 0xFF747D89;
             palette.solidAlpha = 1.0f;
             palette.bgMix = 0f;
+            palette.accentMaxLum = 1.0f;
         }
         palette.accent = palette.ink;
         if (coverColor != null) {
             int mixed = mixColor(coverColor, palette.ink, 0.52f);
+            double lum = androidx.core.graphics.ColorUtils.calculateLuminance(mixed);
+            if (lum > palette.accentMaxLum) {
+                double baseLum = androidx.core.graphics.ColorUtils.calculateLuminance(palette.base);
+                double denom = lum - baseLum;
+                float f = denom == 0 ? 0f : (float) Math.max(0, Math.min(1,
+                        (lum - palette.accentMaxLum) / denom));
+                mixed = mixColor(mixed, palette.base, f);
+            }
             palette.accent = mixed;
         }
     }
@@ -381,20 +394,18 @@ public class CdThemeView extends FrameLayout implements PlayerThemeFace {
 
     private void refreshCoverPalette(String url) {
         if (url == null || url.isEmpty()) return;
-        Glide.with(getContext()).asBitmap().load(ImgUtil.getUrl(url)).override(64, 64)
+        Glide.with(getContext()).asBitmap().load(ImgUtil.getUrl(url)).override(128, 128)
                 .into(new CustomTarget<Bitmap>() {
                     @Override
                     public void onResourceReady(@NonNull Bitmap resource,
                                                 @Nullable Transition<? super Bitmap> transition) {
                         if (!url.equals(lastCoverUrl)) return;
-                        Palette.from(resource).generate(p -> {
+                        Palette.from(resource).maximumColorCount(24).generate(p -> {
                             if (p == null || !url.equals(lastCoverUrl)) return;
-                            int cover = p.getDominantColor(0);
-                            if (cover != 0) {
-                                initPalette(isDarkSurface(), cover);
-                                bgView.setPalette(palette, cover);
-                                applyPaletteColors();
-                            }
+                            int cover = CoverAmbientView.extractAmbientColor(p);
+                            initPalette(isDarkSurface(), cover);
+                            bgView.setPalette(palette, cover);
+                            applyPaletteColors();
                         });
                     }
 
@@ -603,13 +614,14 @@ public class CdThemeView extends FrameLayout implements PlayerThemeFace {
             int base = palette.base;
             int cover = coverColor == null ? base : coverColor;
             int fresh = mix(base, cover, 0.22f);
-            int middle = mix(mix(base, cover, 0.12f), base, palette.bgMix);
-            int bottom = mix(mix(base, cover, 0.08f), palette.mist, palette.bgMix);
+            int middle = mix(base, mix(base, cover, 0.12f), palette.bgMix);
+            int bottom = mix(palette.mist, mix(base, cover, 0.08f), palette.bgMix);
             int top = mix(base, fresh, 0.92f);
-            int upper = mix(fresh, middle, 0.48f);
+            int upper = mix(base, fresh, palette.dark ? 0.68f : 0.48f);
             LinearGradient gradient = new LinearGradient(0, 0, 0, getHeight(),
                     new int[]{top, upper, middle, bottom},
-                    new float[]{0f, 0.34f, 0.68f, 1f}, Shader.TileMode.CLAMP);
+                    palette.dark ? new float[]{0f, 0.42f, 0.68f, 1f}
+                            : new float[]{0f, 0.34f, 0.68f, 1f}, Shader.TileMode.CLAMP);
             paint.setShader(gradient);
             canvas.drawRect(0, 0, getWidth(), getHeight(), paint);
             paint.setShader(null);

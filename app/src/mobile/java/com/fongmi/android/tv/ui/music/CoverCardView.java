@@ -4,8 +4,12 @@ import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.animation.ValueAnimator;
 import android.content.Context;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.LinearGradient;
 import android.graphics.Outline;
+import android.graphics.Paint;
+import android.graphics.Shader;
 import android.graphics.drawable.GradientDrawable;
 import android.view.MotionEvent;
 import android.view.VelocityTracker;
@@ -32,6 +36,7 @@ public class CoverCardView extends FrameLayout {
 
     private final ImageView backCard;
     private final ImageView mainCard;
+    private final View shadeView;
     private Callback callback;
     private String currentUrl;
     private String prevUrl;
@@ -72,7 +77,35 @@ public class CoverCardView extends FrameLayout {
         mainCard.setClipToOutline(true);
         mainCard.setElevation(dpF(6));
         addView(mainCard);
+        shadeView = new View(context) {
+            private final Paint shadePaint = new Paint();
+
+            @Override
+            protected void onDraw(Canvas canvas) {
+                LinearGradient gradient = new LinearGradient(0, 0, 0, getHeight(),
+                        new int[]{Color.argb(46, 0, 0, 0), Color.argb(66, 0, 0, 0),
+                                Color.argb(102, 0, 0, 0), Color.argb(128, 0, 0, 0)},
+                        new float[]{0f, 0.4f, 0.75f, 1f}, Shader.TileMode.CLAMP);
+                shadePaint.setShader(gradient);
+                canvas.drawRect(0, 0, getWidth(), getHeight(), shadePaint);
+                shadePaint.setShader(null);
+            }
+        };
+        shadeView.setOutlineProvider(new ViewOutlineProvider() {
+            @Override
+            public void getOutline(View view, Outline outline) {
+                outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), dpF(22));
+            }
+        });
+        shadeView.setClipToOutline(true);
+        shadeView.setElevation(dpF(6));
+        addView(shadeView);
         setClipChildren(false);
+    }
+
+    private void setCardTranslation(float x) {
+        mainCard.setTranslationX(x);
+        shadeView.setTranslationX(x);
     }
 
     public void setCallback(Callback callback) {
@@ -121,6 +154,7 @@ public class CoverCardView extends FrameLayout {
         int cy = (h - cardH) / 2;
         backCard.layout(cx + dpI(10), cy + dpI(8), cx + dpI(10) + cardW, cy + dpI(8) + cardH);
         mainCard.layout(cx, cy, cx + cardW, cy + cardH);
+        shadeView.layout(cx, cy, cx + cardW, cy + cardH);
     }
 
     @Override
@@ -151,7 +185,7 @@ public class CoverCardView extends FrameLayout {
                 if (dragging) {
                     float max = anchorDistance();
                     dragDx = Math.max(-max, Math.min(max, dx));
-                    mainCard.setTranslationX(dragDx);
+                    setCardTranslation(dragDx);
                     float trigger = dpI(36);
                     if (!hapticFired && Math.abs(dragDx) >= trigger) {
                         hapticFired = true;
@@ -218,11 +252,11 @@ public class CoverCardView extends FrameLayout {
         if (android.os.Build.VERSION.SDK_INT >= 21) {
             anim.setInterpolator(new PathInterpolator(0.3f, 0f, 0.8f, 0.15f));
         }
-        anim.addUpdateListener(a -> mainCard.setTranslationX((float) a.getAnimatedValue()));
+        anim.addUpdateListener(a -> setCardTranslation((float) a.getAnimatedValue()));
         anim.addListener(new AnimatorListenerAdapter() {
             @Override
             public void onAnimationEnd(Animator animation) {
-                mainCard.setTranslationX(0);
+                setCardTranslation(0);
                 if (callback != null) {
                     if (direction == 1) callback.onSwipeNext();
                     else callback.onSwipePrev();
@@ -235,7 +269,7 @@ public class CoverCardView extends FrameLayout {
     private void settleBack() {
         ValueAnimator anim = ValueAnimator.ofFloat(dragDx, 0f);
         anim.setDuration(300L);
-        anim.addUpdateListener(a -> mainCard.setTranslationX((float) a.getAnimatedValue()));
+        anim.addUpdateListener(a -> setCardTranslation((float) a.getAnimatedValue()));
         anim.start();
     }
 }

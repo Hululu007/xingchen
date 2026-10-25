@@ -98,11 +98,6 @@ public class CoverAmbientView extends View {
                                                 @Nullable Transition<? super Bitmap> transition) {
                         if (!TextUtils.equals(url, coverKey)) return;
                         coverBitmap = resource;
-                        Palette.from(resource).generate(palette -> {
-                            if (!TextUtils.equals(url, coverKey) || palette == null) return;
-                            int dominant = palette.getDominantColor(FALLBACK_COLOR);
-                            animateBase(dominant);
-                        });
                         invalidate();
                     }
 
@@ -114,10 +109,118 @@ public class CoverAmbientView extends View {
                     public void onLoadFailed(@Nullable android.graphics.drawable.Drawable errorDrawable) {
                         if (!TextUtils.equals(url, coverKey)) return;
                         coverBitmap = null;
-                        animateBase(FALLBACK_COLOR);
                         invalidate();
                     }
                 });
+        Glide.with(getContext()).asBitmap().load(ImgUtil.getUrl(url)).override(128, 128)
+                .into(new CustomTarget<Bitmap>() {
+                    @Override
+                    public void onResourceReady(@NonNull Bitmap resource,
+                                                @Nullable Transition<? super Bitmap> transition) {
+                        if (!TextUtils.equals(url, coverKey)) return;
+                        Palette.from(resource).maximumColorCount(24).generate(palette -> {
+                            if (!TextUtils.equals(url, coverKey) || palette == null) return;
+                            animateBase(extractAmbientColor(palette));
+                        });
+                    }
+
+                    @Override
+                    public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {
+                    }
+
+                    @Override
+                    public void onLoadFailed(@Nullable android.graphics.drawable.Drawable errorDrawable) {
+                        if (!TextUtils.equals(url, coverKey)) return;
+                        animateBase(FALLBACK_COLOR);
+                    }
+                });
+    }
+
+    private static int hueBucket(float hue) {
+        return (((int) ((hue + 15f) / 30f)) % 12 + 12) % 12;
+    }
+
+    private static int ambientTone(int rgb) {
+        float[] hsv = new float[3];
+        Color.colorToHSV(rgb, hsv);
+        hsv[1] = hsv[1] < 0.06f ? 0f : Math.max(0.16f, Math.min(0.8f, hsv[1] * 1.05f + 0.02f));
+        hsv[2] = Math.max(0.38f, Math.min(0.72f, hsv[2]));
+        return Color.HSVToColor(hsv);
+    }
+
+    static int extractAmbientColor(Palette palette) {
+        java.util.List<Palette.Swatch> all = palette.getSwatches();
+        if (all.isEmpty()) {
+            Palette.Swatch dom = palette.getDominantSwatch();
+            return dom == null ? FALLBACK_COLOR : ambientTone(dom.getRgb());
+        }
+        java.util.List<Palette.Swatch> byLight = new java.util.ArrayList<>();
+        for (Palette.Swatch s : all) {
+            float l = s.getHsl()[2];
+            if (l >= 0.05f && l <= 0.95f) byLight.add(s);
+        }
+        if (byLight.isEmpty()) {
+            Palette.Swatch dom = palette.getDominantSwatch();
+            return dom == null ? FALLBACK_COLOR : ambientTone(dom.getRgb());
+        }
+        int totalPop = 0;
+        for (Palette.Swatch s : byLight) totalPop += s.getPopulation();
+        java.util.List<Palette.Swatch> saturated = new java.util.ArrayList<>();
+        int satPop = 0;
+        for (Palette.Swatch s : byLight) {
+            if (s.getHsl()[1] >= 0.06f) {
+                saturated.add(s);
+                satPop += s.getPopulation();
+            }
+        }
+        Palette.Swatch picked = null;
+        if (!saturated.isEmpty() && satPop >= totalPop * 0.12f) {
+            java.util.Map<Integer, Float> buckets = new java.util.HashMap<>();
+            for (Palette.Swatch s : saturated) {
+                float[] hsl = s.getHsl();
+                float w1 = Math.min(hsl[1], 0.6f) * 0.53f + 0.68f;
+                if (w1 > 1f) w1 = 1f;
+                float w2 = (hsl[0] < 12f || hsl[0] > 58f || hsl[1] < 0.1f || hsl[1] > 0.58f
+                        || hsl[2] < 0.16f || hsl[2] > 0.84f) ? 0.78f : 1.0f;
+                int bucket = hueBucket(hsl[0]);
+                Float cur = buckets.get(bucket);
+                buckets.put(bucket, (cur == null ? 0f : cur) + s.getPopulation() * w1 * w2);
+            }
+            int bestBucket = -1;
+            float bestScore = -1f;
+            for (java.util.Map.Entry<Integer, Float> e : buckets.entrySet()) {
+                if (e.getValue() > bestScore) {
+                    bestScore = e.getValue();
+                    bestBucket = e.getKey();
+                }
+            }
+            float bestPick = -1f;
+            for (Palette.Swatch s : saturated) {
+                float[] hsl = s.getHsl();
+                if (hueBucket(hsl[0]) != bestBucket) continue;
+                float vf = (hsl[2] >= 0.22f && hsl[2] <= 0.78f) ? 1.0f
+                        : (hsl[2] >= 0.12f && hsl[2] <= 0.88f) ? 0.82f : 0.55f;
+                float score = (Math.min(hsl[1], 1f) * 0.12f + 0.88f) * s.getPopulation() * vf;
+                if (score > bestPick) {
+                    bestPick = score;
+                    picked = s;
+                }
+            }
+        }
+        if (picked == null) {
+            int bestPop = -1;
+            for (Palette.Swatch s : byLight) {
+                if (s.getPopulation() > bestPop) {
+                    bestPop = s.getPopulation();
+                    picked = s;
+                }
+            }
+        }
+        if (picked == null) {
+            Palette.Swatch dom = palette.getDominantSwatch();
+            return dom == null ? FALLBACK_COLOR : ambientTone(dom.getRgb());
+        }
+        return ambientTone(picked.getRgb());
     }
 
     private void animateBase(int target) {
@@ -193,7 +296,7 @@ public class CoverAmbientView extends View {
     }
 
     private void drawBlurredImage(Canvas canvas, int w, int h) {
-        paint.setAlpha(Math.round(255f * 0.8f));
+        paint.setAlpha(Math.round(255f * 0.4f));
         canvas.drawBitmap(coverBitmap, null, new android.graphics.RectF(0, 0, w, h), paint);
         paint.setAlpha(255);
     }

@@ -267,16 +267,15 @@ public class ShelfThemeView extends LinearLayout implements PlayerThemeFace {
 
     private void refreshTone(String url) {
         if (url == null || url.isEmpty()) return;
-        Glide.with(getContext()).asBitmap().load(ImgUtil.getUrl(url)).override(64, 64)
+        Glide.with(getContext()).asBitmap().load(ImgUtil.getUrl(url)).override(128, 128)
                 .into(new CustomTarget<Bitmap>() {
                     @Override
                     public void onResourceReady(@NonNull Bitmap resource,
                                                 @Nullable Transition<? super Bitmap> transition) {
                         if (!url.equals(currentCoverUrl)) return;
-                        Palette.from(resource).generate(p -> {
+                        Palette.from(resource).maximumColorCount(24).generate(p -> {
                             if (p == null || !url.equals(currentCoverUrl)) return;
-                            int tone = p.getDominantColor(0);
-                            if (tone == 0) return;
+                            int tone = CoverAmbientView.extractAmbientColor(p);
                             int mixed = blend(tone, INK, 0.35f);
                             float[] hsl = new float[3];
                             ColorUtils.colorToHSL(mixed, hsl);

@@ -51,11 +51,14 @@ public class MusicGlassBackgroundView extends View {
     // 1.4.27 查修批加强：旧值色太浅（FFD9E8 级近白粉彩）＋中心透明度仅 0.50、中段 0.16，
     // 真机上整片极光几乎不可见、页面读作平白纸（截图实证）。改为色加深一档、中心 0.85、
     // 中段 0.38、直径加大，柔光必须一眼可见；仍是粉彩域、不压字（卡面文字区另有玻璃面承托）。
+    // 2026-10-25 再压亮一档（用户真机截图亲口「背景有点太亮了」）：上一档在真机仍近乎漂白、
+    // 粉紫几乎读不出。色停再加深／提饱和一档——粉 FFB9D9→FF9ECD、紫 C9B8FF→B79FFF、
+    // 薄荷 A9E8D8→7FE3CB；透明度与直径、近白底 FAFAFC 均不动，仍是浅色粉彩域、不压成深色。
     private static final Blob[] LARGE = {
-            new Blob(0xFFFFB9D9, -0.85f, -0.55f, 410f, 0.85f, 0.38f),
-            new Blob(0xFFC9B8FF, 0.85f, -0.35f, 390f, 0.85f, 0.38f),
-            new Blob(0xFFA9E8D8, -0.55f, 0.75f, 370f, 0.80f, 0.36f),
-            new Blob(0xFFFFB9D9, 0.60f, 0.85f, 350f, 0.78f, 0.34f),
+            new Blob(0xFFFF9ECD, -0.85f, -0.55f, 410f, 0.85f, 0.38f),
+            new Blob(0xFFB79FFF, 0.85f, -0.35f, 390f, 0.85f, 0.38f),
+            new Blob(0xFF7FE3CB, -0.55f, 0.75f, 370f, 0.80f, 0.36f),
+            new Blob(0xFFFF9ECD, 0.60f, 0.85f, 350f, 0.78f, 0.34f),
     };
 
     private static final class Dot {

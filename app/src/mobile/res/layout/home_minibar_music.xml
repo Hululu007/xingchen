@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 音乐首页迷你条（定案形态）：浅色悬浮胶囊。由 ListenMiniBar 的音乐分支 inflate；
-     条底为真玻璃 MusicGlassDrawable（糊首页极光底）、由 buildMusicBar 代码装配，本文件不写底；
-     左圆封面（外圈进度环＋播放旋转）／歌名／下一首／右侧大圆浅色软凸起播放键 -->
+     条底与右侧大圆播放键均为真玻璃 MusicGlassDrawable（糊首页极光底）、由 buildMusicBar
+     代码装配，本文件不写底；左圆封面（外圈进度环＋播放旋转）／歌名／下一首／播放键 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
@@ -57,7 +57,6 @@
         android:layout_width="56dp"
         android:layout_height="56dp"
         android:layout_marginStart="4dp"
-        android:background="@drawable/home_bg_play_btn"
         android:contentDescription="@string/home_play"
         android:elevation="4dp"
         android:padding="19dp"

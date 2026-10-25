@@ -2275,7 +2275,9 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         cardExitView.setScaleX(1f);
         cardExitView.setScaleY(1f);
         cardExitView.setTranslationX(0f);
-        cardExitView.animate().translationX(-dir * w).alpha(0f).scaleX(0.92f).scaleY(0.92f)
+        // 缓动分工（GZ PlayerScreenKt.java:26882-26895；bs4.java:6,8,20）：滑移/缩放走出场曲线 (0.3,0,1,1)，
+        // 淡出单独走 (0.2,0,0,1)——ViewPropertyAnimator 只有一个插值器，alpha 拆 ObjectAnimator 并行。
+        cardExitView.animate().translationX(-dir * w).scaleX(0.92f).scaleY(0.92f)
                 .setDuration(350).setInterpolator(INTERP_EXIT)
                 .withEndAction(() -> {
                     if (cardExitView != null && coverExitGen == gen) {
@@ -2284,14 +2286,22 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
                         cardExitView.setTranslationX(0f);
                     }
                 }).start();
+        android.animation.ObjectAnimator exitFade = android.animation.ObjectAnimator.ofFloat(cardExitView, "alpha", 1f, 0f);
+        exitFade.setDuration(350);
+        exitFade.setInterpolator(INTERP_FOSI);
+        exitFade.start();
         View wrap = find(R.id.tpCoverWrap);
         if (wrap != null) {
             wrap.setTranslationX(dir * w);
             wrap.setAlpha(0f);
             wrap.setScaleX(0.94f);
             wrap.setScaleY(0.94f);
-            wrap.animate().translationX(0f).alpha(1f).scaleX(1f).scaleY(1f)
+            wrap.animate().translationX(0f).scaleX(1f).scaleY(1f)
                     .setDuration(350).setInterpolator(INTERP_EMPH).start();
+            android.animation.ObjectAnimator entryFade = android.animation.ObjectAnimator.ofFloat(wrap, "alpha", 0f, 1f);
+            entryFade.setDuration(350);
+            entryFade.setInterpolator(INTERP_FOSI);
+            entryFade.start();
         }
     }
 

@@ -13,7 +13,9 @@ import java.util.Locale;
  * 逐字上浮 WORD_LIFT_EM＝-0.09em、进度分母 max(1100ms, 单元时长)；
  * 长音光晕：词时长 ≥1000ms 才算长音（判定前先 trim 词文本，对齐 shouldEmphasize :12466；
  * 非 CJK 另要求词长 2–&lt;8 字、CJK 直接算）、EMPHASIZE_LETTER_FLOAT_EM＝-0.05、释放尾 400ms、
- * 光晕边距＝字号×0.12＋半径×3＋2、COVER_GLOW_OVERFLOW＝96、缩放曲线 ×0.6（行末 ×1.6、上限 1.2）；
+ * 光晕边距＝字号×0.12＋半径×3＋2、缩放曲线 ×0.6（行末 ×1.6、上限 1.2）；
+ * 瓜子 COVER_GLOW_OVERFLOW＝96（LyricsViewKt.java:276，作参数传 CoverCurrentLyric :4548）星辰绘制路未消费，
+ * 原死常量已删防假对齐（gz-full-parity-1025 §7.1）；
  * 光晕强度／半径系数照旧引擎已逐系数核对的 GZ emphasizeGlow 转写（BASE 0.6／PER_SEC 0.045／CAP 0.85，
  * 行末 ×1.1 封顶 0.95；半径 BASE 0.3／PER_SEC 0.012／CAP 0.5，行末 ×1.15 封顶 0.6）；
  * 副行字号＝主行×0.62、行高＝字号×4/3、字重 500；
@@ -64,7 +66,6 @@ public final class LyricWordEngine {
     /** 长音缩放系数（源码 :7128／:10369 实读）：缩放＝1+0.1×进度×amount。 */
     public static final float EMPHASIZE_SCALE_COEF = 0.1f;
     public static final long EMPH_RELEASE_TAIL_MS = 400L;
-    public static final float COVER_GLOW_OVERFLOW = 96.0f;
     private static final float EMPH_GLOW_BASE = 0.6f;
     private static final float EMPH_GLOW_PER_SEC = 0.045f;
     private static final float EMPH_GLOW_CAP = 0.85f;

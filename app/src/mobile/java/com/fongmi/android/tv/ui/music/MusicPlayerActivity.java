@@ -613,6 +613,12 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         settleLyricPage(true);
     }
 
+    /** 全屏歌词页歌手行（实帧口径：歌手 ♡ 专辑名；无专辑名只显歌手）。 */
+    private static String lyricPageArtistLine(String artist, String album) {
+        if (album == null || album.trim().isEmpty()) return artist;
+        return artist + " ♡ " + album.trim();
+    }
+
     /** 开页准备（喂词/副行复位/封面/进度对齐）：程序化开页与横滑跟手共用，只备页、不动位移。 */
     private void prepareLyricPage() {
         lyricPageVisible = true;
@@ -625,7 +631,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         if (!MusicStore.isShowRomanization()) MusicStore.setShowRomanization(true);
         MusicTrack track = MusicController.get().current();
         if (track != null) {
-            lyricPageView.setTrackInfo(track.displayTitle(), track.displayArtist());
+            lyricPageView.setTrackInfo(track.displayTitle(), lyricPageArtistLine(track.displayArtist(), track.album));
             lyricPageView.setCover(effectiveCover(track), track.displayTitle());
             applyLyricPageBackground();
         }
@@ -2089,7 +2095,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         refreshInfoContent();
         if (lyricPageView != null) {
             lyricBgBuildUrl = null;
-            lyricPageView.setTrackInfo(newTitle, newArtist);
+            lyricPageView.setTrackInfo(newTitle, lyricPageArtistLine(newArtist, track == null ? null : track.album));
             lyricPageView.setCover(effectiveCover(track), newTitle);
             lyricPageView.setToneColor(ambientColor);
             applyLyricPageBackground();

@@ -353,6 +353,10 @@ public class MusicRepository {
     /**
      * 搜索页横排的子源：只有真实支持搜歌（type=music）的源/插件进排。
      * 只提供歌词的插件（声明里只有 lyric）不进排，歌词链路不受影响。
+     * 平台身份去重（2026-10-25 用户点名「酷我有两个」）：预置酷我（FreeJS）与落雪
+     * 合成项酷我（lx://kw）是同一个平台在搜索排里出两张 chip——同身份只留先到者；
+     * 聚合顺序里 FreeJS 在落雪之前，故预置优先。去重只作用于本搜索排清单，
+     * 插件本体与各源 sites() 一行不动，歌词／取链／歌单导入都不走这里。
      */
     public static List<MusicSite> searchableSites() {
         List<MusicSite> all = new ArrayList<>();
@@ -363,7 +367,42 @@ public class MusicRepository {
                 SpiderDebug.log("music", "searchable sites error platform=%s %s", s.platform(), t.getMessage());
             }
         }
-        return all;
+        List<MusicSite> deduped = new ArrayList<>();
+        java.util.Set<String> seenIdentities = new java.util.HashSet<>();
+        for (MusicSite site : all) {
+            String identity = searchIdentityOf(site);
+            if (identity != null && !seenIdentities.add(identity)) continue;
+            deduped.add(site);
+        }
+        return deduped;
+    }
+
+    /**
+     * 搜索排的平台身份键（认不出返回 null＝不参与去重）：
+     * 落雪合成项按 srcUrl 的 lx://&lt;平台&gt; 取平台 key；预置酷我按播种地址认；
+     * 其余源名字恰为落雪五平台显示名（酷我音乐／网易云音乐／QQ音乐／酷狗音乐／咪咕音乐）
+     * 时按该平台认（FreeJS 站点名即插件自报平台，自报平台名的插件与落雪同平台即同身份）。
+     */
+    private static String searchIdentityOf(MusicSite site) {
+        if (site == null) return null;
+        if (site.srcUrl != null && site.srcUrl.startsWith("lx://")) {
+            String key = site.srcUrl.substring("lx://".length());
+            return key.isEmpty() ? null : "lxplat:" + key;
+        }
+        if (com.fongmi.android.tv.api.music.MusicSourceManager.isBuiltinKuwo(site.srcUrl)) return "lxplat:kw";
+        if (site.name != null) {
+            String[] keys = {com.fongmi.android.tv.api.music.LxPlatformSearch.KW,
+                    com.fongmi.android.tv.api.music.LxPlatformSearch.QQ,
+                    com.fongmi.android.tv.api.music.LxPlatformSearch.WY,
+                    com.fongmi.android.tv.api.music.LxPlatformSearch.KG,
+                    com.fongmi.android.tv.api.music.LxPlatformSearch.MG};
+            for (String key : keys) {
+                if (site.name.equals(com.fongmi.android.tv.api.music.LxPlatformSearch.platformName(key))) {
+                    return "lxplat:" + key;
+                }
+            }
+        }
+        return null;
     }
 
     /**
@@ -371,10 +410,15 @@ public class MusicRepository {
      * 不许一个源的失败拖垮整页（阻塞，请在子线程调）。
      */
     public static List<MusicTrack> searchSite(MusicSite site, String keyword) throws Exception {
+        return searchSite(site, keyword, 1);
+    }
+
+    /** 分页版 searchSite（page 从 1 起）：页码透传到源，源不支持分页时第二页起返回空。 */
+    public static List<MusicTrack> searchSite(MusicSite site, String keyword, int page) throws Exception {
         if (site == null) return Collections.emptyList();
         MusicSource s = find(site.platform);
         if (s == null) return Collections.emptyList();
-        List<MusicTrack> r = s.searchBySite(site, keyword);
+        List<MusicTrack> r = s.searchBySite(site, keyword, Math.max(1, page));
         return r == null ? Collections.emptyList() : r;
     }
 

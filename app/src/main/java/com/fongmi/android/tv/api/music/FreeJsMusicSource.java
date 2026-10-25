@@ -73,9 +73,15 @@ public class FreeJsMusicSource implements MusicSource {
     /** 单插件搜歌：结果只属于该插件，不混其它插件的（阻塞，请在子线程调） */
     @Override
     public List<MusicTrack> searchBySite(MusicSite site, String keyword) throws Exception {
+        return searchBySite(site, keyword, 1);
+    }
+
+    /** 分页版：页码原样给桥（FreeJS 协议 search(query, page, type) 本就收页码，旧实现写死 1） */
+    @Override
+    public List<MusicTrack> searchBySite(MusicSite site, String keyword, int page) throws Exception {
         FreeJsBridge b = MusicSourceManager.get().bridgeOf(site);
         if (b == null) return Collections.emptyList();
-        List<MusicTrack> tracks = b.search(keyword, 1, "music").getTracks();
+        List<MusicTrack> tracks = b.search(keyword, Math.max(1, page), "music").getTracks();
         // 单插件屏蔽平台：该插件屏蔽掉的内容平台不进单源结果（聚合搜索同口径在
         // MusicSourceManager.searchAll；旧实现单源搜索完全不查，屏蔽只在聚合页生效一半）
         if (tracks != null && site != null) {

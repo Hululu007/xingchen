@@ -143,12 +143,62 @@ public final class MusicGlassWire {
         if (root instanceof ViewGroup) glassifyChildren((ViewGroup) root);
     }
 
-    /** 整树走一遍：命中识别表的背景全换同源玻璃；RecyclerView 挂滚动监听顶版重裁。 */
+    /** 整树走一遍：命中识别表的背景全换同源玻璃；RecyclerView 挂滚动监听顶版重裁；页根再做漏底结构归一。 */
     public static void glassifyTree(View root) {
         if (root == null) return;
         glassifyView(root);
         if (root instanceof RecyclerView) hookScroll((RecyclerView) root);
         if (root instanceof ViewGroup) glassifyChildren((ViewGroup) root);
+        normalizeFitsSkeleton(root);
+    }
+
+    /**
+     * 漏底页结构归一（共享层一处，各音乐页在 initView 调 glassifyTree 时自动受益）：
+     * 根带 fitsSystemWindows 的页，根吃到系统栏 padding 后，直挂根下的背景 View 被压进
+     * padding 内侧，状态栏一条只剩根的纯白兜底 home_bg_page 露出来＝漏底；首页根无 fits、
+     * 背景直铺整屏、内容层顶距由代码按状态栏高补，是正确样本。
+     * 上一版「insets 监听复刻 fits＋按根 padding 给背景负边距」的修法在真机零效果，已整段摘除：
+     * 它唯一的活线是监听能读回根 padding，而多数页 glassifyTree 落在 getBinding() 重复
+     * inflate 的游离树上（不在显示树上，监听永不触发）；落在真树上的页，读回的根 padding
+     * 也从未成为内容定位的那份 padding（内容位置在该版前后分毫未动即为据）。
+     * 本法纯静态结构、不依赖任何回调时机，initView 里执行完即成形、首帧就是终态：
+     *   1) 根关掉 fits——背景 View 恢复 match_parent 直铺整屏，与首页同构；
+     *   2) 内容容器（根下除背景外第一个 match_parent 的 ViewGroup）的让位改由代码补：
+     *      paddingTop += 状态栏高、paddingBottom += 导航栏高（系统 dimen，与首页
+     *      MusicActivity 的 statusBarHeight() 同一取值口径），内容位置与修前像素级一致。
+     * fits 标志本身即一次性门：归一过的根 fits 已关，重复调用直接返回，不会重复补 padding。
+     * 骨架对不上（无背景 View／背景非根直挂／找不到内容容器）一概不碰，维持原状。
+     */
+    private static void normalizeFitsSkeleton(View root) {
+        if (!(root instanceof ViewGroup) || !root.getFitsSystemWindows()) return;
+        MusicGlassBackgroundView bg = MusicGlassBackgroundView.findInTree(root);
+        if (bg == null || bg.getParent() != root) return;
+        ViewGroup g = (ViewGroup) root;
+        View content = null;
+        for (int i = 0; i < g.getChildCount(); i++) {
+            View c = g.getChildAt(i);
+            if (c == bg) continue;
+            ViewGroup.LayoutParams lp = c.getLayoutParams();
+            if (c instanceof ViewGroup && lp != null
+                    && lp.width == ViewGroup.LayoutParams.MATCH_PARENT
+                    && lp.height == ViewGroup.LayoutParams.MATCH_PARENT) {
+                content = c;
+                break;
+            }
+        }
+        if (content == null) return;
+        root.setFitsSystemWindows(false);
+        Context ctx = root.getContext();
+        int status = systemDimenPx(ctx, "status_bar_height");
+        int nav = systemDimenPx(ctx, "navigation_bar_height");
+        content.setPadding(content.getPaddingLeft(), content.getPaddingTop() + status,
+                content.getPaddingRight(), content.getPaddingBottom() + nav);
+    }
+
+    /** 系统栏尺寸（dimen 口径，与首页 statusBarHeight() 同源：状态栏/导航栏高）。 */
+    private static int systemDimenPx(Context ctx, String name) {
+        int id = ctx.getResources().getIdentifier(name, "dimen", "android");
+        return id > 0 ? ctx.getResources().getDimensionPixelSize(id) : 0;
     }
 
     private static void glassifyChildren(ViewGroup g) {

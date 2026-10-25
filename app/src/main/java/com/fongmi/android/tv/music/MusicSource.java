@@ -38,6 +38,15 @@ public interface MusicSource {
         return search(keyword);
     }
 
+    /**
+     * 分页搜歌（page 从 1 起）：真支持分页的源覆写本方法把页码传到桥／接口；
+     * 默认实现只有第一页（走旧两参），第二页起返回空——调用方据空判「没有更多」，
+     * 不许拿第一页结果冒充第二页（会出整页重复行）。
+     */
+    default List<MusicTrack> searchBySite(MusicSite site, String keyword, int page) throws Exception {
+        return page <= 1 ? searchBySite(site, keyword) : java.util.Collections.emptyList();
+    }
+
     /** 源曲目（阻塞调用，请在子线程调） */
     List<MusicTrack> tracks(MusicSite site) throws Exception;
 

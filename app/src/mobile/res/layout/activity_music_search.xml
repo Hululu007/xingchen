@@ -3,7 +3,8 @@
      音乐搜索独立页（2026-10-25 用户定案重做）：构成只有——
      标题「搜索」＋搜索框行（玻璃胶囊＋取消）＋分类页签（单曲／专辑／歌手／歌单）
      ＋源横排 chips（各源分开、点哪个看哪个源的结果）＋结果列表＋状态层（加载／空态）。
-     工具行（随机／播放全部／来源下拉／排序）、组筛选条、落地页（最近／热门／猜你想搜）全摘。
+     工具行（随机／播放全部／来源下拉／排序）、组筛选条、落地页（热门／猜你想搜）全摘；
+     搜索历史 2026-10-25 用户点名补回（只有历史，别的一概不摆）。
      组织摆法照用户参照图（2026-10-20 定「搜索结果按源横排」）；皮走液态玻璃：
      根底 home_bg_page 兜底＋MusicGlassBackgroundView 铺满（与首页同一套背景），
      玻璃件用全 App 共用 bg_music_glass_* 一套。
@@ -96,6 +97,51 @@
                 android:text="@string/music_search_cancel"
                 android:textColor="#1A1A1A"
                 android:textSize="14sp" />
+        </LinearLayout>
+
+        <!-- 搜索历史（2026-10-25 用户点名补回，只要历史、不要热门／猜你想搜）：
+             仅初始态且有历史时由代码显示——标题行（历史记录＋清除）＋胶囊流，点词即搜 -->
+        <LinearLayout
+            android:id="@+id/historyBox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="历史记录"
+                    android:textColor="#8E8E93"
+                    android:textSize="13sp" />
+
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="0dp"
+                    android:layout_weight="1" />
+
+                <TextView
+                    android:id="@+id/historyClear"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:padding="4dp"
+                    android:text="清除"
+                    android:textColor="#8E8E93"
+                    android:textSize="13sp" />
+            </LinearLayout>
+
+            <com.fongmi.android.tv.ui.widget.FlowLayout
+                android:id="@+id/historyFlow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp" />
         </LinearLayout>
 
         <!-- 分类页签：单曲／专辑／歌手／歌单（构成与次序照参照图），四等分横排，子项由代码 inflate item_music_search_tab -->

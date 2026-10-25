@@ -51,7 +51,9 @@ import java.util.concurrent.atomic.AtomicInteger;
  * （2026-10-20 定「搜索结果按源横排」：各源分开、点哪个源看哪个源的结果）
  * ＋该源的结果列表（行：歌名、歌手 - 专辑、来源标、⋮）。
  * 搜索执行仍是多源并发、按源分桶承接 chips；工具行（随机／播放全部／来源下拉／排序）、
- * 组筛选条、落地页（最近／热门／猜你想搜）已全摘。
+ * 组筛选条、落地页（热门／猜你想搜）已全摘；搜索历史 2026-10-25 用户点名补回
+ * （只摆历史词、点词即搜，不要热门／猜你想搜）。结果列表滑到底自动续下一页
+ * （按桶分页，页码透传到源；旧实现全链写死第一页）。
  * 行播放走 MusicController，队列 route=list、参数 mode=search＋keyword，队列面板来源跳转落回本页。
  * 无返回箭头，走系统返回／搜索框行「取消」。
  */
@@ -77,6 +79,8 @@ public class MusicSearchActivity extends BaseActivity {
     private RecyclerView sourceRow;
     private RecyclerView recycler;
     private TextView empty;
+    private View historyBox;
+    private com.fongmi.android.tv.ui.widget.FlowLayout historyFlow;
 
     private final List<MusicTrack> tracks = new ArrayList<>();
     private final List<Object> cards = new ArrayList<>();
@@ -105,6 +109,12 @@ public class MusicSearchActivity extends BaseActivity {
     private String selectedSource = null;
     private int selectedChip = -1;
     private boolean searchAllReady = false;
+    /** 分页态（按桶键记；三表都只在 synchronized(searchBySite) 内读写）：
+     * bucketPages＝已到齐的最大页码、bucketEnded＝没有更多（空页／全重复／失败）、
+     * bucketLoading＝该桶有请求在途（第一页或续页）。旧实现全链写死第一页、没有这三表。 */
+    private final java.util.Map<String, Integer> bucketPages = new java.util.HashMap<>();
+    private final java.util.Set<String> bucketEnded = new java.util.HashSet<>();
+    private final java.util.Set<String> bucketLoading = new java.util.HashSet<>();
 
     private String lastCurrentId;
     private android.os.Parcelable pendingListState;
@@ -162,8 +172,25 @@ public class MusicSearchActivity extends BaseActivity {
         recycler = findViewById(R.id.recycler);
         empty = findViewById(R.id.empty);
         empty.setOnClickListener(null);
+        historyBox = findViewById(R.id.historyBox);
+        historyFlow = findViewById(R.id.historyFlow);
+        findViewById(R.id.historyClear).setOnClickListener(v -> {
+            MusicStore.clearRecentSearches();
+            refreshHistory();
+        });
 
         recycler.setLayoutManager(new LinearLayoutManager(this));
+        // 滑到底部附近自动续下一页（只续当前选中源的桶，见 tryLoadMore）
+        recycler.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override
+            public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
+                if (dy <= 0 || adapter == null) return;
+                RecyclerView.LayoutManager lm = rv.getLayoutManager();
+                if (!(lm instanceof LinearLayoutManager)) return;
+                int last = ((LinearLayoutManager) lm).findLastVisibleItemPosition();
+                if (last >= adapter.getItemCount() - 4) tryLoadMore();
+            }
+        });
         MusicGlassWire.glassifyTree(rootView);
         recycler.setAdapter(adapter = new SearchAdapter());
         sourceRow.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
@@ -191,11 +218,46 @@ public class MusicSearchActivity extends BaseActivity {
             return false;
         });
         MusicController.get().addListener(controllerListener);
-        // 进页分界：有词即搜、无词停在初始态（只有标题＋搜索框）
+        // 进页分界：有词即搜、无词停在初始态（标题＋搜索框＋有历史时摆历史记录）
         if (!keyword.isEmpty()) {
             etKeyword.setText(keyword);
             doSearch();
+        } else {
+            refreshHistory();
         }
+    }
+
+    /** 搜索历史：只在初始态（无已提交关键词）且存量非空时摆出；点词回填输入框并直搜。 */
+    private void refreshHistory() {
+        if (historyBox == null || historyFlow == null) return;
+        if (keyword != null && !keyword.isEmpty()) {
+            historyBox.setVisibility(View.GONE);
+            return;
+        }
+        List<String> words = MusicStore.loadRecentSearches();
+        if (words == null || words.isEmpty()) {
+            historyBox.setVisibility(View.GONE);
+            return;
+        }
+        historyFlow.removeAllViews();
+        for (final String w : words) {
+            TextView chip = new TextView(this);
+            chip.setText(w);
+            chip.setTextSize(13);
+            chip.setTextColor(0xFF3A3A3C);
+            chip.setBackgroundResource(R.drawable.bg_music_glass_chip);
+            chip.setPadding(dp(12), dp(6), dp(12), dp(6));
+            chip.setSingleLine(true);
+            chip.setMaxWidth(dp(220));
+            chip.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            chip.setOnClickListener(v -> {
+                etKeyword.setText(w);
+                etKeyword.setSelection(w.length());
+                doSearch();
+            });
+            historyFlow.addView(chip);
+        }
+        historyBox.setVisibility(View.VISIBLE);
     }
 
     /** 切源／旋转／主题重建回来不丢已输入与滚动位置——输入与选择态走字段回填（见 initView），
@@ -306,12 +368,18 @@ public class MusicSearchActivity extends BaseActivity {
             resetToIdle();
             return;
         }
+        // 搜索历史落记录（存取在 MusicStore 早已备好、此前全树无人调用，历史恒空）
+        MusicStore.pushRecentSearch(keyword);
+        if (historyBox != null) historyBox.setVisibility(View.GONE);
         bigTitle = keyword;
         final int seq = ++searchSeq;
         final String kw = keyword;
         allResults.clear();
         synchronized (searchBySite) {
             searchBySite.clear();
+            bucketPages.clear();
+            bucketEnded.clear();
+            bucketLoading.clear();
         }
         searchSitesSnap.clear();
         selectedSource = null;
@@ -360,6 +428,9 @@ public class MusicSearchActivity extends BaseActivity {
                 // 分源任务走大池（大扫查 B-1 移植）：共享 5 线程池装不下全源并发，
                 // 后排源只能排队等前排慢源跑完，整页长挂「正在加载」
                 Task.largeExecutor().execute(() -> {
+                    synchronized (searchBySite) {
+                        bucketLoading.add(bucketKey);
+                    }
                     try {
                         List<MusicTrack> r = MusicRepository.searchSite(site, kw);
                         if (seq == searchSeq && r != null) {
@@ -371,11 +442,24 @@ public class MusicSearchActivity extends BaseActivity {
                                     searchBySite.put(bucketKey, bucket);
                                 }
                                 bucket.addAll(r);
+                                bucketPages.put(bucketKey, 1);
+                                if (r.isEmpty()) bucketEnded.add(bucketKey);
                             }
                         }
                     } catch (Throwable t) {
                         if (seq == searchSeq) searchFailedSites.incrementAndGet();
                     } finally {
+                        // 在途标记无条件清：迟到任务若按 seq 跳过清除，会把新搜索同桶的分页永久堵死；
+                        // 终局标记仍按 seq 守卫（新搜索的桶态不归旧任务判）
+                        synchronized (searchBySite) {
+                            bucketLoading.remove(bucketKey);
+                        }
+                        if (seq == searchSeq) {
+                            synchronized (searchBySite) {
+                                // 第一页没到齐（失败）也判终局，防滚动反复重试同一坏源
+                                if (!bucketPages.containsKey(bucketKey)) bucketEnded.add(bucketKey);
+                            }
+                        }
                         // 旧搜索的迟到回调不许动新搜索的状态
                         if (seq == searchSeq) {
                             boolean last = pending.decrementAndGet() == 0;
@@ -395,13 +479,91 @@ public class MusicSearchActivity extends BaseActivity {
         });
     }
 
-    /** 回初始态：清结果与选择、页签与源 chips 收起、状态层收起，只剩标题＋搜索框。 */
+    /**
+     * 续下一页：只续当前选中源的桶（展示永远是单源）。歌单签是本地数据无源分页、
+     * 组内钻取态不续（钻取数据随桶长大自然变多，退出钻取后可继续续）。
+     * 续页结果按 track id 去重后并入桶——源不认页码回了重复页时全重复即判终局，
+     * 不会无限续同一页；空页／失败同样判终局。
+     */
+    private void tryLoadMore() {
+        if (keyword == null || keyword.isEmpty()) return;
+        if (selectedCat == 3 || searchGroupType >= 0) return;
+        final String bucketKey = selectedSource;
+        if (bucketKey == null) return;
+        final int seq = searchSeq;
+        final String kw = keyword;
+        final MusicSite site;
+        final int nextPage;
+        synchronized (searchBySite) {
+            if (bucketEnded.contains(bucketKey) || bucketLoading.contains(bucketKey)) return;
+            Integer cur = bucketPages.get(bucketKey);
+            if (cur == null) return;
+            nextPage = cur + 1;
+            MusicSite found = null;
+            for (int i = 0; i < searchSitesSnap.size(); i++) {
+                if (bucketKey.equals(searchBucketKey(searchSitesSnap.get(i), i))) {
+                    found = searchSitesSnap.get(i);
+                    break;
+                }
+            }
+            site = found;
+            if (site == null) return;
+            bucketLoading.add(bucketKey);
+        }
+        Task.largeExecutor().execute(() -> {
+            List<MusicTrack> r = null;
+            try {
+                r = MusicRepository.searchSite(site, kw, nextPage);
+            } catch (Throwable ignored) {
+            }
+            final List<MusicTrack> page = r;
+            runOnUiThread(() -> {
+                int added = 0;
+                synchronized (searchBySite) {
+                    bucketLoading.remove(bucketKey);
+                    if (seq != searchSeq) return;
+                    if (page != null && !page.isEmpty()) {
+                        List<MusicTrack> bucket = searchBySite.get(bucketKey);
+                        if (bucket != null) {
+                            java.util.Set<String> ids = new java.util.HashSet<>();
+                            synchronized (bucket) {
+                                for (MusicTrack t : bucket) {
+                                    if (t != null && t.id != null && !t.id.isEmpty()) ids.add(t.id);
+                                }
+                            }
+                            List<MusicTrack> fresh = new ArrayList<>();
+                            for (MusicTrack t : page) {
+                                if (t == null) continue;
+                                if (t.id != null && !t.id.isEmpty() && !ids.add(t.id)) continue;
+                                fresh.add(t);
+                            }
+                            if (!fresh.isEmpty()) {
+                                bucket.addAll(fresh);
+                                allResults.addAll(fresh);
+                                added = fresh.size();
+                            }
+                        }
+                    }
+                    if (added > 0) bucketPages.put(bucketKey, nextPage);
+                    else bucketEnded.add(bucketKey);
+                }
+                if (added > 0 && seq == searchSeq && bucketKey.equals(selectedSource)) {
+                    showSearchResults();
+                }
+            });
+        });
+    }
+
+    /** 回初始态：清结果与选择、页签与源 chips 收起、状态层收起，只剩标题＋搜索框（＋历史）。 */
     private void resetToIdle() {
         searchSeq++;
         keyword = "";
         allResults.clear();
         synchronized (searchBySite) {
             searchBySite.clear();
+            bucketPages.clear();
+            bucketEnded.clear();
+            bucketLoading.clear();
         }
         searchSitesSnap.clear();
         selectedSource = null;
@@ -418,6 +580,7 @@ public class MusicSearchActivity extends BaseActivity {
         tabRow.setVisibility(View.GONE);
         sourceRow.setVisibility(View.GONE);
         empty.setVisibility(View.GONE);
+        refreshHistory();
     }
 
     /** 当前选中源的桶（chips 无「全部」视图，展示永远是单源的）。 */

@@ -36,6 +36,10 @@ import okhttp3.Response;
  * 已实测（2026-10-20 本机）：kw 搜索 ✅ qq 搜索 ✅ kg 搜索 ✅ mg 搜索 ✅；
  * 歌词 kw ✅ qq ✅ wy ✅；wy 搜索按公开 weapi 方案实现，但本机网络 POST 到
  * music.163.com 一直超时，未回包验通；kg 歌词两步接口按公开方案写，未逐条验通。
+ * 2026-10-25 复验补正：五平台分页参数全实证（kw pn 0 起／qq p／kg page／mg pageNo
+ * 各取第 2 页回不同 20 条）；mg 封面真字段 imgItems、时长接口不给；kw 改 mobi 变体
+ * 取 web_albumpic_short 封面；kg 专辑图改并发补齐；wy 本机出口被风控回
+ * code 50000005、无回包，dt／al.picUrl 字段映射未获本机回包实证。
  */
 public class LxPlatformSearch {
 
@@ -70,17 +74,23 @@ public class LxPlatformSearch {
     }
 
     public static List<MusicTrack> search(String key, String keyword) throws Exception {
+        return search(key, keyword, 1);
+    }
+
+    /** 分页版（page 从 1 起）：五平台接口都收页码，旧实现全写死第一页、第二页永远拿不到。 */
+    public static List<MusicTrack> search(String key, String keyword, int page) throws Exception {
+        int p = Math.max(1, page);
         switch (key == null ? "" : key) {
             case KW:
-                return searchKw(keyword);
+                return searchKw(keyword, p);
             case QQ:
-                return searchQq(keyword);
+                return searchQq(keyword, p);
             case WY:
-                return searchWy(keyword);
+                return searchWy(keyword, p);
             case KG:
-                return searchKg(keyword);
+                return searchKg(keyword, p);
             case MG:
-                return searchMg(keyword);
+                return searchMg(keyword, p);
             default:
                 return new ArrayList<>();
         }
@@ -88,9 +98,13 @@ public class LxPlatformSearch {
 
     /* ---------------- 酷我 kw ---------------- */
 
-    private static List<MusicTrack> searchKw(String keyword) throws Exception {
+    private static List<MusicTrack> searchKw(String keyword, int page) throws Exception {
+        // mobi 变体（2026-10-25 本机实证）：老 web_2013 变体回包条目里没有任何封面字段
+        // （ARTISTPIC 只在头部出现且为空），mobi 变体同端点同 abslist 结构、条目带
+        // web_albumpic_short 专辑图短路径与 DURATION，回包是真 JSON。pn 为 0 起页码。
         String url = "http://search.kuwo.cn/r.s?all=" + enc(keyword)
-                + "&ft=music&itemset=web_2013&client=kt&pn=0&rn=20&rformat=json&encoding=utf8";
+                + "&ft=music&client=kt&pn=" + (page - 1) + "&rn=20&uid=2574109560&ver=kwplayer_ar_8.5.4.2"
+                + "&vipver=1&cluster=0&strategy=2012&rformat=json&encoding=utf8&vermerge=1&mobi=1";
         String text = httpGet(url, null);
         JsonObject root = JsonParser.parseString(fixPseudoJson(text)).getAsJsonObject();
         List<MusicTrack> out = new ArrayList<>();
@@ -105,7 +119,11 @@ public class LxPlatformSearch {
             t.artist = htmlUnescape(optStr(o, "ARTIST"));
             t.album = htmlUnescape(optStr(o, "ALBUM"));
             t.duration = optLong(o, "DURATION") * 1000;
-            t.cover = optStr(o, "ARTISTPIC");
+            String picShort = optStr(o, "web_albumpic_short");
+            if (!picShort.isEmpty()) {
+                // 短路径拼图床前缀（与元力KW 插件运行时产出的 artwork 同址，2026-10-25 实证 200 image/jpeg）
+                t.cover = "https://img4.kuwo.cn/star/albumcover/" + picShort;
+            }
             JsonObject item = new JsonObject();
             item.addProperty("rid", rid);
             item.addProperty("songmid", rid);
@@ -117,10 +135,10 @@ public class LxPlatformSearch {
 
     /* ---------------- QQ tx ---------------- */
 
-    private static List<MusicTrack> searchQq(String keyword) throws Exception {
+    private static List<MusicTrack> searchQq(String keyword, int page) throws Exception {
         String url = "https://c.y.qq.com/soso/fcgi-bin/search_for_qq_cp?g_tk=5381&uin=0&format=json"
                 + "&inCharset=utf-8&outCharset=utf-8&notice=0&platform=h5&needNewCode=1&w=" + enc(keyword)
-                + "&zhidaqu=1&t=0&flag=1&ie=utf-8&sem=1&aggr=0&perpage=20&n=20&p=1&remoteplace=txt.mqq.all";
+                + "&zhidaqu=1&t=0&flag=1&ie=utf-8&sem=1&aggr=0&perpage=20&n=20&p=" + page + "&remoteplace=txt.mqq.all";
         String text = httpGet(url, "https://y.qq.com/");
         JsonObject root = JsonParser.parseString(text).getAsJsonObject();
         List<MusicTrack> out = new ArrayList<>();
@@ -184,12 +202,12 @@ public class LxPlatformSearch {
                     + "-----END PUBLIC KEY-----";
     private static final String BASE62 = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
-    private static List<MusicTrack> searchWy(String keyword) throws Exception {
+    private static List<MusicTrack> searchWy(String keyword, int page) throws Exception {
         JsonObject payload = new JsonObject();
         payload.addProperty("s", keyword);
         payload.addProperty("type", 1);
         payload.addProperty("limit", 20);
-        payload.addProperty("offset", 0);
+        payload.addProperty("offset", (page - 1) * 20);
         payload.addProperty("total", true);
         String body = weapiBody(payload.toString());
         String text = httpPost("https://music.163.com/weapi/cloudsearch/get/web?csrf_token=", body,
@@ -270,18 +288,24 @@ public class LxPlatformSearch {
 
     /* ---------------- 酷狗 kg ---------------- */
 
-    private static List<MusicTrack> searchKg(String keyword) throws Exception {
+    private static List<MusicTrack> searchKg(String keyword, int page) throws Exception {
         String url = "http://mobilecdn.kugou.com/api/v3/search/song?format=json&keyword=" + enc(keyword)
-                + "&page=1&pagesize=20&showtype=1";
+                + "&page=" + page + "&pagesize=20&showtype=1";
         String text = httpGet(url, null);
         JsonObject root = JsonParser.parseString(text).getAsJsonObject();
         List<MusicTrack> out = new ArrayList<>();
         JsonArray info = digArray(root, "data", "info");
         if (info == null) return out;
-        // 第三波 A3：专辑图按 album_id 查专辑信息补（同次搜索内按 album_id 缓存去重；
-        // 专辑接口字段／地址未逐条本机验通，取不到字段时封面留空，不编图、不阻塞搜索失败）。
-        java.util.Map<String, String> albumCovers = new java.util.HashMap<>();
-        int albumCoverFetched = 0;
+        // 专辑图按 album_id 查专辑信息补（2026-10-25 本机实证：专辑接口 data.imgurl 有值、
+        // 单次约 1 秒）。旧实现串行只补前 3 张（怕单张 20 秒超时拖死搜索），第 4 张起全空——
+        // 改并发补图：去重专辑全补，小池并行＋整批 6 秒总预算，超预算的留空，不拖死搜索。
+        java.util.Set<String> albumIds = new java.util.LinkedHashSet<>();
+        for (JsonElement el : info) {
+            if (!el.isJsonObject()) continue;
+            String albumId = optStr(el.getAsJsonObject(), "album_id");
+            if (!albumId.isEmpty()) albumIds.add(albumId);
+        }
+        java.util.Map<String, String> albumCovers = fetchKgAlbumCovers(albumIds);
         for (JsonElement el : info) {
             if (!el.isJsonObject()) continue;
             JsonObject o = el.getAsJsonObject();
@@ -295,18 +319,7 @@ public class LxPlatformSearch {
             String albumId = optStr(o, "album_id");
             if (!albumId.isEmpty()) {
                 String cover = albumCovers.get(albumId);
-                if (cover == null) {
-                    // M13：去重 album_id 补图只补前 3 张（每张同步 http 约 20 秒超时，全补会拖垮搜索）；
-                    // 超出部分先出结果、封面留空，不异步补图（不再引入竞态）。
-                    if (albumCoverFetched < 3) {
-                        cover = kgAlbumCover(albumId);
-                        albumCoverFetched++;
-                    } else {
-                        cover = "";
-                    }
-                    albumCovers.put(albumId, cover);
-                }
-                if (!cover.isEmpty()) t.cover = cover;
+                if (cover != null && !cover.isEmpty()) t.cover = cover;
             }
             JsonObject item = new JsonObject();
             item.addProperty("hash", hash);
@@ -316,6 +329,33 @@ public class LxPlatformSearch {
             out.add(t);
         }
         return out;
+    }
+
+    /** 酷狗专辑图并发补齐：最多 5 路并行、整批最多等 6 秒；单张失败／超时留空，不抛出。 */
+    private static java.util.Map<String, String> fetchKgAlbumCovers(java.util.Set<String> albumIds) {
+        java.util.Map<String, String> covers = new java.util.concurrent.ConcurrentHashMap<>();
+        if (albumIds == null || albumIds.isEmpty()) return covers;
+        java.util.concurrent.ExecutorService pool =
+                java.util.concurrent.Executors.newFixedThreadPool(Math.min(5, albumIds.size()));
+        try {
+            java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(albumIds.size());
+            for (String albumId : albumIds) {
+                pool.execute(() -> {
+                    try {
+                        covers.put(albumId, kgAlbumCover(albumId));
+                    } finally {
+                        latch.countDown();
+                    }
+                });
+            }
+            try {
+                latch.await(6, java.util.concurrent.TimeUnit.SECONDS);
+            } catch (InterruptedException ignored) {
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+        return covers;
     }
 
     /** 酷狗专辑信息取图：只读返回里实际存在的图字段，任一环节失败返回空（不抛、不阻塞搜索）。 */
@@ -343,10 +383,10 @@ public class LxPlatformSearch {
 
     /* ---------------- 咪咕 mg ---------------- */
 
-    private static List<MusicTrack> searchMg(String keyword) throws Exception {
+    private static List<MusicTrack> searchMg(String keyword, int page) throws Exception {
         String sw = URLEncoder.encode("{\"song\":1,\"album\":0,\"singer\":0,\"tag\":0,\"lyric\":0,\"bestShow\":1,\"mv\":0,\"songlist\":0,\"singerCard\":0}", "UTF-8");
         String url = "https://app.c.nf.migu.cn/MIGUM2.0/v1.0/content/search_all.do?text=" + enc(keyword)
-                + "&pageNo=1&pageSize=20&searchSwitch=" + sw;
+                + "&pageNo=" + page + "&pageSize=20&searchSwitch=" + sw;
         String text = httpGet(url, "https://music.migu.cn/");
         JsonObject root = JsonParser.parseString(text).getAsJsonObject();
         List<MusicTrack> out = new ArrayList<>();
@@ -373,16 +413,25 @@ public class LxPlatformSearch {
                 JsonElement first = o.get("albums").getAsJsonArray().get(0);
                 if (first.isJsonObject()) {
                     t.album = optStr(first.getAsJsonObject(), "name");
-                    // 第三波 A3：咪咕专辑图只读搜索返回里实际存在的字段（专辑对象优先、歌曲对象次之）；
-                    // 字段名未从真实回包逐条核对，读不到就留空，不硬编地址、不猜字段拼图。
-                    String albumCover = firstNonEmpty(first.getAsJsonObject(),
-                            "pic", "img", "cover", "image", "picUrl", "albumPic");
-                    if (!albumCover.isEmpty()) t.cover = albumCover;
                 }
             }
-            if (t.cover == null || t.cover.isEmpty()) {
-                String songCover = firstNonEmpty(o, "pic", "img", "cover", "image", "picUrl", "albumPic");
-                if (!songCover.isEmpty()) t.cover = songCover;
+            // 封面真字段（2026-10-25 本机实证回包）：歌曲本级 imgItems[{img, imgSizeType}]，
+            // 20/20 条都有；旧实现猜的 pic/img/cover/picUrl 等字段回包里根本不存在、封面恒空。
+            // imgSizeType 越大图越大（01/02/03），取最大的一张。时长字段回包全字段皆无——
+            // 本接口不给时长，t.duration 保持 0（行上 --:--），不许编造。
+            if (o.has("imgItems") && o.get("imgItems").isJsonArray()) {
+                String best = "";
+                String bestSize = "";
+                for (JsonElement im : o.get("imgItems").getAsJsonArray()) {
+                    if (!im.isJsonObject()) continue;
+                    String img = optStr(im.getAsJsonObject(), "img");
+                    String size = optStr(im.getAsJsonObject(), "imgSizeType");
+                    if (!img.isEmpty() && size.compareTo(bestSize) >= 0) {
+                        best = img;
+                        bestSize = size;
+                    }
+                }
+                if (!best.isEmpty()) t.cover = best;
             }
             JsonObject item = new JsonObject();
             item.addProperty("songmid", contentId);

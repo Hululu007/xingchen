@@ -23,15 +23,17 @@ import android.view.View;
  * 1) 自带不依赖取样的可见下限——取样为空/未就绪/裁剪失败时，不走透明兜底，
  *    改走下限面：半透明白渐变下限层 {0xD9FFFFFF, 0xB3FFFFFF, 0xCCFFFFFF} 照样满铺，
  *    其上白罩、顶部流光、底部影、亮边描边一层不少，任何底上都成形。
- * 2) 小尺寸圆形键（圆角 999）只留一层轻接触影（3dp / 0x1F505A78），
+ * 2) 小尺寸圆形键（圆角 999）只留一层轻接触影（3dp / 0x2B505A78），
  *    不叠底部内软影——56dp 圆键叠双层影在右下成灰污团（回归清单第 5 条）。
  *
  * 液态玻璃四项 finishing（用户定：边缘亮边、顶部流光、悬浮分层、按压发亮）：
- * - 边缘亮边：1dp 对角渐变描边 {E6,66,40,8C} 停点 {0,.35,.7,1}，左上最亮、底部回亮；
- * - 顶部流光：纵向 {.26,.08,0} 停点 {0,.42,.75}，只活在上部；
- * - 悬浮分层：底部内软影 14dp / rgba(80,90,120,.20)＋底沿接触影 3dp / .12 合成
+ * - 边缘亮边：1dp 对角渐变描边 {F2,8C,66,B3} 停点 {0,.35,.7,1}，左上最亮、底部回亮；
+ * - 顶部流光：纵向 {.33,.12,0} 停点 {0,.42,.75}，只活在上部；
+ * - 悬浮分层：底部内软影 14dp / rgba(80,90,120,.28)＋底沿接触影 3dp / .17 合成
  *   （背景件画不出一界之外的投影，分层由糊底透深＋亮边＋内影合成；小圆键例外只留接触影）；
  * - 按压发亮：state_pressed 时整面加 0x2EFFFFFF 白光、亮边切高亮渐变，松开即回。
+ * （2026-10-25 背景二次压亮同批：亮边/流光/双影各加强一档，让玻璃在压暗后的背景上显形；
+ * 加强前值：亮边 {E6,66,40,8C}、流光 {.26,.08,0}、内软影 .20、接触影 .12。）
  */
 public class MusicGlassDrawable extends Drawable {
 
@@ -41,11 +43,11 @@ public class MusicGlassDrawable extends Drawable {
     // 可见下限层（取样失败时满铺）：半透明白渐变，任何底上可辨
     private static final int[] FALLBACK = {0xD9FFFFFF, 0xB3FFFFFF, 0xCCFFFFFF};
     // 顶部流光
-    private static final int[] SHEEN = {0x42FFFFFF, 0x14FFFFFF, 0x00FFFFFF};
+    private static final int[] SHEEN = {0x54FFFFFF, 0x1FFFFFFF, 0x00FFFFFF};
     private static final float[] SHEEN_STOPS = {0f, 0.42f, 0.75f};
     // 边缘亮边（常态／按压高亮）
-    private static final int[] STROKE = {0xE6FFFFFF, 0x66FFFFFF, 0x40FFFFFF, 0x8CFFFFFF};
-    private static final int[] STROKE_PRESSED = {0xFFFFFFFF, 0x99FFFFFF, 0x73FFFFFF, 0xBFFFFFFF};
+    private static final int[] STROKE = {0xF2FFFFFF, 0x8CFFFFFF, 0x66FFFFFF, 0xB3FFFFFF};
+    private static final int[] STROKE_PRESSED = {0xFFFFFFFF, 0xB3FFFFFF, 0x8CFFFFFF, 0xD9FFFFFF};
     private static final float[] STROKE_STOPS = {0f, 0.35f, 0.7f, 1f};
 
     private static volatile int sEpoch = 0; // 滚动/位置变化时 +1，强制全件重裁
@@ -146,14 +148,14 @@ public class MusicGlassDrawable extends Drawable {
                 FALLBACK, OVERLAY_STOPS, Shader.TileMode.CLAMP));
         mSheenPaint.setShader(new LinearGradient(0, bounds.top, 0, bounds.bottom,
                 SHEEN, SHEEN_STOPS, Shader.TileMode.CLAMP));
-        // 底部内软影：rgba(80,90,120,.20) 向上羽化 14dp（小圆键不设、不画）
+        // 底部内软影：rgba(80,90,120,.28) 向上羽化 14dp（小圆键不设、不画）
         float sh = 14f * mDensity;
         mShadowPaint.setShader(new LinearGradient(0, bounds.bottom - sh, 0, bounds.bottom,
-                new int[]{0x00000000, 0x33505A78}, null, Shader.TileMode.CLAMP));
-        // 底沿接触影：3dp / 0x1F505A78（.12），全件共用一层
+                new int[]{0x00000000, 0x47505A78}, null, Shader.TileMode.CLAMP));
+        // 底沿接触影：3dp / 0x2B505A78（.17），全件共用一层
         float ch = 3f * mDensity;
         mContactPaint.setShader(new LinearGradient(0, bounds.bottom - ch, 0, bounds.bottom,
-                new int[]{0x00000000, 0x1F505A78}, null, Shader.TileMode.CLAMP));
+                new int[]{0x00000000, 0x2B505A78}, null, Shader.TileMode.CLAMP));
         rebuildStrokeShader(bounds);
     }
 

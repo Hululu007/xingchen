@@ -96,9 +96,15 @@ public class LxMusicSource implements MusicSource {
 
     @Override
     public List<MusicTrack> searchBySite(MusicSite site, String keyword) throws Exception {
+        return searchBySite(site, keyword, 1);
+    }
+
+    /** 分页版：页码透传壳子平台搜索（五平台接口都收页码，旧实现全写死第一页） */
+    @Override
+    public List<MusicTrack> searchBySite(MusicSite site, String keyword, int page) throws Exception {
         String key = platformKeyOf(site);
         if (key.isEmpty()) return Collections.emptyList();
-        return LxPlatformSearch.search(key, keyword);
+        return LxPlatformSearch.search(key, keyword, Math.max(1, page));
     }
 
     @Override

@@ -102,9 +102,15 @@ public class PyMusicSource implements MusicSource {
 
     @Override
     public List<MusicTrack> searchBySite(MusicSite site, String keyword) throws Exception {
+        return searchBySite(site, keyword, 1);
+    }
+
+    /** 分页版：SiteApi.searchContent 本就收页码字符串，旧实现写死 "1" */
+    @Override
+    public List<MusicTrack> searchBySite(MusicSite site, String keyword, int page) throws Exception {
         Site vod = vodSite(site == null ? null : site.srcUrl);
         if (vod == null) return new ArrayList<>();
-        Result result = SiteApi.searchContent(vod, keyword, false, "1");
+        Result result = SiteApi.searchContent(vod, keyword, false, String.valueOf(Math.max(1, page)));
         return mapList(vod, result);
     }
 

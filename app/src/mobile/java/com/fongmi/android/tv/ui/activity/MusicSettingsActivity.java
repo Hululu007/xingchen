@@ -64,7 +64,9 @@ public class MusicSettingsActivity extends BaseActivity {
 
     @Override
     protected ViewBinding getBinding() {
-        binding = ActivityMusicSettingsBinding.inflate(getLayoutInflater());
+        // 只 inflate 一次：BaseActivity 先取根 setContentView、initView 再取根走 glassifyTree，
+        // 两次必须是同一棵树——重复 inflate 会让接线落在游离树上、显示的那棵永不生效。
+        if (binding == null) binding = ActivityMusicSettingsBinding.inflate(getLayoutInflater());
         return binding;
     }
 

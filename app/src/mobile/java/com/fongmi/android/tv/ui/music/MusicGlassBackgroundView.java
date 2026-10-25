@@ -21,19 +21,25 @@ import android.view.ViewGroup;
  *   光斑中心 alpha .85/.85/.80/.78 → .80/.80/.75/.72，直径与位置不动（过渡连续、无中段斑驳）。
  * 全场平均亮度改前/改后数字由 JVM harness 复刻本类合成数学算出，写进 w2-glass.md 对照表。
  *
+ * 二次压亮（2026-10-25 他再点「背景会不会还是太亮了？液态玻璃看着不明显」）：在批一参数上再降一档——
+ *   底色 #F1F1F4 → #EAEAF0；
+ *   粉 #F09FC6 → #EC8FBC、紫 #AE97F2 → #A184EC、薄荷 #8AD6BE → #74CCAC（色更深、饱和略升、不漂白）；
+ *   光斑中心 alpha .80/.80/.75/.72 → .82/.82/.78/.74（存在感略升，深由底与色承担）。
+ * harness 实算：全场平均亮度 0.7541 → 0.6881（仍浅色，max 0.8263），相邻步差 0.0083 → 0.0080（无斑驳恶化）。
+ *
  * 同时维护进程共享 1/4 降采样缓冲（同源参照海阔 HkDynamicBgView 的缓冲机制）：
  * onSizeChanged 时把同一场景渲进小图、版本号 +1，MusicGlassDrawable 按宿主窗口位置裁剪作糊底。
  */
 public class MusicGlassBackgroundView extends View {
 
     // ---------- 场景常数（harness 逐值镜像，改这里必须同步改 harness） ----------
-    public static final int BASE_COLOR = 0xFFF1F1F4;
+    public static final int BASE_COLOR = 0xFFEAEAF0;
     // 光斑：中心位置（占宽/高比例）、直径 dp、RGB、中心 alpha
     public static final float[] SPOT_X = {0.14f, 0.86f, 0.16f, 0.88f};
     public static final float[] SPOT_Y = {0.10f, 0.30f, 0.84f, 0.90f};
     public static final float[] SPOT_DIAMETER_DP = {410f, 390f, 370f, 350f};
-    public static final int[] SPOT_RGB = {0xF09FC6, 0xAE97F2, 0x8AD6BE, 0xF09FC6};
-    public static final float[] SPOT_ALPHA = {0.80f, 0.80f, 0.75f, 0.72f};
+    public static final int[] SPOT_RGB = {0xEC8FBC, 0xA184EC, 0x74CCAC, 0xEC8FBC};
+    public static final float[] SPOT_ALPHA = {0.82f, 0.82f, 0.78f, 0.74f};
     // 径向衰减停点与 alpha 系数：中心→中段平滑羽化→边缘归零（连续过渡）
     public static final float[] SPOT_STOPS = {0f, 0.55f, 1f};
     public static final float[] SPOT_ALPHA_FACTORS = {1f, 0.45f, 0f};

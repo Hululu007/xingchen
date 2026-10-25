@@ -126,7 +126,9 @@ public class MusicHistoryActivity extends BaseActivity {
 
     @Override
     protected ViewBinding getBinding() {
-        rootView = LayoutInflater.from(this).inflate(R.layout.activity_music_history, null);
+        // 只 inflate 一次：BaseActivity 先取根 setContentView、initView 再取根走 glassifyTree，
+        // 两次必须是同一棵树——重复 inflate 会让接线落在游离树上、显示的那棵永不生效。
+        if (rootView == null) rootView = LayoutInflater.from(this).inflate(R.layout.activity_music_history, null);
         return new SimpleBinding(rootView);
     }
 

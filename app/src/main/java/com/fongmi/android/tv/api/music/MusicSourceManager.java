@@ -132,6 +132,15 @@ public class MusicSourceManager {
     private static final String RETIRED_BUILTIN_BILIBILI =
             "https://cdn.jsdelivr.net/gh/maotoumao/MusicFreePlugins@master/dist/bilibili/index.js";
 
+    /** 预置酷我地址（元力KW）：搜索排去重按它认预置酷我身份（名字会被插件元数据回填改写、不可靠） */
+    private static final String BUILTIN_KUWO_YUANLI =
+            "https://cdn.jsdelivr.net/gh/qwerwhr/musicfree-plugins@master/%E5%85%83%E5%8A%9BKW.js";
+
+    /** 是否应用自带的预置酷我（按播种地址认，不看名字） */
+    public static boolean isBuiltinKuwo(String srcUrl) {
+        return BUILTIN_KUWO_YUANLI.equals(srcUrl);
+    }
+
     /** 自带歌词预置地址（种子身份即歌词型：歌词网／歌词千寻搜不了歌，计数归类不依赖检测结果） */
     private static final String BUILTIN_LYRIC_GECIWANG =
             "https://cdn.jsdelivr.net/gh/maotoumao/MusicFreePlugins@master/dist/geciwang/index.js";
@@ -150,7 +159,7 @@ public class MusicSourceManager {
         list.add(new MusicSite(FreeJsMusicSource.PLATFORM, "歌词千寻", "",
                 BUILTIN_LYRIC_GECIQIANXUN));
         list.add(new MusicSite(FreeJsMusicSource.PLATFORM, "酷我音乐", "",
-                "https://cdn.jsdelivr.net/gh/qwerwhr/musicfree-plugins@master/%E5%85%83%E5%8A%9BKW.js"));
+                BUILTIN_KUWO_YUANLI));
         /* 自写油管音乐源（自有站托管，2026-10-24）：必须走壳子代理、曲库随节点国家，
            坏了只改托管脚本不动壳子；朋友版播种整套摘除的口径同上三件。
            后加预置：打 lateBuiltin 标记，老用户存量靠 listSites 补播种（见 BuiltinReseed） */

@@ -327,12 +327,19 @@ public class MusicLyricVersionDialog extends BaseBottomSheetDialog {
             });
         }
 
-        /** 类型签文案（瓜子口径，全账三-56：纯文本版只写「文本」）。只改弹窗展示——
-         * LyricVersion.kindLabel 本体不许动，它进持久化的手动选版 key（lyricVersionKey），改了会让存量选版失效。 */
+        /** 类型签文案照瓜子 LyricType.getShortLabel（LyricType.java:65-74）：逐字／逐行／纯文本；
+         * 筛选签的 PLAIN 才是「文本」（LyricVersionFilter.java:26），行签与筛选签两处别混。
+         * AMLL 候选（瓜子判 platform=amll 或 format=TTML，LyricVersionTagsKt.java:168；星辰候选以
+         * source 名 AMLL 标识）签文案拼「AMLL · 」前缀。只改弹窗展示——LyricVersion.kindLabel
+         * 本体不许动，它进持久化的手动选版 key（lyricVersionKey），改了会让存量选版失效。 */
         private static String kindTag(com.fongmi.android.tv.bean.music.LyricVersion v) {
-            if (v.isWordTimed()) return "逐字";
-            if (v.isLineTimed()) return "逐行";
-            return "文本";
+            String base;
+            if (v.isWordTimed()) base = "逐字";
+            else if (v.isLineTimed()) base = "逐行";
+            else base = "纯文本";
+            String source = v.getSource();
+            if (source != null && source.equalsIgnoreCase("AMLL")) return "AMLL · " + base;
+            return base;
         }
 
         private void addChip(Holder h, String label) {

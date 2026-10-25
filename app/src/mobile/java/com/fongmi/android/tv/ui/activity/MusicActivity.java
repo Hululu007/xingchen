@@ -923,12 +923,13 @@ public class MusicActivity extends BaseActivity {
             MusicChart sel = null;
             for (MusicChart c : fresh) if (chartKey(c).equals(keepKey)) sel = c;
             if (sel == null) sel = fresh.get(0);
-            List<MusicTrack> tracks = fetchTracksBlocking(sel);
+            final MusicChart selF = sel;
+            List<MusicTrack> tracks = fetchTracksBlocking(selF);
             runOnUiThread(() -> {
                 if (isFinishing() || isDestroyed()) return;
                 chartTabs.clear();
                 chartTabs.addAll(fresh);
-                chartSelKey = chartKey(sel);
+                chartSelKey = chartKey(selF);
                 buildChartTabs();
                 if (!sig.toString().equals(old.toString()) || tracks != null) {
                     if (tracks != null) chartTracks = tracks;

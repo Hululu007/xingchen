@@ -936,7 +936,19 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         expandedColView = find(R.id.tpExpandedCol);
         // 展开视口卡面（GZ CoverBackdropCard 真值，smali 深挖 §15.2 第 5 项）：切换条件是系统深色态
         // （z18＝uiMode 夜间位），深色 #2A2A2E→#0F0F12、浅色 #3A3A3C→#1C1C1E，竖渐变、圆角 22dp。
-        View expandedViewport = find(R.id.tpExpandedViewport);
+        // 视口容器不另立 id（离线验证的 R 桩不含新 id）：从展开列的子级里按「含歌词视图」认。
+        View expandedViewport = null;
+        if (expandedColView instanceof android.view.ViewGroup) {
+            android.view.ViewGroup colGroup = (android.view.ViewGroup) expandedColView;
+            for (int i = 0; i < colGroup.getChildCount(); i++) {
+                View child = colGroup.getChildAt(i);
+                if (child instanceof android.view.ViewGroup
+                        && ((android.view.ViewGroup) child).findViewById(R.id.tpLyricView) != null) {
+                    expandedViewport = child;
+                    break;
+                }
+            }
+        }
         if (expandedViewport != null) {
             boolean sysDark = (getResources().getConfiguration().uiMode
                     & android.content.res.Configuration.UI_MODE_NIGHT_MASK)

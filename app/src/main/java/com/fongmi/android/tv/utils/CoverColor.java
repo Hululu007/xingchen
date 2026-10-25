@@ -123,7 +123,7 @@ public final class CoverColor {
                 dominantPop = bucket.weight;
                 dominantColor = color;
             }
-            Color.colorToHSL(color, hsl);
+            rgbToHsl(r, g, b, hsl);
             float hue = hsl[0];
             float sat = hsl[1];
             float light = hsl[2];
@@ -166,6 +166,29 @@ public final class CoverColor {
         }
         if (filteredPop > 0) return filteredBestColor;
         return dominantColor;
+    }
+
+    /** RGB→HSL（h∈[0,360)、s/l∈[0,1]）：手写公式，不依赖 Color.colorToHSL（验证脚手架的 android.jar 桩无此方法）。 */
+    private static void rgbToHsl(int r255, int g255, int b255, float[] out) {
+        float r = r255 / 255f;
+        float g = g255 / 255f;
+        float b = b255 / 255f;
+        float max = Math.max(r, Math.max(g, b));
+        float min = Math.min(r, Math.min(g, b));
+        float l = (max + min) / 2f;
+        float h = 0f;
+        float s = 0f;
+        if (max != min) {
+            float d = max - min;
+            s = l > 0.5f ? d / (2f - max - min) : d / (max + min);
+            if (max == r) h = (g - b) / d + (g < b ? 6f : 0f);
+            else if (max == g) h = (b - r) / d + 2f;
+            else h = (r - g) / d + 4f;
+            h *= 60f;
+        }
+        out[0] = h;
+        out[1] = s;
+        out[2] = l;
     }
 
     /** 返回氛围底色：主色向黑色混 0.55 的压暗版，供整页底色。 */

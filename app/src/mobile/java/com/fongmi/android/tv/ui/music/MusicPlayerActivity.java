@@ -402,6 +402,13 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
     }
 
     @Override
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        // CD 盘推进门（GZ running 含「前台面板不可见」）：弹窗/面板抢焦点时停推进，焦点回来恢复。
+        if (cdDiscView != null) cdDiscView.setForegroundPanelOpen(!hasFocus);
+    }
+
     protected void onDestroy() {
         destroyed = true;
         if (rhythmSource != null) rhythmSource.stop();
@@ -1253,6 +1260,17 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
                 setCdExpanded(true);
             });
         }
+        // 盘区手势（LuminousCdPlayerKt.java:706-712）：点按盘面＝展开歌词、长按盘面＝工具面板
+        if (cdDiscView != null) {
+            cdDiscView.setOnClickListener(v -> {
+                if (cdInfoMode) setCdInfoMode(false);
+                setCdExpanded(true);
+            });
+            cdDiscView.setOnLongClickListener(v -> {
+                showToolsSheet();
+                return true;
+            });
+        }
         if (cdLyricView != null) {
             cdLyricView.setOnLineClickListener((index, positionMs) ->
                     MusicController.get().seekTo(positionMs));
@@ -1359,16 +1377,27 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
             cdToneAnimator.addUpdateListener(a -> paintCdBackdrop((float) a.getAnimatedValue()));
             cdToneAnimator.start();
         }
-        // 元素色（顶行/摘要/时间/图标 tint 统一走 ink/muted 系）
-        if (titleView != null) titleView.setTextColor(ink);
+        // 元素色：深面歌名/主控图标/收藏 tint 用 solidInk＝ink×0.72（CdPalette.java:38,116-119），浅面全值
+        int solidInk = dark ? withAlpha(ink, 0.72f) : ink;
+        if (titleView != null) {
+            titleView.setTextColor(solidInk);
+            // CD 歌名字重 600（LuminousCdPlayerKt.java:235-236；布局 textStyle bold=700 已摘，代码给定）
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                titleView.setTypeface(android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, 600, false));
+            } else {
+                titleView.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+            }
+        }
         if (artistView != null) artistView.setTextColor(muted);
         if (cdSummaryMainView != null) cdSummaryMainView.setTextColor(ink);
-        if (cdSummarySubView != null) cdSummarySubView.setTextColor(withAlpha(muted, 0.85f));
+        // 摘要副行色＝palette 翻译色 ink×0.42（LuminousCdPlayerKt.java:1158-1163），原 muted×0.85 不符；
+        // 无翻译的 0.38 分支在星辰摘要里副行无内容即隐藏、不可达，记对照表。
+        if (cdSummarySubView != null) cdSummarySubView.setTextColor(withAlpha(ink, 0.42f));
         int timeColor = withAlpha(muted, 0.74f);
         if (cdPositionView != null) cdPositionView.setTextColor(timeColor);
         if (cdDurationView != null) cdDurationView.setTextColor(timeColor);
         int accent = cdAccentColor(tone, ink, dark);
-        if (cdSeekView != null) cdSeekView.setColors(withAlpha(ink, 0.18f), accent);
+        if (cdSeekView != null) cdSeekView.setColors(withAlpha(ink, 0.10f), accent);
         if (cdLyricView != null) cdLyricView.setInkColor(ink);
         if (cdDiscView != null) {
             cdDiscView.setDarkSurface(dark);
@@ -1416,22 +1445,39 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         }
         GradientDrawable gradient = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, colors);
         gradient.setGradientType(GradientDrawable.LINEAR_GRADIENT);
-        // 停点：GradientDrawable 四色等距分布＝0/0.333/0.667/1，瓜子为 0/0.34/0.68/1——偏差 ≤0.013，
-        // 视觉不可辨，记为已知近似（报告有载）。
+        // 停点 0/0.34/0.68/1（LuminousCdPlayerKt.java:2478）：API 29+ 用 setColors(colors, offsets) 落真停点，
+        // 以下无此 API、回落等距分布（偏差 ≤0.013）。
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            gradient.setColors(colors, new float[]{0f, 0.34f, 0.68f, 1f});
+        }
         cdBackdropView.setBackground(gradient);
         if (mix >= 1f) System.arraycopy(cdBackdropTo, 0, cdBackdropFrom, 0, 4);
     }
 
     private void tintCdIcons(int ink) {
-        ColorStateList tint = ColorStateList.valueOf(ink);
-        int[] ids = {R.id.tpBtnClose, R.id.tpBtnTools, R.id.tpCdBtnInfo, R.id.tpCdBtnQuality,
-                R.id.tpCdBtnLyricVer, R.id.tpCdBtnSurface, R.id.tpCdBtnMode, R.id.tpCdBtnPrev,
-                R.id.tpCdBtnNext, R.id.tpCdBtnQueue, R.id.tpCdPlay};
-        for (int id : ids) {
+        boolean dark = cdDarkSurface;
+        int muted = dark ? 0xFF8E96A3 : 0xFF747D89;
+        int solidInk = dark ? withAlpha(ink, 0.72f) : ink;
+        // 五图标行图形色＝muted 系（LuminousCdPlayerKt.java:1900-1926），收藏键由 paintFavoriteIcons 管
+        ColorStateList mutedTint = ColorStateList.valueOf(muted);
+        int[] fiveIds = {R.id.tpCdBtnInfo, R.id.tpCdBtnQuality, R.id.tpCdBtnLyricVer, R.id.tpCdBtnSurface};
+        for (int id : fiveIds) {
             View v = find(id);
-            if (v instanceof ImageView) ((ImageView) v).setImageTintList(tint);
+            if (v instanceof ImageView) ((ImageView) v).setImageTintList(mutedTint);
         }
-        if (cdBtnFavView != null && !favorited) cdBtnFavView.setImageTintList(tint);
+        // 顶行键 ink 全值；主控行深面 solidInk（ink×0.72）、浅面 ink
+        ColorStateList inkTint = ColorStateList.valueOf(ink);
+        int[] topIds = {R.id.tpBtnClose, R.id.tpBtnTools};
+        for (int id : topIds) {
+            View v = find(id);
+            if (v instanceof ImageView) ((ImageView) v).setImageTintList(inkTint);
+        }
+        ColorStateList mainTint = ColorStateList.valueOf(solidInk);
+        int[] mainIds = {R.id.tpCdBtnMode, R.id.tpCdBtnPrev, R.id.tpCdBtnNext, R.id.tpCdBtnQueue, R.id.tpCdPlay};
+        for (int id : mainIds) {
+            View v = find(id);
+            if (v instanceof ImageView) ((ImageView) v).setImageTintList(mainTint);
+        }
     }
 
     private static int lerpColor(int from, int to, float f) {
@@ -1511,6 +1557,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
 
     private void applyCdCollapse(float c) {
         cdCollapseValue = c;
+        if (cdDiscView != null) cdDiscView.setCollapseFraction(c);
         if (cdBelowColView != null) {
             cdBelowColView.setAlpha(Math.max(0f, Math.min(1f, 1f - 1.6f * c)));
             cdBelowColView.setVisibility(c >= 0.99f ? View.INVISIBLE : View.VISIBLE);
@@ -1541,11 +1588,11 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
                 cdDiscView.setVisibility(c >= 0.99f ? View.INVISIBLE : View.VISIBLE);
             }
         }
-        View topRow = titleView == null ? null : (View) titleView.getParent();
-        View topBar = topRow == null ? null : (View) topRow.getParent();
-        if (topBar != null) {
-            topBar.setAlpha(Math.max(0f, Math.min(1f, 1f - 1.4f * c)));
-            topBar.setTranslationY(-20f * getResources().getDisplayMetrics().density * c);
+        // collapse 顶行：只标题列 alpha/上移（LuminousCdPlayerKt.java:3177），收起/工具键不动
+        View titleColumn = titleView == null ? null : (View) titleView.getParent();
+        if (titleColumn != null) {
+            titleColumn.setAlpha(Math.max(0f, Math.min(1f, 1f - 1.4f * c)));
+            titleColumn.setTranslationY(-20f * getResources().getDisplayMetrics().density * c);
         }
     }
 
@@ -2941,11 +2988,11 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
     }
 
     private void paintFavoriteIcons() {
-        // CD 五图标收藏键：已收藏实心／未收藏描边，tint 统一当前表面 ink（applyCdPalette 同步刷）
+        // CD 五图标收藏键：已收藏实心／未收藏描边；tint 深面 solidInk＝ink×0.72、浅面 ink（CdPalette 口径）
         if (cdBtnFavView != null) {
             cdBtnFavView.setImageResource(favorited
                     ? R.drawable.ic_music_heart_fill : R.drawable.ic_music_heart);
-            cdBtnFavView.setImageTintList(ColorStateList.valueOf(cdDarkSurface ? 0xFFF2F2F7 : 0xFF282D36));
+            cdBtnFavView.setImageTintList(ColorStateList.valueOf(cdDarkSurface ? 0xB8F2F2F7 : 0xFF282D36));
             MusicTrack curFav = null;
             try {
                 curFav = MusicController.get().current();

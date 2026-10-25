@@ -56,7 +56,8 @@ import java.util.List;
  * 提示行「长按拖动调整顺序」；队列行＝序号 %02d＋封面 36dp＋歌名 13sp/700＋歌手 11sp＋三钮常显（30dp/图标 18dp），
  * 无时长/播放指示/手柄，长按整行拖动排序，被拖行白底圆角 12；当前行歌名红 #FA243C、歌手红 0.72、序号红 0.7；
  * 清空＝清队并关面板（无二次确认）；空态照 GZ。上一版的「中性深代红」口径无用户原话、与本体证据冲突，本版废止。
- * 批 4：面板底换液态玻璃（bg_music_glass_panel，布局侧）；模式筹改模式串常显（批 4 任务口径：
+ * 批 4：面板底曾换液态玻璃（bg_music_glass_panel），1.4.28 真机点名透底看不清后恢复实底
+ * bg_sheet_panel（GZ sheetPanelBg #F3F3F3，布局侧）；模式筹改模式串常显（批 4 任务口径：
  * 播放模式串在面板内可见——非随机模式也显示 modeName，随机时红筹、其余 inset 筹）；
  * 数值补抠（PlayQueueSheetKt:343 高度占比 0.68、:131-132 行高 56／pitch 58、GlassBottomSheetKt:158 上圆角 16）与现行一致，不改。
  */
@@ -134,10 +135,12 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
         behavior.setDraggable(false);
         behavior.setSkipCollapsed(true);
         // 首帧先按最大高锚定（避免未设偏移时满高闪一下），数据到后 updateSheetHeight 再按实高定。
+        // 高度源一律走 windowHeight()（弹窗窗口实高），不许用 displayMetrics——见 windowHeight 注释。
         if (getContext() != null) {
-            int maxH = Math.round(getContext().getResources().getDisplayMetrics().heightPixels * 0.68f);
+            int screenH = windowHeight();
+            int maxH = Math.round(screenH * 0.68f);
             behavior.setPeekHeight(maxH);
-            behavior.setExpandedOffset(Math.max(0, getContext().getResources().getDisplayMetrics().heightPixels - maxH));
+            behavior.setExpandedOffset(Math.max(0, screenH - maxH));
         }
         behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
         // 二-35 断点修复：updateSheetHeight 此前只有 refresh() 一条触发路，而首跑 refresh 在
@@ -167,7 +170,10 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
                         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
                 getDialog().getWindow().setGravity(Gravity.BOTTOM);
                 // 重做结构里的沉浸到底（不是往旧逻辑上贴的补丁）：窗口内容铺进导航栏区、导航栏透明，
-                // 面板白到屏底盖住活动层迷你进度条；锚定用的 screenH 本就是全屏高，沉浸后坐标系与之一致。
+                // 面板白到屏底盖住活动层迷你进度条。注意锚定高度不许取 Activity 的 displayMetrics：
+                // Android 11+ 它是活动窗口高（不含系统栏），比沉浸弹窗窗口矮一截——旧实现拿它算
+                // expandedOffset，面板底就离屏底差这一截（1.4.28 真机截图底部漏深色带实证）；
+                // 高度一律走 windowHeight() 取弹窗窗口视图树实高，与窗口坐标系一致。
                 WindowCompat.setDecorFitsSystemWindows(getDialog().getWindow(), false);
                 getDialog().getWindow().setNavigationBarColor(Color.TRANSPARENT);
             }
@@ -298,21 +304,21 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
     /** 队列面板高度与偏移的唯一 owner（重做结构）：面板高＝min(内容高, 0.68×屏高)，多余高度从列表里扣；
      * 空态直接撑 0.68 以便空态盒居中；内容短时回 wrap_content，不留白。
      * 偏移一次定准：peekHeight＝面板高、expandedOffset＝屏高－面板高、展开态；不挂布局监听、不另起重锚链。
-     * 沉浸后坐标系是全屏高，与 screenH 口径一致。 */
+     * 屏高＝windowHeight()（弹窗窗口实高、含导航栏区）；不许用 displayMetrics（活动窗口高、短一截，见 initView 注释）。 */
     private void updateSheetHeight() {
         if (binding == null || sheetBehavior == null || getContext() == null) return;
-        int screenH = getContext().getResources().getDisplayMetrics().heightPixels;
-        int maxH = Math.round(screenH * 0.68f);
         View root = binding.getRoot();
         root.post(() -> {
             if (binding == null || sheetBehavior == null) return;
+            int screenH = windowHeight();
+            int maxH = Math.round(screenH * 0.68f);
             if (tracks.isEmpty()) {
                 ViewGroup.LayoutParams lp = root.getLayoutParams();
                 if (lp.height != maxH) {
                     lp.height = maxH;
                     root.setLayoutParams(lp);
                 }
-                setSheetOffsets(maxH);
+                setSheetOffsets(maxH, screenH);
                 return;
             }
             ViewGroup.LayoutParams rootLp = root.getLayoutParams();
@@ -343,16 +349,37 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
                     finalH = maxH;
                 }
             }
-            if (finalH > 0) setSheetOffsets(finalH);
+            if (finalH > 0) setSheetOffsets(finalH, screenH);
         });
     }
 
-    private void setSheetOffsets(int panelH) {
+    private void setSheetOffsets(int panelH, int screenH) {
         if (sheetBehavior == null || getContext() == null || panelH <= 0) return;
-        int screenH = getContext().getResources().getDisplayMetrics().heightPixels;
         sheetBehavior.setPeekHeight(panelH);
         sheetBehavior.setExpandedOffset(Math.max(0, screenH - panelH));
         sheetBehavior.setState(BottomSheetBehavior.STATE_EXPANDED);
+    }
+
+    /**
+     * 锚定用的屏高＝弹窗窗口自己的实高（视图树根高，含导航栏区，与沉浸窗口坐标系一致）。
+     * 不许用 getContext().getResources().getDisplayMetrics().heightPixels：Android 11+ 起
+     * Activity 上下文的 displayMetrics 是活动窗口高（不含状态栏/导航栏），比沉浸全屏的弹窗
+     * 窗口矮一截；旧实现混用两套坐标，面板顶/高都按小坐标算、底边离屏底差整整一截
+     * （1.4.28 真机截图实测漏带 99px/4.8% 屏高，与两坐标差逐项吻合）。视图未布局（高 0）
+     * 时回落 decorView、再回落 displayMetrics（仅首帧近似，随后 updateSheetHeight 按实高纠正）。
+     */
+    private int windowHeight() {
+        if (binding != null) {
+            View root = binding.getRoot();
+            if (root != null && root.getRootView() != null && root.getRootView().getHeight() > 0) {
+                return root.getRootView().getHeight();
+            }
+        }
+        if (getDialog() != null && getDialog().getWindow() != null) {
+            View decor = getDialog().getWindow().getDecorView();
+            if (decor != null && decor.getHeight() > 0) return decor.getHeight();
+        }
+        return getContext() != null ? getContext().getResources().getDisplayMetrics().heightPixels : 0;
     }
 
     /** GZ 通用按压反馈（MotionKt：150ms；缩放值由调用方传） */

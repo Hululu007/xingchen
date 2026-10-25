@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 播放页「更多 → 音效」面板：总开关＋预设＋均衡器拉杆＋低音增强＋环绕。控件由代码按设备能力建。
-     批 6：面板底收口全域液态玻璃 bg_music_glass_panel（与批 4 队列／工具／音质面板同件），
-     原 bg_sheet_panel 实色底退场。 -->
+     面板底照 GZ sheetPanelBg #F3F3F3（bg_sheet_panel 实底）；批 6 曾换半透玻璃底，
+     1.4.28 真机点名透底看不清后随队列面板恢复实底。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="@drawable/bg_music_glass_panel"
+    android:background="@drawable/bg_sheet_panel"
     android:orientation="vertical"
     android:padding="20dp">
 

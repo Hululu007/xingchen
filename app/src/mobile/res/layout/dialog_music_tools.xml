@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 音乐底部工具面板（浅色令牌照 GZ 参数表第 7 节浅色套）：面板底批 4 换液态玻璃（bg_music_glass_panel：
-     半透明白渐变＋白描边高光、上圆角 16dp＝GlassBottomSheetKt:158；内分组卡／格／段控同批换玻璃件）、
+<!-- 音乐底部工具面板（浅色令牌照 GZ 参数表第 7 节浅色套）：面板底＝实底 bg_sheet_panel #F3F3F3
+     （批 4 曾换半透玻璃底，1.4.28 真机点名透底看不清后随队列面板恢复实底；内分组卡／格／段控的玻璃件在实底上不透后层，保留）、
      内容区可滚动，内边距 左右 16dp／顶部 16dp／底部 10dp（GlassSheetPanel 口径），
      子面板在代码里换 container 内容。P04：瓜子工具面板根本没有拖动条（宿主非 M3、handle 槽 null），
      星辰自绘 36×4dp 黑 0.14 条已删，不留。
@@ -12,7 +12,7 @@
     android:id="@+id/root"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="@drawable/bg_music_glass_panel"
+    android:background="@drawable/bg_sheet_panel"
     android:orientation="vertical">
 
     <com.fongmi.android.tv.ui.custom.MaxHeightScrollView

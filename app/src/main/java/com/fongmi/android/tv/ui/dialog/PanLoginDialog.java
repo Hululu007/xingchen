@@ -40,6 +40,11 @@ public class PanLoginDialog extends BaseAlertDialog {
 
     private static final String MOBILE_UA = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
     public static final String DESKTOP_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+    // 谷歌专用 UA：谷歌登录对嵌入 WebView 的桌面 UA（平台与真实环境对不上）会直接回
+    // 「此浏览器或应用可能不安全」拦截，必须用与真实环境一致的 Chrome 移动端 UA
+    // （无 ; wv、无应用标识）。与 DESKTOP_UA/MOBILE_UA 分开维护：快手/QQ/网盘各家
+    // 登录页适配的 UA 口径不同，谷歌的版本号迭代只动这一条，不连坐别家。
+    public static final String GOOGLE_UA = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36";
 
     private DialogPanLoginBinding binding;
     private String title;

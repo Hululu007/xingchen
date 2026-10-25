@@ -143,7 +143,7 @@ public class LoginManager {
                 .title("谷歌")
                 .loginUrl(GoogleLoginProvider.LOGIN_URL)
                 .cookieDomain(GoogleLoginProvider.COOKIE_DOMAIN)
-                .userAgent(PanLoginDialog.DESKTOP_UA)
+                .userAgent(PanLoginDialog.GOOGLE_UA)
                 .hint("请在下方页面完成谷歌账号登录，然后点「完成登录」")
                 .cookieValidator(GoogleLoginProvider::isCookieValid)
                 .onLogin(cookie -> {

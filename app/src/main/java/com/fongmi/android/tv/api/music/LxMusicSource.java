@@ -237,6 +237,12 @@ public class LxMusicSource implements MusicSource {
                     throw te;
                 }
                 String url = extractUrl(r);
+                if (!TextUtils.isEmpty(url) && LxPlatformSearch.QQ.equals(p.platform) && isFilelessUrl(url)) {
+                    // QQ 幻影链（已死后端模板拼的只有域名、没有文件段的地址）：当空链处理，
+                    // 继续换脚本，最终回落官方 vkey 兜底，不许拿它当成功链交出去
+                    SpiderDebug.log("music", "lx playUrl qq fileless url dropped plugin=%s", plugin.name);
+                    url = null;
+                }
                 if (!TextUtils.isEmpty(url)) {
                     // C5 真实取链耗时（最近一次口径）：记到实际出链的那个脚本名下
                     com.fongmi.android.tv.music.MusicStore.notePluginLatency(
@@ -255,7 +261,35 @@ public class LxMusicSource implements MusicSource {
                 SpiderDebug.log("music", "lx playUrl error plugin=%s %s", plugin.name, t.getMessage());
             }
         }
+        if (LxPlatformSearch.QQ.equals(p.platform)) {
+            // tx 官方兜底（通用层一处，搜索/榜单/歌单导入的 tx 歌都经此）：脚本全灭、
+            // 回空、回幻影链、乃至一个脚本都没装时，已存 QQ 登录态就改走官方 vkey
+            // 带态取链；未登录按 10 分钟节流弹统一登录（探链不弹），本次照常失败返回。
+            String fallback = QqVkeyFetcher.playUrl(
+                    optStr(musicInfo, "songmid"), optStr(musicInfo, "strMediaMid"), want);
+            if (!TextUtils.isEmpty(fallback)) return fallback;
+            if (!probe) QqVkeyFetcher.maybePromptLogin();
+        }
         return null;
+    }
+
+    /**
+     * 没有文件段的地址：域名后第一段路径为空或不带扩展名分隔点，不是可播的媒体
+     * 文件地址（QQ 已死解析后端模板拼出的幻影链形态，如只有域名加残缺参数）。
+     */
+    private static boolean isFilelessUrl(String url) {
+        int scheme = url.indexOf("://");
+        if (scheme < 0) return false;
+        int segStart = url.indexOf('/', scheme + 3);
+        if (segStart < 0) return true;
+        segStart++;
+        int end = url.length();
+        int q = url.indexOf('?', segStart);
+        if (q >= 0) end = Math.min(end, q);
+        int h = url.indexOf('#', segStart);
+        if (h >= 0) end = Math.min(end, h);
+        String seg = url.substring(segStart, end);
+        return seg.isEmpty() || seg.indexOf('.') < 0;
     }
 
     /**

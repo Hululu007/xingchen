@@ -45,6 +45,7 @@ public class LoginManager {
         register(new Qr115Provider());
         register(new KuaishouLoginProvider());
         register(new GoogleLoginProvider());
+        register(new QQLoginProvider());
     }
 
     public static LoginManager get() {
@@ -152,6 +153,32 @@ public class LoginManager {
                 .showLogin(activity);
     }
 
+    /**
+     * 弹 QQ 音乐网页登录框：走壳子统一弹窗（与谷歌/快手同款 PanLoginDialog，
+     * 中间弹窗、WebView 内在 QQ 音乐网页端完成登录），抓到的 Cookie 校验
+     * （须含账号标识＋音乐钥匙 qm_keyst/qqmusic_key）后落盘托管，供落雪 tx
+     * 取链兜底带他自己的登录态调官方 vkey。异步，登录成功走 callback；
+     * 用户直接关弹窗视为取消，不回调。
+     */
+    public void loginQQ(FragmentActivity activity, LoginCallback callback) {
+        if (activity == null || activity.isFinishing()) {
+            if (callback != null) callback.onError("界面不可用");
+            return;
+        }
+        PanLoginDialog.create()
+                .title("QQ音乐")
+                .loginUrl(QQLoginProvider.LOGIN_URL)
+                .cookieDomain(QQLoginProvider.COOKIE_DOMAIN)
+                .userAgent(PanLoginDialog.DESKTOP_UA)
+                .hint("请在下方页面完成QQ音乐登录，然后点「完成登录」")
+                .cookieValidator(QQLoginProvider::isCookieValid)
+                .onLogin(cookie -> {
+                    QQLoginProvider.putCookie(cookie);
+                    if (callback != null) callback.onSuccess(QQLoginProvider.ID, cookie);
+                })
+                .showLogin(activity);
+    }
+
     private void openMethod(FragmentActivity activity, LoginMethod method, LoginCallback callback) {
         if (method == LoginMethod.COOKIE) {
             CookieImportDialog.create().callback(callback).show(activity);
@@ -246,6 +273,28 @@ public class LoginManager {
         get().logout(GoogleLoginProvider.ID);
     }
 
+    /** 弹壳子统一的 QQ 音乐网页登录框（异步）。 */
+    public static void loginQQ() {
+        FragmentActivity activity = currentActivity();
+        if (activity == null) return;
+        App.post(() -> get().loginQQ(activity, null));
+    }
+
+    /** QQ 是否已登录（托管 Cookie 含账号标识＋音乐钥匙） */
+    public static boolean isQQLoggedIn() {
+        return isLoggedIn(QQLoginProvider.ID);
+    }
+
+    /** QQ 登录 cookie，未登录返回空串（tx 取链兜底即读此口） */
+    public static String getQQCookie() {
+        return getCookie(QQLoginProvider.ID);
+    }
+
+    /** 退出 QQ 登录 */
+    public static void logoutQQ() {
+        get().logout(QQLoginProvider.ID);
+    }
+
     /**
      * 通用：按提供方 id 请壳子弹统一登录框（异步），已分发的返回 true。
      * 给不知道具体提供方 UI 细节的调用方（如 FreeJS 桥按插件声明的
@@ -259,6 +308,10 @@ public class LoginManager {
         }
         if (KuaishouLoginProvider.ID.equals(providerId)) {
             loginKuaishou();
+            return true;
+        }
+        if (QQLoginProvider.ID.equals(providerId)) {
+            loginQQ();
             return true;
         }
         if ("115".equals(providerId)) {

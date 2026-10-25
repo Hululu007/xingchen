@@ -59,8 +59,8 @@ import java.util.List;
  * 无时长/播放指示/手柄，长按整行拖动排序，被拖行白底圆角 12；当前行歌名红 #FA243C、歌手红 0.72、序号红 0.7；
  * 清空＝清队并关面板（无二次确认）；空态照 GZ。上一版的「中性深代红」口径无用户原话、与本体证据冲突，本版废止。
  * 批 4：面板底曾换液态玻璃（bg_music_glass_panel），1.4.28 真机点名透底看不清后恢复实底
- * bg_sheet_panel（GZ sheetPanelBg #F3F3F3，布局侧）；模式筹改模式串常显（批 4 任务口径：
- * 播放模式串在面板内可见——非随机模式也显示 modeName，随机时红筹、其余 inset 筹）；
+ * bg_sheet_panel（GZ sheetPanelBg #F3F3F3，布局侧）；模式筹批 4 曾改常显全名，与头部注的
+ * 「随机筹（仅随机模式）」自相冲突——本单对照 PlayQueueSheetKt.java:708 已改回仅随机出筹、文案「随机」；
  * 数值补抠（PlayQueueSheetKt:343 高度占比 0.68、:131-132 行高 56／pitch 58、GlassBottomSheetKt:158 上圆角 16）与现行一致，不改。
  */
 public class MusicQueueDialog extends BaseBottomSheetDialog {
@@ -487,15 +487,14 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
         // GZ 计数筹＝纯数字（PlayQueueSheetKt:724 String.valueOf(size)），无「首」
         binding.tvCount.setText(String.valueOf(tracks.size()));
         bindSourceRow();
-        // 批 4：播放模式串常显——筹文案＝MusicQueue.modeName（顺序播放／全部循环／单曲循环／随机播放）；
-        // 随机沿 GZ 红筹，其余用 inset 筹＋中字，不再只在随机模式露一个「随机」筹。
+        // 模式筹照瓜子（PlayQueueSheetKt.java:708）：仅随机模式出筹、文案就「随机」两字、红筹；
+        // 其余模式不占位。此前批 4 的「模式串常显」与瓜子不符，本单对照后摘除。
         int mode = MusicController.get().getMode();
         boolean shuffle = mode == MusicQueue.MODE_SHUFFLE;
-        binding.badgeShuffle.setText(MusicQueue.modeName(mode));
-        binding.badgeShuffle.setBackgroundResource(
-                shuffle ? R.drawable.sheet_chip_shuffle : R.drawable.sheet_chip_inset);
-        binding.badgeShuffle.setTextColor(shuffle ? COLOR_RED : COLOR_LOW);
-        binding.badgeShuffle.setVisibility(View.VISIBLE);
+        binding.badgeShuffle.setText("随机");
+        binding.badgeShuffle.setBackgroundResource(R.drawable.sheet_chip_shuffle);
+        binding.badgeShuffle.setTextColor(COLOR_RED);
+        binding.badgeShuffle.setVisibility(shuffle ? View.VISIBLE : View.GONE);
         boolean empty = tracks.isEmpty();
         binding.recycler.setVisibility(empty ? View.GONE : View.VISIBLE);
         binding.emptyBox.setVisibility(empty ? View.VISIBLE : View.GONE);

@@ -469,6 +469,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         themeRoot = LayoutInflater.from(this).inflate(layout, binding.themeContainer, false);
         binding.themeContainer.addView(themeRoot);
         grabThemeViews();
+        applyTopInsetForTheme();
         wireThemeViews();
         applyLyricStyle();
         feedLyricView();
@@ -1337,6 +1338,35 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
     private int navBarHeightPx() {
         int resId = getResources().getIdentifier("navigation_bar_height", "dimen", "android");
         return resId > 0 ? getResources().getDimensionPixelSize(resId) : 0;
+    }
+
+    private int statusBarHeightPx() {
+        int resId = getResources().getIdentifier("status_bar_height", "dimen", "android");
+        return resId > 0 ? getResources().getDimensionPixelSize(resId) : 0;
+    }
+
+    /**
+     * 顶行文字主题的状态栏留位（帧边缘）：本页全屏沉浸、内容自 y=0 起，
+     * CD 与唱片架的顶行是文字行，不留位就跑进状态栏里（2026-10-25 真机点名唱片架，CD 同型一并修）；
+     * 经典/Apple 顶是封面满幅（瓜子同形态、状态图标压封面）、封面卡片顶距 42dp 已过状态栏高，均不动。
+     * CD 只垫内容列（取色渐变底保持满幅）；唱片架垫根列（根背景 #F1F0ED 含垫区、仍是满幅纯色）。
+     */
+    private void applyTopInsetForTheme() {
+        if (cdTheme && cdBackdropView != null
+                && cdBackdropView.getParent() instanceof android.view.ViewGroup) {
+            // CD 根 FrameLayout 只有两个子：取色渐变底（tpCdBackdrop）＋内容列，内容列即另一个子
+            android.view.ViewGroup root = (android.view.ViewGroup) cdBackdropView.getParent();
+            for (int i = 0; i < root.getChildCount(); i++) {
+                View child = root.getChildAt(i);
+                if (child != cdBackdropView) {
+                    child.setPadding(dpI(16), statusBarHeightPx(), dpI(16), child.getPaddingBottom());
+                    break;
+                }
+            }
+        }
+        if (shelfTheme && themeRoot != null) {
+            themeRoot.setPadding(0, statusBarHeightPx(), 0, 0);
+        }
     }
 
     /** CD 展开/收起（§4：展开 600ms／收起 500ms；盘下整列 alpha＝clamp(1−1.6c)、展开区 alpha＝clamp((c−0.15)/0.85)、顶行标题 alpha＝clamp(1−1.4c)＋上移 20dp×c）。 */

@@ -87,8 +87,8 @@ public class CdDiscView extends View {
     private float flow;
     private float caustic = 42f;
     private float undertow = 214f;
-    private float boostRamp = 1f;
-    private long boostRampStartMs;
+    private boolean foregroundPanelOpen;
+    private float collapseFraction;
     private float sheenAlpha;
     private ValueAnimator sheenAnimator;
     private float sweepMix = 1f;
@@ -223,8 +223,6 @@ public class CdDiscView extends View {
         if (playing == value) return;
         playing = value;
         if (value) {
-            boostRamp = 0f;
-            boostRampStartMs = SystemClock.uptimeMillis();
             animateSheen(1f, 700);
             lastFrameMs = 0;
             postFrame();
@@ -232,6 +230,16 @@ public class CdDiscView extends View {
             animateSheen(0f, 450);
         }
         invalidate();
+    }
+
+    /** 前台面板（工具/音质/版本等弹窗）打开时停推进（GZ running 条件含前台面板不可见，LuminousCdPlayerKt.java:2301）。 */
+    public void setForegroundPanelOpen(boolean open) {
+        foregroundPanelOpen = open;
+    }
+
+    /** 展开进度 c：中段 (0.01,0.99) 四路速率全归 0（LuminousCdPlayerKt.java:2551-2572）。 */
+    public void setCollapseFraction(float c) {
+        collapseFraction = c;
     }
 
     private void animateSheen(float to, long duration) {
@@ -282,14 +290,13 @@ public class CdDiscView extends View {
         float dt = Math.min(0.05f, (now - lastFrameMs) / 1000f);
         lastFrameMs = now;
         if (!ValueAnimator.areAnimatorsEnabled()) return;
+        if (foregroundPanelOpen) return;
+        if (collapseFraction > 0.01f && collapseFraction < 0.99f) return;
         VisualizerRhythmSource rs = rhythmSource;
         float beatA = rs == null ? 0f : rs.beatA();
         float beatB = rs == null ? 0f : rs.beatB();
         float boost = 1f + beatA * 0.65f + beatB * 0.3f;
-        if (boostRamp < 1f) {
-            boostRamp = Math.min(1f, (now - boostRampStartMs) / 600f);
-        }
-        spin = wrap(spin + boost * boostRamp * 16f * dt);
+        spin = wrap(spin + boost * 16f * dt);
         flow = wrap(flow + (12f + beatA * 10f + beatB * 65f) * dt);
         caustic = wrap(caustic + (28f + beatA * 18f + beatB * 110f) * dt);
         undertow = wrap(undertow - (8f + beatA * 4f + beatB * 18f) * dt);

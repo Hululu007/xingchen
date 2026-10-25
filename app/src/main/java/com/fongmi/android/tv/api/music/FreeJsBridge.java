@@ -138,9 +138,14 @@ public class FreeJsBridge {
 
     private void loadPlugin() {
         ctx.evaluate(pluginJs);
-        JSObject module = (JSObject) ctx.getProperty(ctx.getGlobalObject(), "module");
-        exports = (JSObject) ctx.getProperty(module, "exports");
-        if (exports == null) throw new IllegalStateException("插件没有导出 module.exports");
+        // module/exports 的形态完全由插件 JS 决定：先 instanceof 再转，畸形插件
+        // （把 module/exports 赋成字符串/函数等）走「没有导出」的失败路，
+        // 不许在建桥时直接 ClassCastException 崩掉（大扫查防崩同型命中）。
+        Object module = ctx.getProperty(ctx.getGlobalObject(), "module");
+        if (!(module instanceof JSObject)) throw new IllegalStateException("插件没有导出 module.exports");
+        Object exportsObj = ctx.getProperty((JSObject) module, "exports");
+        if (!(exportsObj instanceof JSObject)) throw new IllegalStateException("插件没有导出 module.exports");
+        exports = (JSObject) exportsObj;
     }
 
     private String prop(String name) {

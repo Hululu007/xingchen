@@ -2767,10 +2767,11 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
                 MusicTrack track = MusicController.get().current();
                 if (track == null) return true;
                 float[] p = toOverlayPoint(wrap, e.getX(), e.getY());
-                toggleFavorite(() -> {
-                    // 收藏态已变（toggleFavorite 回调时 favorited 已翻）：收藏态 8 颗／取消态 5 颗（§1 爆发参数在 HeartsBurstView 内）
-                    binding.heartsOverlay.burstCover(p[0], p[1], favorited);
-                });
+                // 爆发时机 GZ 口径（CoverArt$6$1.java:51-56）：双击即放、不等收藏写库回调；
+                // 颗数按切换后收藏态（收藏 8／取消 5，参数在 HeartsBurstView 内）。
+                // 原 X-10「等回调确认状态真变才放」与 GZ 不符，本批改回 GZ 口径。
+                binding.heartsOverlay.burstCover(p[0], p[1], !favorited);
+                toggleFavorite(null);
                 cancelCoverScaleSpring();
                 // favScale 上行段 GZ 实证：tween(200ms, bs4.b 字段=(0,0,0,1)) 到 1.045，随后 spring(0.9, 300) 回落
                 wrap.animate().scaleX(1.045f).scaleY(1.045f).setDuration(200)
@@ -2794,6 +2795,11 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
 
             @Override
             public void onLongPress(MotionEvent e) {
+                try {
+                    // 长按震动 GZ 实证：haptic 类型 0（LONG_PRESS），与开面板同拍（CoverArt$6$1.java:60-64）
+                    wrap.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+                } catch (Throwable ignored) {
+                }
                 showToolsSheet();
             }
         });

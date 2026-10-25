@@ -18,15 +18,15 @@ import android.view.animation.PathInterpolator;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import androidx.palette.graphics.Palette;
-
 import com.fongmi.android.tv.impl.CustomTarget;
+import com.fongmi.android.tv.utils.CoverColor;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.bumptech.glide.request.transition.Transition;
 
 /**
- * 播放页外壳氛围层（瓜子 BlurredCoverAmbient 口径）：封面 dominant 色打底（切歌 450ms/bs4.a 渐变，
- * 回退 #FF1C1C1E）＋糊封面层（取图 64×64 居中裁切、铺满后图形模糊 24dp，alpha 基数 0.8，
+ * 播放页外壳氛围层（瓜子 BlurredCoverAmbient 口径）：封面取色打底（切歌 450ms/bs4.a 渐变，
+ * 回退 #FF1C1C1E；取色＝瓜子 mk1 链：128×128 源图经 e 选色＋b 变换，见 CoverColor.shellBaseColor）
+ * ＋糊封面层（取图 64×64 居中裁切、铺满后图形模糊 24dp，alpha 基数 0.8，
  * 渐变罩明度自上 +0.05 线性到下 −0.04）。模糊走 RenderNode＋RenderEffect（API 31+），
  * 低版本回落为未加模糊步的铺图。流体背景开时由 Activity 换 FluidCoverView 叠加，本类只管糊封面态。
  */
@@ -34,6 +34,8 @@ public class CoverAmbientView extends View {
 
     private static final int FALLBACK = 0xFF1C1C1E;
     private static final PathInterpolator BS4_A = new PathInterpolator(0.2f, 0f, 0f, 1f);
+    private static final java.util.concurrent.Executor COLOR_EXEC =
+            java.util.concurrent.Executors.newSingleThreadExecutor();
 
     private final Paint mPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
     private Bitmap mBlurBitmap;
@@ -80,10 +82,14 @@ public class CoverAmbientView extends View {
                 }
                 mBlurNodeBitmap = null;
                 try {
-                    Palette.from(resource).generate(p -> {
-                        if (p == null || !want.equals(mBoundUrl)) return;
-                        int c = p.getDominantColor(FALLBACK);
-                        animateBaseTo(c);
+                    // 外壳底色走瓜子 mk1 链（CoverColor.shellBaseColor：e 选色＋b 变换），取色源图 128×128（瓜子加载器同尺寸）
+                    Bitmap src128 = resource.getWidth() == 128 && resource.getHeight() == 128
+                            ? resource : Bitmap.createScaledBitmap(resource, 128, 128, true);
+                    COLOR_EXEC.execute(() -> {
+                        int target = CoverColor.shellBaseColor(src128);
+                        post(() -> {
+                            if (want.equals(mBoundUrl)) animateBaseTo(target);
+                        });
                     });
                 } catch (Throwable ignored) {
                 }

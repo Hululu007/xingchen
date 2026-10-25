@@ -3,6 +3,8 @@ package com.fongmi.android.tv.utils;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 
+import androidx.palette.graphics.Palette;
+
 /**
  * 用途：从专辑封面提取主色与氛围底色，供音乐播放页整页取色（纯静态工具，无状态、无缓存）。
  */
@@ -166,6 +168,160 @@ public final class CoverColor {
         }
         if (filteredPop > 0) return filteredBestColor;
         return dominantColor;
+    }
+
+    /**
+     * 经典页外壳底色（GZ CoverAmbientKt 的 mk1 链，2026-10-26 smali/jadx 逐项抠死）：
+     * 底色 ＝ b变换(e选色， accent)，即缓存对 wk1 的 a 分量（竖屏经典页 $targetAmbient 的值，
+     * 450ms 动画的目标色；b 分量是状态栏采样色、z 是顶部亮度旗，经典外壳不消费）。
+     * e选色：量化两趟（全图 24 色＋下部 0.45 以下区域 24 色，人口权重 1.0/1.35 按色合并），
+     * HSL 过滤 L∈[0.06,0.92]、S≥0.1 后按色相 12 桶汇总打分（人口×(S≥0.12?1:0.6)×暖色盒 0.3），
+     * 胜桶内按 t 分（(log(人口+1)×0.15+1)×人口×饱和因子×明度因子）取最大；
+     * 无候选时回落 L 过滤集人口最大者，再回落全图趟主导色。
+     * accent：e 色 HSV 饱和＜0.1 时取 o 路（cdToneColor）的色，其 HSV 饱和≥0.15 才算数
+     * （cdToneColor 内部把图缩到 ≤96 再量化，瓜子是 128 直入，人口分布有微差、选色结果绝大多数一致）。
+     * 量化器 iq5 是 androidx Palette 量化器的着色版（jq5＝Palette Swatch 本体，b()＝HSL），
+     * 这里直接用 Palette 同算法：同色数、同区域、不缩放输入。同步方法，后台线程调用。
+     */
+    public static int shellBaseColor(Bitmap bmp) {
+        if (bmp == null || bmp.isRecycled() || bmp.getWidth() < 1 || bmp.getHeight() < 1) return FALLBACK_COLOR;
+        int picked = pickShellColor(bmp);
+        Integer accent = null;
+        float[] hsv = new float[3];
+        Color.colorToHSV(picked, hsv);
+        if (hsv[1] < 0.1f) {
+            int o = cdToneColor(bmp);
+            float[] hsvO = new float[3];
+            Color.colorToHSV(o, hsvO);
+            if (hsvO[1] >= 0.15f) accent = o;
+        }
+        return shellToneTransform(picked, accent);
+    }
+
+    private static int pickShellColor(Bitmap bmp) {
+        int w = bmp.getWidth();
+        int h = bmp.getHeight();
+        Palette full = new Palette.Builder(bmp).maximumColorCount(24)
+                .resizeBitmapArea(Integer.MAX_VALUE).generate();
+        int lowerTop = Math.max(0, Math.min(h - 1, (int) (h * 0.45f)));
+        Palette lower = new Palette.Builder(bmp).maximumColorCount(24)
+                .resizeBitmapArea(Integer.MAX_VALUE)
+                .setRegion(0, lowerTop, w, h).generate();
+        // 按色合并两趟人口（权重 1.0 / 1.35）
+        java.util.LinkedHashMap<Integer, float[]> merged = new java.util.LinkedHashMap<>();
+        java.util.HashMap<Integer, Palette.Swatch> byRgb = new java.util.HashMap<>();
+        for (Palette.Swatch s : full.getSwatches()) {
+            merged.put(s.getRgb(), new float[]{s.getPopulation()});
+            byRgb.put(s.getRgb(), s);
+        }
+        for (Palette.Swatch s : lower.getSwatches()) {
+            float[] cur = merged.get(s.getRgb());
+            if (cur == null) {
+                merged.put(s.getRgb(), new float[]{s.getPopulation() * 1.35f});
+                byRgb.put(s.getRgb(), s);
+            } else {
+                cur[0] += s.getPopulation() * 1.35f;
+            }
+        }
+        if (merged.isEmpty()) return FALLBACK_COLOR;
+        // HSL 过滤：L∈[0.06,0.92]
+        java.util.ArrayList<Integer> lightOk = new java.util.ArrayList<>();
+        for (java.util.Map.Entry<Integer, float[]> e : merged.entrySet()) {
+            float l = byRgb.get(e.getKey()).getHsl()[2];
+            if (l >= 0.06f && l <= 0.92f) lightOk.add(e.getKey());
+        }
+        // S≥0.1 子集 → 色相分桶打分
+        double[] bucketTotals = new double[12];
+        boolean anySat = false;
+        for (int rgb : lightOk) {
+            float[] hsl = byRgb.get(rgb).getHsl();
+            if (hsl[1] < 0.1f) continue;
+            anySat = true;
+            double score = merged.get(rgb)[0] * (hsl[1] >= 0.12f ? 1.0 : 0.6);
+            boolean warm = hsl[0] >= 5f && hsl[0] <= 50f
+                    && hsl[1] >= 0.12f && hsl[1] <= 0.72f
+                    && hsl[2] >= 0.25f && hsl[2] <= 0.82f;
+            if (warm) score *= 0.3;
+            bucketTotals[hueBucketIndex(hsl[0])] += score;
+        }
+        if (anySat) {
+            int bestBucket = -1;
+            double bestTotal = -1;
+            for (int i = 0; i < 12; i++) {
+                if (bucketTotals[i] > bestTotal) {
+                    bestTotal = bucketTotals[i];
+                    bestBucket = i;
+                }
+            }
+            int bestRgb = 0;
+            float bestT = -1f;
+            for (int rgb : lightOk) {
+                float[] hsl = byRgb.get(rgb).getHsl();
+                if (hsl[1] < 0.1f || hueBucketIndex(hsl[0]) != bestBucket) continue;
+                float t = shellTScore(merged.get(rgb)[0], hsl[1], hsl[2]);
+                if (t > bestT) {
+                    bestT = t;
+                    bestRgb = rgb;
+                }
+            }
+            if (bestT >= 0) return bestRgb;
+        }
+        // 回落：L 过滤集人口最大者；再回落全图趟主导色
+        if (!lightOk.isEmpty()) {
+            int bestRgb = lightOk.get(0);
+            float bestPop = -1f;
+            for (int rgb : lightOk) {
+                float p = merged.get(rgb)[0];
+                if (p > bestPop) {
+                    bestPop = p;
+                    bestRgb = rgb;
+                }
+            }
+            return bestRgb;
+        }
+        Palette.Swatch dom = full.getDominantSwatch();
+        return dom != null ? dom.getRgb() : FALLBACK_COLOR;
+    }
+
+    /** GZ t() 打分：(log(人口+1)×0.15+1)×人口 × 饱和因子（[0.12,0.55]→1.25、(0.55,0.85]→1.1、其余 0.9）× 明度因子（[0.25,0.72]→1.2、[0.15,0.85]→1.0、其余 0.55），HSL 口径（smali 亲验）。 */
+    private static float shellTScore(float pop, float s, float l) {
+        float base = (float) ((Math.log(pop + 1.0) * 0.15) + 1.0) * pop;
+        float satF = (s >= 0.12f && s <= 0.55f) ? 1.25f : (s > 0.55f && s <= 0.85f) ? 1.1f : 0.9f;
+        float lightF = (l >= 0.25f && l <= 0.72f) ? 1.2f : (l >= 0.15f && l <= 0.85f) ? 1.0f : 0.55f;
+        return base * satF * lightF;
+    }
+
+    /**
+     * GZ b() 变换（HSV 口径，smali 逐常量亲验）：主色饱和＜0.1 且 accent 饱和≥0.15 时借 accent 的色相；
+     * S'：借相时 S＜0.08→clamp(S,0,0.16)、S＜0.18→clamp(S×1.35+0.05,0.12,0.45)、否则 clamp(S×1.32+0.05,0.22,0.9)；
+     * 未借相→clamp(S×1.32+0.1,0.28,0.9)。V'＝clamp(V×因子,0.18,0.5)，因子按 V 分段：≥0.75→0.4、≥0.55→0.48、≥0.35→0.58、其余 0.78。
+     */
+    private static int shellToneTransform(int color, Integer accent) {
+        float[] hsv = new float[3];
+        Color.colorToHSV(color, hsv);
+        float hue = hsv[0];
+        float sat = hsv[1];
+        float val = hsv[2];
+        boolean borrowed = false;
+        if (sat < 0.1f && accent != null) {
+            float[] hsvA = new float[3];
+            Color.colorToHSV(accent, hsvA);
+            if (hsvA[1] >= 0.15f) {
+                hue = hsvA[0];
+                borrowed = true;
+            }
+        }
+        float newSat;
+        if (borrowed) {
+            if (sat < 0.08f) newSat = clampFloat(sat, 0f, 0.16f);
+            else if (sat < 0.18f) newSat = clampFloat(sat * 1.35f + 0.05f, 0.12f, 0.45f);
+            else newSat = clampFloat(sat * 1.32f + 0.05f, 0.22f, 0.9f);
+        } else {
+            newSat = clampFloat(sat * 1.32f + 0.1f, 0.28f, 0.9f);
+        }
+        float vf = val >= 0.75f ? 0.4f : val >= 0.55f ? 0.48f : val >= 0.35f ? 0.58f : 0.78f;
+        float newVal = clampFloat(val * vf, 0.18f, 0.5f);
+        return Color.HSVToColor(new float[]{hue, newSat, newVal});
     }
 
     /** RGB→HSL（h∈[0,360)、s/l∈[0,1]）：手写公式，不依赖 Color.colorToHSL（验证脚手架的 android.jar 桩无此方法）。 */

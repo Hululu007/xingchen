@@ -69,7 +69,7 @@
                 android:src="@drawable/ic_music_more" />
         </LinearLayout>
 
-        <!-- 盘区（权重）＋展开窗叠层 -->
+        <!-- 盘区（权重随展开因子让位，见 tpCdDetail 注） -->
         <FrameLayout
             android:layout_width="match_parent"
             android:layout_height="0dp"
@@ -79,34 +79,39 @@
                 android:id="@+id/tpCdDisc"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent" />
+        </FrameLayout>
 
-            <FrameLayout
-                android:id="@+id/tpCdDetail"
+        <!-- 展开窗（歌词窗／信息）：列内占位不用叠层——权重由 applyCdCollapse 按展开因子 c
+             与盘区对调（盘 1−c／窗 c），展开时盘区高度收缩、盘径随之变小直至退场（§4 瓜子口径：
+             盘区无缩放无淡出、盘径随可用高收缩）。旧叠层写法盘面原样留在窗后继续转，
+             信息卡压在盘面上糊成一团（2026-10-25 真机图 113184 实证），已改。 -->
+        <FrameLayout
+            android:id="@+id/tpCdDetail"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="0"
+            android:alpha="0"
+            android:visibility="gone">
+
+            <com.fongmi.android.tv.ui.music.CdLyricWindowView
+                android:id="@+id/tpCdLyric"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:alpha="0"
+                android:paddingHorizontal="28dp" />
+
+            <ScrollView
+                android:id="@+id/tpInfoScroll"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
                 android:visibility="gone">
 
-                <com.fongmi.android.tv.ui.music.CdLyricWindowView
-                    android:id="@+id/tpCdLyric"
+                <LinearLayout
+                    android:id="@+id/tpInfoContent"
                     android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:paddingHorizontal="28dp" />
-
-                <ScrollView
-                    android:id="@+id/tpInfoScroll"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:visibility="gone">
-
-                    <LinearLayout
-                        android:id="@+id/tpInfoContent"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="vertical"
-                        android:padding="16dp" />
-                </ScrollView>
-            </FrameLayout>
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp" />
+            </ScrollView>
         </FrameLayout>
 
         <!-- 盘下整列（展开时按 §4 淡出比公式压 alpha） -->

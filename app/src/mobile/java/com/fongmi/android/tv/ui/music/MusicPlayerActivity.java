@@ -955,6 +955,9 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
             View classicWrap = find(R.id.tpCoverWrap);
             if (classicWrap != null) {
                 classicWrap.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, oldR, oldB) -> {
+                    // 横版经典是左右分栏、封面高 match_parent（布局已定），方形只管竖版
+                    if (getResources().getConfiguration().orientation
+                            == android.content.res.Configuration.ORIENTATION_LANDSCAPE) return;
                     int w = r - l;
                     if (w > 0 && v.getLayoutParams() != null && v.getLayoutParams().height != w) {
                         v.getLayoutParams().height = w;
@@ -1404,6 +1407,29 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         }
         if (cdDetailView != null) {
             cdDetailView.setAlpha(Math.max(0f, Math.min(1f, (c - 0.15f) / 0.85f)));
+        }
+        // 盘区让位（§4：展开时盘径随可用高收缩）：盘区与展开窗在列内按权重对调（盘 1−c／窗 c），
+        // 盘不缩放不淡出、只随区高变小直至退场——旧叠层写法盘面留在窗后继续转，信息糊在盘上。
+        if (cdDiscView != null && cdDetailView != null
+                && cdDiscView.getParent() instanceof View) {
+            // 盘区＝CdDiscView 的父 FrameLayout，与展开窗同为内容列直接子（布局口径）
+            View discArea = (View) cdDiscView.getParent();
+            if (discArea.getLayoutParams() instanceof LinearLayout.LayoutParams
+                    && cdDetailView.getLayoutParams() instanceof LinearLayout.LayoutParams) {
+                LinearLayout.LayoutParams discLp = (LinearLayout.LayoutParams) discArea.getLayoutParams();
+                LinearLayout.LayoutParams detailLp = (LinearLayout.LayoutParams) cdDetailView.getLayoutParams();
+                if (Math.abs(discLp.weight - (1f - c)) > 0.001f
+                        || Math.abs(detailLp.weight - c) > 0.001f) {
+                    discLp.weight = 1f - c;
+                    detailLp.weight = c;
+                    discArea.setLayoutParams(discLp);
+                    cdDetailView.setLayoutParams(detailLp);
+                }
+            } else if (cdDiscView != null && cdDetailView != null) {
+                // 横版 CD 是左盘右列、展开窗仍在盘区内叠层（星辰侧适配排布）：无列内让位可走，
+                // 展开到位时把盘面本体藏掉，信息不压在转盘上（同病兜底）。
+                cdDiscView.setVisibility(c >= 0.99f ? View.INVISIBLE : View.VISIBLE);
+            }
         }
         View topRow = titleView == null ? null : (View) titleView.getParent();
         View topBar = topRow == null ? null : (View) topRow.getParent();
@@ -3268,11 +3294,38 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         return Math.round(dpF(value));
     }
 
+    /** 信息页深字面开关：流光 CD 浅色表面（浅底取色）时整页信息翻深字版。旧实现字色按深面
+     *  写死（白字系＋近透明卡底），压在 CD 浅面上糊成一团（2026-10-25 真机图 113184 实证）；
+     *  Apple／封面卡片信息页走深面（cdTheme=false 或深底），不受影响。refreshInfoContent 入口赋值。 */
+    private boolean infoInkText;
+
+    /** 白字系颜色 → 同 alpha 的墨色 #282D36（CdDiscView 浅面 ink 同值）；深面时原样返回。
+     *  信息页全部文字都经 infoText 建，映射收在此一处，调用点字面值不动。 */
+    private int infoInk(int whiteColor) {
+        if (!infoInkText) return whiteColor;
+        return android.graphics.Color.argb(android.graphics.Color.alpha(whiteColor), 0x28, 0x2D, 0x36);
+    }
+
+    /** 信息卡/筹的浅面底（代码建形，不新增 drawable 资源）：几何与 bg_info_glass／bg_info_chip_muted
+     *  同（卡圆角 20dp＋1dp 描边、筹圆角 8dp），仅换浅面色值——半透明白磨砂面＋深描边／深色半透明筹底。 */
+    private android.graphics.drawable.GradientDrawable infoLightBg(boolean chip) {
+        android.graphics.drawable.GradientDrawable d = new android.graphics.drawable.GradientDrawable();
+        d.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
+        d.setCornerRadius(dpF(chip ? 8f : 20f));
+        if (chip) {
+            d.setColor(0x14000000);
+        } else {
+            d.setColor(0xA6FFFFFF);
+            d.setStroke(dpI(1), 0x1F000000);
+        }
+        return d;
+    }
+
     private TextView infoText(float sp, int weight, int color, String text) {
         TextView tv = new TextView(this);
         tv.setText(text == null ? "" : text);
         tv.setTextSize(sp);
-        tv.setTextColor(color);
+        tv.setTextColor(infoInk(color));
         tv.setIncludeFontPadding(false);
         tv.setTypeface(android.graphics.Typeface.DEFAULT,
                 weight >= 700 ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
@@ -3289,7 +3342,8 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
     private LinearLayout infoSection(String title, boolean compact) {
         LinearLayout section = new LinearLayout(this);
         section.setOrientation(LinearLayout.VERTICAL);
-        section.setBackgroundResource(R.drawable.bg_info_glass);
+        if (infoInkText) section.setBackground(infoLightBg(false));
+        else section.setBackgroundResource(R.drawable.bg_info_glass);
         LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         slp.topMargin = dpI(16);
@@ -3328,7 +3382,8 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
 
     private void infoChip(LinearLayout row, String text, boolean tone) {
         TextView chip = infoText(10f, 700, tone ? 0xFFFFFFFF : 0x8CFFFFFF, text);
-        chip.setBackgroundResource(tone ? R.drawable.bg_info_chip_tone : R.drawable.bg_info_chip_muted);
+        if (!tone && infoInkText) chip.setBackground(infoLightBg(true));
+        else chip.setBackgroundResource(tone ? R.drawable.bg_info_chip_tone : R.drawable.bg_info_chip_muted);
         chip.setPadding(dpI(8), dpI(4), dpI(8), dpI(4));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -3356,6 +3411,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         if (coverTheme && !coverInfoMode) return;
         if (cdTheme && !cdInfoMode) return;
         infoContentView.removeAllViews();
+        infoInkText = cdTheme && !cdDarkSurface;
         MusicTrack track = null;
         try {
             track = MusicController.get().current();
@@ -3393,7 +3449,8 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
             LinearLayout hero = new LinearLayout(this);
             hero.setOrientation(LinearLayout.HORIZONTAL);
             hero.setGravity(Gravity.CENTER_VERTICAL);
-            hero.setBackgroundResource(R.drawable.bg_info_glass);
+            if (infoInkText) hero.setBackground(infoLightBg(false));
+            else hero.setBackgroundResource(R.drawable.bg_info_glass);
             hero.setPadding(dpI(16), dpI(16), dpI(16), dpI(16));
             ImageView heroCover = new ImageView(this);
             heroCover.setLayoutParams(new LinearLayout.LayoutParams(dpI(80), dpI(80)));
@@ -3403,7 +3460,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
             if (heroCoverUrl == null || heroCoverUrl.isEmpty()) {
                 heroCover.setImageResource(R.drawable.ic_music_note);
                 heroCover.setPadding(dpI(26), dpI(26), dpI(26), dpI(26));
-                heroCover.setImageTintList(ColorStateList.valueOf(0x73FFFFFF));
+                heroCover.setImageTintList(ColorStateList.valueOf(infoInk(0x73FFFFFF)));
             } else {
                 ImgUtil.load(title, heroCoverUrl, heroCover);
             }

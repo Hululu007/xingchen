@@ -162,6 +162,9 @@
             android:tag="noPagerSwipe" />
 
         <!-- 运输行：上叠 −18dp、高 96dp、键间 24dp -->
+        <View
+                android:layout_width="match_parent"
+            android:layout_height="6dp" />
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="96dp"
@@ -228,7 +231,7 @@
         <!-- 功能行：间距 48dp；歌词菜单 24／音质 24／播放列表 28（第一键是歌词菜单，不是进歌词页） -->
         <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:layout_height="52dp"
             android:gravity="center"
             android:orientation="horizontal">
 

@@ -1758,11 +1758,20 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         // 功能行：第一键是歌词菜单（不是进歌词页）——直开歌词版本弹窗（照瓜子歌词筹去向：
         // 点开即版本列表＋筛选签，空态带搜索入口；样式设置在工具面板歌词设置子面板，不在此串）
         View lyricMenu = find(R.id.tpBtnLyricMenu);
-        if (lyricMenu != null) lyricMenu.setOnClickListener(v -> openLyricVersionDialog());
+        if (lyricMenu != null) {
+            lyricMenu.setOnClickListener(v -> openLyricVersionDialog());
+            attachPressScale(lyricMenu, 0.88f);
+        }
         View qualityFunc = find(R.id.tpBtnQualityFunc);
-        if (qualityFunc != null) qualityFunc.setOnClickListener(v -> showQualityDialog());
+        if (qualityFunc != null) {
+            qualityFunc.setOnClickListener(v -> showQualityDialog());
+            attachPressScale(qualityFunc, 0.88f);
+        }
         View queue = find(R.id.tpBtnQueue);
-        if (queue != null) queue.setOnClickListener(v -> MusicQueueDialog.show(this));
+        if (queue != null) {
+            queue.setOnClickListener(v -> MusicQueueDialog.show(this));
+            attachPressScale(queue, 0.88f);
+        }
         // 音量行：接系统媒体音量（星辰侧等价口径；瓜子是播放器内部音量 setPlayerVolume，星辰无此 API）
         if (volumeSliderView != null) {
             audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
@@ -2144,18 +2153,22 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
      */
     private void paintTransportState(MusicTrack track) {
         if (!appleTheme) return;
+        // 运输三键共用同一 enabled 标志（GZ PlayerScreenKt.java:1451,1498,1537 的 z 同源）：
+        // 启用 上下首 0.9／播放 0.95、禁用一律 0.35；不再按队列相邻分键判定。
+        boolean enabled = track != null;
         View prev = find(R.id.tpBtnPrev);
         View next = find(R.id.tpBtnNext);
-        boolean hasPrev = false;
-        boolean hasNext = false;
-        try {
-            hasPrev = MusicController.get().queuePrevIndex() >= 0;
-            hasNext = MusicController.get().queueNextIndex() >= 0;
-        } catch (Throwable ignored) {
-        }
-        if (prev != null) prev.setAlpha(hasPrev ? 0.9f : 0.35f);
-        if (next != null) next.setAlpha(hasNext ? 0.9f : 0.35f);
-        if (playTopView != null) playTopView.setAlpha(track != null ? 0.95f : 0.35f);
+        if (prev != null) prev.setAlpha(enabled ? 0.9f : 0.35f);
+        if (next != null) next.setAlpha(enabled ? 0.9f : 0.35f);
+        if (playTopView != null) playTopView.setAlpha(enabled ? 0.95f : 0.35f);
+        // 功能行三键透明度：enabled 0.5／禁用 0.25（PlayerScreenKt.java:1291-1293）
+        float funcAlpha = enabled ? 0.5f : 0.25f;
+        View lyricMenu = find(R.id.tpBtnLyricMenu);
+        if (lyricMenu != null) lyricMenu.setAlpha(funcAlpha);
+        View qualityFunc = find(R.id.tpBtnQualityFunc);
+        if (qualityFunc != null) qualityFunc.setAlpha(funcAlpha);
+        View queueFunc = find(R.id.tpBtnQueue);
+        if (queueFunc != null) queueFunc.setAlpha(funcAlpha);
     }
 
     /** 当前曲应显示的封面地址：自定义封面优先（本地相册选图），否则原封面（旧页同口径）。 */

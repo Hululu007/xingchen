@@ -147,6 +147,11 @@ public class MusicActivity extends BaseActivity {
     protected void initView(Bundle savedInstanceState) {
         // 玻璃升级：XML 半透件是可见下限，这里走树换同源液态玻璃（取样失效也有下限成形）
         MusicGlassWire.glassifyTree(rootView);
+        // 心情电台卡保底（2026-10-26 他点名这张不是玻璃）：走树没换上就按卡圆角 20 直换，不许留实底
+        View moodCard = rootView.findViewById(R.id.homeMoodCard);
+        if (moodCard != null && !(moodCard.getBackground() instanceof com.fongmi.android.tv.ui.music.MusicGlassDrawable)) {
+            MusicGlassWire.glassifyView(moodCard, 20f);
+        }
         MusicRepository.ensureDebugFake();
         MusicController.get().bind(this);
         MusicController.get().addListener(listener);

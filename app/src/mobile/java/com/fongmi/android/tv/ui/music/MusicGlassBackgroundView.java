@@ -3,6 +3,7 @@ package com.fongmi.android.tv.ui.music;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
+import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.RadialGradient;
 import android.graphics.Shader;
@@ -39,14 +40,21 @@ import android.view.ViewGroup;
  */
 public class MusicGlassBackgroundView extends View {
 
-    // ---------- 场景常数（harness 逐值镜像，改这里必须同步改 harness） ----------
-    public static final int BASE_COLOR = 0xFFEAEAF0;
+    // ---------- 场景常数（2026-10-26 他定：换默认播放页截图那种固定暖色底） ----------
+    // 固定一张、不跟封面走、换歌不变色：纵向暖渐变（上→下，色取 113250 截图逐区实测均色
+    // #846C51/#55402B/#4B3926 提亮一档作光面）＋四团暖色柔光（琥珀/橙）给玻璃留层次。
+    // BASE_COLOR＝渐变中段代表色，窗口底三处同值（@color/music_page_base、ThemeManager 字面量、本常数）。
+    public static final int BASE_COLOR = 0xFF6E4E30;
+    public static final int GRAD_TOP = 0xFF9A7B57;
+    public static final int GRAD_MID = 0xFF6E4E30;
+    public static final int GRAD_BOT = 0xFF4B3926;
+    public static final float[] GRAD_STOPS = {0f, 0.45f, 1f};
     // 光斑：中心位置（占宽/高比例）、直径 dp、RGB、中心 alpha
     public static final float[] SPOT_X = {0.14f, 0.86f, 0.16f, 0.88f};
     public static final float[] SPOT_Y = {0.10f, 0.30f, 0.84f, 0.90f};
     public static final float[] SPOT_DIAMETER_DP = {455f, 435f, 415f, 395f};
-    public static final int[] SPOT_RGB = {0xEC81B5, 0x9776EC, 0x68CCA8, 0xEC81B5};
-    public static final float[] SPOT_ALPHA = {0.84f, 0.84f, 0.80f, 0.76f};
+    public static final int[] SPOT_RGB = {0xD9905A, 0xB96F36, 0x8A5A33, 0xC97E42};
+    public static final float[] SPOT_ALPHA = {0.55f, 0.50f, 0.45f, 0.42f};
     // 径向衰减停点与 alpha 系数：中心→中段平滑羽化→边缘归零（连续过渡）
     public static final float[] SPOT_STOPS = {0f, 0.55f, 1f};
     public static final float[] SPOT_ALPHA_FACTORS = {1f, 0.45f, 0f};
@@ -159,8 +167,10 @@ public class MusicGlassBackgroundView extends View {
      */
     static void drawScene(Canvas canvas, int w, int h, float density) {
         Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
-        p.setColor(BASE_COLOR);
+        p.setShader(new LinearGradient(0, 0, 0, Math.max(1, h),
+                new int[]{GRAD_TOP, GRAD_MID, GRAD_BOT}, GRAD_STOPS, Shader.TileMode.CLAMP));
         canvas.drawRect(0, 0, w, h, p);
+        p.setShader(null);
         for (int i = 0; i < SPOT_X.length; i++) {
             float cx = SPOT_X[i] * w;
             float cy = SPOT_Y[i] * h;

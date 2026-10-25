@@ -220,13 +220,13 @@ public class ThemeManager {
                 return;
             }
             // 音乐独立页同口径：窗口底落页面自己的基色，转场/冷启/overscroll
-            // 都不透主壁纸；主题层已先落同色兜底首帧。浅色页色值与 @color/music_page_base、
-            // MusicGlassBackgroundView.BASE 三处同值（0xFFFAFAFC），改色须三处同改；
+            // 都不透主壁纸；主题层已先落同色兜底首帧。暖底页色值与 @color/music_page_base、
+            // MusicGlassBackgroundView.BASE 三处同值（0xFF6E4E30），改色须三处同改；
             // 随心听例外落自己的深底 0xFF0A0E16（与 @color/music_random_base、
             // activity_music_random.xml 布局根底三处同值）。
             if (isMusicPage(activity)) {
                 try {
-                    int base = isMusicRandomPage(activity) ? 0xFF0A0E16 : 0xFFFAFAFC;
+                    int base = isMusicRandomPage(activity) ? 0xFF0A0E16 : 0xFF6E4E30;
                     activity.getWindow().setBackgroundDrawable(
                             new android.graphics.drawable.ColorDrawable(base));
                 } catch (Exception ignored) {}

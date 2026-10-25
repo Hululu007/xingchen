@@ -15,7 +15,7 @@
     <color name="player_gold">#FFF2B33D</color>
     <!-- 音乐独立页自有实底基色：与 MusicGlassBackgroundView.BASE（0xFFFAFAFC）同值，
          音乐页窗口底/主题底一律取它，页面自己的底从窗口层起，不借主壁纸 -->
-    <color name="music_page_base">#FFFAFAFC</color>
+    <color name="music_page_base">#FF6E4E30</color>
     <!-- 随心听独立页自有深底：与 activity_music_random.xml 布局根底 #0A0E16、
          ThemeManager 随心听落色 0xFF0A0E16 三处同值，改色须三处同改 -->
     <color name="music_random_base">#FF0A0E16</color>

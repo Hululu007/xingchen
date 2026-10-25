@@ -66,10 +66,11 @@ public class MusicGlassDrawable extends Drawable {
         return new android.graphics.ColorMatrixColorFilter(cm);
     }
 
-    // 容器 tint：#1E2023 @ .52 平铺（AVBox 0.4 × alphaScale 1.3）
-    private static final int TINT_COLOR = 0x851E2023;
-    // 可见下限层（取样失败时满铺）：与 tint 同家族的深色渐变
-    private static final int[] FALLBACK = {0xFF3A3D42, 0xFF26282C, 0xFF1E2023};
+    // 容器 tint：#1E2023 @ .40 平铺（2026-10-26 他点「玻璃一直是那个颜色」后由 .52 收一档：
+    // tint 只压底保证白字，颜色主体让位给取样——取样变它就变，不许 tint 一家独大定格成色）
+    private static final int TINT_COLOR = 0x661E2023;
+    // 可见下限层（取样失败时满铺）：与统一暖底同家族的暖棕渐变（首帧与暖底同色系，不闪深灰）
+    private static final int[] FALLBACK = {0xFF8A6844, 0xFF6E4E30, 0xFF4B3926};
     private static final float[] FALLBACK_STOPS = {0f, 0.55f, 1f};
     // AVBox lens 默认：distortion 30dp（高与量同值）
     private static final float REFRACTION_DP = 30f;

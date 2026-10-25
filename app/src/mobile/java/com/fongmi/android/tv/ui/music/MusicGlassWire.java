@@ -107,6 +107,29 @@ public final class MusicGlassWire {
     }
     private static final Set<RecyclerView> sScrollHooked =
             Collections.newSetFromMap(new WeakHashMap<>());
+    private static final Set<View> sScrollViewHooked =
+            Collections.newSetFromMap(new WeakHashMap<>());
+    // 已换玻璃的件登记（弱引用）：滚动时逐件 invalidate 逼重裁——硬件加速下滚动只回放
+    // 录好的显示列表、不重画子件，玻璃取样会定格在滚动前那一帧（2026-10-26 他点名的病根）。
+    private static final Set<View> sGlassViews =
+            Collections.newSetFromMap(new WeakHashMap<>());
+
+    private static void registerGlass(View v) {
+        synchronized (sGlassViews) {
+            sGlassViews.add(v);
+        }
+    }
+
+    /** 滚动回调里调：令全部已登记玻璃件重画（位置变了、取样跟着身后变）。 */
+    static void refreshGlassViews() {
+        java.util.List<View> copy;
+        synchronized (sGlassViews) {
+            copy = new java.util.ArrayList<>(sGlassViews);
+        }
+        for (View v : copy) {
+            if (v.isAttachedToWindow()) v.invalidate();
+        }
+    }
 
     private static synchronized Map<Drawable.ConstantState, Float> table(Context ctx) {
         if (sTable != null) return sTable;
@@ -135,6 +158,7 @@ public final class MusicGlassWire {
         Integer tone = toneTable(v.getContext()).get(bg.getConstantState());
         if (tone != null) glass.setToneColor(tone, SELECTED_TONE_ALPHA);
         v.setBackground(glass);
+        registerGlass(v);
         flipForeground(v);
         return true;
     }
@@ -143,6 +167,7 @@ public final class MusicGlassWire {
     public static void glassifyView(View v, float radiusDp) {
         if (v == null || v.getBackground() instanceof MusicGlassDrawable) return;
         v.setBackground(new MusicGlassDrawable(v.getContext(), radiusDp));
+        registerGlass(v);
         flipForeground(v);
     }
 
@@ -213,6 +238,7 @@ public final class MusicGlassWire {
     public static void glassifyPanel(View root, float radiusDp) {
         if (root == null) return;
         root.setBackground(new MusicGlassDrawable(root.getContext(), radiusDp, true));
+        registerGlass(root);
         flipForeground(root);
         if (root instanceof ViewGroup) glassifyChildren((ViewGroup) root);
     }
@@ -222,6 +248,7 @@ public final class MusicGlassWire {
         if (root == null) return;
         glassifyView(root);
         if (root instanceof RecyclerView) hookScroll((RecyclerView) root);
+        if (root instanceof android.widget.ScrollView) hookScrollView((android.widget.ScrollView) root);
         if (root instanceof ViewGroup) glassifyChildren((ViewGroup) root);
         normalizeFitsSkeleton(root);
     }
@@ -280,6 +307,7 @@ public final class MusicGlassWire {
             View c = g.getChildAt(i);
             glassifyView(c);
             if (c instanceof RecyclerView) hookScroll((RecyclerView) c);
+            if (c instanceof android.widget.ScrollView) hookScrollView((android.widget.ScrollView) c);
             if (c instanceof ViewGroup) glassifyChildren((ViewGroup) c);
         }
     }
@@ -293,8 +321,21 @@ public final class MusicGlassWire {
             @Override
             public void onScrolled(RecyclerView recyclerView, int dx, int dy) {
                 MusicGlassDrawable.noteScrollChanged();
+                refreshGlassViews();
                 recyclerView.invalidate();
             }
+        });
+    }
+
+    /** ScrollView 页（音乐首页就是 ScrollView）：滚动变化时同样逼玻璃件重裁，
+     *  此前只有 RecyclerView 有钩子，首页玻璃滑动时取样定格、颜色一直不变。 */
+    private static void hookScrollView(final android.widget.ScrollView sv) {
+        synchronized (sScrollViewHooked) {
+            if (!sScrollViewHooked.add(sv)) return;
+        }
+        sv.getViewTreeObserver().addOnScrollChangedListener(() -> {
+            MusicGlassDrawable.noteScrollChanged();
+            refreshGlassViews();
         });
     }
 }

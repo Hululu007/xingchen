@@ -27,6 +27,12 @@ public class LyricVersion {
     private final boolean lineTimed;
     private final int matchLevel;
     private final double gzLevel;
+    /** 候选歌自身的标题／歌手（瓜子 LyricsCandidate.songTitle/songArtist）：只有跨源命中当场
+     * 拿得到候选歌元数据的产出步才带，其余为 null——弹窗行显候选自己的歌名·歌手，空则回落当前歌曲。 */
+    private final String candidateTitle;
+    private final String candidateArtist;
+    /** 候选歌与目标曲的时长差（秒，瓜子 LyricsCandidate.durationDeltaSec）：0＝无差或未知，弹窗 >0 才显「偏差 Ns」。 */
+    private final int durationDeltaSec;
 
     public LyricVersion(MusicLyric lyric, String source, boolean wordTimed, boolean lineTimed) {
         this(lyric, source, wordTimed, lineTimed, MATCH_LEVEL_CONTAINS, GZ_LEVEL_UNKNOWN);
@@ -38,12 +44,36 @@ public class LyricVersion {
 
     public LyricVersion(MusicLyric lyric, String source, boolean wordTimed, boolean lineTimed,
                         int matchLevel, double gzLevel) {
+        this(lyric, source, wordTimed, lineTimed, matchLevel, gzLevel, null, null, 0);
+    }
+
+    public LyricVersion(MusicLyric lyric, String source, boolean wordTimed, boolean lineTimed,
+                        int matchLevel, double gzLevel, String candidateTitle, String candidateArtist,
+                        int durationDeltaSec) {
         this.lyric = lyric;
         this.source = source;
         this.wordTimed = wordTimed;
         this.lineTimed = lineTimed;
         this.matchLevel = matchLevel;
         this.gzLevel = gzLevel;
+        this.candidateTitle = candidateTitle;
+        this.candidateArtist = candidateArtist;
+        this.durationDeltaSec = durationDeltaSec;
+    }
+
+    /** 候选歌标题（可空，见字段注） */
+    public String getCandidateTitle() {
+        return candidateTitle;
+    }
+
+    /** 候选歌歌手（可空，见字段注） */
+    public String getCandidateArtist() {
+        return candidateArtist;
+    }
+
+    /** 时长差（秒）：0＝无差或未知 */
+    public int getDurationDeltaSec() {
+        return durationDeltaSec;
     }
 
     public MusicLyric getLyric() {

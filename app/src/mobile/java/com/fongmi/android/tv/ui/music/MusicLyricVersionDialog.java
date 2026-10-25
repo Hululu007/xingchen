@@ -310,8 +310,20 @@ public class MusicLyricVersionDialog extends BaseBottomSheetDialog {
             String source = v.getSource();
             h.b.tvSource.setText(source == null || source.isEmpty() ? "" : source);
             h.b.tvLines.setText(lineCount(v) + " 行");
-            if (track != null) {
-                h.b.tvSong.setText(track.displayTitle() + " · " + track.displayArtist());
+            // 行内歌名·歌手显候选自己的（瓜子 LyricsCandidate.songTitle/songArtist，PlayerScreenKt.java:11873-11877）：
+            // 候选标题空回落字面「当前歌曲」，歌手空则不拼（「 · 」连非空段）。此前恒显目标曲是错的。
+            String candTitle = v.getCandidateTitle();
+            String songText = candTitle == null || candTitle.isEmpty() ? "当前歌曲" : candTitle;
+            String candArtist = v.getCandidateArtist();
+            if (candArtist != null && !candArtist.isEmpty()) songText = songText + " · " + candArtist;
+            h.b.tvSong.setText(songText);
+            // 时长偏差（PlayerScreenKt.java:13525-13527）：delta>0 才显「偏差 Ns」；
+            // 瓜子字面后缀是它误用的 CMCD 常量 "ss"，星辰用秒单位 "s"（有意偏离，记对照表）。
+            if (v.getDurationDeltaSec() > 0) {
+                h.b.tvDelta.setText("偏差 " + v.getDurationDeltaSec() + "s");
+                h.b.tvDelta.setVisibility(android.view.View.VISIBLE);
+            } else {
+                h.b.tvDelta.setVisibility(android.view.View.GONE);
             }
             h.b.chipRow.removeAllViews();
             addChip(h, kindTag(v));

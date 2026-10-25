@@ -90,5 +90,13 @@
             android:text="匹配度"
             android:textColor="#9A9AA0"
             android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/tvDelta"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="#9A9AA0"
+            android:textSize="9sp"
+            android:visibility="gone" />
     </LinearLayout>
 </LinearLayout>

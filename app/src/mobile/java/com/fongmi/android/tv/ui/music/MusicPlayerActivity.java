@@ -949,9 +949,16 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
             android.graphics.drawable.GradientDrawable backdrop = new android.graphics.drawable.GradientDrawable(
                     android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
                     sysDark ? new int[]{0xFF2A2A2E, 0xFF0F0F12} : new int[]{0xFF3A3A3C, 0xFF1C1C1E});
-            backdrop.setCornerRadius(22f * getResources().getDisplayMetrics().density);
+            float backdropRadius = 22f * getResources().getDisplayMetrics().density;
+            backdrop.setCornerRadius(backdropRadius);
             expandedViewport.setBackground(backdrop);
             expandedViewport.setClipToOutline(true);
+            expandedViewport.setOutlineProvider(new android.view.ViewOutlineProvider() {
+                @Override
+                public void getOutline(View v, android.graphics.Outline outline) {
+                    outline.setRoundRect(0, 0, v.getWidth(), v.getHeight(), backdropRadius);
+                }
+            });
         }
         coverBack1View = find(R.id.tpCoverBack1);
         coverBack2View = find(R.id.tpCoverBack2);

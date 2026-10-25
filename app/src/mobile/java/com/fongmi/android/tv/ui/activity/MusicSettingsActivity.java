@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.ui.activity;
 
+import com.fongmi.android.tv.ui.music.MusicGlassWire;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
@@ -69,6 +70,7 @@ public class MusicSettingsActivity extends BaseActivity {
 
     @Override
     protected void initView(Bundle savedInstanceState) {
+        MusicGlassWire.glassifyTree(getBinding().getRoot()); // 全页玻璃件同源接线：共用件按资源识别统一换液态玻璃（MusicGlassWire）
         initQualityRows();
         // 第三波 S-A1：单独设置移动网络音质开关＋子行两段式（服务侧 effectivePlayQuality 逻辑不动：
         // 开关状态就是存值本身——开＝存固定档、关＝存 -1 跟随；关时先记下固定档以便再开恢复）。

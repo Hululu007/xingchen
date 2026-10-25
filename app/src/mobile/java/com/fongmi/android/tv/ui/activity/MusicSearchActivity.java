@@ -32,6 +32,7 @@ import com.fongmi.android.tv.music.MusicRepository;
 import com.fongmi.android.tv.music.MusicStore;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.ui.dialog.MusicOptionsDialog;
+import com.fongmi.android.tv.ui.music.MusicGlassWire;
 import com.fongmi.android.tv.ui.music.MusicPlayerActivity;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.Task;
@@ -163,6 +164,7 @@ public class MusicSearchActivity extends BaseActivity {
         empty.setOnClickListener(null);
 
         recycler.setLayoutManager(new LinearLayoutManager(this));
+        MusicGlassWire.glassifyTree(rootView);
         recycler.setAdapter(adapter = new SearchAdapter());
         sourceRow.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
         sourceRow.setAdapter(chipAdapter = new ChipAdapter());

@@ -30,6 +30,7 @@ import com.fongmi.android.tv.music.MusicRepository;
 import com.fongmi.android.tv.music.MusicStore;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.ui.dialog.MusicOptionsDialog;
+import com.fongmi.android.tv.ui.music.MusicGlassWire;
 import com.fongmi.android.tv.ui.music.MusicPlayerActivity;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
@@ -123,6 +124,7 @@ public class MusicTracksActivity extends BaseActivity {
 
     @Override
     protected void initView(Bundle savedInstanceState) {
+        MusicGlassWire.glassifyTree(getBinding().getRoot()); // 全页玻璃件同源接线：共用件按资源识别统一换液态玻璃（MusicGlassWire）
         // 本页 Manifest 没声明 windowSoftInputMode，默认键盘一弹窗口就 resize：
         // 内容区被压到键盘上方，状态文字（覆盖层里的 empty）会被带着乱跑。
         // 锁成 adjustPan：窗口不缩放、不重排；状态文字位置只跟页面有关、跟键盘无关。
@@ -611,7 +613,7 @@ public class MusicTracksActivity extends BaseActivity {
             h.title.setText(t.displayTitle());
             // 共用行口径（批 5 F1/F2）：歌名 15sp 粗 #1A1A1A，在播行红名
             h.title.setTextColor(isCurrent ? 0xFFFA243C : 0xFF1A1A1A);
-            h.itemView.setBackgroundResource(isCurrent ? R.drawable.card_music_current : 0);
+            MusicGlassWire.frameRow(h.itemView); // 行一框：液态玻璃（原口径非当前行裸底、当前行白卡；当前行另有红名＋在播字样作标识）
             if (t.qualityTag != null && !t.qualityTag.isEmpty()) {
                 h.badge.setVisibility(View.VISIBLE);
                 h.badge.setText(t.qualityTag);

@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.ui.activity;
 
+import com.fongmi.android.tv.ui.music.MusicGlassWire;
 import android.animation.ObjectAnimator;
 import android.app.Activity;
 import android.content.Intent;
@@ -151,6 +152,7 @@ public class MusicRandomActivity extends BaseActivity {
 
     @Override
     protected void initView(Bundle savedInstanceState) {
+        MusicGlassWire.glassifyTree(getBinding().getRoot()); // 全页玻璃件同源接线：共用件按资源识别统一换液态玻璃（MusicGlassWire）
         pageAlive = true;
         // 黑胶尺寸：外圈＝屏宽×0.7、上限 320dp（GZ 绝对 dp 未抠到）；内圈封面 0.68f、中心黑点 0.053f、fallback 图标 0.24f
         int sw = getResources().getDisplayMetrics().widthPixels;

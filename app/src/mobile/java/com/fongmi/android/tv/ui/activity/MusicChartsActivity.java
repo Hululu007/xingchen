@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.ui.activity;
 
+import com.fongmi.android.tv.ui.music.MusicGlassWire;
 import android.app.Activity;
 import android.content.Intent;
 import android.os.Bundle;
@@ -88,6 +89,7 @@ public class MusicChartsActivity extends BaseActivity {
 
     @Override
     protected void initView(Bundle savedInstanceState) {
+        MusicGlassWire.glassifyTree(getBinding().getRoot()); // 全页玻璃件同源接线：共用件按资源识别统一换液态玻璃（MusicGlassWire）
         // 与旧列表页同口径：锁 adjustPan，键盘不缩放窗口、不带乱空态位置。
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN);
         MusicRepository.ensureDebugFake();
@@ -483,6 +485,7 @@ public class MusicChartsActivity extends BaseActivity {
 
             ChartFocusHolder(View v) {
                 super(v);
+                MusicGlassWire.glassifyTree(v); // 行一框：行内玻璃件同源接线（根或内卡按资源识别）
                 cardRoot = v.findViewById(R.id.chartCardRoot);
                 cover = v.findViewById(R.id.cover);
                 name = v.findViewById(R.id.name);
@@ -516,6 +519,7 @@ public class MusicChartsActivity extends BaseActivity {
 
             ChartCardHolder(View v) {
                 super(v);
+                MusicGlassWire.glassifyTree(v); // 行一框：行内玻璃件同源接线（根或内卡按资源识别）
                 cardRoot = v.findViewById(R.id.chartCardRoot);
                 cover = v.findViewById(R.id.cover);
                 name = v.findViewById(R.id.name);

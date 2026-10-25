@@ -1,9 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 播放页通用选项弹窗：面板底照 GZ sheetPanelBg #F3F3F3（bg_sheet_panel，与队列弹窗同款，旧纯白 bg_sheet_panel_home 已改掉）。 -->
+<!-- 播放页通用选项弹窗：面板底＝全 App 同源液态玻璃 MusicGlassDrawable（代码装配、仅顶角 16dp，与队列弹窗同款）。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="@drawable/bg_sheet_panel"
     android:orientation="vertical"
     android:padding="20dp">
 

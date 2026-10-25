@@ -1,5 +1,7 @@
 package com.fongmi.android.tv.ui.dialog;
 
+import com.fongmi.android.tv.ui.music.MusicGlassDrawable;
+import com.fongmi.android.tv.ui.music.MusicGlassWire;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.LayoutInflater;
@@ -55,7 +57,11 @@ public class MusicPlaylistImportDialog extends BaseBottomSheetDialog {
     @NonNull
     @Override
     protected ViewBinding getBinding(@NonNull LayoutInflater inflater, @Nullable ViewGroup container) {
-        return binding = DialogMusicPlaylistImportBinding.inflate(inflater, container, false);
+        binding = DialogMusicPlaylistImportBinding.inflate(inflater, container, false);
+        // 面板底＝全 App 同源液态玻璃（fa37c4e0 的实白底作废；其贴底坐标修正保留不动）——仅顶角圆角、贴底无缺口；糊底走独立窗口静态回落
+        binding.getRoot().setBackground(new MusicGlassDrawable(inflater.getContext(), 16, true));
+        MusicGlassWire.glassifyTree(binding.getRoot()); // 面板内件同源接线
+        return binding;
     }
 
     @Override

@@ -53,6 +53,8 @@ import com.fongmi.android.tv.music.MusicStore;
 import com.fongmi.android.tv.music.PyMusicSource;
 import com.fongmi.android.tv.service.MusicPlaybackService;
 import com.fongmi.android.tv.ui.music.CdDiscView;
+import com.fongmi.android.tv.ui.music.MusicGlassDrawable;
+import com.fongmi.android.tv.ui.music.MusicGlassWire;
 import com.fongmi.android.tv.ui.music.MusicPlayerHost;
 import com.fongmi.android.tv.ui.music.MusicPlayerSettings;
 import com.fongmi.android.tv.utils.ImgUtil;
@@ -221,7 +223,11 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
 
     @Override
     protected ViewBinding getBinding(@NonNull LayoutInflater inflater, @Nullable ViewGroup container) {
-        return binding = DialogMusicToolsBinding.inflate(inflater, container, false);
+        binding = DialogMusicToolsBinding.inflate(inflater, container, false);
+        // 面板底＝全 App 同源液态玻璃（fa37c4e0 的实白底作废；其贴底坐标修正保留不动）——仅顶角圆角、贴底无缺口；糊底走独立窗口静态回落
+        binding.getRoot().setBackground(new MusicGlassDrawable(inflater.getContext(), 16, true));
+        MusicGlassWire.glassifyTree(binding.getRoot()); // 面板内件同源接线
+        return binding;
     }
 
     @Override
@@ -452,6 +458,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         cell.setClipChildren(false);
         FrameLayout boxTile = new FrameLayout(getContext());
         boxTile.setBackgroundResource(R.drawable.bg_music_glass_quick);
+        MusicGlassWire.glassify(boxTile); // 子面板动态件同源真玻璃（走树够不着、建点单换）
         boxTile.setElevation(dp(2));
         ImageView iv = new ImageView(getContext());
         iv.setImageResource(icon);
@@ -489,6 +496,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         for (int i = 0; i < values.length; i++) if (values[i] == cur) selIdx = i;
         FrameLayout frame = new FrameLayout(getContext());
         frame.setBackgroundResource(R.drawable.bg_music_glass_seg);
+        MusicGlassWire.glassify(frame); // 子面板动态件同源真玻璃（走树够不着、建点单换）
         frame.setPadding(dp(4), dp(4), dp(4), dp(4));
         View indicator = new View(getContext());
         indicator.setBackgroundResource(R.drawable.sheet_mode_selected);
@@ -609,6 +617,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setGravity(Gravity.CENTER_VERTICAL);
             row.setBackgroundResource(R.drawable.bg_music_glass_card);
+        MusicGlassWire.glassify(row); // 子面板动态件同源真玻璃（走树够不着、建点单换）
             row.setPadding(dp(16), dp(12), dp(16), dp(12));
             LinearLayout texts = new LinearLayout(getContext());
             texts.setOrientation(LinearLayout.VERTICAL);
@@ -643,6 +652,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         LinearLayout card = new LinearLayout(getContext());
         card.setOrientation(LinearLayout.VERTICAL);
         card.setBackgroundResource(R.drawable.bg_music_glass_card);
+        MusicGlassWire.glassify(card); // 子面板动态件同源真玻璃（走树够不着、建点单换）
         card.setElevation(dp(2));
         card.setPadding(dp(16), 0, dp(16), 0);
         LinearLayout row = new LinearLayout(getContext());
@@ -1399,6 +1409,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         applyWeight(closeBtn, 700);
         closeBtn.setGravity(Gravity.CENTER);
         closeBtn.setBackgroundResource(R.drawable.bg_music_glass_card);
+        MusicGlassWire.glassify(closeBtn); // 子面板动态件同源真玻璃（走树够不着、建点单换）
         closeBtn.setElevation(dp(2));
         closeBtn.setPadding(dp(12), dp(7), dp(12), dp(7));
         closeBtn.setOnClickListener(v -> {
@@ -1533,6 +1544,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         TextView restore = text(getString(R.string.music_restore_defaults), 13, COLOR_DARK, false);
         restore.setGravity(Gravity.CENTER);
         restore.setBackgroundResource(R.drawable.bg_music_glass_card);
+        MusicGlassWire.glassify(restore); // 子面板动态件同源真玻璃（走树够不着、建点单换）
         restore.setElevation(dp(2));
         restore.setOnClickListener(v -> {
             MusicStore.setCoverLyricFontSize(22f);
@@ -1566,6 +1578,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         LinearLayout column = new LinearLayout(getContext());
         column.setOrientation(LinearLayout.VERTICAL);
         column.setBackgroundResource(R.drawable.bg_music_glass_preview);
+        MusicGlassWire.glassify(column); // 子面板动态件同源真玻璃（走树够不着、建点单换）
         column.setElevation(dp(2));
         column.setPadding(dp(14), dp(8), dp(14), dp(8));
         lyricPreview = text(getString(R.string.music_lyric_preview_sample), 22, COLOR_TEXT, false);
@@ -1815,6 +1828,7 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
         close.setImageTintList(ColorStateList.valueOf(COLOR_MEDIUM));
         close.setPadding(dp(11), dp(11), dp(11), dp(11));
         close.setBackgroundResource(R.drawable.bg_music_glass_circle);
+        MusicGlassWire.glassify(close); // 子面板动态件同源真玻璃（走树够不着、建点单换）
         close.setContentDescription(getString(R.string.music_close));
         close.setOnClickListener(v -> dismissAllowingStateLoss());
         attachPress(close, 0.9f);

@@ -17,6 +17,7 @@ import androidx.fragment.app.FragmentActivity;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.R;
+import com.fongmi.android.tv.ui.music.MusicGlassDrawable;
 import com.fongmi.android.tv.music.MusicController;
 import com.fongmi.android.tv.music.ParametricEq;
 
@@ -58,10 +59,8 @@ public class ParametricEqDialog extends BaseBottomSheetDialog {
         LinearLayout root = new LinearLayout(inflater.getContext());
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(20), dp(16), dp(20), dp(20));
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(0xFFFFFFFF);
-        bg.setCornerRadius(dp(20));
-        root.setBackground(bg);
+        // 面板底＝全 App 同源液态玻璃（原纯白 GradientDrawable 底作废）：仅顶角 20dp、贴底无缺口
+        root.setBackground(new MusicGlassDrawable(inflater.getContext(), 20, true));
 
         TextView title = new TextView(inflater.getContext());
         title.setText(R.string.music_parametric_eq);

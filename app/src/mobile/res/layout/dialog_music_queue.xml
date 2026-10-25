@@ -1,13 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 播放队列面板（GZ PlayQueueSheet＋SheetSubPanelHeader 证据 redo2-gz-queue-evidence）：
-     面板底＝实底 bg_sheet_panel #F3F3F3（GZ sheetPanelBg 实证同值；批 4 曾换半透玻璃底，
-     1.4.28 真机点名透底看不清后恢复实底）；高度占比 0.68＝PlayQueueSheetKt:343 实读、根上内距 12dp 同出；
+     面板底＝全 App 同源液态玻璃 MusicGlassDrawable（代码装配、仅顶角 16dp；fa37c4e0 的实白底已被用户点名作废，
+     其贴底坐标修正保留）；高度占比 0.68＝PlayQueueSheetKt:343 实读、根上内距 12dp 同出；
      头部 44dp＝[标题 17sp/800] [模式筹·模式串常显] [计数筹·纯数字] [清空·红] [✕ 圆钮 40]，
      头部不放自己的返回箭头，✕ 关闭钮保留；来源行（队列级来源、全队一致才显示）；提示行「长按拖动调整顺序」；列表最大高屏高 0.68（代码钳）。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="@drawable/bg_sheet_panel"
     android:orientation="vertical"
     android:paddingTop="12dp">
 

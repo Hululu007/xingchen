@@ -196,6 +196,19 @@ public class MusicGlassBackgroundView extends View {
         }
     }
 
+    /** 缓冲对应的背景 View 尺寸（源尺寸）：弹窗等独立窗口里的玻璃件按它换算裁剪坐标（锚点取 0,0）。 */
+    public static int sourceWidth() {
+        synchronized (BUFFER_LOCK) {
+            return sSrcW;
+        }
+    }
+
+    public static int sourceHeight() {
+        synchronized (BUFFER_LOCK) {
+            return sSrcH;
+        }
+    }
+
     /** 页面滚动时顶一版：玻璃件下次绘制按宿主新窗口位置重裁（静态底无漂移帧，靠它兜底）。 */
     public static void noteScrollChanged() {
         synchronized (BUFFER_LOCK) {

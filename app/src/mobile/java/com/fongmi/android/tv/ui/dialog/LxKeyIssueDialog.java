@@ -1,5 +1,7 @@
 package com.fongmi.android.tv.ui.dialog;
 
+import com.fongmi.android.tv.ui.music.MusicGlassDrawable;
+import com.fongmi.android.tv.ui.music.MusicGlassWire;
 import android.graphics.drawable.GradientDrawable;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -108,10 +110,8 @@ public class LxKeyIssueDialog extends BaseBottomSheetDialog {
         root.setOrientation(LinearLayout.VERTICAL);
         int pad = dp(20);
         root.setPadding(pad, dp(16), pad, dp(20));
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(0xFFFFFFFF);
-        bg.setCornerRadius(dp(20));
-        root.setBackground(bg);
+        // 面板底＝全 App 同源液态玻璃（原纯白 GradientDrawable 底作废）：仅顶角 20dp、贴底无缺口
+        root.setBackground(new MusicGlassDrawable(inflater.getContext(), 20, true));
 
         TextView title = new TextView(inflater.getContext());
         title.setText("来源可能有问题");

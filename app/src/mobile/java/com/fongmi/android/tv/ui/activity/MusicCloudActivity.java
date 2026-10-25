@@ -40,6 +40,7 @@ import com.fongmi.android.tv.login.LoginManager;
 import com.fongmi.android.tv.music.CloudMusicSource;
 import com.fongmi.android.tv.music.MusicController;
 import com.fongmi.android.tv.ui.base.BaseActivity;
+import com.fongmi.android.tv.ui.music.MusicGlassWire;
 import com.fongmi.android.tv.ui.music.MusicPlayerActivity;
 import com.fongmi.android.tv.ui.dialog.PanLoginDialog;
 import com.fongmi.android.tv.utils.ImgUtil;
@@ -332,6 +333,7 @@ public class MusicCloudActivity extends BaseActivity {
 
     @Override
     protected void initView(Bundle savedInstanceState) {
+        MusicGlassWire.glassifyTree(getBinding().getRoot()); // 全页玻璃件同源接线：共用件按资源识别统一换液态玻璃（MusicGlassWire）
         CloudMusicSource.ensureRegistered();
         refreshSub();
     }
@@ -951,6 +953,7 @@ public class MusicCloudActivity extends BaseActivity {
             if (convertView == null) {
                 LinearLayout row = new LinearLayout(MusicCloudActivity.this);
                 row.setOrientation(LinearLayout.VERTICAL);
+                MusicGlassWire.frameRow(row); // 行一框：云盘结果行原裸行（代码建行），建行即挂液态玻璃框
                 try {
                     android.util.TypedValue tv = new android.util.TypedValue();
                     getTheme().resolveAttribute(android.R.attr.selectableItemBackground, tv, true);

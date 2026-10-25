@@ -16,6 +16,8 @@ import androidx.fragment.app.FragmentActivity;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.R;
+import com.fongmi.android.tv.ui.music.MusicGlassDrawable;
+import com.fongmi.android.tv.ui.music.MusicGlassWire;
 import com.fongmi.android.tv.api.music.FreeJsMusicSource;
 import com.fongmi.android.tv.api.music.LxBridge;
 import com.fongmi.android.tv.api.music.LxMusicSource;
@@ -125,6 +127,9 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
     @Override
     protected ViewBinding getBinding(@NonNull LayoutInflater inflater, @Nullable ViewGroup container) {
         root = inflater.inflate(R.layout.dialog_music_quality, container, false);
+        // 面板底＝全 App 同源液态玻璃（实白底作废）：仅顶角 20dp、贴底无缺口；糊底走独立窗口静态回落
+        root.setBackground(new MusicGlassDrawable(inflater.getContext(), 20, true));
+        MusicGlassWire.glassifyTree(root); // 面板内件同源接线
         return new Binding(root);
     }
 
@@ -280,6 +285,7 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
         LayoutInflater inflater = LayoutInflater.from(rowsContainer.getContext());
         for (int i = 0; i < rows.size(); i++) {
             View row = inflater.inflate(R.layout.item_music_quality_row, rowsContainer, false);
+            MusicGlassWire.glassify(row); // 音质行一框：液态玻璃（原 bg_music_quality_row 半透渐变）
             if (i > 0) {
                 LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) row.getLayoutParams();
                 if (lp != null) lp.topMargin = dp(8);

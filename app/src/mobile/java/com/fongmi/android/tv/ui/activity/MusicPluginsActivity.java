@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.ui.activity;
 
+import com.fongmi.android.tv.ui.music.MusicGlassWire;
 import android.app.Activity;
 import android.content.Intent;
 import android.content.res.ColorStateList;
@@ -104,6 +105,7 @@ public class MusicPluginsActivity extends BaseActivity {
 
     @Override
     protected void initView(Bundle savedInstanceState) {
+        MusicGlassWire.glassifyTree(getBinding().getRoot()); // 全页玻璃件同源接线：共用件按资源识别统一换液态玻璃（MusicGlassWire）
         // 本页 Manifest 没声明 windowSoftInputMode，默认键盘一弹窗口就 resize：
         // 内容区被压到键盘上方，状态文字（覆盖层里的 empty）会被带着乱跑。
         // 锁成 adjustPan：窗口不缩放、不重排；状态文字位置只跟页面有关、跟键盘无关。
@@ -1525,6 +1527,7 @@ public class MusicPluginsActivity extends BaseActivity {
 
             PluginHolder(View v) {
                 super(v);
+                MusicGlassWire.glassifyTree(v); // 行一框：行内玻璃件同源接线（根或内卡按资源识别）
                 pluginIcon = v.findViewById(R.id.pluginIcon);
                 statusDot = v.findViewById(R.id.statusDot);
                 name = v.findViewById(R.id.name);

@@ -37,6 +37,7 @@ import com.fongmi.android.tv.music.MusicStore;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.ui.music.MusicGlassBackgroundView;
 import com.fongmi.android.tv.ui.music.MusicGlassDrawable;
+import com.fongmi.android.tv.ui.music.MusicGlassWire;
 import com.fongmi.android.tv.ui.music.MusicPlayerActivity;
 import com.fongmi.android.tv.utils.CoverColor;
 import com.fongmi.android.tv.utils.ImgUtil;
@@ -119,6 +120,7 @@ public class MusicActivity extends BaseActivity {
 
     @Override
     protected void initView(Bundle savedInstanceState) {
+        MusicGlassWire.glassifyTree(getBinding().getRoot()); // 全页玻璃件同源接线（与 applyHomeGlass 手接件互补；心情卡占位底随后被心情渐变覆盖，不受影响）
         if (savedInstanceState != null) {
             savedMood = savedInstanceState.getString("ma_mood");
             savedChartSelKey = savedInstanceState.getString("ma_chartSelKey");
@@ -782,6 +784,7 @@ public class MusicActivity extends BaseActivity {
         final LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setBackgroundResource(R.drawable.home_bg_menu);
+        card.setBackground(new MusicGlassDrawable(this, 16)); // ⋮ 菜单卡同源液态玻璃（原 home_bg_menu 纯白底）
         card.setElevation(dp(6));
         card.setClickable(true);
         final LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(

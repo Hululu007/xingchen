@@ -29,6 +29,7 @@ import com.fongmi.android.tv.music.MusicRepository;
 import com.fongmi.android.tv.music.MusicStore;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.ui.dialog.MusicOptionsDialog;
+import com.fongmi.android.tv.ui.music.MusicGlassWire;
 import com.fongmi.android.tv.ui.music.MusicPlayerActivity;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
@@ -131,6 +132,7 @@ public class MusicHistoryActivity extends BaseActivity {
 
     @Override
     protected void initView(Bundle savedInstanceState) {
+        MusicGlassWire.glassifyTree(getBinding().getRoot()); // 全页玻璃件同源接线：共用件按资源识别统一换液态玻璃（MusicGlassWire）
         // 与旧列表页同口径：锁 adjustPan，键盘不缩放窗口、不带乱空态位置。
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN);
         MusicRepository.ensureDebugFake();
@@ -777,7 +779,7 @@ public class MusicHistoryActivity extends BaseActivity {
             h.title.setText(t.displayTitle());
             // 共用行口径：歌名 15sp 粗 #1A1A1A，在播行红名
             h.title.setTextColor(isCurrent ? 0xFFFA243C : 0xFF1A1A1A);
-            h.itemView.setBackgroundResource(isCurrent ? R.drawable.card_music_current : 0);
+            MusicGlassWire.frameRow(h.itemView); // 行一框：液态玻璃（原口径非当前行裸底、当前行白卡；当前行另有红名＋在播字样作标识）
             if (isTrackCached(t)) {
                 // 历史行「已缓存」标签（瓜子 HistoryScreenKt 内边距 7/3dp、圆角 8dp；
                 // 口径：已缓存＝音频已落本地；判定＝非设备库曲目且 localPath 文件真实存在）

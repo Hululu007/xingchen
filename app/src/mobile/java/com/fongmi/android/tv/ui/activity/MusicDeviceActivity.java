@@ -32,6 +32,7 @@ import com.fongmi.android.tv.music.MusicRepository;
 import com.fongmi.android.tv.music.MusicStore;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.ui.dialog.MusicOptionsDialog;
+import com.fongmi.android.tv.ui.music.MusicGlassWire;
 import com.fongmi.android.tv.ui.music.MusicPlayerActivity;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
@@ -144,6 +145,7 @@ public class MusicDeviceActivity extends BaseActivity {
 
     @Override
     protected void initView(Bundle savedInstanceState) {
+        MusicGlassWire.glassifyTree(getBinding().getRoot()); // 全页玻璃件同源接线：共用件按资源识别统一换液态玻璃（MusicGlassWire）
         // 与旧列表页同口径：锁 adjustPan，键盘不缩放窗口、不带乱空态位置。
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN);
         MusicRepository.ensureDebugFake();
@@ -1269,7 +1271,7 @@ public class MusicDeviceActivity extends BaseActivity {
             boolean isCurrent = cur != null && cur.id != null && cur.id.equals(t.id);
             h.title.setText(t.displayTitle());
             h.title.setTextColor(isCurrent ? 0xFFFA243C : 0xFF1A1A1A);
-            h.itemView.setBackgroundResource(isCurrent ? R.drawable.card_music_current : 0);
+            MusicGlassWire.frameRow(h.itemView); // 行一框：液态玻璃（原口径非当前行裸底、当前行白卡；当前行另有红名＋在播字样作标识）
             String badge = deviceBadge(t);
             if (!badge.isEmpty()) {
                 h.badge.setVisibility(View.VISIBLE);
@@ -1332,6 +1334,7 @@ public class MusicDeviceActivity extends BaseActivity {
 
             SectionHolder(View v) {
                 super(v);
+                MusicGlassWire.glassifyTree(v); // 行一框：行内玻璃件同源接线（根或内卡按资源识别）
                 name = v.findViewById(R.id.name);
                 count = v.findViewById(R.id.count);
                 direction = v.findViewById(R.id.direction);
@@ -1373,6 +1376,7 @@ public class MusicDeviceActivity extends BaseActivity {
 
             CardHolder(View v) {
                 super(v);
+                MusicGlassWire.glassifyTree(v); // 行一框：行内玻璃件同源接线（根或内卡按资源识别）
                 coverBox = v.findViewById(R.id.coverBox);
                 icon = v.findViewById(R.id.icon);
                 mosaicSingle = v.findViewById(R.id.mosaicSingle);

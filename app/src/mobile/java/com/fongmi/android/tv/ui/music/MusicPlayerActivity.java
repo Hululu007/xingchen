@@ -2703,11 +2703,15 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
     }
 
     /**
-     * 一层满幅糊底合成（后台线程）：照瓜子 CoverAmbientKt.BurredCoverAmbient 原式——
-     * 封面缩 64×64 拉满，图层中心放大 1.85（糊边溢出画外）、糊 24dp（API<31 位图层
-     * FastBlur 25 回落；API31+ 由视图层 RenderEffect 落地，位图层跳过）、图层 alpha
-     * 0.4 压在深色底上（瓜子为窗口底，本树等价物＝骨架根背景 #0A0E16），上盖四段
-     * 氛围罩——停点 0/0.4/0.78/1、alpha 0.76/0.82/0.80/0.86、底色两端明度 +0.05/−0.04。
+     * 一层满幅糊底合成（后台线程）：照瓜子 CoverAmbientKt.BlurredCoverAmbient 原式
+     * （CoverAmbientKt.java:149-401；播放页调用点 PlayerScreenKt.java:21191 两参全走默认）——
+     * 封面请求 64×64、满幅 Crop 绘制、糊 24dp（API<31 位图层 FastBlur 25 近似回落；
+     * API31+ 由视图层 RenderEffect 落地，位图层跳过）、图层 alpha 0.4（默认值，组件入参）
+     * 压在氛围基准色垫底上（瓜子在组件外先满幅填基准色 j，PlayerScreenKt.java:21109），
+     * 上盖四段氛围罩——停点 0/0.4/0.78/1、alpha 0.76/0.82/0.80/0.86、底色两端明度 +0.05/−0.04。
+     * 糊图无任何缩放放大：此前注释谎称的「图层中心放大 1.85 瓜子原值」在瓜子 ui/ 与
+     * feature/player/ 全源 grep 零命中，本单已摘除并改回满幅直绘；垫底此前用骨架色
+     * #0A0E16 亦非瓜子构造（瓜子垫的是基准色本身），同批改掉。
      * 图层 alpha 是关键：旧式图层不透明（1.0）时罩后仍透出约 18% 糊图鬼影，整页下半
      * 认得出一张糊照片＝第二张皮；0.4 时鬼影约 7%，背景回归取色色场、与封面一体。
      */
@@ -2724,20 +2728,31 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         try {
             Bitmap out = Bitmap.createBitmap(viewW, viewH, Bitmap.Config.ARGB_8888);
             Canvas canvas = new Canvas(out);
-            // 深色底（骨架根背景字面值）：瓜子图层 alpha 0.4 所压的窗口底在本树的等价物
-            canvas.drawColor(0xFF0A0E16);
+            // 垫底＝氛围基准色本身（瓜子组件外满幅填 j，PlayerScreenKt.java:21109；
+            // 基准色即 drawAmbientVeil 用的 toneAdjust(ambient)——CoverAmbientKt.d() 同式）
+            canvas.drawColor(CoverColor.toneAdjust(ambient));
             Paint paint = new Paint(Paint.FILTER_BITMAP_FLAG);
             paint.setAlpha(Math.round(0.4f * 255));
-            int smallH = Math.max(1, Math.round(64f * work.getHeight() / (float) work.getWidth()));
-            Bitmap small = Bitmap.createScaledBitmap(work, 64, smallH, true);
+            // 糊图请求 64×64（CoverAmbientKt hk3.d(64, 64)）；此前 64×等比高与原式不符
+            Bitmap small = Bitmap.createScaledBitmap(work, 64, 64, true);
             if (android.os.Build.VERSION.SDK_INT < 31) {
                 Bitmap blurred = FastBlur.blur(small, 25, true);
                 if (blurred != null) small = blurred;
             }
-            // 图层中心放大 1.85（瓜子 graphicsLayer scale 原值）：糊的边缘溢出画外
-            float zx = (1.85f - 1f) / 2f * viewW;
-            float zy = (1.85f - 1f) / 2f * viewH;
-            canvas.drawBitmap(small, null, new RectF(-zx, -zy, viewW + zx, viewH + zy), paint);
+            // 满幅 Crop 直绘、无放大（瓜子满幅 Crop＋Modifier.blur(24dp)，无 scale 字面值）：
+            // 按画布宽高比取 64×64 的居中源矩形填满，等价 Crop 内容缩放
+            float viewAspect = viewW / (float) viewH;
+            android.graphics.Rect srcRect;
+            if (viewAspect < 1f) {
+                int sw = Math.max(1, Math.round(64f * viewAspect));
+                int left = (64 - sw) / 2;
+                srcRect = new android.graphics.Rect(left, 0, left + sw, 64);
+            } else {
+                int sh = Math.max(1, Math.round(64f / viewAspect));
+                int top = (64 - sh) / 2;
+                srcRect = new android.graphics.Rect(0, top, 64, top + sh);
+            }
+            canvas.drawBitmap(small, srcRect, new RectF(0, 0, viewW, viewH), paint);
             small.recycle();
             drawAmbientVeil(canvas, viewW, viewH, ambient);
             return out;

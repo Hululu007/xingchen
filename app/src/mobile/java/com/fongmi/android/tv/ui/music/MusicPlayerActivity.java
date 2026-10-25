@@ -1854,6 +1854,10 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
     // ================= 播放态 =================
 
     private android.animation.ObjectAnimator playBreathAnimator;
+    /** 经典小爱心 tint 300ms 动画状态（GZ songMetaFavTint）。 */
+    private boolean favTintInit;
+    private int favTintColor;
+    private ValueAnimator favTintAnimator;
 
     /**
      * 通知不可用明示（播放页）：起播后首次检出不可用才挂条，同进程只挂一次，

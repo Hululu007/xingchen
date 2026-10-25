@@ -137,8 +137,8 @@ public class CoverStackView extends FrameLayout {
             super.onLayout(changed, left, top, right, bottom);
             return;
         }
-        float cardW = Math.min(w * 0.98f, h * ASPECT);
-        float cardH = cardW / ASPECT;
+        float cardH = Math.min(h * 0.98f, w / ASPECT);
+        float cardW = cardH * ASPECT;
         float cx = w / 2f;
         float cy = h / 2f;
         layoutCard(getChildAt(0), cx, cy, cardW * 0.93f, cardH * 0.93f, dp(-12f), dp(-18f), -4f);

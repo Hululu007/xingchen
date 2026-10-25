@@ -1369,9 +1369,10 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         View glassBar = find(R.id.tpGlassBar);
         if (glassBar != null) {
             attachPressScale(glassBar, 0.98f);
-            // 信息态整条是「返回到封面模式」：点条回封面态（展开歌词态点条无动作，收藏/播放键各自处理）
+            // 展开态整条都是「返回到封面模式」：歌词展开态与信息态点条一律回封面态
+            // （旧口径只认信息态、歌词态点条无动作，与条上文案不符——2026-10-25 他真机点名「返回不了」）
             glassBar.setOnClickListener(v -> {
-                if (coverInfoMode) setCoverExpanded(false);
+                if (coverExpanded) setCoverExpanded(false);
             });
         }
         // 展开态四玻璃键（源码实读顺序：上一首／播放列表／歌曲信息／下一首，图标 22dp、按压 0.88）

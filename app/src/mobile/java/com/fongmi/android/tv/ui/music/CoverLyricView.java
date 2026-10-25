@@ -37,7 +37,7 @@ import java.util.Map;
  * 点行＝回调行首时间（定案点歌词行快进）；超长行截断加省略号（D-11 承接）。
  * 展示窗口平滑滚动（2026-10-25）：窗口首行偏移做成连续量（scrollOffsetPx），当前行推进时
  * 按 FullLyricView 同口径每帧 0.18 指数趋近、0.5px 收口——窗口随当前行滚，不是整窗跳变。
- * 点行只认点按（位移小于触摸阈值）：滑动（页级竖滑切歌）松手不许误触 seek。
+ * 点行只认点按（位移小于触摸阈值）：滑动（页级竖滑／歌词区横滑切歌）松手不许误触 seek。
  * 播放中自驱帧循环：以宿主 setPosition 为锚点按真实时间推进显示位置，逐字动画逐帧走，暂停即停。
  */
 public class CoverLyricView extends View {
@@ -71,6 +71,8 @@ public class CoverLyricView extends View {
     private boolean framePosted;
     /** 窗口滚动连续偏移（px）：趋近目标＝windowStart×槽高，见 stepScroll。 */
     private float scrollOffsetPx;
+    /** 上一帧时间戳（ns），供 stepScroll 按帧时长换算趋近（帧率无关）。 */
+    private long lastFrameNanos;
     private float tapSlopPx;
     private float touchDownX;
     private float touchDownY;
@@ -81,9 +83,11 @@ public class CoverLyricView extends View {
         @Override
         public void doFrame(long frameTimeNanos) {
             framePosted = false;
+            long dtMs = lastFrameNanos == 0 ? 16 : Math.min(100, Math.max(1, (frameTimeNanos - lastFrameNanos) / 1_000_000L));
+            lastFrameNanos = frameTimeNanos;
             if (lines.isEmpty()) return;
             if (playing) updateCurrentIndex(displayPositionMs());
-            stepScroll();
+            stepScroll(dtMs);
             boolean animating = blurApproach.hasRunning(SystemClock.elapsedRealtime()) || scrollAnimating();
             if (!playing && !animating) return;
             invalidate();
@@ -300,11 +304,13 @@ public class CoverLyricView extends View {
         return Math.abs(targetScrollPx() - scrollOffsetPx) > 0.5f;
     }
 
-    private void stepScroll() {
+    private void stepScroll(long dtMs) {
         float target = targetScrollPx();
         float diff = target - scrollOffsetPx;
         if (Math.abs(diff) <= 0.5f) scrollOffsetPx = target;
-        else scrollOffsetPx += diff * 0.18f;
+        // 帧率无关趋近：原固定 0.18/帧是 60Hz 下的等效值（τ≈84ms），120Hz 会翻倍；
+        // τ 为星辰等效换算、非瓜子值（瓜子趋近公式抠不到，见 gz-full-parity-1025 §7.4）。
+        else scrollOffsetPx += diff * (1f - (float) Math.exp(-dtMs / 84.0));
     }
 
     private long lineDurationMs(int index) {
@@ -473,7 +479,7 @@ public class CoverLyricView extends View {
                 touchDownY = event.getY();
                 break;
             case MotionEvent.ACTION_UP:
-                // 点行只认点按：位移超阈值是滑（页级竖滑切歌），不许误触 seek。
+                // 点行只认点按：位移超阈值是滑（页级竖滑切歌／歌词区横滑切歌），不许误触 seek。
                 if (lineClickListener != null && !lines.isEmpty()
                         && Math.hypot(event.getX() - touchDownX, event.getY() - touchDownY) < tapSlopPx) {
                     float y = event.getY() - getPaddingTop();

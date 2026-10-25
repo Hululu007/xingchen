@@ -2,91 +2,206 @@ package com.fongmi.android.tv.ui.music;
 
 import android.content.Context;
 import android.graphics.Bitmap;
+import android.graphics.BitmapShader;
 import android.graphics.Canvas;
 import android.graphics.ColorFilter;
 import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.PixelFormat;
+import android.graphics.PorterDuff;
+import android.graphics.PorterDuffXfermode;
 import android.graphics.Rect;
 import android.graphics.RectF;
+import android.graphics.RuntimeShader;
 import android.graphics.Shader;
 import android.graphics.drawable.Drawable;
+import android.os.Build;
 import android.view.View;
 
 /**
- * 音乐液态玻璃件（W2 材料层从零重写，全 App 一套）。
- * 糊底机制与海阔 HkGlassDrawable 同源：从 MusicGlassBackgroundView 的 1/4 共享缓冲
- * 按宿主在窗口中的位置裁剪，天然透底模糊；零 RenderEffect。
+ * 音乐液态玻璃件（2026-10-25 晚按潇洒哥令「抄他的液态玻璃」换 AVBox 的配方：
+ * XiaochangXu/AVBox 用的 Kyant backdrop 库，本类照其效果链在 View 体系复刻）。
+ * 糊底机制沿用自家采样：从 MusicGlassBackgroundView 的 1/4 共享缓冲按宿主位置裁剪。
  *
- * 硬口径（1.4.29 回归清单第 1/5 条销账）：
- * 1) 自带不依赖取样的可见下限——取样为空/未就绪/裁剪失败时，不走透明兜底，
- *    改走下限面：深烟熏渐变下限层 {0xFF4A4A4E, 0xFF333336, 0xFF262628} 照样满铺，
- *    其上烟熏罩、顶部流光、底部影、亮边描边一层不少，任何底上都成形。
- * 2) 小尺寸圆形键（圆角 999）只留一层轻接触影（4dp / 黑 .28），
- *    不叠底部内软影——56dp 圆键叠双层影在右下成灰污团（回归清单第 5 条）。
- *
- * 液态玻璃四项 finishing（用户定：边缘亮边、顶部流光、悬浮分层、按压发亮）：
- * - 边缘亮边：1dp 基础环（纵向 {顶 .30, 中 .20, 底 .14}）＋顶部镜面亮线 1.5dp 白 .85
- *   （只走顶边与两顶角、近实心硬线——苹果液态玻璃定版口径：顶约两倍于侧、侧 .20、底 .14）；
- * - 斜向流光：135° 对角 {白 .45 → .28 处 .08 → .58 处 0}（src-over 近似定版的 screen 叠加）；
- * - 悬浮分层：底部内软影 18dp / 黑 .30＋底沿接触影 4dp / 黑 .28（背景件画不出一界之外的
- *   投影，以内影近似 CSS 0 8px 32px rgba(0,0,0,.25–.32) 的 alpha 量级；小圆键例外只留接触影）；
- * - 按压发亮：state_pressed 时整面加 0x2EFFFFFF 白光、亮边/亮线同步提亮，松开即回。
- *
- * 显形轮定版（2026-10-25 他给样张「这种才是液态玻璃」＋主会话查苹果液态玻璃 CSS 拆解参数
- * ＋样张逐区实测色号三方对齐，裁定面栈三层、逐层报值）：
- *   1) 糊底：共享缓冲采样过 ColorMatrix——饱和 ×1.75（定版区间 1.70–1.80，液态与毛玻璃
- *      的分水岭）＋亮度 ×1.10（+10%）；
- *   2) 烟熏填充：真深色填充 #26282C（近黑微冷）alpha {.80,.84,.88}——CSS 白 10% tint 在
- *      星辰浅底上合不出样张的 #2B2B2B 家族，靠这一层合成后落进该家族；
- *   3) 白 tint 收尾：白色 alpha .10 平铺（定版 rgba(255,255,255,0.10)；
- *      旧白罩 {.58,.34,.46} 厚涂＝他定性的「毛玻璃」，已废）。
- * 选中族件由 MusicGlassWire 换件时挂 #305F67 @ .55 tone（烟熏之上、tint 之下）成带色玻璃。
- * 件内前景由 MusicGlassWire 换件时同步翻白系（主字 #F1F4F5／副字白 .60／图标 #F1F3F5，
- * 样张实测口径；副字 alpha 由样张 .45 起算、经 WCAG 合成口径逐级提到 .60 才全过 3:1 门，
- * 见 w2-glass.md 第八节）。硬口径第 2 条随之更新：小圆键接触影为 4dp / 黑 .28 单层。
+ * AVBox 效果链（FloatingNavBar 的 drawBackdrop 口径 + LiquidGlassConfig 默认值）：
+ * 1) colorControls：saturation 1.5、brightness (0.5−t)·0.12、contrast 1−(0.5−t)·0.25，
+ *    t=translucency 取 0.35（AVBox 默认 0.5；星辰字全白、底更亮，收一档保证对比），
+ *    矩阵照 backdrop 的 colorControlsColorFilter 逐项（亮度权重 .213/.715/.072、
+ *    偏移 t=(0.5−c·0.5+b)·255）；
+ * 2) blur：采样缓冲 1/4 缩放自带糊度（AVBox blur 5dp 的等效量级，不再另叠）；
+ * 3) lens 折射：AGSL 圆角矩形折射着色器（backdrop 的 RoundedRectRefraction +
+ *    色散版逐字移植），refractionHeight/Amount = AVBox distortion 默认 30dp
+ *    （几何上限取件小边一半），depthEffect 关、chromaticAberration 开（AVBox 默认开）；
+ *    走 android.graphics.RuntimeShader（API 33+），低版本/编译失败回落直通采样；
+ * 4) 容器 tint：AVBox containerColor = surfaceContainer @ (0.4 × containerAlphaScale)，
+ *    containerAlphaScale = 2−2t = 1.3 → alpha .52，色取深色面 #1E2023 平铺
+ *    （星辰音乐页字全白令，取 AVBox 深色主题的面色家族）；
+ * 5) Highlight.Default：白 .5、45°、falloff 1、宽 0.5dp、Plus 叠加——AGSL
+ *    DefaultHighlight 着色器逐字移植描边；无 RuntimeShader 时回落旧环线近似；
+ * 6) 阴影：backdrop 的 Shadow 是件外投影，背景 Drawable 画不出界外，沿用内影近似
+ *    （底部内软影 18dp/黑 .30＋接触影 4dp/黑 .28，CSS 0 8px 32px rgba(0,0,0,.25–.32) 量级）。
+ * 选中族 tone 染色（MusicGlassWire 挂 #305F67 @ .55）与前景翻白口径不变。
+ * 取样为空/未就绪时走下限面（深色渐变满铺），任何底上都成形。
  */
 public class MusicGlassDrawable extends Drawable {
 
-    // 面栈第 2 层·烟熏填充：#26282C（近黑微冷）真深色填充，alpha {.80,.84,.88}，停点 {0,.55,1}
-    // 烟熏 alpha {.60,.64,.68}：1.4.35 的 {.80,.84,.88} 几乎全不透明、把饱和糊底压死成灰塑料板
-    // （他真机截图定罪）。压到 .60 档后糊底透出、件成背景的深色调版；白字对比离线合成最差 4.7≥4.5。
-    private static final int[] SMOKE = {0x9926282C, 0xA326282C, 0xAD26282C};
-    // 面栈第 3 层·白 tint 收尾：白色 alpha .10（0x1A）平铺（定版 rgba(255,255,255,0.10)）
-    private static final int[] OVERLAY = {0x1AFFFFFF, 0x1AFFFFFF, 0x1AFFFFFF};
-    private static final float[] OVERLAY_STOPS = {0f, 0.55f, 1f};
-    // 可见下限层（取样失败时满铺）：深烟熏渐变，与正脸同家族、无采样也成深件
-    private static final int[] FALLBACK = {0xFF4A4A4E, 0xFF333336, 0xFF262628};
-    // 135° 斜向流光：白 {.45 @0, .08 @.28, 0 @.58}（定版口径；src-over 近似 screen）
-    private static final int[] SHEEN = {0x73FFFFFF, 0x14FFFFFF, 0x00FFFFFF, 0x00FFFFFF};
-    private static final float[] SHEEN_STOPS = {0f, 0.28f, 0.58f, 1f};
-    // 面栈第 1 层·采样糊底处理：提饱和 1.75＋提亮 ×1.10（定版口径；外部 setColorFilter 非空时以外部为准）
-    private static final float TINT_SATURATION = 1.75f;
-    private static final float TINT_BRIGHTEN = 1.10f;
-    private static final ColorFilter TINT_FILTER = buildTintFilter();
+    // AVBox translucency=0.35 派生：brightness .018 / contrast .9625 / saturation 1.5
+    private static final float CC_BRIGHTNESS = 0.018f;
+    private static final float CC_CONTRAST = 0.9625f;
+    private static final float CC_SATURATION = 1.5f;
+    private static final ColorFilter CC_FILTER = buildColorControlsFilter();
 
-    private static ColorFilter buildTintFilter() {
-        android.graphics.ColorMatrix cm = new android.graphics.ColorMatrix();
-        cm.setSaturation(TINT_SATURATION);
-        float b = TINT_BRIGHTEN;
-        cm.postConcat(new android.graphics.ColorMatrix(new float[]{
-                b, 0, 0, 0, 0,
-                0, b, 0, 0, 0,
-                0, 0, b, 0, 0,
-                0, 0, 0, 1, 0}));
+    private static ColorFilter buildColorControlsFilter() {
+        float invSat = 1f - CC_SATURATION;
+        float r = 0.213f * invSat, g = 0.715f * invSat, b = 0.072f * invSat;
+        float c = CC_CONTRAST;
+        float t = (0.5f - c * 0.5f + CC_BRIGHTNESS) * 255f;
+        float cr = c * r, cg = c * g, cb = c * b, cs = c * CC_SATURATION;
+        android.graphics.ColorMatrix cm = new android.graphics.ColorMatrix(new float[]{
+                cr + cs, cg, cb, 0, t,
+                cr, cg + cs, cb, 0, t,
+                cr, cg, cb + cs, 0, t,
+                0, 0, 0, 1, 0});
         return new android.graphics.ColorMatrixColorFilter(cm);
     }
-    // 基础环：1dp 纵向渐变 {顶 .30, 中 .20, 底 .14}（定版边框白 18–30% 区间；顶实线由镜面亮线承担）
+
+    // 容器 tint：#1E2023 @ .52 平铺（AVBox 0.4 × alphaScale 1.3）
+    private static final int TINT_COLOR = 0x851E2023;
+    // 可见下限层（取样失败时满铺）：与 tint 同家族的深色渐变
+    private static final int[] FALLBACK = {0xFF3A3D42, 0xFF26282C, 0xFF1E2023};
+    private static final float[] FALLBACK_STOPS = {0f, 0.55f, 1f};
+    // AVBox lens 默认：distortion 30dp（高与量同值）
+    private static final float REFRACTION_DP = 30f;
+
+    private static final String SDF_AGSL =
+            "float radiusAt(float2 coord, float4 radii) {\n" +
+            "    if (coord.x >= 0.0) {\n" +
+            "        if (coord.y <= 0.0) return radii.y;\n" +
+            "        else return radii.z;\n" +
+            "    } else {\n" +
+            "        if (coord.y <= 0.0) return radii.x;\n" +
+            "        else return radii.w;\n" +
+            "    }\n" +
+            "}\n" +
+            "float sdRoundedRect(float2 coord, float2 halfSize, float radius) {\n" +
+            "    float2 cornerCoord = abs(coord) - (halfSize - float2(radius));\n" +
+            "    float outside = length(max(cornerCoord, 0.0)) - radius;\n" +
+            "    float inside = min(max(cornerCoord.x, cornerCoord.y), 0.0);\n" +
+            "    return outside + inside;\n" +
+            "}\n" +
+            "float2 gradSdRoundedRect(float2 coord, float2 halfSize, float radius) {\n" +
+            "    float2 cornerCoord = abs(coord) - (halfSize - float2(radius));\n" +
+            "    if (cornerCoord.x >= 0.0 || cornerCoord.y >= 0.0) {\n" +
+            "        return sign(coord) * normalize(max(cornerCoord, 0.0));\n" +
+            "    } else {\n" +
+            "        float gradX = step(cornerCoord.y, cornerCoord.x);\n" +
+            "        return sign(coord) * float2(gradX, 1.0 - gradX);\n" +
+            "    }\n" +
+            "}\n";
+
+    // backdrop RoundedRectRefractionWithDispersion 逐字移植（depthEffect 恒 0 时与无色散版同形）
+    private static final String REFRACTION_AGSL =
+            "uniform shader content;\n" +
+            "uniform float2 size;\n" +
+            "uniform float2 offset;\n" +
+            "uniform float4 cornerRadii;\n" +
+            "uniform float refractionHeight;\n" +
+            "uniform float refractionAmount;\n" +
+            "uniform float depthEffect;\n" +
+            "uniform float chromaticAberration;\n" +
+            SDF_AGSL +
+            "float circleMap(float x) { return 1.0 - sqrt(1.0 - x * x); }\n" +
+            "half4 main(float2 coord) {\n" +
+            "    float2 halfSize = size * 0.5;\n" +
+            "    float2 centeredCoord = (coord + offset) - halfSize;\n" +
+            "    float radius = radiusAt(coord, cornerRadii);\n" +
+            "    float sd = sdRoundedRect(centeredCoord, halfSize, radius);\n" +
+            "    if (-sd >= refractionHeight) { return content.eval(coord); }\n" +
+            "    sd = min(sd, 0.0);\n" +
+            "    float d = circleMap(1.0 - -sd / refractionHeight) * refractionAmount;\n" +
+            "    float gradRadius = min(radius * 1.5, min(halfSize.x, halfSize.y));\n" +
+            "    float2 grad = normalize(gradSdRoundedRect(centeredCoord, halfSize, gradRadius)" +
+            "        + depthEffect * normalize(centeredCoord));\n" +
+            "    float2 refractedCoord = coord + d * grad;\n" +
+            "    float dispersionIntensity = chromaticAberration *" +
+            "        ((centeredCoord.x * centeredCoord.y) / (halfSize.x * halfSize.y));\n" +
+            "    float2 dispersedCoord = d * grad * dispersionIntensity;\n" +
+            "    half4 color = half4(0.0);\n" +
+            "    half4 red = content.eval(refractedCoord + dispersedCoord);\n" +
+            "    color.r += red.r / 3.5;\n" +
+            "    color.a += red.a / 7.0;\n" +
+            "    half4 orange = content.eval(refractedCoord + dispersedCoord * (2.0 / 3.0));\n" +
+            "    color.r += orange.r / 3.5;\n" +
+            "    color.g += orange.g / 7.0;\n" +
+            "    color.a += orange.a / 7.0;\n" +
+            "    half4 yellow = content.eval(refractedCoord + dispersedCoord * (1.0 / 3.0));\n" +
+            "    color.r += yellow.r / 3.5;\n" +
+            "    color.g += yellow.g / 3.5;\n" +
+            "    color.a += yellow.a / 7.0;\n" +
+            "    half4 green = content.eval(refractedCoord);\n" +
+            "    color.g += green.g / 3.5;\n" +
+            "    color.a += green.a / 7.0;\n" +
+            "    half4 cyan = content.eval(refractedCoord - dispersedCoord * (1.0 / 3.0));\n" +
+            "    color.g += cyan.g / 3.5;\n" +
+            "    color.b += cyan.b / 3.0;\n" +
+            "    color.a += cyan.a / 7.0;\n" +
+            "    half4 blue = content.eval(refractedCoord - dispersedCoord * (2.0 / 3.0));\n" +
+            "    color.b += blue.b / 3.0;\n" +
+            "    color.a += blue.a / 7.0;\n" +
+            "    half4 purple = content.eval(refractedCoord - dispersedCoord);\n" +
+            "    color.r += purple.r / 7.0;\n" +
+            "    color.b += purple.b / 3.0;\n" +
+            "    color.a += purple.a / 7.0;\n" +
+            "    return color;\n" +
+            "}";
+
+    // backdrop DefaultHighlight 逐字移植（color 由 setColorUniform 喂入，alpha 在画笔侧 .5）
+    private static final String HIGHLIGHT_AGSL =
+            "uniform float2 size;\n" +
+            "uniform float4 cornerRadii;\n" +
+            "layout(color) uniform half4 color;\n" +
+            "uniform float angle;\n" +
+            "uniform float falloff;\n" +
+            SDF_AGSL +
+            "half4 main(float2 coord) {\n" +
+            "    float2 halfSize = size * 0.5;\n" +
+            "    float2 centeredCoord = coord - halfSize;\n" +
+            "    float radius = radiusAt(coord, cornerRadii);\n" +
+            "    float gradRadius = min(radius * 1.5, min(halfSize.x, halfSize.y));\n" +
+            "    float2 grad = gradSdRoundedRect(centeredCoord, halfSize, gradRadius);\n" +
+            "    float2 normal = float2(cos(angle), sin(angle));\n" +
+            "    float d = dot(grad, normal);\n" +
+            "    float intensity = pow(abs(d), falloff);\n" +
+            "    return color * intensity;\n" +
+            "}";
+
+    private static Boolean sShaderOk;
+
+    private static boolean shaderSupported() {
+        if (sShaderOk != null) return sShaderOk;
+        boolean ok = false;
+        if (Build.VERSION.SDK_INT >= 33) {
+            try {
+                RuntimeShader probe = new RuntimeShader(REFRACTION_AGSL);
+                ok = probe != null;
+            } catch (Throwable ignored) {
+                ok = false;
+            }
+        }
+        sShaderOk = ok;
+        return ok;
+    }
+
+    // 无着色器时的回落环线（旧定版近似）：基础环纵向 {顶 .30, 中 .20, 底 .14}＋顶镜面线 .85
     private static final int[] STROKE = {0x4DFFFFFF, 0x33FFFFFF, 0x24FFFFFF};
     private static final int[] STROKE_PRESSED = {0x66FFFFFF, 0x40FFFFFF, 0x2EFFFFFF};
     private static final float[] STROKE_STOPS = {0f, 0.55f, 1f};
-    // 顶部镜面亮线：白 .85（按压 .95）、1.5dp，只走顶边＋两顶角（draw 里按带高裁剪放行）
     private static final int SPEC_COLOR = 0xD9FFFFFF;
     private static final int SPEC_COLOR_PRESSED = 0xF2FFFFFF;
     private static final float SPEC_WIDTH_DP = 1.5f;
 
-    private static volatile int sEpoch = 0; // 滚动/位置变化时 +1，强制全件重裁
+    private static volatile int sEpoch = 0;
 
     /** 列表滚动等宿主位置变化场景调用：令全部玻璃件下一帧重裁糊底。 */
     public static void noteScrollChanged() {
@@ -95,22 +210,30 @@ public class MusicGlassDrawable extends Drawable {
 
     private final float mRadiusPx;
     private final float mDensity;
-    private final boolean mTopOnly;   // 面板贴底：仅顶角圆、底角归零
-    private final boolean mCircle;    // 圆角 999 的小圆键：一层轻接触影口径
+    private final boolean mTopOnly;
+    private final boolean mCircle;
 
     private final Paint mBitmapPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
+    private final Paint mProcessedPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
+    private final Paint mLensPaint = new Paint();
     private final Paint mFallbackPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint mSmokePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint mOverlayPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint mSheenPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint mTintPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint mShadowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint mContactPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint mStrokePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint mSpecPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint mHighlightPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint mPressPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint mTonePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
-    private int mToneColor = 0; // 0=无染色；非 0 时平铺一层（烟熏之上、tint 之下，alpha 由 setToneColor 定）
+    private RuntimeShader mLensShader;
+    private RuntimeShader mHighlightShader;
+    private boolean mLensDead;
+
+    private Bitmap mProcessed;
+    private int mProcessedW, mProcessedH;
+
+    private int mToneColor = 0;
 
     private final Rect mSrc = new Rect();
     private final RectF mDst = new RectF();
@@ -123,6 +246,7 @@ public class MusicGlassDrawable extends Drawable {
     private int mLastEpoch = -1;
     private int mLastHostX = Integer.MIN_VALUE, mLastHostY = Integer.MIN_VALUE;
     private boolean mLastOk = false;
+    private boolean mProcessedDirty = true;
     private boolean mPressed = false;
 
     public MusicGlassDrawable(Context context, float cornerRadiusDp) {
@@ -141,7 +265,12 @@ public class MusicGlassDrawable extends Drawable {
         mSpecPaint.setStrokeWidth(SPEC_WIDTH_DP * mDensity);
         mSpecPaint.setColor(SPEC_COLOR);
         mPressPaint.setColor(0x2EFFFFFF);
-        mBitmapPaint.setColorFilter(TINT_FILTER);
+        mTintPaint.setColor(TINT_COLOR);
+        mBitmapPaint.setColorFilter(CC_FILTER);
+        mHighlightPaint.setStyle(Paint.Style.STROKE);
+        mHighlightPaint.setStrokeWidth(0.5f * mDensity);
+        mHighlightPaint.setAlpha(128);
+        mHighlightPaint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.ADD));
     }
 
     public boolean isCircle() {
@@ -190,20 +319,12 @@ public class MusicGlassDrawable extends Drawable {
     protected void onBoundsChange(Rect bounds) {
         super.onBoundsChange(bounds);
         mLastVersion = -1;
-        mSmokePaint.setShader(new LinearGradient(0, bounds.top, 0, bounds.bottom,
-                SMOKE, OVERLAY_STOPS, Shader.TileMode.CLAMP));
-        mOverlayPaint.setShader(new LinearGradient(0, bounds.top, 0, bounds.bottom,
-                OVERLAY, OVERLAY_STOPS, Shader.TileMode.CLAMP));
+        mProcessedDirty = true;
         mFallbackPaint.setShader(new LinearGradient(0, bounds.top, 0, bounds.bottom,
-                FALLBACK, OVERLAY_STOPS, Shader.TileMode.CLAMP));
-        // 135° 斜向流光：左上→右下对角（定版停点 {.45@0, .08@.28, 0@.58}）
-        mSheenPaint.setShader(new LinearGradient(bounds.left, bounds.top, bounds.right, bounds.bottom,
-                SHEEN, SHEEN_STOPS, Shader.TileMode.CLAMP));
-        // 底部内软影：黑 .30 向上羽化 18dp（小圆键不设、不画）
+                FALLBACK, FALLBACK_STOPS, Shader.TileMode.CLAMP));
         float sh = 18f * mDensity;
         mShadowPaint.setShader(new LinearGradient(0, bounds.bottom - sh, 0, bounds.bottom,
                 new int[]{0x00000000, 0x4D000000}, null, Shader.TileMode.CLAMP));
-        // 底沿接触影：4dp / 黑 .28，全件共用一层
         float ch = 4f * mDensity;
         mContactPaint.setShader(new LinearGradient(0, bounds.bottom - ch, 0, bounds.bottom,
                 new int[]{0x00000000, 0x47000000}, null, Shader.TileMode.CLAMP));
@@ -212,12 +333,10 @@ public class MusicGlassDrawable extends Drawable {
 
     private void rebuildStrokeShader(Rect b) {
         if (b.isEmpty()) return;
-        // 基础环：纵向渐变 {顶 .30, 中 .20, 底 .14}（按压切高亮组）
         mStrokePaint.setShader(new LinearGradient(0, b.top, 0, b.bottom,
                 mPressed ? STROKE_PRESSED : STROKE, STROKE_STOPS, Shader.TileMode.CLAMP));
     }
 
-    /** 按给定内缩画整圈圆角环（基础环与顶部镜面亮线共用同一路径口径）。 */
     private void drawRing(Canvas canvas, Rect b, Paint paint, float inset) {
         mTmp.set(b.left + inset, b.top + inset, b.right - inset, b.bottom - inset);
         float r = Math.max(0, mRadiusPx - inset);
@@ -241,13 +360,88 @@ public class MusicGlassDrawable extends Drawable {
         return mClip;
     }
 
+    private float[] cornerRadii(Rect b) {
+        float r = Math.min(mRadiusPx, Math.min(b.width(), b.height()) / 2f);
+        if (mTopOnly) return new float[]{r, r, 0f, 0f};
+        return new float[]{r, r, r, r};
+    }
+
+    /** 把采样区渲成本件尺寸的过程图（colorControls 已烙入），供折射着色器取样/或直通绘制。 */
+    private void ensureProcessed(Rect b, Bitmap buf) {
+        int w = b.width(), h = b.height();
+        if (w <= 0 || h <= 0 || buf == null) return;
+        if (!mProcessedDirty && mProcessed != null && !mProcessed.isRecycled()
+                && mProcessedW == w && mProcessedH == h) return;
+        if (mProcessed == null || mProcessedW != w || mProcessedH != h) {
+            if (mProcessed != null) mProcessed.recycle();
+            mProcessed = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+            mProcessedW = w;
+            mProcessedH = h;
+        }
+        Canvas c = new Canvas(mProcessed);
+        mDst.set(0, 0, w, h);
+        c.drawBitmap(buf, mSrc, mDst, mBitmapPaint);
+        mProcessedDirty = false;
+    }
+
+    private boolean drawLensBackdrop(Canvas canvas, Rect b) {
+        if (mLensDead || !shaderSupported() || mProcessed == null) return false;
+        try {
+            if (mLensShader == null) mLensShader = new RuntimeShader(REFRACTION_AGSL);
+            BitmapShader input = new BitmapShader(mProcessed, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
+            mLensShader.setInputShader("content", input);
+            mLensShader.setFloatUniform("size", (float) b.width(), (float) b.height());
+            mLensShader.setFloatUniform("offset", 0f, 0f);
+            mLensShader.setFloatUniform("cornerRadii", cornerRadii(b));
+            float cap = Math.min(b.width(), b.height()) / 2f;
+            float refr = Math.min(REFRACTION_DP * mDensity, cap);
+            mLensShader.setFloatUniform("refractionHeight", refr);
+            mLensShader.setFloatUniform("refractionAmount", -refr);
+            mLensShader.setFloatUniform("depthEffect", 0f);
+            mLensShader.setFloatUniform("chromaticAberration", 1f);
+            mLensPaint.setShader(mLensShader);
+            canvas.save();
+            canvas.translate(-b.left, -b.top);
+            canvas.drawRect(b, mLensPaint);
+            canvas.restore();
+            mLensPaint.setShader(null);
+            return true;
+        } catch (Throwable t) {
+            mLensDead = true;
+            mLensPaint.setShader(null);
+            return false;
+        }
+    }
+
+    private boolean drawHighlightShader(Canvas canvas, Rect b) {
+        if (mLensDead || !shaderSupported()) return false;
+        try {
+            if (mHighlightShader == null) mHighlightShader = new RuntimeShader(HIGHLIGHT_AGSL);
+            mHighlightShader.setFloatUniform("size", (float) b.width(), (float) b.height());
+            mHighlightShader.setFloatUniform("cornerRadii", cornerRadii(b));
+            mHighlightShader.setColorUniform("color", 0xFFFFFFFF);
+            mHighlightShader.setFloatUniform("angle", (float) (45.0 * Math.PI / 180.0));
+            mHighlightShader.setFloatUniform("falloff", 1f);
+            mHighlightPaint.setShader(mHighlightShader);
+            canvas.save();
+            canvas.translate(-b.left, -b.top);
+            drawRing(canvas, b, mHighlightPaint, mHighlightPaint.getStrokeWidth() / 2f);
+            canvas.restore();
+            mHighlightPaint.setShader(null);
+            return true;
+        } catch (Throwable t) {
+            mLensDead = true;
+            mHighlightPaint.setShader(null);
+            return false;
+        }
+    }
+
     @Override
     public void draw(Canvas canvas) {
         Rect b = getBounds();
         if (b.isEmpty()) return;
         mTmp.set(b);
 
-        // 宿主窗口位置变了（滚动/布局位移）也要重裁，不能只认缓冲版本号
         boolean needCrop = false;
         if (getCallback() instanceof View) {
             View host = (View) getCallback();
@@ -263,42 +457,44 @@ public class MusicGlassDrawable extends Drawable {
             mLastOk = computeCrop(b);
             mLastVersion = ver;
             mLastEpoch = sEpoch;
+            mProcessedDirty = true;
         }
 
         canvas.save();
         canvas.clipPath(buildClip(mTmp));
+        boolean lensDrawn = false;
         if (mLastOk) {
             Bitmap buf = MusicGlassBackgroundView.getBuffer();
             if (buf != null && !buf.isRecycled()) {
-                mDst.set(b);
-                canvas.drawBitmap(buf, mSrc, mDst, mBitmapPaint);
+                ensureProcessed(b, buf);
+                lensDrawn = drawLensBackdrop(canvas, b);
+                if (!lensDrawn && mProcessed != null) {
+                    canvas.drawBitmap(mProcessed, b.left, b.top, mProcessedPaint);
+                }
             } else {
                 canvas.drawRect(mTmp, mFallbackPaint);
             }
         } else {
-            // 可见下限：取样为空/未就绪时下限层满铺成形（回归清单第 1 条）
             canvas.drawRect(mTmp, mFallbackPaint);
         }
-        canvas.drawRect(mTmp, mSmokePaint);            // 烟熏填充（真深色面，面栈第 2 层）
-        if (mToneColor != 0) canvas.drawRect(mTmp, mTonePaint); // tone 染色（tint 之下）
-        canvas.drawRect(mTmp, mOverlayPaint);          // 白 tint .10 收尾（面栈第 3 层）
-        canvas.drawRect(mTmp, mSheenPaint);            // 135° 斜向流光
+        canvas.drawRect(mTmp, mTintPaint);             // 容器 tint（AVBox 面色 @ .52）
+        if (mToneColor != 0) canvas.drawRect(mTmp, mTonePaint);
         if (!mCircle) {
             canvas.drawRect(mTmp, mShadowPaint);       // 底部内软影（大件分层）
         }
-        canvas.drawRect(mTmp, mContactPaint);          // 唯一一层接触影（小圆键只有它）
-        if (mPressed) canvas.drawRect(mTmp, mPressPaint); // 按压发亮
+        canvas.drawRect(mTmp, mContactPaint);          // 接触影（小圆键只有它）
+        if (mPressed) canvas.drawRect(mTmp, mPressPaint);
         canvas.restore();
 
-        // 基础环：界内缩半宽画，避免被圆角裁掉半边
-        drawRing(canvas, b, mStrokePaint, mStrokePaint.getStrokeWidth() / 2f);
-        // 顶部镜面亮线：同路径只放行顶部带（带高＝圆角＋线宽、封顶件高 45%），
-        // 顶边与两顶角成近实心亮线、向两侧自然收口（圆键件同理只亮顶弧）
-        float band = Math.min(mRadiusPx + mSpecPaint.getStrokeWidth(), b.height() * 0.45f);
-        canvas.save();
-        canvas.clipRect(b.left, b.top, b.right, b.top + band);
-        drawRing(canvas, b, mSpecPaint, mSpecPaint.getStrokeWidth() / 2f);
-        canvas.restore();
+        // Highlight.Default 着色器描边（Plus 叠加）；无着色器时回落旧环线＋顶镜面线
+        if (!drawHighlightShader(canvas, b)) {
+            drawRing(canvas, b, mStrokePaint, mStrokePaint.getStrokeWidth() / 2f);
+            float band = Math.min(mRadiusPx + mSpecPaint.getStrokeWidth(), b.height() * 0.45f);
+            canvas.save();
+            canvas.clipRect(b.left, b.top, b.right, b.top + band);
+            drawRing(canvas, b, mSpecPaint, mSpecPaint.getStrokeWidth() / 2f);
+            canvas.restore();
+        }
     }
 
     /**
@@ -329,7 +525,6 @@ public class MusicGlassDrawable extends Drawable {
                         (int) ((mHostLoc[0] + b.right - mBgLoc[0]) * sx),
                         (int) ((mHostLoc[1] + b.bottom - mBgLoc[1]) * sy), bw, bh);
             }
-            // 静态回落：按宿主窗口坐标对全屏缓冲换算
             android.util.DisplayMetrics dm = host.getResources().getDisplayMetrics();
             if (dm.widthPixels > 0 && dm.heightPixels > 0) {
                 host.getLocationInWindow(mHostLoc);
@@ -357,10 +552,9 @@ public class MusicGlassDrawable extends Drawable {
     @Override
     public void setAlpha(int alpha) {
         mBitmapPaint.setAlpha(alpha);
+        mProcessedPaint.setAlpha(alpha);
         mFallbackPaint.setAlpha(alpha);
-        mSmokePaint.setAlpha(alpha);
-        mOverlayPaint.setAlpha(alpha);
-        mSheenPaint.setAlpha(alpha);
+        mTintPaint.setAlpha(alpha);
         mShadowPaint.setAlpha(alpha);
         mContactPaint.setAlpha(alpha);
         mStrokePaint.setAlpha(alpha);
@@ -370,12 +564,10 @@ public class MusicGlassDrawable extends Drawable {
 
     @Override
     public void setColorFilter(ColorFilter colorFilter) {
-        // 糊底画笔：外部滤镜非空以外部为准，清空时回定版 tint（饱和 1.75＋提亮 1.10）
-        mBitmapPaint.setColorFilter(colorFilter != null ? colorFilter : TINT_FILTER);
+        // 糊底画笔：外部滤镜非空以外部为准，清空时回 AVBox colorControls
+        mBitmapPaint.setColorFilter(colorFilter != null ? colorFilter : CC_FILTER);
         mFallbackPaint.setColorFilter(colorFilter);
-        mSmokePaint.setColorFilter(colorFilter);
-        mOverlayPaint.setColorFilter(colorFilter);
-        mSheenPaint.setColorFilter(colorFilter);
+        mTintPaint.setColorFilter(colorFilter);
         mShadowPaint.setColorFilter(colorFilter);
         mContactPaint.setColorFilter(colorFilter);
         mStrokePaint.setColorFilter(colorFilter);

@@ -24,6 +24,7 @@ import android.view.ViewGroup;
  * 3) 悬浮分层：底部 14dp 内软影（rgba(80,90,120,.20)，海阔值）＋底沿 3dp 接触影（.12），
  *    面与底分离（背景 Drawable 画不出一界之外的投影，靠内影＋亮边对比立分层）；
  * 4) 按压发亮：stateful，pressed 时整面加 .18 白光＋亮边切高亮渐变（宿主可点才有此态）。
+ * 另有可选染色层（setTintColors）：宿主色相以横向渐变罩在糊底与白罩之间，默认无、无染色时行为与原先一致。
  * 裁剪失败兜底透明（透出页底，不刷白）。圆角两种：四角同圆／仅顶角（贴底面板用，底角不出缺口）。
  * 与海阔的机制差异（参数不变）：缓冲源为音乐静态底——除版本号外另以宿主窗口位置作重裁守卫，
  * 页面滚动监听再调 MusicGlassBackgroundView.noteScrollChanged() 顶版双保险；背景定位按类型找
@@ -37,6 +38,7 @@ public class MusicGlassDrawable extends Drawable {
     private final boolean mTopOnly;
 
     private final Paint mBitmapPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
+    private final Paint mTintPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint mOverlayPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint mSheenPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint mShadowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -58,6 +60,33 @@ public class MusicGlassDrawable extends Drawable {
     private Shader mRimShader;
     private Shader mRimShaderPressed;
     private boolean mPressed;
+
+    // 可选染色层（默认无）：横向多停点渐变，画在糊底之上、白罩之下——宿主的色相身份
+    // （如首页心情卡的心情三色）以染色活在玻璃里，不许再拿实色填充盖掉卡底。
+    // 强度 TINT_STRENGTH 为星辰侧自定：色相要读得出、糊底要透得过，待真机判定。
+    private static final float TINT_STRENGTH = 0.62f;
+    private int[] mTintColors;
+    private Shader mTintShader;
+    private final Rect mTintBounds = new Rect();
+    private int mAlpha = 255;
+
+    /** 设置／清除染色（colors 为横向渐变停点色，null 或少于 2 色＝无染色）。 */
+    public void setTintColors(int[] colors) {
+        mTintColors = colors != null && colors.length >= 2 ? colors.clone() : null;
+        rebuildTintShader();
+        invalidateSelf();
+    }
+
+    private void rebuildTintShader() {
+        if (mTintColors == null || mTintBounds.isEmpty()) {
+            mTintShader = null;
+        } else {
+            mTintShader = new LinearGradient(mTintBounds.left, 0, mTintBounds.right, 0,
+                    mTintColors, null, Shader.TileMode.CLAMP);
+        }
+        mTintPaint.setShader(mTintShader);
+        mTintPaint.setAlpha(Math.round(mAlpha * TINT_STRENGTH));
+    }
 
     private int mLastVersion = -1;
     private boolean mLastOk = false;
@@ -99,6 +128,8 @@ public class MusicGlassDrawable extends Drawable {
         super.onBoundsChange(bounds);
         mLastVersion = -1; // 界变了就重裁
         mLastLocX = Integer.MIN_VALUE;
+        mTintBounds.set(bounds);
+        rebuildTintShader();
         mOverlayPaint.setShader(new LinearGradient(0, bounds.top, 0, bounds.bottom,
                 OVERLAY_WHITE, mOverlayStops, Shader.TileMode.CLAMP));
         mSheenPaint.setShader(new LinearGradient(0, bounds.top, 0, bounds.bottom,
@@ -171,7 +202,8 @@ public class MusicGlassDrawable extends Drawable {
         } else {
             canvas.drawRect(mTmp, mFallbackPaint); // 兜底：透明透底
         }
-        // 罩 → 流光 → 按压光 → 内软影＋接触影（面与底的分层）
+        // 染色（宿主色相）→ 罩 → 流光 → 按压光 → 内软影＋接触影（面与底的分层）
+        if (mTintShader != null) canvas.drawRect(mTmp, mTintPaint);
         canvas.drawRect(mTmp, mOverlayPaint);
         canvas.drawRect(mTmp, mSheenPaint);
         if (mPressed) canvas.drawRect(mTmp, mGlowPaint);
@@ -242,7 +274,9 @@ public class MusicGlassDrawable extends Drawable {
 
     @Override
     public void setAlpha(int alpha) {
+        mAlpha = alpha;
         mBitmapPaint.setAlpha(alpha);
+        mTintPaint.setAlpha(Math.round(alpha * TINT_STRENGTH));
         mOverlayPaint.setAlpha(alpha);
         mSheenPaint.setAlpha(alpha);
         mStrokePaint.setAlpha(alpha);
@@ -255,6 +289,7 @@ public class MusicGlassDrawable extends Drawable {
     @Override
     public void setColorFilter(ColorFilter colorFilter) {
         mBitmapPaint.setColorFilter(colorFilter);
+        mTintPaint.setColorFilter(colorFilter);
         mOverlayPaint.setColorFilter(colorFilter);
         mSheenPaint.setColorFilter(colorFilter);
         mStrokePaint.setColorFilter(colorFilter);

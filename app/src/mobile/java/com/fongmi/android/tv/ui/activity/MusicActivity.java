@@ -120,7 +120,7 @@ public class MusicActivity extends BaseActivity {
 
     @Override
     protected void initView(Bundle savedInstanceState) {
-        MusicGlassWire.glassifyTree(getBinding().getRoot()); // 全页玻璃件同源接线（与 applyHomeGlass 手接件互补；心情卡占位底随后被心情渐变覆盖，不受影响）
+        MusicGlassWire.glassifyTree(getBinding().getRoot()); // 全页玻璃件同源接线（与 applyHomeGlass 手接件互补；心情卡在 applyHomeGlass 装真玻璃，心情色走玻璃染色层，不再覆盖卡底）
         if (savedInstanceState != null) {
             savedMood = savedInstanceState.getString("ma_mood");
             savedChartSelKey = savedInstanceState.getString("ma_chartSelKey");
@@ -783,8 +783,7 @@ public class MusicActivity extends BaseActivity {
 
         final LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackgroundResource(R.drawable.home_bg_menu);
-        card.setBackground(new MusicGlassDrawable(this, 16)); // ⋮ 菜单卡同源液态玻璃（原 home_bg_menu 纯白底）
+        card.setBackground(new MusicGlassDrawable(this, 16)); // ⋮ 菜单卡同源液态玻璃（原 home_bg_menu 纯白底已退场）
         card.setElevation(dp(6));
         card.setClickable(true);
         final LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(
@@ -1202,6 +1201,8 @@ public class MusicActivity extends BaseActivity {
      * 在本页退场（文件保留，插件／搜索等未接线页仍在用）；圆角照各件原定稿（搜索 24／片 18／卡 20）。
      * 原随心听卡的取色渐变填充（applyShuffleTone）与糊底同为卡底、二者只能留一：按改令撤填充，
      * 随心听颜色身份回落其光晕＋发光盘（瓜子同构）；榜单卡与报告卡同为本页共用玻璃件，一并装。
+     * 心情卡同理装真玻璃（圆角 20 与原渐变底一致）：心情三色不再作实色渐变盖底，改走玻璃的
+     * 染色层（updateMoodUI 里 setTintColors），色相在、糊底也在（2026-10-25 补钉：首页卡片全玻璃、白底清零）。
      */
     private void applyHomeGlass() {
         binding.homeSearchBar.setBackground(new MusicGlassDrawable(this, 24));
@@ -1216,6 +1217,7 @@ public class MusicActivity extends BaseActivity {
         binding.homeCardShuffle.setBackground(new MusicGlassDrawable(this, 20));
         binding.homeChartCard.setBackground(new MusicGlassDrawable(this, 20));
         binding.homeReportCard.setBackground(new MusicGlassDrawable(this, 20));
+        binding.homeMoodCard.setBackground(new MusicGlassDrawable(this, 20));
         // 静态底无海阔的 500ms 漂移帧：滚动时顶一版缓冲版本号，玻璃件按新窗口位置重裁
         binding.homeScroll.setOnScrollChangeListener((v, sx, sy, osx, osy) ->
                 MusicGlassBackgroundView.noteScrollChanged());
@@ -1312,14 +1314,19 @@ public class MusicActivity extends BaseActivity {
     private void updateMoodUI() {
         if (binding == null || moodSelected == null) return;
         int tone = MusicHomeMood.tone(moodSelected);
-        // 卡渐变：横向三段原始值向白混合 0.08/0.20/0.32，圆角 20dp
+        // 卡底恒为真玻璃：心情三色（横向三段原始值向白混合 0.08/0.20/0.32，照瓜子公式）改作
+        // 玻璃染色层，不再拿实色渐变盖掉卡底（2026-10-25 补钉：首页全卡液态玻璃、白底清零）
         String[] g = MusicHomeMood.gradient(moodSelected);
-        GradientDrawable cardBg = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
-                new int[]{MusicHomeMood.mixWhite(Color.parseColor(g[0]), 0.08f),
-                        MusicHomeMood.mixWhite(Color.parseColor(g[1]), 0.20f),
-                        MusicHomeMood.mixWhite(Color.parseColor(g[2]), 0.32f)});
-        cardBg.setCornerRadius(dp(20));
-        binding.homeMoodCard.setBackground(cardBg);
+        int[] tint = {MusicHomeMood.mixWhite(Color.parseColor(g[0]), 0.08f),
+                MusicHomeMood.mixWhite(Color.parseColor(g[1]), 0.20f),
+                MusicHomeMood.mixWhite(Color.parseColor(g[2]), 0.32f)};
+        if (binding.homeMoodCard.getBackground() instanceof MusicGlassDrawable) {
+            ((MusicGlassDrawable) binding.homeMoodCard.getBackground()).setTintColors(tint);
+        } else {
+            MusicGlassDrawable glass = new MusicGlassDrawable(this, 20);
+            glass.setTintColors(tint);
+            binding.homeMoodCard.setBackground(glass);
+        }
         binding.tvMoodName.setText(moodSelected);
         binding.tvMoodCopy.setText(MusicHomeMood.copy(moodSelected));
         // pills：选中 tone 0.18 底＋700 字重，未选中白 50% 底＋medium

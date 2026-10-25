@@ -2746,8 +2746,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
      * 长按＝开工具面板（与菜单键同一入口 showToolsSheet），单击在经典下无对照动作、不绑
      * （parity-diff 两文只抠到双击／长按的经典回调，点按回调未抠到）。
      * 切歌竖滑不在封面本体（页级 PlayerPageSwipeLayout，§1 同口径）。
-     * X-10 行为承接：爱心爆发只在收藏状态真的变了才放——收藏切换走 MusicLibrary 异步回调，
-     * 回调里比对切换前后状态，变了才 burst；缩放／震动是双击本身的反馈，不受此门影响。
+     * 爱心爆发时机：双击即放（GZ 口径，见 onDoubleTap 内注）；缩放／震动同为双击本身的反馈。
      */
     private void attachCoverGestures(View wrap) {
         GestureDetector detector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
@@ -2938,8 +2937,23 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         if (favHeartView == null) return;
         int icon = favorited ? R.drawable.ic_music_heart_fill : R.drawable.ic_music_heart;
         favHeartView.setImageResource(icon);
-        // 经典小爱心（旧页 K-4 口径）：已收藏实心白 0.45、未收藏描边白 0.30
-        favHeartView.setImageTintList(ColorStateList.valueOf(favorited ? 0x73FFFFFF : 0x4DFFFFFF));
+        // 经典小爱心：已收藏实心白 0.45、未收藏描边白 0.30；切换走 300ms 颜色动画
+        // （GZ songMetaFavTint，PlayerScreenKt.java:24950-24960），首绑直设不动画。
+        int tintTarget = favorited ? 0x73FFFFFF : 0x4DFFFFFF;
+        if (!favTintInit) {
+            favTintInit = true;
+            favTintColor = tintTarget;
+            favHeartView.setImageTintList(ColorStateList.valueOf(tintTarget));
+        } else if (tintTarget != favTintColor) {
+            if (favTintAnimator != null) favTintAnimator.cancel();
+            favTintAnimator = ValueAnimator.ofObject(new android.animation.ArgbEvaluator(), favTintColor, tintTarget);
+            favTintAnimator.setDuration(300);
+            favTintAnimator.addUpdateListener(a -> {
+                favTintColor = (int) a.getAnimatedValue();
+                if (favHeartView != null) favHeartView.setImageTintList(ColorStateList.valueOf(favTintColor));
+            });
+            favTintAnimator.start();
+        }
         favHeartView.setVisibility(View.VISIBLE);
     }
 

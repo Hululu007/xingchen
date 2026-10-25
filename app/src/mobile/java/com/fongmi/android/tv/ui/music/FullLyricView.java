@@ -2,7 +2,6 @@ package com.fongmi.android.tv.ui.music;
 
 import android.content.Context;
 import android.graphics.Canvas;
-import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.RenderEffect;
 import android.graphics.RenderNode;
@@ -27,18 +26,28 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 全屏歌词列表（批 2）：与内嵌 CoverLyricView 共用 LyricWordEngine＋LyricLineDrawer 内核。
- * 版式照 §6.3／§6.1 全屏口径：字号默认 24sp（可调 16–40）、字重 700、左对齐、字距 -0.2sp、
- * 行高＝字号×1.3、横向垫 28dp（布局 padding 给）、行距 6dp、顶渐隐 40dp；
- * 副行随行（字号×0.62、行高＝副行字号×4/3、字重 500）；当前行锚定在渐隐区下方（top 档口径），
- * 沉浸滚动跟随；手指拖动浏览，松手 5 秒回锚（旧引擎 APPLE_BROWSE_REANCHOR_DELAY 同值）；
- * 点行＝seek（定案）；非当前行模糊＋压暗（档位系数与半径量化同内嵌，模糊强度↔距离公式未抠到、
- * 沿旧引擎应用侧等价式不动；压暗口径经批 2 补正改向录屏平台，见 drawIdleRow 注）；
- * 字斜 SKEW=-0.12 定案（LyricLineDrawer 统一挂）。
- * 本视图是沉浸页绘制路径（LiveWordLiftLine，LyricLineDrawer.setImmersive(true) 在 init 置位）：
- * 长音缩放只给单字 CJK＋逐字错峰＋正弦字母浮，与内嵌的 WordByWordText 路径口径相反，归属见补正报告。
- * 长行按词／字宽折行（不截断——全屏是沉浸通读，折行口径照录屏实帧当前行折行形态；
- * 内嵌窗口的 D-11 截断省略只在 CoverLyricView）。
+ * 全屏歌词页的歌词列表（2026-10-25 从零重写，旧实现整删）。
+ *
+ * 形态与数值只认瓜子本体两类依据：瓜子 2.1.8 反编译抠值（施工图 §6.1/§6.3 与深挖记录）
+ * 与他的瓜子真机录屏、截图实帧。本视图口径：
+ * - 左对齐沉浸滚动，横向垫 28dp 由父页给；字号默认 24sp（设置可调 16–40）、字重 700、
+ *   行高＝字号×1.3、字距 −0.2sp、行距（块距）6dp——均为 LyricsViewKt 常量区实读值。
+ * - 锚位＝顶部：正唱行顶对齐歌词区顶部（瓜子歌词锚定设置默认 "top"；实帧里正唱行恒为
+ *   歌名行下方第一行、已唱行不出现在锚上方，与此合）。已唱行滑出区顶后由逐行顶渐隐吞掉。
+ * - 副行（翻译/音译）只挂正唱行（实帧：非当前行无副行）；副行字号＝主行×0.62、字重 500、
+ *   行高＝副行字号×4/3。正唱行因此比闲行高出一个副行位，布局随正唱行换位重排，
+ *   位移交给跟随滚动吸收（瓜子引擎另有 anchorReveal 展开动画，其规格未抠到，见重做报告）。
+ * - 非当前行压暗＋随距离模糊。压暗＝0.30 平台（深色面 palette 非当前档）×顶渐隐
+ *   smoothstep（40dp 渐隐高）×底渐隐 bottomFadeKeep（LyricsViewKt:10618 逐字转写、
+ *   endKeep 默认 0.45）；模糊强度＝LyricWordEngine.blurStrength（smali 深挖源头式）
+ *   ×档位系数（off 0／light 0.45／medium 1.0），半径按 round(强度×2)/2 量化，
+ *   逐行强度走 LyricRowApproach 趋近（瓜子 lyricRowBlur 规格：门开 200ms／关 400ms、
+ *   CubicBezier(0.2,0,0,1)）。
+ * - 正唱行逐字跟唱（逐字上浮＋长音光晕）走共用 LyricLineDrawer／LyricWordEngine
+ *   （与播放页内嵌歌词共用同一引擎，非本页专属代码）；字斜由引擎统一挂 SKEW 定案值。
+ * - 手指拖动浏览、甩动惯性、点行 seek（回调交父页）。浏览停手回锚延时与跟随滚动的
+ *   动画规格在瓜子引擎本体内（jadx 未反编译、smali 未整段抠出），本视图用阻尼趋近实现，
+ *   数值属近似、不冒充瓜子真值（清单见重做报告）。
  */
 public class FullLyricView extends View {
 
@@ -46,43 +55,50 @@ public class FullLyricView extends View {
         void onLineClick(int index, long positionMs);
     }
 
+    /** 行距（块与块之间）：APPLE_LYRIC_LINE_GAP＝6dp（LyricsViewKt:310）。 */
     private static final float LINE_GAP_DP = 6f;
+    /** 顶渐隐高：APPLE_TOP_FADE_HEIGHT＝40dp（LyricsViewKt:311）。 */
     private static final float TOP_FADE_DP = 40f;
-    private static final float LINE_HEIGHT_RATIO_FULL = 1.3f;
+    /** 全屏行高比：字号×1.3（LyricsViewKt:1325 lyricTextStyle）。 */
+    private static final float LINE_HEIGHT_RATIO = 1.3f;
+    /** 非当前行压暗平台：深色面 palette 非当前档白 0.30（LyricsViewKt 深色回落值）。 */
+    private static final float IDLE_ALPHA_BASE = 0.30f;
+    /** 浏览停手后回锚延时：瓜子值未抠到，沿旧实现 5 秒（重做报告清单标注未证）。 */
     private static final long REANCHOR_MS = 5000L;
     private static final long BLUR_RETRY_COOLDOWN_MS = 30000L;
 
     private final LyricLineDrawer drawer = new LyricLineDrawer();
+    private final LyricRowApproach blurApproach = new LyricRowApproach();
     private final List<LyricsLine> lines = new ArrayList<>();
     private final List<String> subs = new ArrayList<>();
-    private final List<LineLayout> layouts = new ArrayList<>();
-    private final Map<Integer, RenderEffect> blurEffectCache = new HashMap<>();
-    private long blurRetryAfterMs;
+    private final List<Block> blocks = new ArrayList<>();
+    private final Map<Integer, RenderEffect> blurEffects = new HashMap<>();
     private final Scroller scroller;
-    private final GestureDetector gestureDetector;
+    private final GestureDetector gestures;
+    private final Choreographer choreographer = Choreographer.getInstance();
 
-    private int currentIndex = -1;
     private float fontSizeSp = 24f;
     private int blurLevel = 2;
     private int textAlign;
     private boolean showSub = true;
     private String emptyText = "";
-    private int fadeColor = 0;
+    private int fadeColor;
     private OnLineClickListener lineClickListener;
 
+    private int currentIndex = -1;
     private float scrollOffset;
     private float contentHeight;
     private int layoutWidth = -1;
-    private boolean browsing;
-    private long lastBrowseMs;
 
     private boolean playing;
     private long anchorPosMs;
     private long anchorElapsedMs;
+    private boolean browsing;
+    private long lastBrowseMs;
+    private long blurRetryAfterMs;
     private boolean framePosted;
-    /** 逐行模糊趋近（GZ lyricRowBlur 规格，见 drawIdleRow）。 */
-    private final LyricRowApproach blurApproach = new LyricRowApproach();
-    private final Choreographer choreographer = Choreographer.getInstance();
+    private long lastFrameMs;
+
     private final Choreographer.FrameCallback frameCallback = new Choreographer.FrameCallback() {
         @Override
         public void doFrame(long frameTimeNanos) {
@@ -90,47 +106,54 @@ public class FullLyricView extends View {
             if (lines.isEmpty()) return;
             stepFrame();
             invalidate();
-            if (playing || scroller.computeScrollOffset() || browsing || scrollAnimating()
+            if (playing || scroller.computeScrollOffset() || browsing || followAnimating()
                     || blurApproach.hasRunning(SystemClock.elapsedRealtime())) postFrame();
         }
     };
 
-    private static class LineLayout {
+    /** 一行歌词的布局块：主行视觉行（词行／文本行二选一）＋可选副行（仅正唱行）。 */
+    private static class Block {
         float top;
-        float height;
-        /** 主行视觉行：有词行＝词子集列表；无词行＝文本片段列表（wordRows 与 textRows 二选一）。 */
+        float mainHeight;
+        float subHeight;
         List<List<LyricsWord>> wordRows;
         List<String> textRows;
         LyricsWord lastWord;
+
+        float height() {
+            return mainHeight + subHeight;
+        }
     }
 
     public FullLyricView(Context context) {
         super(context);
         scroller = new Scroller(context);
-        gestureDetector = new GestureDetector(context, new GestureListener());
+        gestures = new GestureDetector(context, new GestureListener());
         init();
     }
 
     public FullLyricView(Context context, @Nullable AttributeSet attrs) {
         super(context, attrs);
         scroller = new Scroller(context);
-        gestureDetector = new GestureDetector(context, new GestureListener());
+        gestures = new GestureDetector(context, new GestureListener());
         init();
     }
 
     private void init() {
         setLayerType(Build.VERSION.SDK_INT >= 31 ? LAYER_TYPE_HARDWARE : LAYER_TYPE_SOFTWARE, null);
-        // 沉浸页路径（LiveWordLiftLine）：长音缩放／扇形／字母浮走逐字错峰口径，与内嵌 WordByWordText 路径分工。
         drawer.setImmersive(true);
         applyFontSize();
     }
 
     private void applyFontSize() {
-        float scaled = getResources().getDisplayMetrics().scaledDensity;
-        // 全屏字距 -0.2sp（§6.3）：Paint 字距以 em 计，除以字号 sp 换算（旧引擎同式）。
-        drawer.configure(fontSizeSp * scaled, -0.2f / fontSizeSp, getResources().getDisplayMetrics().density);
+        float scaledDensity = getResources().getDisplayMetrics().scaledDensity;
+        // 字距 −0.2sp（LyricsViewKt:1325）：Paint 字距以 em 计，按字号换算。
+        drawer.configure(fontSizeSp * scaledDensity, -0.2f / fontSizeSp,
+                getResources().getDisplayMetrics().density);
         layoutWidth = -1;
     }
+
+    // ===== 外部喂入（父页契约） =====
 
     public void setFontSizeSp(float sp) {
         fontSizeSp = Math.max(16f, Math.min(40f, sp));
@@ -143,26 +166,16 @@ public class FullLyricView extends View {
         invalidate();
     }
 
-    /** 文本对齐（批 7 补线：键 music_lyric_align 0 左／1 中／2 右，此前只进了工具面板预览）。
-     * 对齐改变折行后视觉行宽即变，须重算布局（字重经 setLyricWeight 同样影响度量，一并走 layoutWidth 重置）。 */
     public void setTextAlign(int align) {
         textAlign = (align == 1 || align == 2) ? align : 0;
         layoutWidth = -1;
         invalidate();
     }
 
-    /** 主歌词字重（批 7 补线：键 music_lyric_weight 0 标准／1 加粗／2 特粗）。 */
     public void setLyricWeight(int weight) {
         drawer.setLyricWeight(weight);
         layoutWidth = -1;
         invalidate();
-    }
-
-    /** 视觉行起点 X：按对齐与实测行宽算；超宽（单行宽≥可用宽）钳到左起点不溢出。 */
-    private float rowStartX(float x, float width, float textW) {
-        if (textAlign == 1) return x + Math.max(0f, (width - Math.min(width, textW)) / 2f);
-        if (textAlign == 2) return x + Math.max(0f, width - Math.min(width, textW));
-        return x;
     }
 
     public void setAdvancedFx(boolean advancedFx) {
@@ -186,7 +199,7 @@ public class FullLyricView extends View {
         invalidate();
     }
 
-    /** 顶渐隐颜色（页面取色底；0＝不画渐隐罩）。 */
+    /** 顶渐隐颜色（页面取色底；0＝不画区顶渐隐罩）。 */
     public void setFadeColor(int color) {
         fadeColor = color;
         invalidate();
@@ -215,7 +228,7 @@ public class FullLyricView extends View {
     public void clearLines() {
         lines.clear();
         subs.clear();
-        layouts.clear();
+        blocks.clear();
         blurApproach.clear();
         contentHeight = 0f;
         currentIndex = -1;
@@ -239,6 +252,8 @@ public class FullLyricView extends View {
         postFrame();
     }
 
+    // ===== 播放位置与正唱行 =====
+
     private long displayPositionMs() {
         if (!playing) return anchorPosMs;
         return anchorPosMs + (SystemClock.elapsedRealtime() - anchorElapsedMs);
@@ -250,66 +265,28 @@ public class FullLyricView extends View {
             if (lines.get(i).getTimeMs() <= positionMs) idx = i;
             else break;
         }
-        currentIndex = idx;
-    }
-
-    private boolean scrollAnimating() {
-        if (browsing || currentIndex < 0 || currentIndex >= layouts.size()) return false;
-        float target = targetScroll();
-        return Math.abs(target - scrollOffset) > 0.5f;
-    }
-
-    private void stepFrame() {
-        updateCurrentIndex(displayPositionMs());
-        if (scroller.computeScrollOffset()) {
-            scrollOffset = scroller.getCurrY();
-            return;
-        }
-        if (browsing) {
-            if (SystemClock.elapsedRealtime() - lastBrowseMs > REANCHOR_MS) browsing = false;
-            return;
-        }
-        if (currentIndex >= 0 && currentIndex < layouts.size()) {
-            float target = targetScroll();
-            float diff = target - scrollOffset;
-            if (Math.abs(diff) > 0.5f) {
-                scrollOffset += diff * 0.18f;
-            } else {
-                scrollOffset = target;
-            }
+        if (idx != currentIndex) {
+            currentIndex = idx;
+            // 副行只挂正唱行：正唱行换位即块高变，布局随之重排（位移由跟随滚动吸收）。
+            layoutWidth = -1;
         }
     }
 
-    private float targetScroll() {
-        if (currentIndex < 0 || currentIndex >= layouts.size()) return 0f;
-        float fade = TOP_FADE_DP * getResources().getDisplayMetrics().density;
-        return clampScroll(layouts.get(currentIndex).top - fade);
-    }
-
-    private float clampScroll(float value) {
-        float max = Math.max(0f, contentHeight - getHeight());
-        return Math.max(0f, Math.min(max, value));
-    }
-
-    private void postFrame() {
-        if (framePosted || lines.isEmpty()) return;
-        framePosted = true;
-        choreographer.postFrameCallback(frameCallback);
-    }
-
-    @Override
-    protected void onDetachedFromWindow() {
-        if (framePosted) {
-            choreographer.removeFrameCallback(frameCallback);
-            framePosted = false;
+    private long lineDurationMs(int index) {
+        LyricsLine line = lines.get(index);
+        if (index + 1 < lines.size()) return lines.get(index + 1).getTimeMs() - line.getTimeMs();
+        if (line.hasWords()) {
+            long end = 0;
+            for (LyricsWord w : line.getWords()) end = Math.max(end, w.getEndOffsetMs());
+            if (end > 0) return end;
         }
-        super.onDetachedFromWindow();
+        return 4000L;
     }
 
-    // ===== 布局（按词／字宽折行，宽度变或数据变重算） =====
+    // ===== 布局 =====
 
     private float mainRowHeightPx() {
-        return drawer.mainTextSizePx() * LINE_HEIGHT_RATIO_FULL;
+        return drawer.mainTextSizePx() * LINE_HEIGHT_RATIO;
     }
 
     private float subRowHeightPx() {
@@ -320,32 +297,36 @@ public class FullLyricView extends View {
         return LINE_GAP_DP * getResources().getDisplayMetrics().density;
     }
 
+    private String subOf(int index) {
+        if (!showSub || index < 0 || index >= subs.size()) return null;
+        String sub = subs.get(index);
+        return sub == null || sub.isEmpty() ? null : sub;
+    }
+
     private void ensureLayout() {
         int width = getWidth() - getPaddingLeft() - getPaddingRight();
         if (width <= 0 || width == layoutWidth) return;
         layoutWidth = width;
-        layouts.clear();
+        blocks.clear();
         float y = 0f;
         for (int i = 0; i < lines.size(); i++) {
             LyricsLine line = lines.get(i);
-            LineLayout layout = new LineLayout();
-            layout.top = y;
-            layout.lastWord = LyricLineDrawer.lastNonEmptyWord(line.getWords());
+            Block block = new Block();
+            block.top = y;
+            block.lastWord = LyricLineDrawer.lastNonEmptyWord(line.getWords());
             if (line.hasWords()) {
-                layout.wordRows = wrapWords(line.getWords(), width);
-                layout.height = layout.wordRows.size() * mainRowHeightPx();
+                block.wordRows = wrapWords(line.getWords(), width);
+                block.mainHeight = block.wordRows.size() * mainRowHeightPx();
             } else {
-                layout.textRows = wrapText(line.getText(), width);
-                layout.height = layout.textRows.size() * mainRowHeightPx();
+                block.textRows = wrapText(line.getText(), width);
+                block.mainHeight = block.textRows.size() * mainRowHeightPx();
             }
-            if (showSub) {
-                String sub = i < subs.size() ? subs.get(i) : null;
-                if (sub != null && !sub.isEmpty()) layout.height += subRowHeightPx();
-            }
-            layouts.add(layout);
-            y += layout.height + gapPx();
+            // 副行只占正唱行的块高（实帧口径），闲行不预留副行位。
+            if (i == currentIndex && subOf(i) != null) block.subHeight = subRowHeightPx();
+            blocks.add(block);
+            y += block.height() + gapPx();
         }
-        contentHeight = layouts.isEmpty() ? 0f : y - gapPx();
+        contentHeight = blocks.isEmpty() ? 0f : y - gapPx();
         scrollOffset = clampScroll(scrollOffset);
     }
 
@@ -382,7 +363,7 @@ public class FullLyricView extends View {
                 rows.add(text.substring(start));
                 break;
             }
-            // 折行点尽量落在空格处（英文词不腰斩；找不到空格才硬折，照实帧当前行折行形态）。
+            // 折点尽量落在空格处（英文词不腰斩，照实帧折行形态），无空格才硬折。
             int chunkEnd = start + n;
             int space = text.lastIndexOf(' ', chunkEnd - 1);
             if (space > start) chunkEnd = space + 1;
@@ -394,15 +375,64 @@ public class FullLyricView extends View {
         return rows;
     }
 
-    private long lineDurationMs(int index) {
-        LyricsLine line = lines.get(index);
-        if (index + 1 < lines.size()) return lines.get(index + 1).getTimeMs() - line.getTimeMs();
-        if (line.hasWords()) {
-            long end = 0;
-            for (LyricsWord w : line.getWords()) end = Math.max(end, w.getEndOffsetMs());
-            if (end > 0) return end;
+    // ===== 滚动：顶部锚位＋跟随＋浏览 =====
+
+    private float targetScroll() {
+        if (currentIndex < 0 || currentIndex >= blocks.size()) return 0f;
+        return clampScroll(blocks.get(currentIndex).top);
+    }
+
+    private float clampScroll(float value) {
+        float max = Math.max(0f, contentHeight - getHeight());
+        return Math.max(0f, Math.min(max, value));
+    }
+
+    private boolean followAnimating() {
+        if (browsing || currentIndex < 0 || currentIndex >= blocks.size()) return false;
+        return Math.abs(targetScroll() - scrollOffset) > 0.5f;
+    }
+
+    private void stepFrame() {
+        long now = SystemClock.elapsedRealtime();
+        float dtMs = lastFrameMs == 0 ? 16f : Math.min(50f, now - lastFrameMs);
+        lastFrameMs = now;
+        updateCurrentIndex(displayPositionMs());
+        ensureLayout();
+        if (scroller.computeScrollOffset()) {
+            scrollOffset = scroller.getCurrY();
+            return;
         }
-        return 4000L;
+        if (browsing) {
+            if (now - lastBrowseMs > REANCHOR_MS) browsing = false;
+            return;
+        }
+        if (currentIndex >= 0 && currentIndex < blocks.size()) {
+            float target = targetScroll();
+            float diff = target - scrollOffset;
+            if (Math.abs(diff) > 0.5f) {
+                // 跟随趋近：阻尼按帧时长换算（帧率无关）。瓜子引擎的滚动动画规格未抠到
+                // （引擎本体未反编译），此式为近似、不冒充真值——见重做报告清单。
+                float k = 1f - (float) Math.exp(-dtMs / 90.0);
+                scrollOffset += diff * k;
+            } else {
+                scrollOffset = target;
+            }
+        }
+    }
+
+    private void postFrame() {
+        if (framePosted || lines.isEmpty()) return;
+        framePosted = true;
+        choreographer.postFrameCallback(frameCallback);
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        if (framePosted) {
+            choreographer.removeFrameCallback(frameCallback);
+            framePosted = false;
+        }
+        super.onDetachedFromWindow();
     }
 
     // ===== 绘制 =====
@@ -422,49 +452,60 @@ public class FullLyricView extends View {
         ensureLayout();
         long pos = displayPositionMs();
         float top0 = getPaddingTop();
-        for (int i = 0; i < layouts.size(); i++) {
-            LineLayout layout = layouts.get(i);
-            float lineTop = top0 + layout.top - scrollOffset;
-            if (lineTop + layout.height < top0 || lineTop > getHeight()) continue;
+        for (int i = 0; i < blocks.size(); i++) {
+            Block block = blocks.get(i);
+            float blockTop = top0 + block.top - scrollOffset;
+            if (blockTop + block.height() < top0 || blockTop > getHeight()) continue;
             LyricsLine line = lines.get(i);
             boolean current = i == currentIndex;
             int distance = currentIndex < 0 ? i + 1 : i - currentIndex;
-            float baseline = lineTop + drawer.mainTextSizePx();
-            if (layout.wordRows != null) {
-                for (List<LyricsWord> row : layout.wordRows) {
-                    float rowTextW = 0f;
-                    for (LyricsWord w : row) rowTextW += drawer.measureMain(w.getText());
-                    float rowX = rowStartX(x, width, rowTextW);
+            float baseline = blockTop + drawer.mainTextSizePx();
+            if (block.wordRows != null) {
+                for (List<LyricsWord> row : block.wordRows) {
+                    float rowX = rowStartX(x, width, rowWidth(row));
                     if (current) {
-                        drawer.drawCurrentWordRow(canvas, row, layout.lastWord, pos - line.getTimeMs(),
+                        drawer.drawCurrentWordRow(canvas, row, block.lastWord, pos - line.getTimeMs(),
                                 rowX, baseline, width, line.isBG());
                     } else {
-                        drawIdleRow(canvas, i, joinWords(row), rowX, baseline, lineTop, width, distance);
+                        drawIdleRow(canvas, i, joinWords(row), rowX, baseline, blockTop, width, distance);
                     }
                     baseline += mainRowHeightPx();
                 }
             } else {
-                for (String rowText : layout.textRows) {
+                for (String rowText : block.textRows) {
                     float rowX = rowStartX(x, width, drawer.measureMain(rowText));
                     if (current) {
                         drawer.drawCurrentPlain(canvas, rowText, pos - line.getTimeMs(), lineDurationMs(i),
                                 rowX, baseline, width);
                     } else {
-                        drawIdleRow(canvas, i, rowText, rowX, baseline, lineTop, width, distance);
+                        drawIdleRow(canvas, i, rowText, rowX, baseline, blockTop, width, distance);
                     }
                     baseline += mainRowHeightPx();
                 }
             }
-            if (showSub) {
-                String sub = i < subs.size() ? subs.get(i) : null;
-                if (sub != null && !sub.isEmpty()) {
-                    // 副行紧跟主行块下方：副行基线＝行块底 - 副行高 + 副行高×0.92（与内嵌同式）
-                    float subBaseline = lineTop + layout.height - subRowHeightPx() + subRowHeightPx() * 0.92f;
-                    drawer.drawSub(canvas, sub, rowStartX(x, width, drawer.measureSub(sub)), subBaseline, width, current);
+            if (current && block.subHeight > 0f) {
+                String sub = subOf(i);
+                if (sub != null) {
+                    float subBaseline = blockTop + block.height() - block.subHeight
+                            + block.subHeight * 0.92f;
+                    drawer.drawSub(canvas, sub, rowStartX(x, width, drawer.measureSub(sub)),
+                            subBaseline, width, true);
                 }
             }
         }
         drawTopFade(canvas);
+    }
+
+    private float rowWidth(List<LyricsWord> row) {
+        float w = 0f;
+        for (LyricsWord word : row) w += drawer.measureMain(word.getText());
+        return w;
+    }
+
+    private float rowStartX(float x, float width, float textW) {
+        if (textAlign == 1) return x + Math.max(0f, (width - Math.min(width, textW)) / 2f);
+        if (textAlign == 2) return x + Math.max(0f, width - Math.min(width, textW));
+        return x;
     }
 
     private String joinWords(List<LyricsWord> row) {
@@ -473,57 +514,38 @@ public class FullLyricView extends View {
         return sb.toString();
     }
 
-    /** 顶渐隐 40dp（§6.3）：取色底自上而下由实到透，压在歌词区顶部（背景为取色底时与内容 alpha 渐隐等价呈现）。 */
+    /** 区顶渐隐罩 40dp（瓜子常量）：取色底由实到透，压在歌词区顶部。 */
     private void drawTopFade(Canvas canvas) {
         if (fadeColor == 0) return;
         float fadePx = TOP_FADE_DP * getResources().getDisplayMetrics().density;
         Paint paint = new Paint();
         int opaque = fadeColor | 0xFF000000;
         int transparent = fadeColor & 0x00FFFFFF;
-        paint.setShader(new LinearGradient(0, 0, 0, fadePx,
+        paint.setShader(new android.graphics.LinearGradient(0, 0, 0, fadePx,
                 new int[]{opaque, transparent}, null, Shader.TileMode.CLAMP));
         canvas.drawRect(0, 0, getWidth(), fadePx, paint);
         paint.setShader(null);
     }
 
     /**
-     * 非当前行：压暗＋模糊。压暗经批 2 补正改向录屏口径（审计 §4）：原 max(0.35, 0.85-距离×0.16)
-     * 在 +3 行合成 ≈0.11、比录屏同距离（≈0.27）暗一倍多，作废。新式：以 palette 非当前 0.30 为基
-     * （录屏相对不透明度平台 0.2–0.3），行 alpha 不再随距离线性压暗、只走顶／底渐隐趋近——
-     * 顶渐隐 smoothstep (3-2t)t²（审计 §4 源码注记 :457–477）、底渐隐 bottomFadeKeep 分段曲线
-     * （源码实读转写，见下）。注：行 alpha 的源头状态函数未抠到（在未反编译的引擎本体内），
-     * 本式按录屏不透明度比对齐、不冒充源码公式；模糊强度↔距离公式已 smali 深挖抠实（D1），走源头式。
-     * 落地语义（2026-10-25 歌词观感诊断批纠正）：LyricLineDrawer.drawIdleMain 与本类
-     * drawIdleWithEffect 都是先 setColor(palette.inactive) 再 setAlpha(行 alpha)——setAlpha
-     * 覆盖色内 alpha、不存在相乘（批 2 原注本就如此写）。1.4.27 查修批按「再乘色内 0.30、
-     * 合成约 0.09」删掉 0.30 因子，前提不成立：删后闲行实际 alpha＝顶渐隐×底渐隐（近锚处
-     * ≈1.0），超过瓜子模式 A 的上限 0.72×lyricDimAlpha≤0.72、达录屏平台（0.2–0.3）的三倍余，
-     * 闲行又亮又糊。本批恢复 0.30 因子，合成回到 0.30×顶渐隐×底渐隐。
-     * 2026-10-25 深挖补记：源头状态函数已抠实——本页（Apple 列表面）跑模式 A，闲行行 alpha＝0.72 平台
-     * （不透明 ColorInactive），但 GZ 另有整页 lyricDimAlpha 因子（主题宿主注入、数值未抠到）与之相乘，
-     * 乘积与本页 0.30 录屏平台相合；只知其一不知其二，不动水平值（见深挖报告第 5 项）。
+     * 非当前行：压暗＋模糊。
+     * 压暗＝0.30 平台×顶渐隐×底渐隐：顶渐隐按行在本区内的相对位置走 smoothstep (3-2t)t²
+     * （40dp 渐隐高内由 0 到 1）；底渐隐走 bottomFadeKeep（源头曲线逐字转写）。
+     * 模糊：强度＝blurStrength(带符号距离)×档位系数，LyricRowApproach 按瓜子门控时长趋近
+     * （浏览中或与正唱行同时间组 200ms、其余 400ms），半径量化后 API≥31 走 RenderNode
+     * 挂 RenderEffect、低版本走 BlurMaskFilter 兜底。
      */
-    /** 与当前行同时间组（同 timeMs，如合唱/重叠行）——GZ 趋近时长门「当前组高亮」的星辰映射。 */
-    private boolean sameTimeGroup(int row) {
-        if (row < 0 || currentIndex < 0 || row >= lines.size() || currentIndex >= lines.size()) return false;
-        return lines.get(row).getTimeMs() == lines.get(currentIndex).getTimeMs();
-    }
-
-    private void drawIdleRow(Canvas canvas, int row, String text, float x, float baseline, float blockTop,
-                             int width, int distance) {
+    private void drawIdleRow(Canvas canvas, int row, String text, float x, float baseline,
+                             float blockTop, int width, int distance) {
         float fadePx = TOP_FADE_DP * getResources().getDisplayMetrics().density;
         float relTop = blockTop - getPaddingTop();
         float topT = LyricWordEngine.clampF(fadePx > 0f ? relTop / fadePx : 1f, 0f, 1f);
         float topKeep = (3f - 2f * topT) * topT * topT;
         float relY = LyricWordEngine.clampF(relTop / Math.max(1f, (float) getHeight()), 0f, 1f);
         float bottomKeep = bottomFadeKeep(relY, 0.45f);
-        int alpha = Math.round(255f * 0.30f * topKeep * bottomKeep);
-        // 模糊强度走源头式（smali 深挖 D1，distance 为带符号距离：本行－当前行）；旧等价式作废。
-        // 趋近动画 2026-10-25 深挖落码（GZ lyricRowBlur）：逐行 animateFloatAsState——目标变化时
-        // 以当前显示值起整段重跑 tween（活动门任一开 200ms、否则 400ms，CubicBezier(0.2,0,0,1)）。
-        // 门的星辰映射：browsing（本视图浏览态）或与当前行同时间组；GZ 另两门（S1 状态、snap 旗）
-        // 源名未恢复、未映射，见深挖报告。趋近作用在量化前的强度值上，半径仍走 §6.1 量化。
-        float targetStrength = LyricWordEngine.blurStrength(distance) * LyricWordEngine.blurCoefficient(blurLevel);
+        int alpha = Math.round(255f * IDLE_ALPHA_BASE * topKeep * bottomKeep);
+        float targetStrength = LyricWordEngine.blurStrength(distance)
+                * LyricWordEngine.blurCoefficient(blurLevel);
         boolean gate = browsing || sameTimeGroup(row);
         float strength = blurApproach.approach(row, targetStrength, gate ? 200 : 400,
                 SystemClock.elapsedRealtime());
@@ -541,9 +563,11 @@ public class FullLyricView extends View {
             android.text.TextPaint paint = drawer.mainPaint();
             paint.setColor(drawer.palette().inactive);
             paint.setAlpha(alpha);
-            paint.setMaskFilter(new android.graphics.BlurMaskFilter(radius, android.graphics.BlurMaskFilter.Blur.NORMAL));
+            paint.setMaskFilter(new android.graphics.BlurMaskFilter(radius,
+                    android.graphics.BlurMaskFilter.Blur.NORMAL));
             paint.setShader(null);
-            CharSequence draw = android.text.TextUtils.ellipsize(text, paint, width, android.text.TextUtils.TruncateAt.END);
+            CharSequence draw = android.text.TextUtils.ellipsize(text, paint, width,
+                    android.text.TextUtils.TruncateAt.END);
             canvas.drawText(draw, 0, draw.length(), x, baseline, paint);
             paint.setMaskFilter(null);
             paint.setAlpha(255);
@@ -552,24 +576,16 @@ public class FullLyricView extends View {
         drawer.drawIdleMain(canvas, text, x, baseline, width, alpha);
     }
 
-    private RenderEffect blurEffectFor(float radius) {
-        int e = Math.round(radius * 2f);
-        RenderEffect effect = blurEffectCache.get(e);
-        if (effect != null) return effect;
-        float r = e / 2f;
-        try {
-            effect = RenderEffect.createBlurEffect(r, r, Shader.TileMode.DECAL);
-            blurEffectCache.put(e, effect);
-            return effect;
-        } catch (Exception ex) {
-            blurRetryAfterMs = SystemClock.elapsedRealtime() + BLUR_RETRY_COOLDOWN_MS;
-            return null;
+    private boolean sameTimeGroup(int row) {
+        if (row < 0 || currentIndex < 0 || row >= lines.size() || currentIndex >= lines.size()) {
+            return false;
         }
+        return lines.get(row).getTimeMs() == lines.get(currentIndex).getTimeMs();
     }
 
     /**
-     * 底渐隐保留曲线（源码 bottomFadeKeep 实读转写）：停点 {0, 0.3, 0.55, 0.78, 1} →
-     * 保留 {1, 0.85, 0.62, 0.48, endKeep}，段内以 smoothstep (3-2t)t² 插值；endKeep 默认 0.45（源码 default）。
+     * 底渐隐保留曲线（LyricsViewKt:10618 逐字转写）：停点 {0, 0.3, 0.55, 0.78, 1} →
+     * 保留 {1, 0.85, 0.62, 0.48, endKeep}，段内 smoothstep 插值；endKeep 默认 0.45。
      */
     private static float bottomFadeKeep(float f, float endKeep) {
         float[] stops = {0f, 0.3f, 0.55f, 0.78f, 1f};
@@ -585,15 +601,16 @@ public class FullLyricView extends View {
         return keeps[4];
     }
 
-    /** API≥31 非当前行 RenderNode 录行（不许 discardDisplayList，旧引擎实证教训，同 CoverLyricView）。 */
-    private boolean drawIdleWithEffect(Canvas canvas, String text, float x, float baseline, float blockTop,
-                                       int width, float radius, int alpha) {
+    /** API≥31 非当前行模糊：RenderNode 录行后挂 RenderEffect（不 discardDisplayList）。 */
+    private boolean drawIdleWithEffect(Canvas canvas, String text, float x, float baseline,
+                                       float blockTop, int width, float radius, int alpha) {
         RenderEffect effect = blurEffectFor(radius);
         if (effect == null) return false;
         int w = getWidth();
         if (w <= 0) return false;
-        int h = Math.max(1, Math.round(mainRowHeightPx() + 4f * getResources().getDisplayMetrics().density));
-        RenderNode node = new RenderNode("fullLyricIdleBlur");
+        int h = Math.max(1, Math.round(mainRowHeightPx()
+                + 4f * getResources().getDisplayMetrics().density));
+        RenderNode node = new RenderNode("lyricPageIdleBlur");
         try {
             node.setPosition(0, 0, w, h);
             Canvas rec = node.beginRecording(w, h);
@@ -601,7 +618,8 @@ public class FullLyricView extends View {
             paint.setColor(drawer.palette().inactive);
             paint.setAlpha(alpha);
             paint.setMaskFilter(null);
-            CharSequence draw = android.text.TextUtils.ellipsize(text, paint, width, android.text.TextUtils.TruncateAt.END);
+            CharSequence draw = android.text.TextUtils.ellipsize(text, paint, width,
+                    android.text.TextUtils.TruncateAt.END);
             rec.drawText(draw, 0, draw.length(), x, baseline - blockTop, paint);
             node.endRecording();
             node.setRenderEffect(effect);
@@ -613,6 +631,21 @@ public class FullLyricView extends View {
         } catch (Exception ex) {
             blurRetryAfterMs = SystemClock.elapsedRealtime() + BLUR_RETRY_COOLDOWN_MS;
             return false;
+        }
+    }
+
+    private RenderEffect blurEffectFor(float radius) {
+        int e = Math.round(radius * 2f);
+        RenderEffect effect = blurEffects.get(e);
+        if (effect != null) return effect;
+        float r = e / 2f;
+        try {
+            effect = RenderEffect.createBlurEffect(r, r, Shader.TileMode.DECAL);
+            blurEffects.put(e, effect);
+            return effect;
+        } catch (Exception ex) {
+            blurRetryAfterMs = SystemClock.elapsedRealtime() + BLUR_RETRY_COOLDOWN_MS;
+            return null;
         }
     }
 
@@ -647,11 +680,12 @@ public class FullLyricView extends View {
 
         @Override
         public boolean onSingleTapUp(MotionEvent e) {
-            if (lineClickListener == null || layouts.isEmpty()) return false;
+            if (lineClickListener == null || blocks.isEmpty()) return false;
             float contentY = e.getY() - getPaddingTop() + scrollOffset;
-            for (int i = 0; i < layouts.size(); i++) {
-                LineLayout layout = layouts.get(i);
-                if (contentY >= layout.top && contentY < layout.top + layout.height) {
+            for (int i = 0; i < blocks.size(); i++) {
+                Block block = blocks.get(i);
+                if (contentY >= block.top && contentY < block.top + block.height()) {
+                    browsing = false;
                     lineClickListener.onLineClick(i, lines.get(i).getTimeMs());
                     performClick();
                     return true;
@@ -663,7 +697,7 @@ public class FullLyricView extends View {
 
     @Override
     public boolean onTouchEvent(MotionEvent event) {
-        boolean handled = gestureDetector.onTouchEvent(event);
+        boolean handled = gestures.onTouchEvent(event);
         if (event.getActionMasked() == MotionEvent.ACTION_UP
                 || event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
             lastBrowseMs = SystemClock.elapsedRealtime();

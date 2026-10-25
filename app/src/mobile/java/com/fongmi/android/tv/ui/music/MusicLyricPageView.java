@@ -4,23 +4,24 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.LinearGradient;
-import android.graphics.Outline;
 import android.graphics.Paint;
-import android.graphics.RenderEffect;
 import android.graphics.Shader;
+import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
-import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.util.AttributeSet;
+import android.util.TypedValue;
+import android.view.Gravity;
 import android.view.View;
-import android.view.ViewOutlineProvider;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import androidx.annotation.Nullable;
 
 import com.fongmi.android.tv.R;
+import com.fongmi.android.tv.music.MusicController;
 import com.fongmi.android.tv.player.lyrics.LyricsLine;
 import com.fongmi.android.tv.utils.CoverTextDrawable;
 import com.fongmi.android.tv.utils.ImgUtil;
@@ -28,28 +29,46 @@ import com.fongmi.android.tv.utils.ImgUtil;
 import java.util.List;
 
 /**
- * 全屏歌词页（ui/music 包）：播放页内的整屏页层，共用播放页已加载的歌词数据与 MusicController，
- * 不另起取词链。形态只认定案（他的图 112930＋2026-10-22「歌词页重做」定案）：
- * 背景＝封面模糊底（播放页喂整页糊底同配方位图，API31+ 另挂 24dp 模糊效；上盖半透取色罩保可读——
- * 2026-10-25 深挖定性：GZ 歌词页本体无自有背景/罩、透明浮于播放页共享背景之上，星辰糊底＋罩
- * 是 112930 定案形态，与 GZ 的出入按定案保留）；页眉＝封面缩略图＋歌名＋歌手＋右上 Tr 钮
- * （34dp，尺寸 GZ 页眉钮实证、语义照定案＝主歌词三选菜单——原文恒有、翻译／音译有数据才出，
- * 选后内嵌＋全屏同刷；页眉数值 2026-10-25 深挖对齐 GZ AppleLyricsSongHeader：横垫 28dp、
- * 纵垫 6dp、缩略图 40dp 圆角 6dp、歌名 16sp/行高 21sp 半粗、歌手 13sp/行高 17sp 基色×0.55）；
- * 歌词左对齐沉浸滚动（FullLyricView）。没有底部进度条、没有底部按键。
- * 与录屏 f001 形态（清封面拉满＋歌名行队列／暂停键）的出入：那是瓜子的另一歌词面，
- * 本页以 112930 定案为准（冲突在五主题对照表单列）；头行最左的 ☰ 在瓜子＝一起听邀请入口，
- * 定案不做（2026-10-20 全删），不留假键。
- * 入口＝播放页右划（定案）；点歌词行只快进、不进本页。
+ * 全屏歌词页（2026-10-25 从零重写，旧实现整删）。
+ *
+ * 形态只认瓜子本体实证（他的瓜子真机录屏＋截图 112747/113010，两处同形态互证）：
+ * - 背景：清封面居上（约占页高 46%），下沿渐隐进封面取色面，取色面铺满下半页；
+ *   播放页喂入的整页糊底位图垫在最下面作氛围底（切歌时封面未就绪不空窗）。
+ * - 歌名行压在封面与取色面的交界处（页高约 45%）：歌名左对齐白色粗体，
+ *   其下歌手行（白色 0.55）；无封面缩略图、无页眉条。
+ * - 歌名行右侧裸键：暂停/播放（瓜子本页三键之一；另两键在瓜子是 ☰ 与播放列表，
+ *   ☰ 的瓜子功能定位未抠明、且星辰「一起听」已全删不做，播放列表是播放页本体面板、
+ *   本页无契约通道——两键不画假键，见重做报告出入清单）＋星辰保留的主歌词键「Tr」
+ *   （点开主歌词三选菜单，播放页接线不变）。
+ * - 歌词区在歌名行之下（间隔 6dp），FullLyricView 左对齐沉浸滚动；无底部进度条、
+ *   无底部按键。
+ * - 歌名字号 16sp/行高 21sp、歌手 13sp/行高 17sp/0.55：与瓜子歌名行组件
+ *   （AppleLyricsSongHeader，LyricsViewKt:2083 起）同值，实帧比例互证；
+ *   纵向落位（46%/45%）为实帧量比，非源码字面值（本页在瓜子源码中的实现定位
+ *   未抠到——2.1.8 源码里只有 pager 页歌词面带页眉，与实帧形态不同，见重做报告）。
+ *
+ * 与播放页的接入契约（公开方法签名）与旧实现完全一致，本类只换形态与内部结构。
  */
 public class MusicLyricPageView extends FrameLayout {
 
-    /** 半透取色罩：糊底之上由上到下微加深（永不实底，糊底全程可见）；停点/alpha 是可读性近似，瓜子歌词页罩值未抠到。 */
-    private static class ToneVeilView extends View {
+    /** 清封面区高度占页高比例（实帧量比：封面约 0–44%，渐隐带跨其下沿）。 */
+    private static final float HERO_HEIGHT_RATIO = 0.46f;
+    /** 歌名行顶占页高比例（实帧量比：三处实证帧均在 45%–47%）。 */
+    private static final float TITLE_TOP_RATIO = 0.45f;
+    /** 取色渐隐：页高 30% 起渐入、56% 起全实（实帧渐隐带量比）。 */
+    private static final float FADE_START_RATIO = 0.30f;
+    private static final float FADE_END_RATIO = 0.56f;
+    /** 横向垫 28dp（LyricsViewKt APPLE_LYRIC_H_PADDING 实读，实帧互证）。 */
+    private static final float H_PADDING_DP = 28f;
+    /** 歌名行与歌词区间隔 6dp（瓜子页眉下间隔实读）。 */
+    private static final float TITLE_TO_LYRIC_GAP_DP = 6f;
+
+    /** 取色面：封面区下半渐隐到取色、其下全实取色，铺满整页。 */
+    private static class ToneFieldView extends View {
         private int toneColor = 0xFF1C1C1E;
         private final Paint paint = new Paint();
 
-        ToneVeilView(Context context) {
+        ToneFieldView(Context context) {
             super(context);
         }
 
@@ -66,99 +85,161 @@ public class MusicLyricPageView extends FrameLayout {
             int r = Color.red(toneColor);
             int g = Color.green(toneColor);
             int b = Color.blue(toneColor);
-            paint.setShader(new LinearGradient(0, 0, 0, h,
-                    new int[]{Color.argb(76, r, g, b), Color.argb(92, r, g, b),
-                            Color.argb(117, r, g, b), Color.argb(143, r, g, b)},
-                    new float[]{0f, 0.4f, 0.75f, 1f}, Shader.TileMode.CLAMP));
+            float start = h * FADE_START_RATIO;
+            float end = h * FADE_END_RATIO;
+            paint.setShader(new LinearGradient(0, start, 0, end,
+                    new int[]{Color.argb(0, r, g, b), Color.argb(255, r, g, b)},
+                    null, Shader.TileMode.CLAMP));
             canvas.drawRect(0, 0, getWidth(), h, paint);
             paint.setShader(null);
         }
     }
 
-    private ImageView coverView;
-    private ToneVeilView veilView;
-    private View headerView;
-    private ImageView thumbView;
+    private ImageView bgBlurView;
+    private ImageView heroView;
+    private ToneFieldView toneFieldView;
+    private LinearLayout titleBlock;
     private TextView titleView;
     private TextView artistView;
+    private ImageView pauseView;
     private TextView trView;
     private FullLyricView lyricView;
     private int toneColor = 0xFF1C1C1E;
+    private boolean playing;
 
     public MusicLyricPageView(Context context) {
         super(context);
+        build();
     }
 
     public MusicLyricPageView(Context context, @Nullable AttributeSet attrs) {
         super(context, attrs);
+        build();
     }
 
-    @Override
-    protected void onFinishInflate() {
-        super.onFinishInflate();
-        coverView = findViewById(R.id.ivLyricCover);
-        headerView = findViewById(R.id.lyricHeader);
-        thumbView = findViewById(R.id.ivLyricThumb);
-        titleView = findViewById(R.id.tvLyricTitle);
-        artistView = findViewById(R.id.tvLyricArtist);
-        trView = findViewById(R.id.btnLyricTr);
-        lyricView = findViewById(R.id.lyricFullView);
-        // 取色罩插在背景之上、页眉与歌词之下（子序 1）。
-        veilView = new ToneVeilView(getContext());
-        addView(veilView, 1, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
-        if (lyricView != null) lyricView.setFadeColor(toneColor);
-        if (thumbView != null) {
-            // 缩略图圆角 6dp（2026-10-25 深挖 GZ 页眉实证；OutlineProvider＋clipToOutline）。
-            final float radius = 6f * getResources().getDisplayMetrics().density;
-            thumbView.setOutlineProvider(new ViewOutlineProvider() {
-                @Override
-                public void getOutline(View view, Outline outline) {
-                    outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), radius);
-                }
-            });
-            thumbView.setClipToOutline(true);
+    private float dp(float value) {
+        return value * getResources().getDisplayMetrics().density;
+    }
+
+    private void build() {
+        Context context = getContext();
+        float pad = dp(H_PADDING_DP);
+
+        bgBlurView = new ImageView(context);
+        bgBlurView.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        bgBlurView.setContentDescription(null);
+        addView(bgBlurView, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
+
+        heroView = new ImageView(context);
+        heroView.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        heroView.setContentDescription(null);
+        addView(heroView, new LayoutParams(LayoutParams.MATCH_PARENT, 0));
+
+        toneFieldView = new ToneFieldView(context);
+        addView(toneFieldView, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
+
+        // 歌名行块：歌名行（歌名＋右裸键）＋歌手行，整块压在封面/取色交界。
+        titleBlock = new LinearLayout(context);
+        titleBlock.setOrientation(LinearLayout.VERTICAL);
+        titleBlock.setPadding(Math.round(pad), 0, Math.round(pad), 0);
+
+        LinearLayout titleRow = new LinearLayout(context);
+        titleRow.setOrientation(LinearLayout.HORIZONTAL);
+        titleRow.setGravity(Gravity.CENTER_VERTICAL);
+
+        titleView = new TextView(context);
+        titleView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f);
+        titleView.setTextColor(0xF2FFFFFF);
+        titleView.setMaxLines(1);
+        titleView.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        titleView.setIncludeFontPadding(false);
+        if (Build.VERSION.SDK_INT >= 28) {
+            titleView.setLineHeight(Math.round(21f * getResources().getDisplayMetrics().scaledDensity));
         }
-        if (trView != null) {
-            GradientDrawable glass = new GradientDrawable();
-            glass.setShape(GradientDrawable.OVAL);
-            glass.setColor(0x40FFFFFF);
-            glass.setStroke(Math.max(1, Math.round(getResources().getDisplayMetrics().density)), 0x59FFFFFF);
-            trView.setBackground(glass);
+        titleView.setLetterSpacing(-0.3f / 16f);
+        titleView.setTypeface(songTitleTypeface());
+        LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        titleRow.addView(titleView, titleLp);
+
+        pauseView = new ImageView(context);
+        pauseView.setImageResource(R.drawable.ic_music_pause);
+        pauseView.setContentDescription(null);
+        int keyBox = Math.round(dp(40f));
+        int keyPad = Math.round(dp(8f));
+        pauseView.setPadding(keyPad, keyPad, keyPad, keyPad);
+        pauseView.setOnClickListener(v -> MusicController.get().toggle());
+        titleRow.addView(pauseView, new LinearLayout.LayoutParams(keyBox, keyBox));
+
+        trView = new TextView(context);
+        trView.setText("Tr");
+        trView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f);
+        trView.setTextColor(0xF2FFFFFF);
+        trView.setTypeface(Typeface.DEFAULT_BOLD);
+        trView.setGravity(Gravity.CENTER);
+        trView.setIncludeFontPadding(false);
+        titleRow.addView(trView, new LinearLayout.LayoutParams(keyBox, keyBox));
+
+        titleBlock.addView(titleRow, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        artistView = new TextView(context);
+        artistView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f);
+        artistView.setTextColor(0x8CFFFFFF);
+        artistView.setMaxLines(1);
+        artistView.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        artistView.setIncludeFontPadding(false);
+        if (Build.VERSION.SDK_INT >= 28) {
+            artistView.setLineHeight(Math.round(17f * getResources().getDisplayMetrics().scaledDensity));
         }
+        LinearLayout.LayoutParams artistLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        artistLp.topMargin = Math.round(dp(2f));
+        titleBlock.addView(artistView, artistLp);
+
+        addView(titleBlock, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
+
+        lyricView = new FullLyricView(context);
+        lyricView.setPadding(Math.round(pad), 0, Math.round(pad), 0);
+        lyricView.setFadeColor(toneColor);
+        addView(lyricView, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
+    }
+
+    private Typeface songTitleTypeface() {
+        // 歌名字重照瓜子歌名行组件（sq2.X＝800）；API 28+ 可定字重，低版本退粗体。
+        if (Build.VERSION.SDK_INT >= 28) return Typeface.create(Typeface.DEFAULT, 800, false);
+        return Typeface.DEFAULT_BOLD;
     }
 
     @Override
     protected void onSizeChanged(int w, int h, int oldw, int oldh) {
         super.onSizeChanged(w, h, oldw, oldh);
-        // 页眉落页面顶部（状态栏之下 8dp）；歌词区起点＝页眉底＋6dp。此二值是排版量，非瓜子源码值（其页眉源码定位未抠到）。
-        float density = getResources().getDisplayMetrics().density;
-        if (headerView != null) {
-            LayoutParams lp = (LayoutParams) headerView.getLayoutParams();
-            lp.topMargin = statusBarHeightPx() + Math.round(8f * density);
-            headerView.setLayoutParams(lp);
-            // 页眉高度要等测量完才准：投递到测量后按页眉实际底部落歌词区起点。
-            headerView.post(() -> {
-                if (lyricView == null || headerView == null) return;
-                LayoutParams llp = (LayoutParams) lyricView.getLayoutParams();
-                int top = headerView.getTop() + headerView.getHeight() + Math.round(6f * density);
-                if (llp.topMargin != top) {
-                    llp.topMargin = top;
-                    lyricView.setLayoutParams(llp);
-                }
-            });
-        }
+        if (h <= 0) return;
+        LayoutParams heroLp = (LayoutParams) heroView.getLayoutParams();
+        heroLp.height = Math.round(h * HERO_HEIGHT_RATIO);
+        heroView.setLayoutParams(heroLp);
+        LayoutParams titleLp = (LayoutParams) titleBlock.getLayoutParams();
+        titleLp.topMargin = Math.round(h * TITLE_TOP_RATIO);
+        titleBlock.setLayoutParams(titleLp);
+        // 歌词区起点＝歌名行块底＋6dp（块高要等测量，投递到布局后落位）。
+        titleBlock.post(() -> {
+            if (lyricView == null || titleBlock == null) return;
+            LayoutParams llp = (LayoutParams) lyricView.getLayoutParams();
+            int top = titleBlock.getTop() + titleBlock.getHeight()
+                    + Math.round(dp(TITLE_TO_LYRIC_GAP_DP));
+            if (llp.topMargin != top) {
+                llp.topMargin = top;
+                lyricView.setLayoutParams(llp);
+            }
+        });
     }
 
-    private int statusBarHeightPx() {
-        int id = getResources().getIdentifier("status_bar_height", "dimen", "android");
-        if (id > 0) return getResources().getDimensionPixelSize(id);
-        return Math.round(24f * getResources().getDisplayMetrics().density);
-    }
+    // ===== 与播放页的接入契约（签名与旧实现一致） =====
 
-    /** 取色更新（切歌／氛围色动画时由播放页喂）：罩与歌词顶渐隐同色。 */
+    /** 取色更新（切歌／氛围色变化时播放页喂）：取色面与歌词顶渐隐同色。 */
     public void setToneColor(int color) {
         toneColor = color;
-        if (veilView != null) veilView.setToneColor(color);
+        if (toneFieldView != null) toneFieldView.setToneColor(color);
         if (lyricView != null) lyricView.setFadeColor(color);
     }
 
@@ -168,48 +249,31 @@ public class MusicLyricPageView extends FrameLayout {
     }
 
     /**
-     * 封面（绑定／进页时调）：缩略图走实图；背景先贴实图占位，糊底就绪后由播放页
-     * setCoverDrawable 换糊版。无封面地址才素图（封面占位定案，与播放页同口径），
-     * 有地址加载失败保持透明、不变素图。
+     * 封面（绑定／进页时调）：清封面贴居上封面区。无封面地址才素图（封面占位定案，
+     * 与播放页同口径）；有地址加载失败保持透明（下层糊底/取色面透出），不变素图。
      */
     public void setCover(String cover, String title) {
-        float density = getResources().getDisplayMetrics().density;
-        if (thumbView != null) {
-            if (cover == null || cover.isEmpty()) {
-                thumbView.setImageDrawable(new CoverTextDrawable(title, false, 12 * density));
-            } else {
-                ImgUtil.load(title, cover, thumbView);
-            }
-        }
-        if (coverView == null) return;
-        clearCoverEffect();
+        if (heroView == null) return;
         if (cover == null || cover.isEmpty()) {
-            coverView.setImageDrawable(new CoverTextDrawable(title, false, 28 * density));
+            heroView.setImageDrawable(new CoverTextDrawable(title, false,
+                    28f * getResources().getDisplayMetrics().density));
         } else {
-            ImgUtil.load(title, cover, coverView);
+            ImgUtil.load(title, cover, heroView);
         }
     }
 
-    /** 背景换糊底位图（播放页整页糊底的成品）：API31+ 补挂 24dp 模糊效（位图层在 ≥31 未糊、靠视图效，与 ivBgBlur 同口径）。 */
+    /** 背景糊底位图（播放页整页糊底成品）：垫在本页最下层作氛围底。 */
     public void setCoverDrawable(Drawable drawable) {
-        if (coverView == null || drawable == null) return;
-        coverView.setImageDrawable(drawable);
-        if (Build.VERSION.SDK_INT >= 31) {
-            float r = 24f * getResources().getDisplayMetrics().density;
-            coverView.setRenderEffect(RenderEffect.createBlurEffect(r, r, Shader.TileMode.CLAMP));
-        } else {
-            clearCoverEffect();
-        }
+        if (bgBlurView == null || drawable == null) return;
+        bgBlurView.setImageDrawable(drawable);
     }
 
-    private void clearCoverEffect() {
-        if (coverView != null && Build.VERSION.SDK_INT >= 31) {
-            coverView.setRenderEffect(null);
+    public void setPlaying(boolean value) {
+        playing = value;
+        if (pauseView != null) {
+            pauseView.setImageResource(playing ? R.drawable.ic_music_pause : R.drawable.ic_music_play);
         }
-    }
-
-    public void setPlaying(boolean playing) {
-        if (lyricView != null) lyricView.setPlaying(playing);
+        if (lyricView != null) lyricView.setPlaying(value);
     }
 
     public void setLyricData(List<LyricsLine> mains, List<String> subs, boolean showSub) {
@@ -240,7 +304,7 @@ public class MusicLyricPageView extends FrameLayout {
         if (lyricView != null) lyricView.setOnLineClickListener(listener);
     }
 
-    /** Tr 钮（主歌词三选菜单入口，菜单与生效由播放页接线）。 */
+    /** 主歌词键（主歌词三选菜单入口，菜单与生效由播放页接线）。 */
     public void setOnTrClickListener(OnClickListener listener) {
         if (trView != null) trView.setOnClickListener(listener);
     }

@@ -11,12 +11,12 @@ import androidx.annotation.Nullable;
 
 /**
  * 封面卡片三卡叠放容器（施工图 §3 ThreeCardAlternateStack）：
- * 宽高比 0.65＝宽/高（竖卡，瓜子对照图 113010 右机实证）；封面宽＝min(区宽×0.98, 区高×0.65)、
- * 高＝宽/0.65、圆角 22dp 居中。旧落码把 0.65 当高/宽用（宽＝区高/0.65、高＝宽×0.65）做成横卡，
- * 方形专辑图被宽幅裁切、卡片居中偏下上半页空糊（2026-10-25 真机图 113181 实证），已纠正；
- * 后叠卡两张同尺寸 ×0.93、圆角 22dp，旋转 −4°（左后）／+4°（右后），
- * 偏移 (−12,−18)dp／(12,−14)dp（瓜子源码 offset 字面值，dig 三.2）。
- * 子视图顺序固定：0＝右后卡（+4°）、1＝左后卡（−4°）、2＝出场卡层、3＝前卡包裹层；
+ * 宽高比 0.65＝宽/高（竖卡）；封面尺寸钳制（瓜子 PlayerScreenKt.java:8877-8885，变量走向以源码为准）：
+ * 高＝min(区高×0.98, 区宽/0.65)、宽＝高×0.65、圆角 22dp 居中。
+ * 后叠卡是空占位卡（CoverImmersivePlaceholderCard，白渐变＋描边，无封面图），两张同尺寸 ×0.93、圆角 22dp，
+ * 旋转 −4°（左后）／+4°（右后），偏移 (−12,−18)dp／(12,−14)dp（瓜子源码 offset 字面值，dig 三.2）。
+ * 子视图顺序固定：0＝左后卡（−4°）、1＝右后卡（+4°）、2＝出场卡层、3＝前卡包裹层
+ * （瓜子绘制序：先左后右，PlayerScreenKt.java:26730-26743）；
  * 出场卡层与前卡同尺寸同位置（切歌换卡动画用，平时 gone）。
  */
 public class CoverStackView extends FrameLayout {
@@ -141,8 +141,8 @@ public class CoverStackView extends FrameLayout {
         float cardH = cardW / ASPECT;
         float cx = w / 2f;
         float cy = h / 2f;
-        layoutCard(getChildAt(0), cx, cy, cardW * 0.93f, cardH * 0.93f, dp(12f), dp(-14f), 4f);
-        layoutCard(getChildAt(1), cx, cy, cardW * 0.93f, cardH * 0.93f, dp(-12f), dp(-18f), -4f);
+        layoutCard(getChildAt(0), cx, cy, cardW * 0.93f, cardH * 0.93f, dp(-12f), dp(-18f), -4f);
+        layoutCard(getChildAt(1), cx, cy, cardW * 0.93f, cardH * 0.93f, dp(12f), dp(-14f), 4f);
         layoutCard(getChildAt(2), cx, cy, cardW, cardH, 0f, 0f, 0f);
         layoutCard(getChildAt(3), cx, cy, cardW, cardH, 0f, 0f, 0f);
     }

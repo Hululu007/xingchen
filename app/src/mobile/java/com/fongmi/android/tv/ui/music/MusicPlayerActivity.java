@@ -2261,7 +2261,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
                 && coverView != null && coverView.getDrawable() != null && cardExitView != null;
         android.graphics.drawable.Drawable oldFront = animate ? coverView.getDrawable() : null;
         loadIntoCover(coverView, cover, title);
-        loadNeighborCovers(track, title);
+        // 后叠卡是空占位卡（GZ CoverImmersivePlaceholderCard），布局已挂 bg_cover_card_back、不装封面图
         updateBackground(track);
         if (!animate || coverView == null) return;
         int dir = lastSkipDirection >= 0 ? 1 : -1;
@@ -2293,27 +2293,6 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
             wrap.animate().translationX(0f).alpha(1f).scaleX(1f).scaleY(1f)
                     .setDuration(350).setInterpolator(INTERP_EMPH).start();
         }
-    }
-
-    /** 后叠卡封面：左后＝队列上一首、右后＝队列下一首（无相邻回落当前曲封面）。 */
-    private void loadNeighborCovers(MusicTrack track, String title) {
-        if (coverBack1View == null && coverBack2View == null) return;
-        String prevCover = null;
-        String nextCover = null;
-        try {
-            List<MusicTrack> queue = MusicController.get().queue();
-            int idx = MusicController.get().index();
-            if (queue != null && idx >= 0 && idx < queue.size()) {
-                int prevIdx = MusicController.get().queuePrevIndex();
-                int nextIdx = MusicController.get().queueNextIndex();
-                if (prevIdx >= 0 && prevIdx < queue.size()) prevCover = effectiveCover(queue.get(prevIdx));
-                if (nextIdx >= 0 && nextIdx < queue.size()) nextCover = effectiveCover(queue.get(nextIdx));
-            }
-        } catch (Throwable ignored) {
-        }
-        String selfCover = effectiveCover(track);
-        if (coverBack1View != null) loadIntoCover(coverBack1View, prevCover != null ? prevCover : selfCover, title);
-        if (coverBack2View != null) loadIntoCover(coverBack2View, nextCover != null ? nextCover : selfCover, title);
     }
 
     /**

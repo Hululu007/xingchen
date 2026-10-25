@@ -21,20 +21,22 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent">
 
-            <!-- 右后卡：×0.93、旋转 +4°、偏移 (12,−14)dp（CoverStackView 布局） -->
-            <ImageView
-                android:id="@+id/tpCoverBack2"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:contentDescription="@null"
-                android:scaleType="centerCrop" />
-
             <!-- 左后卡：×0.93、旋转 −4°、偏移 (−12,−18)dp -->
             <ImageView
                 android:id="@+id/tpCoverBack1"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:contentDescription="@null"
+                android:background="@drawable/bg_cover_card_back"
+                android:scaleType="centerCrop" />
+
+            <!-- 右后卡：×0.93、旋转 +4°、偏移 (12,−14)dp（CoverStackView 布局） -->
+            <ImageView
+                android:id="@+id/tpCoverBack2"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:contentDescription="@null"
+                android:background="@drawable/bg_cover_card_back"
                 android:scaleType="centerCrop" />
 
             <!-- 出场卡层：切歌换卡 ThreeCard 出场（滑出＋淡出＋缩放→0.92），平时 gone -->

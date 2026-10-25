@@ -33,6 +33,7 @@ import androidx.media3.common.MediaMetadata;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.common.Tracks;
+import androidx.media3.common.util.StuckPlayerException;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.common.audio.AudioProcessor;
 import androidx.media3.exoplayer.DefaultRenderersFactory;
@@ -228,6 +229,8 @@ public class MusicPlaybackService extends MediaSessionService {
     private boolean failedStopNoBreakpoint;
     /** 本次「播到尾」事件是否已被消费（防 ENDED 回调与心跳看门狗重复切歌）；新轨 READY 时复位 */
     private boolean endedConsumed;
+    /** 越界看门狗计时：播放头首次越过标称时长的时刻（elapsedRealtime）；条件不成立的 tick 清零 */
+    private long overrunSinceElapsed;
     private volatile MusicAudioInfo audioInfo;
     /**
      * 当前曲实际起播直链（setMediaItem 处记、停播／取链为空时清）：只供在线位深
@@ -2288,6 +2291,17 @@ public class MusicPlaybackService extends MediaSessionService {
                 // setMediaItem＋prepare 会恢复播放器）；不置 preparing、不顶序号、不进失败计数。
                 // 只有取链不在途、或当前就是装着的那首时，报错才属于当前歌。
                 if (preparing && loadedTrack != null && queue.current() != loadedTrack) return;
+                // 卡尾错误按曲终走：STUCK_PLAYING_NOT_ENDING＝播放头已越过标称时长、
+                // 停在 READY 结不掉（真机日志实证：整首播完后挂 60 秒才抛这个错），
+                // 歌实际已经播完——不许记失败/拉黑/走失败收口，按自然曲终决策推进。
+                // 走到这里说明 ticker 越界看门狗也没接住（主线程被卡等极端情形），是最后兜底。
+                if (!endedConsumed && isStuckNotEnding(error)) {
+                    endedConsumed = true;
+                    preparing = false;
+                    SpiderDebug.log("music", "trackEnded via stuck error mode=%d", queue.getMode());
+                    onTrackEnded();
+                    return;
+                }
                 preparing = false;
                 lastFailReasonRes = R.string.music_fail_play_error;
                 onPlayFailed(loadedTrack != null ? loadedTrack : queue.current());
@@ -2307,6 +2321,15 @@ public class MusicPlaybackService extends MediaSessionService {
             if (!isPlaying) saveBreakpoint();
         }
     };
+
+    /** error 的成因链里是不是 media3 的「越过标称时长结不掉」卡尾（StuckPlayerException type=3） */
+    private static boolean isStuckNotEnding(PlaybackException error) {
+        for (Throwable t = error; t != null; t = t.getCause()) {
+            if (t instanceof StuckPlayerException stuck
+                    && stuck.stuckType == StuckPlayerException.STUCK_PLAYING_NOT_ENDING) return true;
+        }
+        return false;
+    }
 
     private void onTrackEnded() {
         // 切歌入口先顶回前台：prepareTrack 成功回调已有此补法（:1598），切歌入口
@@ -2387,6 +2410,27 @@ public class MusicPlaybackService extends MediaSessionService {
                         endedConsumed = true;
                         SpiderDebug.log("music", "trackEnded via tail watchdog mode=%d", queue.getMode());
                         onTrackEnded();
+                    }
+                    // 越界兜底（与上面卡尾兜底互补的另一半）：播放头已越过标称时长却仍停在
+                    // READY 结不掉——isPlaying() 仍为真，上面那条永远轮不到；media3 要等 60 秒
+                    // 才抛 STUCK_PLAYING_NOT_ENDING（真机日志实证整首播完后先挂 60 秒再报错停住）。
+                    // 持续越界满 1 秒就按曲终决策推进；正常曲终 ENDED 在一两 tick 内到达，走不到这里。
+                    // 用户手动暂停（playWhenReady=false）不触发，与卡尾兜底同口径。
+                    if (player != null && !preparing && !endedConsumed
+                            && player.getPlayWhenReady()
+                            && player.getPlaybackState() == Player.STATE_READY
+                            && player.getDuration() > 0
+                            && player.getCurrentPosition() >= player.getDuration()) {
+                        long nowOverrun = android.os.SystemClock.elapsedRealtime();
+                        if (overrunSinceElapsed == 0) overrunSinceElapsed = nowOverrun;
+                        if (nowOverrun - overrunSinceElapsed >= 1000) {
+                            endedConsumed = true;
+                            overrunSinceElapsed = 0;
+                            SpiderDebug.log("music", "trackEnded via overrun watchdog mode=%d", queue.getMode());
+                            onTrackEnded();
+                        }
+                    } else {
+                        overrunSinceElapsed = 0;
                     }
                 } catch (Throwable ignored) {
                 }

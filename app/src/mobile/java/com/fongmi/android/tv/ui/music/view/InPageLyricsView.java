@@ -2,9 +2,13 @@ package com.fongmi.android.tv.ui.music.view;
 
 import android.animation.ValueAnimator;
 import android.content.Context;
+import android.graphics.Bitmap;
 import android.graphics.BlurMaskFilter;
 import android.graphics.Canvas;
 import android.graphics.Paint;
+import android.graphics.PorterDuff;
+import android.graphics.PorterDuffColorFilter;
+import android.graphics.PorterDuffXfermode;
 import android.graphics.RenderEffect;
 import android.graphics.RenderNode;
 import android.graphics.Shader;
@@ -33,7 +37,8 @@ import java.util.Map;
  * 锚点：当前行块顶＋行内对齐点（lyricAnchor 设置 top/center/bottom）− 0.75×行高；
  * 淡出：上方 smoothstep（行顶/0.75×行高），下方起始 0.9×高、bottomFadeKeep 分段表（地板 0.45）；
  * 色（沉浸深色供给）：已唱 #FFEAEAEA、当前行未唱 白 0.42、非当前 白 0.30、副行 白 0.55，不带自编系数；
- * 逐字上浮 −0.09em、缓动分母 max(1100ms, 字长）；长音（≥1000ms）光晕＋放大上限 1.2＋−0.05em 浮动＋行末 400ms 拖尾；
+ * 逐字上浮 −0.09em、缓动分母 max(1100ms, 字长）；长音（≥1000ms）光晕（字形位图 extractAlpha 模糊＋已唱色
+ * 染色＋DST_OUT 掏空字形，瓜子 createGlyphEdgeGlow 配方；强度/半径走 emphasizeGlow 公式）＋放大上限 1.2＋−0.05em 浮动＋行末 400ms 拖尾；
  * 无逐字行不估已唱比例（整行按未唱色，唱过由行级已唱色承担）；
  * 逐行模糊 A 组（上 min(2+k,5)、下 min(k+1,5)）×档位系数：API 31+ 逐行 RenderNode＋
  * RenderEffect 模糊（半径 round(v×2)/2 量化、DECAL，与瓜子同机制）；低版本回落 BlurMaskFilter。
@@ -112,6 +117,23 @@ public class InPageLyricsView extends View {
     private final Map<Integer, RowNode> mRowNodes = new HashMap<>();
     private int mContentVersion;
 
+    // 长音字形边缘光晕位图缓存（瓜子 createGlyphEdgeGlow 配方：字形 alpha 模糊→已唱色染色→DST_OUT 掏空字形本体）
+    private static class GlowBmp {
+        Bitmap bmp;
+        float originX;      // 字形绘制原点在光晕位图内的 x
+        float originBase;   // 字形基线在光晕位图内的 y
+    }
+
+    private final Map<String, GlowBmp> mGlowCache = new HashMap<>();
+    private final Paint mGlowPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
+
+    private void clearGlowCache() {
+        for (GlowBmp g : mGlowCache.values()) {
+            if (g.bmp != null && !g.bmp.isRecycled()) g.bmp.recycle();
+        }
+        mGlowCache.clear();
+    }
+
     // 设置快照
     private float mFontSp = 22f;
     private int mWeight = 1;
@@ -143,6 +165,7 @@ public class InPageLyricsView extends View {
     public void reloadSettings() {
         mContentVersion++;
         mRowNodes.clear();
+        clearGlowCache();
         mFontSp = MusicPlayerSettings.getCoverLyricFontSize();
         mWeight = MusicStore.getLyricWeight();
         mAlign = MusicStore.getLyricAlign();
@@ -178,6 +201,7 @@ public class InPageLyricsView extends View {
     public void setLines(List<RichLyrics.Line> lines) {
         mContentVersion++;
         mRowNodes.clear();
+        clearGlowCache();
         mPreviewMs = null;
         mLines = lines == null ? new ArrayList<>() : lines;
         mHasTime = false;
@@ -475,13 +499,80 @@ public class InPageLyricsView extends View {
      * （easeOut，进度分母 max(1100ms, 字长）)；长音字（≥1000ms）带光晕＋放大（上限约 1.2)
      * ＋−0.05em 正弦浮动，发音结束后拖尾 400ms。
      */
+    /** 瓜子 emphasizeGlow 强度：时长秒钳 [1,8]，(秒−1)×0.045＋0.6 封 0.85；末字 ×1.1 封 0.95。 */
+    private static float emphIntensity(long durMs, boolean last) {
+        float sec = Math.max(1f, Math.min(8f, durMs / 1000f));
+        float c = Math.min(0.85f, (sec - 1f) * 0.045f + 0.6f);
+        if (last) c = Math.min(0.95f, c * 1.1f);
+        return c;
+    }
+
+    /** 瓜子 emphasizeGlow 模糊半径：(秒−1)×0.012＋0.3 封 0.5（末字 ×1.15 封 0.6），再 ×字号px。 */
+    private static float emphRadiusPx(long durMs, boolean last, float fontPx) {
+        float sec = Math.max(1f, Math.min(8f, durMs / 1000f));
+        float ratio = Math.min(0.5f, (sec - 1f) * 0.012f + 0.3f);
+        if (last) ratio = Math.min(0.6f, ratio * 1.15f);
+        return ratio * fontPx;
+    }
+
+    /**
+     * 字形边缘光晕位图（瓜子 createGlyphEdgeGlow 配方）：字形位图 extractAlpha（BlurMaskFilter NORMAL）
+     * 得模糊 alpha → 已唱色染色 → DST_OUT 掏掉字形本体，只剩边缘光晕环。
+     */
+    private GlowBmp glowFor(String word, float radiusPx, float fontPx) {
+        String key = word + "@" + Math.round(radiusPx) + "@" + Math.round(fontPx);
+        GlowBmp cached = mGlowCache.get(key);
+        if (cached != null) return cached;
+        if (mGlowCache.size() > 32) clearGlowCache();
+        GlowBmp out = new GlowBmp();
+        mGlowCache.put(key, out);
+        Paint paint = new Paint(mMainPaint);
+        paint.setColor(0xFFFFFFFF);
+        paint.setAlpha(255);
+        paint.setMaskFilter(null);
+        paint.setShadowLayer(0, 0, 0, 0);
+        Paint.FontMetrics fm = paint.getFontMetrics();
+        float tw = paint.measureText(word);
+        int pad = Math.max(8, (int) Math.ceil(radiusPx) + 4);
+        int gw = Math.max(1, (int) Math.ceil(tw) + pad * 2);
+        int gh = Math.max(1, (int) Math.ceil(fm.descent - fm.ascent) + pad * 2);
+        Bitmap glyph = Bitmap.createBitmap(gw, gh, Bitmap.Config.ARGB_8888);
+        Canvas gc = new Canvas(glyph);
+        float base = pad - fm.ascent;
+        gc.drawText(word, pad, base, paint);
+        Paint blurPaint = new Paint();
+        blurPaint.setMaskFilter(new BlurMaskFilter(Math.max(1f, radiusPx), BlurMaskFilter.Blur.NORMAL));
+        int[] offset = new int[2];
+        Bitmap alphaBmp = glyph.extractAlpha(blurPaint, offset);
+        if (alphaBmp == null) {
+            glyph.recycle();
+            return out;
+        }
+        Bitmap bmp = Bitmap.createBitmap(alphaBmp.getWidth(), alphaBmp.getHeight(), Bitmap.Config.ARGB_8888);
+        Canvas oc = new Canvas(bmp);
+        Paint tint = new Paint(Paint.FILTER_BITMAP_FLAG);
+        tint.setColorFilter(new PorterDuffColorFilter(COLOR_SUNG, PorterDuff.Mode.SRC_IN));
+        oc.drawBitmap(alphaBmp, 0, 0, tint);
+        Paint cut = new Paint();
+        cut.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.DST_OUT));
+        oc.drawBitmap(glyph, offset[0], offset[1], cut);
+        alphaBmp.recycle();
+        glyph.recycle();
+        out.bmp = bmp;
+        out.originX = offset[0] + pad;
+        out.originBase = offset[1] + base;
+        return out;
+    }
+
     private void drawCurrentLine(Canvas canvas, LyricsLine main, long now, float fade, float baseline) {
         List<LyricsWord> words = main.getWords();
         String text = main.getText();
         float x = alignX(text, mMainPaint);
         long lineStart = main.getTimeMs();
         float em = mFontSp * mScaled;
-        for (LyricsWord word : words) {
+        for (int wi = 0; wi < words.size(); wi++) {
+            LyricsWord word = words.get(wi);
+            boolean isLastWord = wi == words.size() - 1;
             String wt = word.getText();
             float ww = mMainPaint.measureText(wt);
             long ws = lineStart + word.getStartOffsetMs();
@@ -515,12 +606,18 @@ public class InPageLyricsView extends View {
             mMainPaint.setAlpha(Math.round(255 * ALPHA_CUR_UNSUNG * fade));
             mMainPaint.setShadowLayer(0, 0, 0, 0);
             canvas.drawText(wt, x, baseline + lift + floatY, mMainPaint);
+            // 长音光晕：字形边缘光晕位图垫在已唱字之下（瓜子 createGlyphEdgeGlow＋emphasizeGlow）
+            if (emph > 0f) {
+                GlowBmp glow = glowFor(wt, emphRadiusPx(wd, isLastWord, em), em);
+                if (glow.bmp != null) {
+                    mGlowPaint.setAlpha(Math.round(255 * fade * emphIntensity(wd, isLastWord) * emph));
+                    canvas.drawBitmap(glow.bmp, x - glow.originX,
+                            (baseline + lift + floatY) - glow.originBase, mGlowPaint);
+                }
+            }
             if (p > 0f) {
                 mMainPaint.setColor(COLOR_SUNG);
                 mMainPaint.setAlpha(Math.round(255 * fade));
-                if (emph > 0f) {
-                    mMainPaint.setMaskFilter(new BlurMaskFilter(dp(6) * emph, BlurMaskFilter.Blur.OUTER));
-                }
                 canvas.save();
                 canvas.clipRect(x, baseline - em * 1.6f + lift + floatY, x + ww * p, baseline + em * 0.6f + lift + floatY);
                 canvas.drawText(wt, x, baseline + lift + floatY, mMainPaint);

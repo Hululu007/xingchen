@@ -2,8 +2,7 @@ package com.fongmi.android.tv.utils;
 
 import android.graphics.Bitmap;
 import android.graphics.Color;
-
-import androidx.palette.graphics.Palette;
+import android.graphics.Rect;
 
 /**
  * 用途：从专辑封面提取主色与氛围底色，供音乐播放页整页取色（纯静态工具，无状态、无缓存）。
@@ -62,51 +61,23 @@ public final class CoverColor {
     }
 
     /**
-     * CD 链取色（GZ CoverAmbientKt 函数 o 口径，smali 深挖 §15.2 第 18 项——CD 链只走 o，
-     * 与氛围页的 e 路是两条路，勿混）：单次全图量化（无下半区加权），HSL 口径过滤
+     * CD 链取色（GZ CoverAmbientKt 函数 o 本体，2026-10-26 jadx 复读）：iq5 量化 24 色
+     * （GzQuantizer 逐行移植、过滤器表已清＝无颜色过滤）后在色板上选：HSL 口径过滤
      * 明度 L∈[0.05,0.95]；饱和子集（S≥0.06）人口占比 ≥12% 时走色相分桶打分选色，
      * 占比不足回落过滤集人口最大者，过滤集为空回落量化主导色。
      * 返回的是未归一的单色，调用方再过 toneAdjust（GZ 的 d()）得 tone。
      * 同步方法，请在后台线程调用。
      */
     public static int cdToneColor(Bitmap bmp) {
-        Bitmap small = prepare(bmp);
-        if (small == null) return FALLBACK_COLOR;
-        try {
-            return pickCdTone(small);
-        } finally {
-            if (small != bmp) small.recycle();
-        }
+        if (bmp == null || bmp.isRecycled() || bmp.getWidth() < 1 || bmp.getHeight() < 1) return FALLBACK_COLOR;
+        return pickCdTone(bmp);
     }
 
     private static int pickCdTone(Bitmap bmp) {
-        int w = bmp.getWidth();
-        int h = bmp.getHeight();
-        int[] pixels = new int[w * h];
-        bmp.getPixels(pixels, 0, w, 0, 0, w, h);
-        java.util.HashMap<Integer, Bucket> buckets = new java.util.HashMap<>();
-        for (int i = 0; i < pixels.length; i++) {
-            int pixel = pixels[i];
-            if (Color.alpha(pixel) < MIN_ALPHA) continue;
-            int r = Color.red(pixel);
-            int g = Color.green(pixel);
-            int b = Color.blue(pixel);
-            int key = (quantKey(r) << 10) | (quantKey(g) << 5) | quantKey(b);
-            Bucket bucket = buckets.get(key);
-            if (bucket == null) {
-                bucket = new Bucket();
-                buckets.put(key, bucket);
-            }
-            bucket.weight += 1.0d;
-            bucket.rSum += r;
-            bucket.gSum += g;
-            bucket.bSum += b;
-        }
-        if (buckets.isEmpty()) return FALLBACK_COLOR;
+        GzQuantizer.Result res = GzQuantizer.quantize(bmp, 24, null);
+        if (res.swatches.isEmpty()) return FALLBACK_COLOR;
 
-        float[] hsl = new float[3];
-        int dominantColor = FALLBACK_COLOR;
-        double dominantPop = -1;
+        int dominantColor = res.dominant != null ? res.dominant.rgb : FALLBACK_COLOR;
         int filteredBestColor = FALLBACK_COLOR;
         double filteredBestPop = -1;
         double filteredPop = 0;
@@ -115,28 +86,21 @@ public final class CoverColor {
         int[] bucketBestColor = new int[12];
         double[] bucketBestInner = new double[12];
         for (int i = 0; i < 12; i++) bucketBestInner[i] = -1;
-        for (Bucket bucket : buckets.values()) {
-            if (bucket.weight <= 0) continue;
-            int r = clamp255(Math.round((float) (bucket.rSum / bucket.weight)));
-            int g = clamp255(Math.round((float) (bucket.gSum / bucket.weight)));
-            int b = clamp255(Math.round((float) (bucket.bSum / bucket.weight)));
-            int color = Color.rgb(r, g, b);
-            if (bucket.weight > dominantPop) {
-                dominantPop = bucket.weight;
-                dominantColor = color;
-            }
-            rgbToHsl(r, g, b, hsl);
+        for (GzQuantizer.Swatch sw : res.swatches) {
+            double weight = sw.population;
+            int color = sw.rgb;
+            float[] hsl = sw.hsl();
             float hue = hsl[0];
             float sat = hsl[1];
             float light = hsl[2];
             if (light < 0.05f || light > 0.95f) continue;
-            filteredPop += bucket.weight;
-            if (bucket.weight > filteredBestPop) {
-                filteredBestPop = bucket.weight;
+            filteredPop += weight;
+            if (weight > filteredBestPop) {
+                filteredBestPop = weight;
                 filteredBestColor = color;
             }
             if (sat < 0.06f) continue;
-            saturatedPop += bucket.weight;
+            saturatedPop += weight;
             // 桶分累加：人口 × min(0.53×min(S,0.6)＋0.68, 1.0) × 目标盒因子
             // （盒内：色相 12–58°、S∈[0.1,0.58]、L∈[0.16,0.84] → 1.0，否则 0.78）
             double weightPer = Math.min(0.53d * Math.min(sat, 0.6f) + 0.68d, 1.0d);
@@ -144,11 +108,11 @@ public final class CoverColor {
                     && sat >= 0.1f && sat <= 0.58f
                     && light >= 0.16f && light <= 0.84f;
             int hb = hueBucketIndex(hue);
-            bucketScore[hb] += bucket.weight * weightPer * (inBox ? 1.0d : 0.78d);
+            bucketScore[hb] += weight * weightPer * (inBox ? 1.0d : 0.78d);
             // 桶内胜出：人口 ×(0.88＋0.12S) × 明度因子（[0.22,0.78]→1.0、[0.12,0.88]→0.82、其余 0.55）
             double lightFactor = (light >= 0.22f && light <= 0.78f) ? 1.0d
                     : (light >= 0.12f && light <= 0.88f) ? 0.82d : 0.55d;
-            double inner = bucket.weight * (0.88d + 0.12d * sat) * lightFactor;
+            double inner = weight * (0.88d + 0.12d * sat) * lightFactor;
             if (inner > bucketBestInner[hb]) {
                 bucketBestInner[hb] = inner;
                 bucketBestColor[hb] = color;
@@ -178,10 +142,9 @@ public final class CoverColor {
      * HSL 过滤 L∈[0.06,0.92]、S≥0.1 后按色相 12 桶汇总打分（人口×(S≥0.12?1:0.6)×暖色盒 0.3），
      * 胜桶内按 t 分（(log(人口+1)×0.15+1)×人口×饱和因子×明度因子）取最大；
      * 无候选时回落 L 过滤集人口最大者，再回落全图趟主导色。
-     * accent：e 色 HSV 饱和＜0.1 时取 o 路（cdToneColor）的色，其 HSV 饱和≥0.15 才算数
-     * （cdToneColor 内部把图缩到 ≤96 再量化，瓜子是 128 直入，人口分布有微差、选色结果绝大多数一致）。
-     * 量化器 iq5 是 androidx Palette 量化器的着色版（jq5＝Palette Swatch 本体，b()＝HSL），
-     * 这里直接用 Palette 同算法：同色数、同区域、不缩放输入。同步方法，后台线程调用。
+     * accent：e 色 HSV 饱和＜0.1 时取 o 路（cdToneColor）的色，其 HSV 饱和≥0.15 才算数。
+     * 量化器 iq5 已逐行移植为 GzQuantizer（含其内部 12544 面积缩放与盒切分），
+     * 与瓜子同图同结果，不再经 androidx Palette。同步方法，后台线程调用。
      */
     public static int shellBaseColor(Bitmap bmp) {
         if (bmp == null || bmp.isRecycled() || bmp.getWidth() < 1 || bmp.getHeight() < 1) return FALLBACK_COLOR;
@@ -201,40 +164,37 @@ public final class CoverColor {
     private static int pickShellColor(Bitmap bmp) {
         int w = bmp.getWidth();
         int h = bmp.getHeight();
-        Palette full = new Palette.Builder(bmp).maximumColorCount(24)
-                .resizeBitmapArea(Integer.MAX_VALUE).generate();
+        GzQuantizer.Result full = GzQuantizer.quantize(bmp, 24, null);
         int lowerTop = Math.max(0, Math.min(h - 1, (int) (h * 0.45f)));
-        Palette lower = new Palette.Builder(bmp).maximumColorCount(24)
-                .resizeBitmapArea(Integer.MAX_VALUE)
-                .setRegion(0, lowerTop, w, h).generate();
+        GzQuantizer.Result lower = GzQuantizer.quantize(bmp, 24, new Rect(0, lowerTop, w, h));
         // 按色合并两趟人口（权重 1.0 / 1.35）
         java.util.LinkedHashMap<Integer, float[]> merged = new java.util.LinkedHashMap<>();
-        java.util.HashMap<Integer, Palette.Swatch> byRgb = new java.util.HashMap<>();
-        for (Palette.Swatch s : full.getSwatches()) {
-            merged.put(s.getRgb(), new float[]{s.getPopulation()});
-            byRgb.put(s.getRgb(), s);
+        java.util.HashMap<Integer, float[]> hslByRgb = new java.util.HashMap<>();
+        for (GzQuantizer.Swatch s : full.swatches) {
+            merged.put(s.rgb, new float[]{s.population});
+            hslByRgb.put(s.rgb, s.hsl());
         }
-        for (Palette.Swatch s : lower.getSwatches()) {
-            float[] cur = merged.get(s.getRgb());
+        for (GzQuantizer.Swatch s : lower.swatches) {
+            float[] cur = merged.get(s.rgb);
             if (cur == null) {
-                merged.put(s.getRgb(), new float[]{s.getPopulation() * 1.35f});
-                byRgb.put(s.getRgb(), s);
+                merged.put(s.rgb, new float[]{s.population * 1.35f});
+                hslByRgb.put(s.rgb, s.hsl());
             } else {
-                cur[0] += s.getPopulation() * 1.35f;
+                cur[0] += s.population * 1.35f;
             }
         }
         if (merged.isEmpty()) return FALLBACK_COLOR;
         // HSL 过滤：L∈[0.06,0.92]
         java.util.ArrayList<Integer> lightOk = new java.util.ArrayList<>();
         for (java.util.Map.Entry<Integer, float[]> e : merged.entrySet()) {
-            float l = byRgb.get(e.getKey()).getHsl()[2];
+            float l = hslByRgb.get(e.getKey())[2];
             if (l >= 0.06f && l <= 0.92f) lightOk.add(e.getKey());
         }
         // S≥0.1 子集 → 色相分桶打分
         double[] bucketTotals = new double[12];
         boolean anySat = false;
         for (int rgb : lightOk) {
-            float[] hsl = byRgb.get(rgb).getHsl();
+            float[] hsl = hslByRgb.get(rgb);
             if (hsl[1] < 0.1f) continue;
             anySat = true;
             double score = merged.get(rgb)[0] * (hsl[1] >= 0.12f ? 1.0 : 0.6);
@@ -256,7 +216,7 @@ public final class CoverColor {
             int bestRgb = 0;
             float bestT = -1f;
             for (int rgb : lightOk) {
-                float[] hsl = byRgb.get(rgb).getHsl();
+                float[] hsl = hslByRgb.get(rgb);
                 if (hsl[1] < 0.1f || hueBucketIndex(hsl[0]) != bestBucket) continue;
                 float t = shellTScore(merged.get(rgb)[0], hsl[1], hsl[2]);
                 if (t > bestT) {
@@ -279,8 +239,7 @@ public final class CoverColor {
             }
             return bestRgb;
         }
-        Palette.Swatch dom = full.getDominantSwatch();
-        return dom != null ? dom.getRgb() : FALLBACK_COLOR;
+        return full.dominant != null ? full.dominant.rgb : FALLBACK_COLOR;
     }
 
     /** GZ t() 打分：(log(人口+1)×0.15+1)×人口 × 饱和因子（[0.12,0.55]→1.25、(0.55,0.85]→1.1、其余 0.9）× 明度因子（[0.25,0.72]→1.2、[0.15,0.85]→1.0、其余 0.55），HSL 口径（smali 亲验）。 */
@@ -322,29 +281,6 @@ public final class CoverColor {
         float vf = val >= 0.75f ? 0.4f : val >= 0.55f ? 0.48f : val >= 0.35f ? 0.58f : 0.78f;
         float newVal = clampFloat(val * vf, 0.18f, 0.5f);
         return Color.HSVToColor(new float[]{hue, newSat, newVal});
-    }
-
-    /** RGB→HSL（h∈[0,360)、s/l∈[0,1]）：手写公式，不依赖 Color.colorToHSL（验证脚手架的 android.jar 桩无此方法）。 */
-    private static void rgbToHsl(int r255, int g255, int b255, float[] out) {
-        float r = r255 / 255f;
-        float g = g255 / 255f;
-        float b = b255 / 255f;
-        float max = Math.max(r, Math.max(g, b));
-        float min = Math.min(r, Math.min(g, b));
-        float l = (max + min) / 2f;
-        float h = 0f;
-        float s = 0f;
-        if (max != min) {
-            float d = max - min;
-            s = l > 0.5f ? d / (2f - max - min) : d / (max + min);
-            if (max == r) h = (g - b) / d + (g < b ? 6f : 0f);
-            else if (max == g) h = (b - r) / d + 2f;
-            else h = (r - g) / d + 4f;
-            h *= 60f;
-        }
-        out[0] = h;
-        out[1] = s;
-        out[2] = l;
     }
 
     /** 返回氛围底色：主色向黑色混 0.55 的压暗版，供整页底色。 */

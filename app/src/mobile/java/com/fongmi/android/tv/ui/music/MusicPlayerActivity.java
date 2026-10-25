@@ -98,6 +98,7 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
     private Boolean mPlayingUi;
     private int mLastDir = 1;
     private boolean mFirstBind = true;
+    private android.animation.ValueAnimator mTitleSizeAnim;
 
     private final Runnable mTick = new Runnable() {
         @Override
@@ -177,6 +178,7 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
         mCoverBackSpring.cancel();
         mFavBackSpring.cancel();
         if (mLyricDimAnim != null) mLyricDimAnim.cancel();
+        if (mTitleSizeAnim != null) mTitleSizeAnim.cancel();
         MusicController.get().removeListener(this);
         super.onDestroy();
     }
@@ -430,20 +432,51 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
         boolean wasFirst = mFirstBind;
         mFirstBind = false;
 
-        // 歌名切换动画：出 fadeOut 150/bs4.c → 换字 → 入 fadeIn＋尺寸 200/bs4.e
+        // 歌名切换（瓜子 AnimatedSongText）：出 fadeOut 150/bs4.c → 换字 → 入 fadeIn 200/bs4.e
+        // ＋尺寸动画 200/bs4.e（SizeTransform：文本块宽度由旧宽动画到新宽，单行标题高度恒定、
+        // 尺寸变化只体现在宽度上，这里落为宽度剪裁动画）
         final String title = TextUtils.isEmpty(track.displayTitle()) ? "未在播放" : track.displayTitle();
+        if (mTitleSizeAnim != null) {
+            mTitleSizeAnim.cancel();
+            mTitle.setClipBounds(null);
+        }
         if (wasFirst) {
             mTitle.setText(title);
         } else {
+            final int availW = mTitle.getWidth();
+            final float padW = mTitle.getPaddingLeft() + mTitle.getPaddingRight();
+            final int fromW = availW > 0
+                    ? Math.min((int) Math.ceil(mTitle.getPaint().measureText(mTitle.getText().toString()) + padW), availW)
+                    : (int) Math.ceil(mTitle.getPaint().measureText(mTitle.getText().toString()) + padW);
             mTitle.animate().alpha(0f).setDuration(150).setInterpolator(BS4_C)
                     .withEndAction(() -> {
                         mTitle.setText(title);
-                        mTitle.setScaleX(0.94f);
-                        mTitle.setScaleY(0.94f);
-                        mTitle.setPivotX(0f);
-                        mTitle.setPivotY(mTitle.getHeight() / 2f);
-                        mTitle.animate().alpha(1f).scaleX(1f).scaleY(1f)
-                                .setDuration(200).setInterpolator(BS4_E).start();
+                        float textW = mTitle.getPaint().measureText(title) + padW;
+                        final int newW = availW > 0 ? Math.min((int) Math.ceil(textW), availW) : (int) Math.ceil(textW);
+                        final int height = mTitle.getHeight();
+                        mTitle.animate().alpha(1f).setDuration(200).setInterpolator(BS4_E).start();
+                        if (height > 0 && fromW != newW) {
+                            mTitleSizeAnim = android.animation.ValueAnimator.ofInt(fromW, newW);
+                            mTitleSizeAnim.setDuration(200);
+                            mTitleSizeAnim.setInterpolator(BS4_E);
+                            mTitleSizeAnim.addUpdateListener(a -> {
+                                if (mTitle == null) return;
+                                mTitle.setClipBounds(new android.graphics.Rect(
+                                        0, 0, (int) a.getAnimatedValue(), height));
+                            });
+                            mTitleSizeAnim.addListener(new android.animation.AnimatorListenerAdapter() {
+                                @Override
+                                public void onAnimationEnd(android.animation.Animator animation) {
+                                    if (mTitle != null) mTitle.setClipBounds(null);
+                                }
+
+                                @Override
+                                public void onAnimationCancel(android.animation.Animator animation) {
+                                    if (mTitle != null) mTitle.setClipBounds(null);
+                                }
+                            });
+                            mTitleSizeAnim.start();
+                        }
                     }).start();
         }
         mArtist.setText(track.displayArtist());
@@ -598,6 +631,9 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
     }
 
     private void refreshChips() {
+        // 本地旗（瓜子 z50）：本地曲音质筹改标「本地」且不可点
+        mScrubber.setLocalTrack(mTrack != null
+                && com.fongmi.android.tv.music.MusicDownloadStore.isLocal(mTrack));
         // 音质筹只报真实音质（他的口径：取不到就不显示，永不拿所选档名垫场）
         String q = "";
         try {

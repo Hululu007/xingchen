@@ -75,6 +75,7 @@ public class ClassicScrubberView extends View {
     private ValueAnimator mShrinkAnim;
 
     private String mQualityLabel = "";
+    private boolean mLocalTrack;
     private String mLyricLabel = "";
     private Listener mListener;
 
@@ -128,6 +129,17 @@ public class ClassicScrubberView extends View {
         mQualityLabel = qualityLabel == null ? "" : qualityLabel;
         mLyricLabel = lyricLabel == null ? "" : lyricLabel;
         invalidate();
+    }
+
+    /** 本地文件（瓜子 z50 本地旗）：音质筹改标「本地」且不可点（无音质可切），歌词筹不受影响。 */
+    public void setLocalTrack(boolean local) {
+        if (mLocalTrack == local) return;
+        mLocalTrack = local;
+        invalidate();
+    }
+
+    private String qualityText() {
+        return mLocalTrack ? "本地" : mQualityLabel;
     }
 
     public void setPlaying(boolean playing) {
@@ -289,14 +301,15 @@ public class ClassicScrubberView extends View {
         mChipTop = (topBoxH - chipH) / 2f;
         mChipBottom = mChipTop + chipH;
         float gap = dp(6);
-        float qW = mQualityLabel.isEmpty() ? 0 : mChipTextPaint.measureText(mQualityLabel) + dp(24);
+        String qText = qualityText();
+        float qW = qText.isEmpty() ? 0 : mChipTextPaint.measureText(qText) + dp(24);
         float lW = mLyricLabel.isEmpty() ? 0 : mChipTextPaint.measureText(mLyricLabel) + dp(24);
         float total = qW + (qW > 0 && lW > 0 ? gap : 0) + lW;
         float x = (w - total) / 2f;
         if (qW > 0) {
             mQualityChipL = x;
             mQualityChipR = x + qW;
-            drawChip(canvas, mQualityChipL, mQualityChipR, mQualityLabel);
+            drawChip(canvas, mQualityChipL, mQualityChipR, qText);
             x += qW + gap;
         } else {
             mQualityChipL = mQualityChipR = -1;
@@ -396,8 +409,9 @@ public class ClassicScrubberView extends View {
         float x = e.getX(), y = e.getY();
         switch (e.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
-                mDownOnChip = mRevealed && y <= mChipBottom + dp(4)
-                        && ((x >= mQualityChipL && x <= mQualityChipR && mQualityChipR > 0)
+                // 筹可点门（瓜子 z52/z54）：唤出动画值 >0.5 才算启用；音质筹另有本地旗（本地时不可点）
+                mDownOnChip = mRevealed && mRevealA > 0.5f && y <= mChipBottom + dp(4)
+                        && (((x >= mQualityChipL && x <= mQualityChipR && mQualityChipR > 0) && !mLocalTrack)
                         || (x >= mLyricChipL && x <= mLyricChipR && mLyricChipR > 0));
                 if (mDownOnChip) return true;
                 if (mDuration <= 0) return true;
@@ -429,7 +443,7 @@ public class ClassicScrubberView extends View {
             case MotionEvent.ACTION_UP:
                 if (mDownOnChip) {
                     if (mListener != null) {
-                        if (x >= mQualityChipL && x <= mQualityChipR && mQualityChipR > 0) {
+                        if (x >= mQualityChipL && x <= mQualityChipR && mQualityChipR > 0 && !mLocalTrack) {
                             mListener.onQualityChip();
                         } else if (x >= mLyricChipL && x <= mLyricChipR && mLyricChipR > 0) {
                             mListener.onLyricChip();

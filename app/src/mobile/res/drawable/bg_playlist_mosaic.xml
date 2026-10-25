@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- 歌单马赛克底：圆角 12dp（与本页行封面圆角同值），缺格露浅灰；只在马赛克态挂上，图标态不挂（彩色圆盘外不露灰角）。 -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="rectangle">
-    <solid android:color="#E9E9EE" />
-    <corners android:radius="12dp" />
-</shape>

@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- 全域玻璃件·选中筹（与 bg_music_glass_chip 同语言：半透渐变＋描边高光、圆角 18dp；
-     源横排 chips 选中态用本 App 强调红的淡玻璃染色，未选中走 bg_music_glass_chip）。 -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <gradient android:angle="270" android:startColor="#33FA243C" android:endColor="#1AFA243C" />
-    <corners android:radius="18dp" />
-    <stroke android:width="1dp" android:color="#4DFA243C" />
-</shape>

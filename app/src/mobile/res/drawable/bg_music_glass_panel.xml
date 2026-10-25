@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- 面板族液态玻璃底（批 4，2026-10-24 玻璃全域口径）：半透明白渐变＋白描边边缘高光，上圆角 16dp
-     （GlassBottomSheetKt:158 实读＝16/16/0）。真毛玻璃需 View 层模糊，此处为静态近似
-     （同 card_music_glass_24 先例）；底色不许纯白——透出下层播放页暗色即磨砂感。 -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <gradient android:angle="270" android:startColor="#F2FFFFFF" android:endColor="#D6FFFFFF" />
-    <corners android:topLeftRadius="16dp" android:topRightRadius="16dp" />
-    <stroke android:width="1dp" android:color="#99FFFFFF" />
-</shape>

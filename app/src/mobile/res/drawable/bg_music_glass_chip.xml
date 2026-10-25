@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- 全域玻璃件·快捷片（批 5 F1）：与批 4 bg_music_glass_* 同语言（半透明白渐变＋白描边高光），
-     圆角 18dp；首页五快捷与后续列表族筹片共用，阴影由代码侧 elevation 落。 -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <gradient android:angle="270" android:startColor="#D9FFFFFF" android:endColor="#B3FFFFFF" />
-    <corners android:radius="18dp" />
-    <stroke android:width="1dp" android:color="#80FFFFFF" />
-</shape>

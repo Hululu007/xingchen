@@ -112,6 +112,12 @@
                             android:src="@drawable/ic_music_heart"
                             android:tint="#FFFFFF" />
 
+                    </TableRow>
+
+                    <TableRow
+                        android:layout_width="match_parent"
+                        android:layout_height="22dp">
+
                         <TextView
                             android:id="@+id/tpAlbum"
                             android:layout_width="wrap_content"

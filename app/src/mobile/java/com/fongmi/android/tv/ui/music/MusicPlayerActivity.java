@@ -431,11 +431,6 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         MusicController.get().removeListener(listener);
         MusicController.get().unbind();
         if (ambientAnimator != null) ambientAnimator.cancel();
-        // 暂停呼吸是无限循环动画，不取消会经 AnimationHandler 常驻、持住已销毁的本页
-        if (playBreathAnimator != null) {
-            playBreathAnimator.cancel();
-            playBreathAnimator = null;
-        }
         if (cdCollapseAnimator != null) cdCollapseAnimator.cancel();
         if (cdToneAnimator != null) cdToneAnimator.cancel();
         cancelCoverScaleSpring();
@@ -2005,21 +2000,10 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
             playTopView.setPadding(p, p, p, p);
         });
         padAnim.start();
-        // 暂停态呼吸（§1 playBreath 0.28→1.0、800ms）：仅暂停态跑，播放态停并复位
-        if (playBreathAnimator != null) {
-            playBreathAnimator.cancel();
-            playBreathAnimator = null;
-        }
-        if (!value) {
-            playTopView.setAlpha(0.28f);
-            playBreathAnimator = android.animation.ObjectAnimator.ofFloat(playTopView, "alpha", 0.28f, 1.0f);
-            playBreathAnimator.setDuration(800);
-            playBreathAnimator.setRepeatCount(ValueAnimator.INFINITE);
-            playBreathAnimator.setRepeatMode(ValueAnimator.REVERSE);
-            playBreathAnimator.start();
-        } else {
-            playTopView.setAlpha(1f);
-        }
+        // playBreath 不挂这里：smali 深挖定死它只属「加载态『取消加载』图标的白色 tint alpha」
+        // （§15.1 第 10 项），旧批误挂到暂停态播放键的整键 alpha 呼吸已摘除；
+        // 星辰 UI 层无加载信号（§13.3 第 1 项），本体不落码。
+        playTopView.setAlpha(1f);
     }
 
     private void onProgressUi(long position, long duration) {

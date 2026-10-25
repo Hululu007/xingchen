@@ -194,11 +194,18 @@ public class MusicSourceManager {
         return null;
     }
 
+    /** 在线脚本缓存的探新间隔：缓存比这旧就进桥前探一次远端版本（探新失败照常用缓存） */
+    private static final long JS_CACHE_TTL_MS = 24 * 60 * 60 * 1000L;
+    /** 脚本内版本号（FreeJS 导出 version 字段形态：version: "1.1.0"／"version": "…"） */
+    private static final Pattern SCRIPT_VERSION = Pattern.compile("version\\s*[:=]\\s*[\"']([0-9][^\"']*)[\"']");
+
     /**
      * 取脚本原文：本地装的读文件；在线装的优先读落盘缓存，缺了才下载并写缓存
      * （桥重建不再每次走网络——第十件实测下载是冷启大头之一）。
-     * 缓存只由 applyUpdate 失效（插件更新必须拿新脚本）；checkUpdate 直调
-     * downloadJs 不经这里，查更新语义不受影响。
+     * 缓存除 applyUpdate 手动失效外，还有版本感知探新（见 refreshCachedJs）：
+     * 托管脚本在服务端升版（如油管源加登录声明）时，老缓存若永不失效，
+     * 装了新版 App 也永远读旧脚本，新能力（如 loginProvider 声明）到不了桥。
+     * checkUpdate 直调 downloadJs 不经这里，查更新语义不受影响。
      */
     private String readJs(MusicSite site) throws Exception {
         if (isLocal(site)) {
@@ -208,9 +215,14 @@ public class MusicSourceManager {
         }
         File cache = jsCacheFile(site.srcUrl);
         if (cache != null && cache.isFile() && cache.length() > 0) {
+            String cached = null;
             try {
-                return readTextFile(cache);
+                cached = readTextFile(cache);
             } catch (Throwable ignored) {
+            }
+            if (cached != null) {
+                if (!jsCacheStale(cache)) return cached;
+                return refreshCachedJs(site, cache, cached);
             }
         }
         String js = downloadJs(site.srcUrl);
@@ -221,6 +233,71 @@ public class MusicSourceManager {
             }
         }
         return js;
+    }
+
+    /**
+     * 缓存是否过期：落盘超过探新间隔，或 App 在缓存落盘之后更新过
+     * （装新版后第一次建桥必探新——托管脚本与 App 配套升级时不许还读旧脚本）。
+     */
+    private boolean jsCacheStale(File cache) {
+        long written = cache.lastModified();
+        if (System.currentTimeMillis() - written > JS_CACHE_TTL_MS) return true;
+        return written < appLastUpdateTime();
+    }
+
+    private static long appLastUpdateTime() {
+        try {
+            return App.get().getPackageManager()
+                    .getPackageInfo(App.get().getPackageName(), 0).lastUpdateTime;
+        } catch (Throwable t) {
+            return 0;
+        }
+    }
+
+    /**
+     * 版本感知探新：重下远端脚本，脚本内版本号高于缓存才换（换前先过格式判据，
+     * 免得错误页/坏脚本把能用的缓存顶掉）；版本号读不到时同样以远端为准
+     * （落雪脚本多无 version 字段，作者升版只能靠探）。探新/下载失败、
+     * 远端不比缓存新，一律照常用缓存，只把缓存时间往后推一格，
+     * 免得每次建桥都重下。返回本次建桥要用的脚本原文。
+     */
+    private String refreshCachedJs(MusicSite site, File cache, String cached) {
+        String fresh;
+        try {
+            fresh = downloadJs(site.srcUrl);
+        } catch (Throwable t) {
+            return cached;
+        }
+        if (TextUtils.isEmpty(fresh) || detectFormat(fresh) == null) {
+            touchJsCache(cache);
+            return cached;
+        }
+        String oldV = scriptVersion(cached);
+        String newV = scriptVersion(fresh);
+        if (oldV != null && newV != null && compareVersion(newV, oldV) <= 0) {
+            touchJsCache(cache);
+            return cached;
+        }
+        try (FileOutputStream out = new FileOutputStream(cache)) {
+            out.write(fresh.getBytes("UTF-8"));
+        } catch (Throwable ignored) {
+        }
+        SpiderDebug.log("music", "插件脚本已按版本刷新 site=%s %s -> %s", site.name, oldV, newV);
+        return fresh;
+    }
+
+    private static void touchJsCache(File cache) {
+        try {
+            cache.setLastModified(System.currentTimeMillis());
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 脚本内声明的版本号（取首个 version 字段）；读不到返回 null */
+    private static String scriptVersion(String js) {
+        if (TextUtils.isEmpty(js)) return null;
+        java.util.regex.Matcher m = SCRIPT_VERSION.matcher(js);
+        return m.find() ? m.group(1).trim() : null;
     }
 
     private static String readTextFile(File f) throws Exception {

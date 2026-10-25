@@ -903,8 +903,8 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
 
     /** 外观子面板（A4＋批 4）：头“外观设置”，分区“背景动效”——
      * “动态流体背景”开关（开时说明行显隐）＋“流动速度”三档（慢速／标准／快速，§0 倍率 0.6/1.0/2.5，
-     * 写 MusicPlayerSettings 流体速度键、经 onAppearanceChanged 下发批 3 的 FluidCoverAmbientView.setSpeed）
-     * ＋“高级动效”开关（星辰现行键 music_advanced_fx，与歌词子面板同一键、同一语义，不另造键）。
+     * 写 MusicPlayerSettings 流体速度键、经 onAppearanceChanged 下发批 3 的 FluidCoverAmbientView.setSpeed）。
+     * 本单摘行：「高级动效」行从本面板摘除（瓜子外观段无此行；同键行只留歌词子面板一处，键不动）。
      * 批 7 摘行：「音乐律动」行已摘——键 music_rhythm 全树无读取方（批 6 全键核对查实），是假开关；
      * 键与存量值保留不动（MusicStore 本体未动），只摘 UI 行。 */
     private void buildAppearancePanel() {
@@ -1253,8 +1253,8 @@ public class MusicToolsSheetDialog extends BaseBottomSheetDialog {
 
     // ================= 定时子面板 =================
 
-    /** 睡眠子面板（GZ Sleep 网格形态）：状态行（18sp/800/高字）＋预设 3 列网格＋「播完本首再停」开关
-     * ＋「本首结束」chip＋自定义分钟行＋独立「关闭」钮；
+    /** 睡眠子面板（GZ Sleep 网格形态）：状态行（18sp/800/高字，右侧同排「关闭」钮）＋预设 3 列网格＋「播完本首再停」开关
+     * ＋「本首结束」chip＋自定义分钟行；
      * 档位＝瓜子预设（10/20/30/40/60/90）＋关／播完这首／自定义分钟（服务侧任意分钟计时链，见 MusicPlaybackService 编码档）；
      * 状态行文案按 GZ 剩余标签：未开启／本首结束后停止／定时仅 m:ss（无档名前缀）。
      * D3：分钟档＋播完再停是一组（开关存 MusicStore，服务到点时现读），与 SLEEP_AFTER_CURRENT 独立模式

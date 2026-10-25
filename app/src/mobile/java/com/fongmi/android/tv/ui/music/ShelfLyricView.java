@@ -176,6 +176,12 @@ public class ShelfLyricView extends View {
         invalidate();
     }
 
+    private static int withAlphaOf(int color, float factor) {
+        int a = Math.round(android.graphics.Color.alpha(color) * factor);
+        return android.graphics.Color.argb(a, android.graphics.Color.red(color),
+                android.graphics.Color.green(color), android.graphics.Color.blue(color));
+    }
+
     /** palette：sung＝h0（宿主已混 Ink 0.65）、inactive＝ShelfMuted（宿主给）。 */
     public void setPaletteColors(int sung, int inactive) {
         sungColor = sung;
@@ -363,8 +369,10 @@ public class ShelfLyricView extends View {
             float blurDp = blurRadiusDpFor(current);
             android.graphics.BlurMaskFilter blur = blurDp > 0
                     ? new android.graphics.BlurMaskFilter(blurDp * density, android.graphics.BlurMaskFilter.Blur.NORMAL) : null;
-            mainPaint.setColor(current ? sungColor : inactiveColor);
-            mainPaint.setAlpha(Math.round(255f * fade * (current ? 1f : 0.5f)));
+            // 调色直接用宿主 palette 四值（RecordShelfPlayerKt.java:335）：当前主行 sung、非当前主行 sung×0.48、
+            // 当前副行 ShelfMuted×0.72、非当前副行 ShelfMuted——原自设叠乘（主行非当前 ×0.5、副行当前 ×0.72/非当前 ×0.5）摘除。
+            mainPaint.setColor(current ? sungColor : withAlphaOf(sungColor, 0.48f));
+            mainPaint.setAlpha(Math.round(255f * fade));
             mainPaint.setMaskFilter(blur);
             String text = lines.get(i).getText() == null ? "" : lines.get(i).getText();
             CharSequence draw = android.text.TextUtils.ellipsize(text, mainPaint, width, android.text.TextUtils.TruncateAt.END);
@@ -372,8 +380,8 @@ public class ShelfLyricView extends View {
             if (showSub) {
                 String sub = i < subs.size() ? subs.get(i) : null;
                 if (sub != null && !sub.isEmpty()) {
-                    subPaint.setColor(inactiveColor);
-                    subPaint.setAlpha(Math.round(255f * fade * (current ? 0.72f : 0.5f)));
+                    subPaint.setColor(current ? withAlphaOf(inactiveColor, 0.72f) : inactiveColor);
+                    subPaint.setAlpha(Math.round(255f * fade));
                     subPaint.setMaskFilter(blur);
                     CharSequence dsub = android.text.TextUtils.ellipsize(sub, subPaint, width, android.text.TextUtils.TruncateAt.END);
                     canvas.drawText(dsub, 0, dsub.length(), rowX(x0, width, dsub, subPaint), top + mainHeightPx() + subPaint.getTextSize() * 0.92f, subPaint);

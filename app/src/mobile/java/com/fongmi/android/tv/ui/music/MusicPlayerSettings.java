@@ -54,14 +54,18 @@ public class MusicPlayerSettings {
     }
 
     private static final String K_THEME_RESET_1436 = "music_theme_reset_1436";
+    private static final String K_THEME_RESET_1439 = "music_theme_reset_1439";
 
     /**
      * 未存／空／非法值一律回落经典（瓜子默认，PlayerViewModel.java:1018 回落 "classic"）。
      * 1.4.36 播放页重做一次性作废旧存量：旧版本默认误设成封面卡片，受害用户存量里
      * 躺着 cover_immersive——首次读时清掉存量主题并落标记，之后用户自选照常保留。
+     * 1.4.39 再补一轮：1436 标记在 1.4.36/37 已被消费、1.4.38 真机仍落封面卡片（存量被
+     * 旧播放页当用户值写回），新标记首次读再清一次，保这版起默认必是经典。
      */
     public static String getTheme() {
-        if (!Prefers.getBoolean(K_THEME_RESET_1436, false)) {
+        if (!Prefers.getBoolean(K_THEME_RESET_1439, false)) {
+            Prefers.put(K_THEME_RESET_1439, true);
             Prefers.put(K_THEME_RESET_1436, true);
             Prefers.remove(K_THEME);
             return THEME_CLASSIC;

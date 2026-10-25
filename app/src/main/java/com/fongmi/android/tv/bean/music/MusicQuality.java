@@ -76,6 +76,10 @@ public enum MusicQuality {
         String k = raw.toLowerCase().replace("-", "").replace("_", "");
         if (k.isEmpty()) return null;
         if (k.contains("24bit") || k.contains("hires") || k.equals("super")) return SUPER;
+        // 瓜子 fromLx 十一键里的高档键（PlayQuality.java:248-312）：母带/全景声/鲸云系在星辰四档里同 hires 归 SUPER，
+        // 此前全漏 → 返回 null 被当「认不出」回落低档。
+        if (k.equals("master") || k.equals("jymaster") || k.equals("atmos") || k.equals("atmosplus")
+                || k.equals("sky") || k.equals("jyeffect")) return SUPER;
         if (k.contains("flac") || k.equals("high")) return HIGH;
         if (k.contains("320") || k.equals("standard")) return STANDARD;
         if (k.contains("128") || k.equals("low")) return LOW;

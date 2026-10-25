@@ -6,8 +6,12 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.LinearGradient;
+import android.graphics.Matrix;
 import android.graphics.Paint;
+import android.graphics.RenderEffect;
+import android.graphics.RenderNode;
 import android.graphics.Shader;
+import android.os.Build;
 import android.util.AttributeSet;
 import android.view.View;
 import android.view.animation.PathInterpolator;
@@ -21,9 +25,10 @@ import com.fongmi.android.tv.utils.ImgUtil;
 import com.bumptech.glide.request.transition.Transition;
 
 /**
- * 播放页外壳氛围层（瓜子外壳口径）：封面 dominant 色打底（切歌 450ms/bs4.a 渐变，回退 #FF1C1C1E）
- * ＋糊封面层（取图缩到 64 宽、放大回铺自带图形糊度，渐变罩上 +0.05／下 −0.04 提/压明度，alpha 基数 0.8）。
- * 流体背景开时由 Activity 换 FluidCoverView 叠加，本类只管糊封面态。
+ * 播放页外壳氛围层（瓜子 BlurredCoverAmbient 口径）：封面 dominant 色打底（切歌 450ms/bs4.a 渐变，
+ * 回退 #FF1C1C1E）＋糊封面层（取图 64×64 居中裁切、铺满后图形模糊 24dp，alpha 基数 0.8，
+ * 渐变罩明度自上 +0.05 线性到下 −0.04）。模糊走 RenderNode＋RenderEffect（API 31+），
+ * 低版本回落为未加模糊步的铺图。流体背景开时由 Activity 换 FluidCoverView 叠加，本类只管糊封面态。
  */
 public class CoverAmbientView extends View {
 
@@ -37,8 +42,12 @@ public class CoverAmbientView extends View {
     private int mFromColor = FALLBACK;
     private int mToColor = FALLBACK;
     private ValueAnimator mColorAnim;
-    private Paint mShadePaint;
+    private Paint mShadeWhitePaint;
+    private Paint mShadeBlackPaint;
     private int mShadeW, mShadeH;
+    private RenderNode mBlurNode;
+    private int mBlurNodeW, mBlurNodeH;
+    private Bitmap mBlurNodeBitmap;
 
     public CoverAmbientView(Context context) {
         super(context);
@@ -65,12 +74,11 @@ public class CoverAmbientView extends View {
             public void onResourceReady(@NonNull Bitmap resource, @Nullable Transition<? super Bitmap> transition) {
                 if (!want.equals(mBoundUrl)) return;
                 try {
-                    int w = 64;
-                    int h = Math.max(1, (int) (resource.getHeight() * (64f / Math.max(1, resource.getWidth()))));
-                    mBlurBitmap = Bitmap.createScaledBitmap(resource, w, h, true);
+                    mBlurBitmap = centerCropSquare64(resource);
                 } catch (Throwable ignored) {
                     mBlurBitmap = null;
                 }
+                mBlurNodeBitmap = null;
                 try {
                     Palette.from(resource).generate(p -> {
                         if (p == null || !want.equals(mBoundUrl)) return;
@@ -95,6 +103,21 @@ public class CoverAmbientView extends View {
             public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {
             }
         });
+    }
+
+    /** 64×64 居中裁切（瓜子 Coil size(64,64)＋Fill 的等价位图）：等比放大到盖住 64×64 再裁中心。 */
+    private static Bitmap centerCropSquare64(Bitmap src) {
+        int sw = src.getWidth(), sh = src.getHeight();
+        if (sw <= 0 || sh <= 0) return null;
+        float scale = Math.max(64f / sw, 64f / sh);
+        Matrix m = new Matrix();
+        m.setScale(scale, scale);
+        m.postTranslate((64f - sw * scale) / 2f, (64f - sh * scale) / 2f);
+        Bitmap out = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(out);
+        Paint p = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+        c.drawBitmap(src, m, p);
+        return out;
     }
 
     public int getBaseColor() {
@@ -125,20 +148,46 @@ public class CoverAmbientView extends View {
         mPaint.setAlpha(255);
         canvas.drawRect(0, 0, w, h, mPaint);
         if (mBlurBitmap != null && !mBlurBitmap.isRecycled()) {
-            mPaint.setAlpha(Math.round(255 * 0.8f));
-            android.graphics.RectF dst = new android.graphics.RectF(0, 0, w, h);
-            canvas.drawBitmap(mBlurBitmap, null, dst, mPaint);
-            mPaint.setAlpha(255);
+            if (Build.VERSION.SDK_INT >= 31 && canvas.isHardwareAccelerated()) {
+                drawBlurredViaNode(canvas, w, h);
+            } else {
+                mPaint.setAlpha(Math.round(255 * 0.8f));
+                android.graphics.RectF dst = new android.graphics.RectF(0, 0, w, h);
+                canvas.drawBitmap(mBlurBitmap, null, dst, mPaint);
+                mPaint.setAlpha(255);
+            }
         }
-        if (mShadePaint == null || mShadeW != w || mShadeH != h) {
+        if (mShadeWhitePaint == null || mShadeW != w || mShadeH != h) {
             mShadeW = w;
             mShadeH = h;
-            mShadePaint = new Paint();
-            // 渐变罩：顶部 +0.05 提亮、底部 −0.04 压暗（以黑/白低 alpha 近似明度偏移）
-            mShadePaint.setShader(new LinearGradient(0, 0, 0, h,
-                    new int[]{0x0DFFFFFF, 0x00000000, 0x0A000000},
-                    new float[]{0f, 0.5f, 1f}, Shader.TileMode.CLAMP));
+            // 渐变罩明度 +0.05（上）→−0.04（下）线性：两遍合成——白 alpha 0.05→0、黑 alpha 0→0.04
+            mShadeWhitePaint = new Paint();
+            mShadeWhitePaint.setShader(new LinearGradient(0, 0, 0, h,
+                    0x0DFFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP));
+            mShadeBlackPaint = new Paint();
+            mShadeBlackPaint.setShader(new LinearGradient(0, 0, 0, h,
+                    0x00000000, 0x0A000000, Shader.TileMode.CLAMP));
         }
-        canvas.drawRect(0, 0, w, h, mShadePaint);
+        canvas.drawRect(0, 0, w, h, mShadeWhitePaint);
+        canvas.drawRect(0, 0, w, h, mShadeBlackPaint);
+    }
+
+    /** 糊封面层：小图铺满录入节点，整层挂 24dp 图形模糊（RenderEffect），alpha 基数 0.8 走节点。 */
+    private void drawBlurredViaNode(Canvas canvas, int w, int h) {
+        if (mBlurNode == null) mBlurNode = new RenderNode("coverAmbientBlur");
+        if (mBlurNodeBitmap != mBlurBitmap || mBlurNodeW != w || mBlurNodeH != h) {
+            mBlurNodeBitmap = mBlurBitmap;
+            mBlurNodeW = w;
+            mBlurNodeH = h;
+            mBlurNode.setPosition(0, 0, w, h);
+            Canvas rec = mBlurNode.beginRecording(w, h);
+            Paint p = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+            rec.drawBitmap(mBlurBitmap, null, new android.graphics.RectF(0, 0, w, h), p);
+            mBlurNode.endRecording();
+            float r = 24f * getResources().getDisplayMetrics().density;
+            mBlurNode.setRenderEffect(RenderEffect.createBlurEffect(r, r, Shader.TileMode.CLAMP));
+            mBlurNode.setAlpha(0.8f);
+        }
+        canvas.drawRenderNode(mBlurNode);
     }
 }

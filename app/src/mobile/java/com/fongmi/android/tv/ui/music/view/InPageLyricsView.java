@@ -5,7 +5,11 @@ import android.content.Context;
 import android.graphics.BlurMaskFilter;
 import android.graphics.Canvas;
 import android.graphics.Paint;
+import android.graphics.RenderEffect;
+import android.graphics.RenderNode;
+import android.graphics.Shader;
 import android.graphics.Typeface;
+import android.os.Build;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
 import android.view.View;
@@ -31,8 +35,9 @@ import java.util.Map;
  * 色（沉浸深色供给）：已唱 #FFEAEAEA、当前行未唱 白 0.42、非当前 白 0.30、副行 白 0.55，不带自编系数；
  * 逐字上浮 −0.09em、缓动分母 max(1100ms, 字长）；长音（≥1000ms）光晕＋放大上限 1.2＋−0.05em 浮动＋行末 400ms 拖尾；
  * 无逐字行不估已唱比例（整行按未唱色，唱过由行级已唱色承担）；
- * 逐行模糊 A 组（上 min(2+k,5)、下 min(k+1,5)）×档位系数，View 体系以 BlurMaskFilter 落地
- * （瓜子原作是逐行 RenderEffect，机制不同、半径值照公式）。
+ * 逐行模糊 A 组（上 min(2+k,5)、下 min(k+1,5)）×档位系数：API 31+ 逐行 RenderNode＋
+ * RenderEffect 模糊（半径 round(v×2)/2 量化、DECAL，与瓜子同机制）；低版本回落 BlurMaskFilter。
+ * 拖动进度条时歌词跟预览位置走（瓜子 scrubPreviewMs 同路：预览行成当前行、滚动跟随）。
  * 星辰产品项：歌词带一点斜（skew −0.12，他定）；点行＝跳到那行唱（他定）。
  */
 public class InPageLyricsView extends View {
@@ -92,10 +97,20 @@ public class InPageLyricsView extends View {
     private List<List<SubRow>> mSubs = new ArrayList<>();
     private boolean mHasTime = true;
     private long mPosition;
+    private Long mPreviewMs;
     private int mCurrent = -1;
     private float mScrollY;
     private ValueAnimator mScrollAnim;
     private Listener mListener;
+
+    // 逐行 RenderNode 模糊缓存（API 31+）：按行号存节点，签名变了才重录
+    private static class RowNode {
+        RenderNode node;
+        String sig;
+    }
+
+    private final Map<Integer, RowNode> mRowNodes = new HashMap<>();
+    private int mContentVersion;
 
     // 设置快照
     private float mFontSp = 22f;
@@ -126,6 +141,8 @@ public class InPageLyricsView extends View {
     }
 
     public void reloadSettings() {
+        mContentVersion++;
+        mRowNodes.clear();
         mFontSp = MusicPlayerSettings.getCoverLyricFontSize();
         mWeight = MusicStore.getLyricWeight();
         mAlign = MusicStore.getLyricAlign();
@@ -159,6 +176,9 @@ public class InPageLyricsView extends View {
     }
 
     public void setLines(List<RichLyrics.Line> lines) {
+        mContentVersion++;
+        mRowNodes.clear();
+        mPreviewMs = null;
         mLines = lines == null ? new ArrayList<>() : lines;
         mHasTime = false;
         for (RichLyrics.Line l : mLines) {
@@ -185,8 +205,17 @@ public class InPageLyricsView extends View {
         invalidate();
     }
 
+    /** 拖动进度条的预览位置（瓜子 scrubPreviewMs）：非空时当前行/逐字/滚动全跟预览走；传 null 回到播放位置。 */
+    public void setPreviewPosition(Long previewMs) {
+        if (previewMs == null ? mPreviewMs == null : previewMs.equals(mPreviewMs)) return;
+        mPreviewMs = previewMs;
+        updateCurrent(false);
+        invalidate();
+    }
+
     private long now() {
-        return mPosition + MusicStore.getLyricOffsetMs();
+        long base = mPreviewMs != null ? mPreviewMs : mPosition;
+        return base + MusicStore.getLyricOffsetMs();
     }
 
     private String mainText(RichLyrics.Line line) {
@@ -348,53 +377,96 @@ public class InPageLyricsView extends View {
             float top = lay[0] - mScrollY;
             float bottom = top + lay[2];
             if (bottom < -dp(60) || top > h + dp(60)) continue;
-            RichLyrics.Line line = mLines.get(i);
-            String main = mainText(line);
             float fade = fadeFor(top, lay[2], h);
 
-            // 模糊（A 组：带符号行距——上 min(2+k,5)、下 min(k+1,5)，k＝距当前行数）
-            mMainPaint.setMaskFilter(null);
-            mSubPaint.setMaskFilter(null);
+            // 模糊半径（A 组：带符号行距——上 min(2+k,5)、下 min(k+1,5)，k＝距当前行数；量化 round(v×2)/2）
+            float radius = 0f;
             if (mBlurCoeff > 0 && i != mCurrent && mCurrent >= 0) {
                 int k = Math.abs(i - mCurrent);
                 float r = i < mCurrent ? Math.min(2f + k, 5f) : Math.min(k + 1f, 5f);
-                BlurMaskFilter bf = blurFor(r * mBlurCoeff);
-                mMainPaint.setMaskFilter(bf);
-                mSubPaint.setMaskFilter(bf);
+                radius = Math.round(r * mBlurCoeff * 2f) / 2f;
             }
 
-            float baseline = top - mMainPaint.ascent();
-            if (i == mCurrent && mPrimary == 0 && line.main != null && line.main.hasWords()) {
-                drawCurrentLine(canvas, line.main, now, fade, baseline);
-            } else if (i == mCurrent) {
-                // 当前行（无逐字或主显非原文）：整行未唱色，不估已唱比例
-                mMainPaint.setColor(0xFFFFFFFF);
-                mMainPaint.setAlpha(Math.round(255 * ALPHA_CUR_UNSUNG * fade));
-                canvas.drawText(main, alignX(main, mMainPaint), baseline, mMainPaint);
-            } else if (mCurrent >= 0 && i < mCurrent) {
-                mMainPaint.setColor(COLOR_SUNG);
-                mMainPaint.setAlpha(Math.round(255 * fade));
-                canvas.drawText(main, alignX(main, mMainPaint), baseline, mMainPaint);
+            if (radius > 0f && Build.VERSION.SDK_INT >= 31 && canvas.isHardwareAccelerated()) {
+                drawRowViaNode(canvas, i, top, fade, radius, w);
             } else {
-                mMainPaint.setColor(0xFFFFFFFF);
-                mMainPaint.setAlpha(Math.round(255 * ALPHA_NONCUR * fade));
-                canvas.drawText(main, alignX(main, mMainPaint), baseline, mMainPaint);
+                drawRowContent(canvas, i, top, fade, now, radius);
             }
-            mMainPaint.setMaskFilter(null);
+        }
+    }
 
-            List<SubRow> subs = mSubs.get(i);
-            if (subs != null && !subs.isEmpty()) {
-                float subTop = top + lay[1];
-                for (SubRow s : subs) {
-                    subTop += s.gapDp * mDensity;
-                    float subBase = subTop - mSubPaint.ascent();
-                    mSubPaint.setColor(0xFFFFFFFF);
-                    mSubPaint.setAlpha(Math.round(255 * ALPHA_SUB * fade));
-                    canvas.drawText(s.text, alignX(s.text, mSubPaint), subBase, mSubPaint);
-                    subTop += subLineHeight();
-                }
-                mSubPaint.setMaskFilter(null);
+    /**
+     * 逐行 RenderEffect 模糊（瓜子同机制）：行内容录进独立 RenderNode，模糊挂在节点上，
+     * 滚动只改节点位置、淡出走节点 alpha；签名（行号/已唱态/半径/宽/内容版本）变了才重录。
+     */
+    private void drawRowViaNode(Canvas canvas, int i, float top, float fade, float radius, int w) {
+        float[] lay = mLayout.get(i);
+        int nodeH = Math.max(1, (int) Math.ceil(lay[2]));
+        String sig = i + "|" + (i < mCurrent ? 1 : 0) + "|" + radius + "|" + w + "|" + mContentVersion;
+        RowNode rn = mRowNodes.get(i);
+        if (rn == null || !sig.equals(rn.sig)) {
+            if (rn == null) {
+                rn = new RowNode();
+                rn.node = new RenderNode("lyricRow" + i);
+                mRowNodes.put(i, rn);
             }
+            rn.sig = sig;
+            rn.node.setPosition(0, 0, w, nodeH);
+            Canvas rec = rn.node.beginRecording(w, nodeH);
+            drawRowContent(rec, i, 0f, 1f, now(), 0f);
+            rn.node.endRecording();
+            rn.node.setRenderEffect(RenderEffect.createBlurEffect(radius, radius, Shader.TileMode.DECAL));
+        }
+        int topI = Math.round(top);
+        rn.node.setPosition(0, topI, w, topI + nodeH);
+        rn.node.setAlpha(Math.max(0f, Math.min(1f, fade)));
+        canvas.drawRenderNode(rn.node);
+    }
+
+    /** 一行内容（主行＋副行）；maskBlurRadius>0 时走 BlurMaskFilter 回落（低版本），=0 不加滤镜。 */
+    private void drawRowContent(Canvas canvas, int i, float top, float fade, long now, float maskBlurRadius) {
+        RichLyrics.Line line = mLines.get(i);
+        String main = mainText(line);
+
+        mMainPaint.setMaskFilter(null);
+        mSubPaint.setMaskFilter(null);
+        if (maskBlurRadius > 0f) {
+            BlurMaskFilter bf = blurFor(maskBlurRadius);
+            mMainPaint.setMaskFilter(bf);
+            mSubPaint.setMaskFilter(bf);
+        }
+
+        float baseline = top - mMainPaint.ascent();
+        if (i == mCurrent && mPrimary == 0 && line.main != null && line.main.hasWords()) {
+            drawCurrentLine(canvas, line.main, now, fade, baseline);
+        } else if (i == mCurrent) {
+            // 当前行（无逐字或主显非原文）：整行未唱色，不估已唱比例
+            mMainPaint.setColor(0xFFFFFFFF);
+            mMainPaint.setAlpha(Math.round(255 * ALPHA_CUR_UNSUNG * fade));
+            canvas.drawText(main, alignX(main, mMainPaint), baseline, mMainPaint);
+        } else if (mCurrent >= 0 && i < mCurrent) {
+            mMainPaint.setColor(COLOR_SUNG);
+            mMainPaint.setAlpha(Math.round(255 * fade));
+            canvas.drawText(main, alignX(main, mMainPaint), baseline, mMainPaint);
+        } else {
+            mMainPaint.setColor(0xFFFFFFFF);
+            mMainPaint.setAlpha(Math.round(255 * ALPHA_NONCUR * fade));
+            canvas.drawText(main, alignX(main, mMainPaint), baseline, mMainPaint);
+        }
+        mMainPaint.setMaskFilter(null);
+
+        List<SubRow> subs = mSubs.get(i);
+        if (subs != null && !subs.isEmpty()) {
+            float subTop = top + mLayout.get(i)[1];
+            for (SubRow s : subs) {
+                subTop += s.gapDp * mDensity;
+                float subBase = subTop - mSubPaint.ascent();
+                mSubPaint.setColor(0xFFFFFFFF);
+                mSubPaint.setAlpha(Math.round(255 * ALPHA_SUB * fade));
+                canvas.drawText(s.text, alignX(s.text, mSubPaint), subBase, mSubPaint);
+                subTop += subLineHeight();
+            }
+            mSubPaint.setMaskFilter(null);
         }
     }
 

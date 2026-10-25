@@ -5,7 +5,7 @@
      自上而下：渐变标题＋金星＋黑胶斜探 → 通知权限提示条（不可用才显） → 搜索胶囊＋⋮ →
      五快捷独立玻璃片一行（本地音乐居中第三） → 继续播放卡（有断点才显） →
      三彩卡横排（卡面本体＝各自渐变，光晕只作卡内淡水印） → 心情电台卡（末卡） →
-     114dp 留白（给悬浮迷你条让位，迷你条只在首页显示）。
+     122dp 留白（给悬浮迷你条让位，迷你条只在首页显示）。
      玻璃件一律先挂 bg_music_glass_* XML 件作可见下限，运行时 MusicGlassWire 升级同源液态玻璃。
      顶栏只有左对齐标题、无返回箭头（铁律）；界面只放名字和状态，无介绍文字。 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -780,7 +780,7 @@
             <!-- 底部留白：给只在首页显示的悬浮迷你条让位（条高 68＋底浮空 10＋净空隙，与改前同口径） -->
             <View
                 android:layout_width="match_parent"
-                android:layout_height="114dp" />
+                android:layout_height="122dp" />
         </LinearLayout>
     </ScrollView>
 </FrameLayout>

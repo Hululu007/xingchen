@@ -357,7 +357,9 @@ public class MusicSearchActivity extends BaseActivity {
             for (int si = 0; si < tabs.size(); si++) {
                 final MusicSite site = tabs.get(si);
                 final String bucketKey = searchBucketKey(site, si);
-                Task.execute(() -> {
+                // 分源任务走大池（大扫查 B-1 移植）：共享 5 线程池装不下全源并发，
+                // 后排源只能排队等前排慢源跑完，整页长挂「正在加载」
+                Task.largeExecutor().execute(() -> {
                     try {
                         List<MusicTrack> r = MusicRepository.searchSite(site, kw);
                         if (seq == searchSeq && r != null) {
@@ -425,7 +427,11 @@ public class MusicSearchActivity extends BaseActivity {
         synchronized (searchBySite) {
             bucket = searchBySite.get(selectedSource);
         }
-        return bucket == null ? new ArrayList<>() : new ArrayList<>(bucket);
+        if (bucket == null) return new ArrayList<>();
+        // synchronizedList 的拷贝构造会迭代本体，必须持桶锁拷，在途源还在 addAll 时裸拷会撕裂
+        synchronized (bucket) {
+            return new ArrayList<>(bucket);
+        }
     }
 
     /**

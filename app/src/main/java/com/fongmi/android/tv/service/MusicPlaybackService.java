@@ -13,6 +13,7 @@ import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.os.Binder;
+import android.os.Bundle;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
@@ -39,9 +40,13 @@ import androidx.media3.common.audio.AudioProcessor;
 import androidx.media3.exoplayer.DefaultRenderersFactory;
 import androidx.media3.exoplayer.audio.AudioSink;
 import androidx.media3.exoplayer.audio.DefaultAudioSink;
+import androidx.media3.session.CommandButton;
 import androidx.media3.session.DefaultMediaNotificationProvider;
+import androidx.media3.session.MediaNotification;
 import androidx.media3.session.MediaSession;
 import androidx.media3.session.MediaSessionService;
+
+import com.google.common.collect.ImmutableList;
 
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.BuildConfig;
@@ -350,7 +355,8 @@ public class MusicPlaybackService extends MediaSessionService {
         // 从没有外部 MediaController 连进来，onGetSession 永远等不到人触发登记，
         // 不加这行媒体通知永远发不出来（1.3.59 真机实证通知栏空白）。
         addSession(session);
-        setMediaNotificationProvider(new DefaultMediaNotificationProvider.Builder(this).setNotificationId(FG_NOTIFICATION_ID).build());
+        setMediaNotificationProvider(new DiagNotificationProvider(new DefaultMediaNotificationProvider.Builder(this).setNotificationId(FG_NOTIFICATION_ID).build()));
+        SpiderDebug.log("music", "notifDiag enabled=" + NotificationManagerCompat.from(this).areNotificationsEnabled());
         restoreBreakpoint();
         startTicker();
         SpiderDebug.log("music", "service onCreate");
@@ -437,6 +443,7 @@ public class MusicPlaybackService extends MediaSessionService {
     @Nullable
     @Override
     public MediaSession onGetSession(@NonNull MediaSession.ControllerInfo controllerInfo) {
+        SpiderDebug.log("music", "notifDiag onGetSession from=" + controllerInfo.getPackageName());
         return session;
     }
 
@@ -1249,6 +1256,7 @@ public class MusicPlaybackService extends MediaSessionService {
     private MusicAudioInfo toAudioInfo(Format f) {
         MusicAudioInfo info = new MusicAudioInfo();
         info.codec = codecName(f.sampleMimeType);
+        if (f.channelCount > 0) info.channelCount = f.channelCount;
         info.lossless = isLossless(f.sampleMimeType);
         int bps = f.averageBitrate > 0 ? f.averageBitrate : (f.bitrate > 0 ? f.bitrate : f.peakBitrate);
         if (bps > 0) info.bitrateKbps = (bps + 500) / 1000;
@@ -2552,6 +2560,36 @@ public class MusicPlaybackService extends MediaSessionService {
     public class LocalBinder extends Binder {
         public MusicPlaybackService getService() {
             return MusicPlaybackService.this;
+        }
+    }
+
+    // 通知不显示取证（2026-10-25 定：随版取证，只打点不改行为）：包住默认 Provider，
+    // 记三点——建通知被调与结果、通知变更回调、（配合 onCreate 的 enabled 与 onGetSession 的控制器来源）。
+    private static final class DiagNotificationProvider implements MediaNotification.Provider {
+        private final MediaNotification.Provider delegate;
+
+        DiagNotificationProvider(MediaNotification.Provider delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public MediaNotification createNotification(MediaSession mediaSession, ImmutableList<CommandButton> mediaButtonPreferences, MediaNotification.ActionFactory actionFactory, Callback onNotificationChangedCallback) {
+            MediaNotification result = delegate.createNotification(mediaSession, mediaButtonPreferences, actionFactory, notification -> {
+                SpiderDebug.log("music", "notifDiag changed id=" + notification.notificationId);
+                onNotificationChangedCallback.onNotificationChanged(notification);
+            });
+            SpiderDebug.log("music", "notifDiag create -> " + (result == null ? "null" : "id=" + result.notificationId));
+            return result;
+        }
+
+        @Override
+        public boolean handleCustomCommand(MediaSession session, String action, Bundle extras) {
+            return delegate.handleCustomCommand(session, action, extras);
+        }
+
+        @Override
+        public NotificationChannelInfo getNotificationChannelInfo() {
+            return delegate.getNotificationChannelInfo();
         }
     }
 }

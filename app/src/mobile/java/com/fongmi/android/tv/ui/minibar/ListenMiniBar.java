@@ -379,9 +379,9 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT);
         lp.gravity = Gravity.BOTTOM;
-        // 2026-10-22 迷你条位置跟瓜子不一样：瓜子是底部栏一体贴边停靠、无悬浮。
-        // 音乐条改贴底（左右边距 0、底浮空 0，只留导航条 inset＋宿主 extra）；听书条不动。
-        int side = music ? 0 : ReadingSkin.dp(host, 16);
+        // 2026-10-25 用户点名改悬浮：音乐条往上抬、两边收——左右边距 10dp、底浮空 10dp
+        // （见 bottomMargin 音乐分支），配条布局 elevation 12dp 拉开层次；听书条不动。
+        int side = music ? ReadingSkin.dp(host, 10) : ReadingSkin.dp(host, 16);
         lp.leftMargin = side;
         lp.rightMargin = side;
         lp.bottomMargin = bottomMargin(host, music);
@@ -412,7 +412,7 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
             } catch (Throwable ignored) {
             }
         }
-        return nav + extra + (music ? 0 : ReadingSkin.dp(host, 12));
+        return nav + extra + ReadingSkin.dp(host, music ? 10 : 12);
     }
 
     private void detachBar() {

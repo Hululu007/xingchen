@@ -7,7 +7,7 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:background="@drawable/home_bg_minibar"
-    android:elevation="6dp"
+    android:elevation="12dp"
     android:gravity="center_vertical"
     android:orientation="horizontal"
     android:paddingStart="6dp"

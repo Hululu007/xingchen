@@ -948,6 +948,20 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
             // Apple 进度变体（§2：轨 6dp／拖动 7dp、已播白 0.58／拖动 0.90；底轨 0.14/0.22 与默认同值）
             scrubberView.setVariant(6f, 7f, 0.58f, 0.90f);
         }
+        if (!coverTheme && !appleTheme && !cdTheme && !shelfTheme) {
+            // 经典封面容器高定死＝宽（方形，§1；断点见经典布局注：wrap_content 高由 Glide
+            // 交付位图宽高比决定、竖长条交付图把封面撑满整页压住歌名/歌词）。宽度变化时同步。
+            View classicWrap = find(R.id.tpCoverWrap);
+            if (classicWrap != null) {
+                classicWrap.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, oldR, oldB) -> {
+                    int w = r - l;
+                    if (w > 0 && v.getLayoutParams() != null && v.getLayoutParams().height != w) {
+                        v.getLayoutParams().height = w;
+                        v.requestLayout();
+                    }
+                });
+            }
+        }
     }
 
     /** 展开态歌词槽高（§3：槽高＝间隙×3＋行高×4，间隙 20dp、行高＝字号×4/3）。 */

@@ -8,7 +8,10 @@
     android:orientation="vertical">
 
     <!-- 封面：满幅宽、圆角 0、无卡片边距；手势挂 tpCoverWrap（双击收藏／长按工具面板，单击无对照未绑）；
-         容器为 CoverFadeLayout：封面下沿 84dp 本体 alpha 渐隐进整页糊底（透出真底、无盖色接缝） -->
+         容器为 CoverFadeLayout：封面下沿 84dp 本体 alpha 渐隐进整页糊底（透出真底、无盖色接缝）。
+         容器高由代码定死＝宽（方形，§1：满幅宽＋方形源图决定高）：旧 wrap_content＋adjustViewBounds
+         时高度由 Glide 交付位图宽高比决定，而 wrap_content 高的目标尺寸在 Glide 里回落成屏幕尺寸、
+         交付图被裁成竖长条，封面随之撑满整页把歌名/歌词压到页底（2026-10-25 真机点名「封面把字都盖住了」）。 -->
     <com.fongmi.android.tv.ui.music.CoverFadeLayout
         android:id="@+id/tpCoverWrap"
         android:layout_width="match_parent"
@@ -17,8 +20,7 @@
         <ImageView
             android:id="@+id/tpCover"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:adjustViewBounds="true"
+            android:layout_height="match_parent"
             android:contentDescription="@null"
             android:scaleType="centerCrop" />
 
@@ -26,8 +28,7 @@
         <ImageView
             android:id="@+id/tpCoverExit"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:adjustViewBounds="true"
+            android:layout_height="match_parent"
             android:contentDescription="@null"
             android:scaleType="centerCrop"
             android:visibility="gone" />

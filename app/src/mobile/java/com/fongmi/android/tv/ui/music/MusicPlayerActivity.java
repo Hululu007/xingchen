@@ -148,6 +148,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
     private ImageView cdPlayView;
     private ImageView cdBtnModeView;
     private ImageView cdBtnFavView;
+    private View cdBtnLyricVerView;
     private String cdSummaryShown = "";
     private ShelfStageView shelfStageView;
     private ShelfLyricView shelfLyricView;
@@ -317,7 +318,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
             try {
                 MusicTrack curBg = MusicController.get().current();
                 if (curBg != null && key != null
-                        && key.equals(MusicQueue.trackKey(curBg))
+                        && key.equals(trackKey(curBg))
                         && !MusicController.get().isPlaying()) {
                     MusicController.get().play();
                 }
@@ -326,7 +327,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         }
         MusicTrack cur = MusicController.get().current();
         if (cur != lastBoundTrack && (cur == null || lastBoundTrack == null
-                || !MusicQueue.trackKey(cur).equals(MusicQueue.trackKey(lastBoundTrack)))) {
+                || !trackKey(cur).equals(trackKey(lastBoundTrack)))) {
             bindTrack(cur);
         } else if (cur != null && lyricEmpty && !lyricLoading) {
             loadLyric(cur, false);
@@ -366,7 +367,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
             if (PlayerSetting.isMusicBackgroundOff() && MusicController.get().isPlaying()) {
                 MusicTrack curBg = MusicController.get().current();
                 if (curBg != null && !isFinishing()) {
-                    bgPausedTrackKey = MusicQueue.trackKey(curBg);
+                    bgPausedTrackKey = trackKey(curBg);
                     bgPausedMusic = true;
                 }
                 MusicController.get().pause();
@@ -417,9 +418,9 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         super.onDestroy();
     }
 
-    // 歌曲身份键全树统一 MusicQueue.trackKey（platform|id）：本页原先自带一份
-    // id|platform 的反序私有口径，页内自比虽不出错，但与队列／服务／仓库三侧
-    // 口径并存是串歌守卫的隐患（任一侧拿对方的键来比就是全灭），就地摘除。
+    private static String trackKey(MusicTrack track) {
+        return track == null ? "" : String.valueOf(track.id) + "|" + String.valueOf(track.platform);
+    }
 
     private void applyKeepScreenOn() {
         try {
@@ -748,6 +749,12 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
     private boolean swipeDownInCoverArea;
     private VelocityTracker swipeVelocityTracker;
     private ValueAnimator lyricSettleAnimator;
+    // 经典主题歌词区横滑切歌（瓜子 coverAxisLock 口径）：起点在歌词区内时横滑归切歌，
+    // 与右划进歌词页分工——歌词区内横滑＝上一首/下一首，封面区右划仍进歌词页。
+    private boolean swipeDownInLyricArea;
+    private boolean songSwipeFollowing;
+    private float songSwipeEngageDx;
+    private float songSwipeEngageTx;
 
     @Override
     public boolean dispatchTouchEvent(MotionEvent ev) {
@@ -776,10 +783,46 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
                     swipeDownInCoverArea = ev.getX() >= loc[0] && ev.getX() <= loc[0] + shelfStageView.getWidth()
                             && ev.getY() >= loc[1] && ev.getY() <= loc[1] + shelfStageView.getHeight();
                 }
+                // 经典主题：起点落在内嵌歌词区内时，横滑归歌词区切歌，不触发右划进歌词页
+                // （分工见 songSwipe 字段注；封面卡片展开态歌词面不在此列，其横滑归叠卡）。
+                swipeDownInLyricArea = false;
+                songSwipeFollowing = false;
+                if (!coverTheme && !appleTheme && !cdTheme && !shelfTheme
+                        && lyricView != null && lyricView.getVisibility() == View.VISIBLE) {
+                    int[] loc = new int[2];
+                    lyricView.getLocationInWindow(loc);
+                    swipeDownInLyricArea = ev.getX() >= loc[0] && ev.getX() <= loc[0] + lyricView.getWidth()
+                            && ev.getY() >= loc[1] && ev.getY() <= loc[1] + lyricView.getHeight();
+                }
+                // 新手势接管前先停掉上一轮歌词区切歌的回位动画（位移冻结在当前值，不回跳）
+                if (binding != null && binding.themeContainer != null) {
+                    binding.themeContainer.animate().cancel();
+                }
                 break;
             case MotionEvent.ACTION_MOVE:
                 if (swipeVelocityTracker != null) swipeVelocityTracker.addMovement(ev);
-                if (!swipeDownInCoverArea && lyricPageView != null) {
+                if (swipeDownInLyricArea && !lyricPageVisible
+                        && binding != null && binding.themeContainer != null) {
+                    float dx = ev.getX() - swipeDownX;
+                    float dy = ev.getY() - swipeDownY;
+                    if (!songSwipeFollowing) {
+                        // 轴判定照瓜子 coverAxisLock：竖向占优（|dy|＞|dx|×1.5）让给页级竖滑
+                        // 切歌，横向占优过触摸阈值才接管；接管以当前总位移为零点（不跳）。
+                        float slop = android.view.ViewConfiguration.get(this).getScaledTouchSlop();
+                        if (Math.abs(dx) > slop && Math.abs(dx) > Math.abs(dy) * 1.5f) {
+                            songSwipeFollowing = true;
+                            songSwipeEngageDx = dx;
+                            songSwipeEngageTx = binding.themeContainer.getTranslationX();
+                        }
+                    }
+                    if (songSwipeFollowing) {
+                        // 跟手：播放页本体随手指横移，钳在瓜子锚距内（见 songSwipeAnchorPx）
+                        float anchor = songSwipeAnchorPx();
+                        float tx = songSwipeEngageTx + (dx - songSwipeEngageDx);
+                        binding.themeContainer.setTranslationX(Math.max(-anchor, Math.min(anchor, tx)));
+                    }
+                }
+                if (!swipeDownInCoverArea && !swipeDownInLyricArea && lyricPageView != null) {
                     float dx = ev.getX() - swipeDownX;
                     float dy = ev.getY() - swipeDownY;
                     if (!swipeFollowing) {
@@ -831,6 +874,30 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
                     else open = progress >= 0.5f;
                     settleLyricPage(open);
                 }
+                if (songSwipeFollowing) {
+                    songSwipeFollowing = false;
+                    float dx = ev.getX() - swipeDownX;
+                    float vx = 0f;
+                    if (swipeVelocityTracker != null) {
+                        swipeVelocityTracker.computeCurrentVelocity(1000);
+                        vx = swipeVelocityTracker.getXVelocity();
+                    }
+                    float density = getResources().getDisplayMetrics().density;
+                    // 提交口径照瓜子：位移过 36dp 或甩速过 600dp/s；方向以位移为准、
+                    // 位移未过门时以甩速方向为准（左＝下一首、右＝上一首）。
+                    boolean byDistance = Math.abs(dx) >= 36f * density;
+                    boolean commit = byDistance || Math.abs(vx) >= 600f * density;
+                    if (binding != null && binding.themeContainer != null) {
+                        // 回位 150ms（封面卡片叠卡横滑同值）；切歌换内容在回位中并行发生。
+                        binding.themeContainer.animate().translationX(0f).setDuration(150).start();
+                    }
+                    if (commit && ev.getActionMasked() == MotionEvent.ACTION_UP) {
+                        boolean next = byDistance ? dx < 0 : vx < 0;
+                        lastSkipDirection = next ? 1 : -1;
+                        if (next) MusicController.get().next();
+                        else MusicController.get().prev();
+                    }
+                }
                 if (swipeVelocityTracker != null) {
                     swipeVelocityTracker.recycle();
                     swipeVelocityTracker = null;
@@ -840,6 +907,13 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
                 break;
         }
         return super.dispatchTouchEvent(ev);
+    }
+
+    /** 歌词区横滑切歌锚距（瓜子 coverHorizontalSwipe 抠值）：clamp(屏宽 dp×0.42, 220, 360)dp，CoverStackView 同式。 */
+    private float songSwipeAnchorPx() {
+        float density = getResources().getDisplayMetrics().density;
+        float widthDp = getResources().getDisplayMetrics().widthPixels / density;
+        return Math.max(220f, Math.min(360f, widthDp * 0.42f)) * density;
     }
 
     private boolean isInScrubberRow(MotionEvent ev) {
@@ -1130,8 +1204,10 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         }
         View lyricVer = find(R.id.tpCdBtnLyricVer);
         if (lyricVer != null) {
+            cdBtnLyricVerView = lyricVer;
             lyricVer.setOnClickListener(v -> openLyricVersionDialog());
             attachPressScale(lyricVer, 0.9f);
+            paintCdLyricVerAlpha();
         }
         if (cdBtnFavView != null) {
             cdBtnFavView.setOnClickListener(v -> toggleFavorite());
@@ -2788,6 +2864,14 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         });
     }
 
+    /** CD 五图标行歌词版本键门控：无任何版本时压暗 ×0.35（瓜子五图标行不可用 alpha 口径，
+     * LuminousCdPlayerKt 五图标行）；点击仍开版本弹窗（空态与搜索入口在弹窗内，星辰口径不变）。 */
+    private void paintCdLyricVerAlpha() {
+        if (cdBtnLyricVerView != null) {
+            cdBtnLyricVerView.setAlpha(currentLyricVersions.isEmpty() ? 0.35f : 1f);
+        }
+    }
+
     private void paintFavoriteIcons() {
         // CD 五图标收藏键：已收藏实心／未收藏描边，tint 统一当前表面 ink（applyCdPalette 同步刷）
         if (cdBtnFavView != null) {
@@ -3072,6 +3156,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         lyricTrans.clear();
         lyricRomas.clear();
         currentLyricVersions.clear();
+        paintCdLyricVerAlpha();
         currentLyricVersion = null;
         currentLyricFormat = null;
         currentLyricKey = null;
@@ -3167,8 +3252,8 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
             LxKeyIssue resultKeyIssue = keyIssue;
             runOnUiThread(() -> {
                 MusicTrack cur = MusicController.get().current();
-                // 守卫认 MusicQueue.trackKey（平台＋id，全树统一口径）：MusicTrack.equals 只比 id，异平台同 id 的歌会让上一首的迟到词贴到新歌上
-                if (cur == null || !MusicQueue.trackKey(cur).equals(MusicQueue.trackKey(track))) return;
+                // 守卫认 trackKey（id＋平台）：MusicTrack.equals 只比 id，异平台同 id 的歌会让上一首的迟到词贴到新歌上
+                if (cur == null || !trackKey(cur).equals(trackKey(track))) return;
                 currentLyricFormat = resultFormat;
                 currentLyricKey = resultKey;
                 currentLyricSource = resultSource;
@@ -3179,6 +3264,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
                         : MusicRepository.displayedVersion(resultLyric, resultLyricSource);
                 currentLyricVersions.clear();
                 if (currentLyricVersion != null) currentLyricVersions.add(currentLyricVersion);
+                paintCdLyricVerAlpha();
                 lyricEmpty = resultMains.isEmpty();
                 lyricLoading = false;
                 if (resultMains.isEmpty() && lyricView != null) {
@@ -3205,10 +3291,11 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
                     List<LyricVersion> resultVersions = versions;
                     runOnUiThread(() -> {
                         MusicTrack cur2 = MusicController.get().current();
-                        if (cur2 == null || !MusicQueue.trackKey(cur2).equals(MusicQueue.trackKey(track))) return;
+                        if (cur2 == null || !trackKey(cur2).equals(trackKey(track))) return;
                         currentLyricVersions.clear();
                         currentLyricVersions.addAll(resultVersions);
                         ensureCurrentLyricListed();
+                        paintCdLyricVerAlpha();
                         maybeUpgradeLyricByPriority(track);
                     });
                 });
@@ -3338,7 +3425,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
             List<String> resultRomas = romas;
             runOnUiThread(() -> {
                 MusicTrack cur = MusicController.get().current();
-                if (cur == null || !MusicQueue.trackKey(cur).equals(MusicQueue.trackKey(track))) return;
+                if (cur == null || !trackKey(cur).equals(trackKey(track))) return;
                 currentLyricFormat = rich.format;
                 currentLyricKey = rich.rawLrc == null ? null : rich.rawLrc.trim();
                 currentLyricSource = version.getSource();

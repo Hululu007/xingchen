@@ -18,6 +18,9 @@ public class MusicAudioInfo {
     public int sampleRateHz = -1;
     /** 位深，-1 未知（只对本地 FLAC/WAV 文件头解析，取不到保持 -1） */
     public int bitDepth = -1;
+
+    /** 声道数（ExoPlayer Format.channelCount；信息页技术规格「声道」格用，<=0 未知） */
+    public int channelCount = -1;
     /** 编码确认无损（FLAC/WAV/PCM/ALAC/APE） */
     public boolean lossless;
     /** 确认母带：lossless 且 bitDepth>=24 */
@@ -72,6 +75,6 @@ public class MusicAudioInfo {
 
     /** 变化判重用：全字段拼串 */
     public String signature() {
-        return codec + "|" + bitrateKbps + "|" + sampleRateHz + "|" + bitDepth + "|" + lossless + "|" + master;
+        return codec + "|" + bitrateKbps + "|" + sampleRateHz + "|" + bitDepth + "|" + lossless + "|" + master + "|" + channelCount;
     }
 }

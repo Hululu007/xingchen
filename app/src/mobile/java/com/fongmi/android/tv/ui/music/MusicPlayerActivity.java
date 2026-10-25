@@ -3782,6 +3782,15 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         } catch (Throwable ignored) {
         }
         infoRow(sourceBody, getString(R.string.music_info_quality_request), qualityName);
+        // 取链渠道行在来源段「音质请求」之下（SongInfoPageKt.java:1312-1313）——此前误放歌词段，本单移回。
+        // 服务状态里当前真起播那首的渠道（按 trackKey 守卫，非本曲或无记录返回 null 显「—」，不拿平台名冒充）。
+        String playChannel = null;
+        try {
+            playChannel = MusicController.get().playChannelLabel(track);
+        } catch (Throwable ignored) {
+        }
+        infoRow(sourceBody, getString(R.string.music_info_play_channel),
+                playChannel == null || playChannel.isEmpty() ? "—" : playChannel);
         String plugin = null;
         try {
             if (track.rawJson != null && !track.rawJson.isEmpty()) {
@@ -3810,16 +3819,24 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         } catch (Throwable ignored) {
         }
         if (duration <= 0) duration = track.duration;
-        String[][] cells = {
-                {getString(R.string.music_info_format),
-                        info != null && info.codec != null && !info.codec.isEmpty() ? info.codec.toUpperCase(java.util.Locale.US) : "—"},
-                {getString(R.string.music_info_bit_depth),
-                        info != null && info.bitDepth > 0 ? info.bitDepth + " bit" : "—"},
-                {getString(R.string.music_info_bitrate),
-                        info != null && info.bitrateKbps > 0 ? info.bitrateKbps + " kbps" : "—"},
-                {getString(R.string.music_info_channels), "—"},
-                {getString(R.string.music_info_duration), durationLabel(duration)},
-        };
+        // 声道格接真数据（Format.channelCount → MusicAudioInfo.channelCount）：文案照瓜子
+        // channelCountToLabel（SongInfoLabels.java:41-42）：1 单声道／2 立体声／其余 N 声道；
+        // 拿不到声道数时整格不画，不许恒显「—」占位（采样率格已按他的口径摘除，不在此列）。
+        java.util.List<String[]> cellList = new java.util.ArrayList<>();
+        cellList.add(new String[]{getString(R.string.music_info_format),
+                info != null && info.codec != null && !info.codec.isEmpty() ? info.codec.toUpperCase(java.util.Locale.US) : "—"});
+        cellList.add(new String[]{getString(R.string.music_info_bit_depth),
+                info != null && info.bitDepth > 0 ? info.bitDepth + " bit" : "—"});
+        cellList.add(new String[]{getString(R.string.music_info_bitrate),
+                info != null && info.bitrateKbps > 0 ? info.bitrateKbps + " kbps" : "—"});
+        if (info != null && info.channelCount > 0) {
+            String ch = info.channelCount == 1 ? getString(R.string.music_info_channel_mono)
+                    : info.channelCount == 2 ? getString(R.string.music_info_channel_stereo)
+                    : info.channelCount + " " + getString(R.string.music_info_channels_unit);
+            cellList.add(new String[]{getString(R.string.music_info_channels), ch});
+        }
+        cellList.add(new String[]{getString(R.string.music_info_duration), durationLabel(duration)});
+        String[][] cells = cellList.toArray(new String[0][]);
         for (int r = 0; r < cells.length; r += 2) {
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.HORIZONTAL);
@@ -3866,23 +3883,11 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         if (currentLyricFormat != null && !currentLyricFormat.isEmpty() && !"AMLL".equals(currentLyricFormat)) {
             infoChip(chips, currentLyricFormat, false);
         }
-        if (currentLyricFormat != null && !currentLyricFormat.isEmpty() && !"AMLL".equals(currentLyricFormat)) {
-            infoChip(chips, currentLyricFormat, false);
-        }
         if (hasNonEmpty(lyricTrans)) infoChip(chips, getString(R.string.music_info_chip_translation), false);
         if (hasNonEmpty(lyricRomas)) infoChip(chips, getString(R.string.music_info_chip_roma), false);
         lyricBody.addView(chips);
         infoRow(lyricBody, getString(R.string.music_info_lyric_channel),
                 currentLyricFormat == null || currentLyricFormat.isEmpty() ? "—" : currentLyricFormat);
-        // 三-42 取链渠道行：服务状态里当前真起播那首的渠道（按 trackKey 守卫，非本曲
-        // 或无记录返回 null 显「—」，不拿平台名冒充）；行序承加载通道之后、匹配来源之前
-        String playChannel = null;
-        try {
-            playChannel = MusicController.get().playChannelLabel(track);
-        } catch (Throwable ignored) {
-        }
-        infoRow(lyricBody, getString(R.string.music_info_play_channel),
-                playChannel == null || playChannel.isEmpty() ? "—" : playChannel);
         infoRow(lyricBody, getString(R.string.music_info_lyric_matched_source),
                 currentLyricSource == null || currentLyricSource.isEmpty() ? "—" : currentLyricSource);
         infoRow(lyricBody, getString(R.string.music_info_lyric_lines),

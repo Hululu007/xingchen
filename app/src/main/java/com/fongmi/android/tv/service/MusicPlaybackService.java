@@ -1241,6 +1241,7 @@ public class MusicPlaybackService extends MediaSessionService {
     private MusicAudioInfo toAudioInfo(Format f) {
         MusicAudioInfo info = new MusicAudioInfo();
         info.codec = codecName(f.sampleMimeType);
+        if (f.channelCount > 0) info.channelCount = f.channelCount;
         info.lossless = isLossless(f.sampleMimeType);
         int bps = f.averageBitrate > 0 ? f.averageBitrate : (f.bitrate > 0 ? f.bitrate : f.peakBitrate);
         if (bps > 0) info.bitrateKbps = (bps + 500) / 1000;

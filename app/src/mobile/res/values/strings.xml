@@ -451,6 +451,9 @@
     <string name="music_info_bit_depth">位深</string>
     <string name="music_info_bitrate">比特率</string>
     <string name="music_info_channels">声道</string>
+    <string name="music_info_channel_mono">单声道</string>
+    <string name="music_info_channel_stereo">立体声</string>
+    <string name="music_info_channels_unit">声道</string>
     <string name="music_info_duration">时长</string>
     <string name="music_info_lyric_channel">加载通道</string>
     <string name="music_info_play_channel">取链渠道</string>

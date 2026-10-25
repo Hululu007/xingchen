@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 播放页骨架·横版（重做批二从零重写）：id 与类型与竖版逐项一致（同 id 跨变体类型不一致
+     会让 Binding 字段退化成 View、编译期才爆）。根不许 fitsSystemWindows（旧横版坑）；
+     背景层 match_parent 满幅拉到状态栏后面，内容层由宿主垫状态栏高。
+     与竖版的差异只有提示条上距（横版 20dp）。横版同样带 lyricPage（旧横版独缺、
+     导致横屏无全屏歌词页，新版补齐）。 -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <com.fongmi.android.tv.ui.music.CoverAmbientView
+        android:id="@+id/ivBgBlur"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <com.fongmi.android.tv.ui.custom.FluidCoverAmbientView
+        android:id="@+id/fluidAmbient"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone" />
+
+    <View
+        android:id="@+id/viewVeil"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@android:color/transparent" />
+
+    <com.fongmi.android.tv.ui.custom.PlayerPageSwipeLayout
+        android:id="@+id/themeContainer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <LinearLayout
+        android:id="@+id/swipeHint"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/swipeHintDir"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="#B8FFFFFF"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/swipeHintName"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:textColor="#EBFFFFFF"
+            android:textSize="15sp" />
+    </LinearLayout>
+
+    <FrameLayout
+        android:id="@+id/heartsOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <include
+        android:id="@+id/lyricPage"
+        layout="@layout/music_lyric_page"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <LinearLayout
+        android:id="@+id/notifHintStrip"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="20dp"
+        android:layout_marginHorizontal="16dp"
+        android:background="@drawable/bg_player_glass_btn"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingHorizontal="14dp"
+        android:paddingVertical="10dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/notifHintText"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="通知权限未开启，锁屏与通知栏可能看不到播放卡"
+            android:textColor="#F2FFFFFF"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/notifHintGo"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="10dp"
+            android:text="去开启"
+            android:textColor="#FFFFFFFF"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+</FrameLayout>

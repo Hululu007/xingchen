@@ -7,8 +7,9 @@
     android:layout_height="match_parent"
     android:orientation="vertical">
 
-    <!-- 封面：满幅宽、圆角 0、无卡片边距；手势挂 tpCoverWrap（双击收藏／长按工具面板，单击无对照未绑） -->
-    <FrameLayout
+    <!-- 封面：满幅宽、圆角 0、无卡片边距；手势挂 tpCoverWrap（双击收藏／长按工具面板，单击无对照未绑）；
+         容器为 CoverFadeLayout：封面下沿 84dp 本体 alpha 渐隐进整页糊底（透出真底、无盖色接缝） -->
+    <com.fongmi.android.tv.ui.music.CoverFadeLayout
         android:id="@+id/tpCoverWrap"
         android:layout_width="match_parent"
         android:layout_height="wrap_content">
@@ -31,14 +32,7 @@
             android:scaleType="centerCrop"
             android:visibility="gone" />
 
-        <!-- 熔边层：封面下沿 84dp 渐隐进整页糊底（代码按氛围色刷渐变），封面与底一层无接缝 -->
-        <View
-            android:id="@+id/tpCoverMelt"
-            android:layout_width="match_parent"
-            android:layout_height="84dp"
-            android:layout_gravity="bottom"
-            android:contentDescription="@null" />
-    </FrameLayout>
+    </com.fongmi.android.tv.ui.music.CoverFadeLayout>
 
     <!-- SongMeta 紧贴封面（§1 结构序：CoverArt → SongMeta，无间隔字面值） -->
     <LinearLayout

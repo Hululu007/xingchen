@@ -7,7 +7,8 @@
     android:layout_height="match_parent"
     android:background="#0A0E16">
 
-    <!-- 糊底：封面 64×64 小图拉满，代码侧加 24dp 模糊（API31+ RenderEffect）＋四段取色罩合成 -->
+    <!-- 糊底：封面 64×64 小图拉满（图层 alpha 0.4＋中心放大 1.85，照瓜子 CoverAmbientKt 原式），
+         代码侧加 24dp 模糊（API31+ RenderEffect）＋四段取色罩合成 -->
     <ImageView
         android:id="@+id/ivBgBlur"
         android:layout_width="match_parent"

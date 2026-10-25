@@ -97,8 +97,6 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
 
     private ImageView coverView;
     private ImageView coverExitView;
-    /** 封面下沿熔边层（经典／Apple 布局内 tpCoverMelt，其余主题无此视图）：把实图封面下沿渐隐进整页糊底，消除两张皮接缝。 */
-    private View coverMeltView;
     private int coverExitGen;
     private TextView titleView;
     private TextView artistView;
@@ -726,8 +724,6 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
     private void grabThemeViews() {
         coverView = find(R.id.tpCover);
         coverExitView = find(R.id.tpCoverExit);
-        coverMeltView = find(R.id.tpCoverMelt);
-        updateCoverMelt();
         titleView = find(R.id.tpTitle);
         artistView = find(R.id.tpArtist);
         albumView = find(R.id.tpAlbum);
@@ -2203,7 +2199,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         refreshBlurredAmbient();
     }
 
-    /** 糊底合成：64×64 小图拉满＋24dp 模糊＋四段取色罩，合成一张位图贴 ivBgBlur；流体开时不贴（流体层在上）。 */
+    /** 糊底合成：64×64 小图拉满（图层 alpha 0.4＋放大 1.85，照瓜子原式）＋24dp 模糊＋四段取色罩，合成一张位图贴 ivBgBlur；流体开时不贴（流体层在上）。 */
     private void refreshBlurredAmbient() {
         if (binding == null || destroyed) return;
         if (MusicPlayerSettings.isFluidBg()) return;
@@ -2242,9 +2238,13 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
     }
 
     /**
-     * 一层满幅糊底合成（后台线程）：底＝封面缩 64×64 拉满（API<31 位图层 FastBlur 25 回落；
-     * API31+ 由视图层 RenderEffect 24dp 落地，位图层跳过），上盖四段氛围罩——
-     * 停点 0/0.4/0.78/1、alpha 0.76/0.82/0.80/0.86、底色两端明度 +0.05/−0.04（§1）。
+     * 一层满幅糊底合成（后台线程）：照瓜子 CoverAmbientKt.BurredCoverAmbient 原式——
+     * 封面缩 64×64 拉满，图层中心放大 1.85（糊边溢出画外）、糊 24dp（API<31 位图层
+     * FastBlur 25 回落；API31+ 由视图层 RenderEffect 落地，位图层跳过）、图层 alpha
+     * 0.4 压在深色底上（瓜子为窗口底，本树等价物＝骨架根背景 #0A0E16），上盖四段
+     * 氛围罩——停点 0/0.4/0.78/1、alpha 0.76/0.82/0.80/0.86、底色两端明度 +0.05/−0.04。
+     * 图层 alpha 是关键：旧式图层不透明（1.0）时罩后仍透出约 18% 糊图鬼影，整页下半
+     * 认得出一张糊照片＝第二张皮；0.4 时鬼影约 7%，背景回归取色色场、与封面一体。
      */
     private static Bitmap buildBlurredAmbient(Bitmap src, int viewW, int viewH, int ambient) {
         if (src == null || src.isRecycled() || viewW <= 0 || viewH <= 0) return null;
@@ -2259,14 +2259,20 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         try {
             Bitmap out = Bitmap.createBitmap(viewW, viewH, Bitmap.Config.ARGB_8888);
             Canvas canvas = new Canvas(out);
+            // 深色底（骨架根背景字面值）：瓜子图层 alpha 0.4 所压的窗口底在本树的等价物
+            canvas.drawColor(0xFF0A0E16);
             Paint paint = new Paint(Paint.FILTER_BITMAP_FLAG);
+            paint.setAlpha(Math.round(0.4f * 255));
             int smallH = Math.max(1, Math.round(64f * work.getHeight() / (float) work.getWidth()));
             Bitmap small = Bitmap.createScaledBitmap(work, 64, smallH, true);
             if (android.os.Build.VERSION.SDK_INT < 31) {
                 Bitmap blurred = FastBlur.blur(small, 25, true);
                 if (blurred != null) small = blurred;
             }
-            canvas.drawBitmap(small, null, new RectF(0, 0, viewW, viewH), paint);
+            // 图层中心放大 1.85（瓜子 graphicsLayer scale 原值）：糊的边缘溢出画外
+            float zx = (1.85f - 1f) / 2f * viewW;
+            float zy = (1.85f - 1f) / 2f * viewH;
+            canvas.drawBitmap(small, null, new RectF(-zx, -zy, viewW + zx, viewH + zy), paint);
             small.recycle();
             drawAmbientVeil(canvas, viewW, viewH, ambient);
             return out;
@@ -2295,22 +2301,6 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         canvas.drawRect(new RectF(0, 0, viewW, viewH), tint);
     }
 
-    /**
-     * 封面下沿熔边（封面背景一体，1.4.27 查修批）：整页只有一层糊底（ivBgBlur），实图封面浮在它的上段；
-     * 熔边层在封面下沿 84dp 内把实图渐隐到氛围实色，与下半糊底同色收尾，消除「上图下板」的硬接缝。
-     * 渐变色随氛围色动画逐帧更新（animateAmbient 监听内调用）；无熔边视图的主题（卡片／CD／唱片架）直接跳过。
-     */
-    private void updateCoverMelt() {
-        if (coverMeltView == null) return;
-        int tone = CoverColor.toneAdjust(ambientColor) | 0xFF000000;
-        int transparent = tone & 0x00FFFFFF;
-        android.graphics.drawable.GradientDrawable drawable = new android.graphics.drawable.GradientDrawable(
-                android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{transparent, transparent, tone});
-        drawable.setGradientType(android.graphics.drawable.GradientDrawable.LINEAR_GRADIENT);
-        coverMeltView.setBackground(drawable);
-    }
-
     /** 氛围取色过渡 450ms（§1）。 */
     private void animateAmbient(int to) {
         if (ambientAnimator != null) ambientAnimator.cancel();
@@ -2325,7 +2315,6 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
             if (lyricPageView != null && lyricPageVisible) {
                 lyricPageView.setToneColor(ambientColor);
             }
-            updateCoverMelt();
             if (appleLyricView != null) {
                 appleLyricView.setFadeColor(ambientColor);
             }

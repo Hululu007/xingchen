@@ -939,6 +939,20 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         // 批 3 两主题（classic 下全 null）
         coverStackView = find(R.id.tpCoverStack);
         expandedColView = find(R.id.tpExpandedCol);
+        // 展开视口卡面（GZ CoverBackdropCard 真值，smali 深挖 §15.2 第 5 项）：切换条件是系统深色态
+        // （z18＝uiMode 夜间位），深色 #2A2A2E→#0F0F12、浅色 #3A3A3C→#1C1C1E，竖渐变、圆角 22dp。
+        View expandedViewport = find(R.id.tpExpandedViewport);
+        if (expandedViewport != null) {
+            boolean sysDark = (getResources().getConfiguration().uiMode
+                    & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
+                    == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+            android.graphics.drawable.GradientDrawable backdrop = new android.graphics.drawable.GradientDrawable(
+                    android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
+                    sysDark ? new int[]{0xFF2A2A2E, 0xFF0F0F12} : new int[]{0xFF3A3A3C, 0xFF1C1C1E});
+            backdrop.setCornerRadius(22f * getResources().getDisplayMetrics().density);
+            expandedViewport.setBackground(backdrop);
+            expandedViewport.setClipToOutline(true);
+        }
         coverBack1View = find(R.id.tpCoverBack1);
         coverBack2View = find(R.id.tpCoverBack2);
         cardExitView = find(R.id.tpCardExit);

@@ -2827,12 +2827,16 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
 
             @Override
             public boolean onSingleTapConfirmed(MotionEvent e) {
+                // Apple 面封面短按无动作（smali 深挖 §15.1 第 9 项：Apple 路径无 tap/双击，
+                // 只有页级长按开工具面板）；经典/封面卡走各自既有口径。
+                if (appleTheme) return true;
                 onCoverSingleTap();
                 return true;
             }
 
             @Override
             public boolean onDoubleTap(MotionEvent e) {
+                if (appleTheme) return true;
                 MusicTrack track = MusicController.get().current();
                 if (track == null) return true;
                 float[] p = toOverlayPoint(wrap, e.getX(), e.getY());

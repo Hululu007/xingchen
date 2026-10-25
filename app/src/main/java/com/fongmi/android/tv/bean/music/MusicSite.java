@@ -35,6 +35,13 @@ public class MusicSite {
     /** 本地文件安装时的插件文件绝对路径；在线安装为空。删除插件时连文件一起删 */
     public String localPath;
 
+    /**
+     * 运行时标记（transient，不落盘）：后加的预置源——不是首播种年代就在内置表里的老预置。
+     * 老用户存量从没被播种过它，升级后由 MusicSourceManager 补播种；老预置不带此标记，
+     * 存量里缺了只当用户已删、永不补。标记只由 builtinSites() 构造时打，存量读回恒 false。
+     */
+    public transient boolean lateBuiltin;
+
     public MusicSite() {
     }
 

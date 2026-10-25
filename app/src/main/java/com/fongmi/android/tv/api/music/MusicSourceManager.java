@@ -27,8 +27,10 @@ import java.io.FileOutputStream;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
@@ -72,6 +74,8 @@ public class MusicSourceManager {
     private static final String K_PRIMARY = "music_freejs_primary";
     /** 用户点「忽略」的插件更新：srcUrl → 被忽略的版本号（有更高版本时重新提示） */
     private static final String K_IGNORED_UPDATES = "music_ignored_plugin_updates";
+    /** 已播种过的预置地址集合（补播种判据：记过的预置被用户删了也不复活，见 BuiltinReseed） */
+    private static final String K_SEEDED_BUILTINS = "music_builtin_seeded_urls";
     private static final String PLUGIN_DIR = "music_plugins";
 
     private static volatile MusicSourceManager instance;
@@ -148,9 +152,12 @@ public class MusicSourceManager {
         list.add(new MusicSite(FreeJsMusicSource.PLATFORM, "酷我音乐", "",
                 "https://cdn.jsdelivr.net/gh/qwerwhr/musicfree-plugins@master/%E5%85%83%E5%8A%9BKW.js"));
         /* 自写油管音乐源（自有站托管，2026-10-24）：必须走壳子代理、曲库随节点国家，
-           坏了只改托管脚本不动壳子；朋友版播种整套摘除的口径同上三件 */
-        list.add(new MusicSite(FreeJsMusicSource.PLATFORM, "油管音乐（需代理）", "",
-                "https://xingchen-dl.pages.dev/music-sources/ytmusic.js"));
+           坏了只改托管脚本不动壳子；朋友版播种整套摘除的口径同上三件。
+           后加预置：打 lateBuiltin 标记，老用户存量靠 listSites 补播种（见 BuiltinReseed） */
+        MusicSite ytMusic = new MusicSite(FreeJsMusicSource.PLATFORM, "油管音乐（需代理）", "",
+                "https://xingchen-dl.pages.dev/music-sources/ytmusic.js");
+        ytMusic.lateBuiltin = true;
+        list.add(ytMusic);
         for (MusicSite s : list) s.format = FORMAT_FREEJS;
         return list;
     }
@@ -257,6 +264,8 @@ public class MusicSourceManager {
         if (TextUtils.isEmpty(json)) {
             List<MusicSite> builtin = builtinSites();
             saveSites(builtin);
+            // 首装整表播种：地址全记入已播种集合，之后用户删哪件都不复活
+            saveSeededBuiltins(BuiltinReseed.allUrls(builtin));
             return builtin;
         }
         try {
@@ -275,6 +284,22 @@ public class MusicSourceManager {
                 if (b != null) b.destroy();
                 SpiderDebug.log("music", "已清理下架的预置 bilibili 插件记录");
             }
+            // 补播种（2026-10-25）：后加的预置（油管音乐）只在首装时随整表种下，
+            // 老用户存量非空永远拿不到，这里把从没播种过的后加预置补到列表尾。
+            // 决策细则见 BuiltinReseed：记过的（含用户已删的）不复活、老预置不补、
+            // 存量已有的不重复加；朋友版 builtinSites 为空表，本段恒无动作。
+            List<MusicSite> builtin = builtinSites();
+            Set<String> seeded = loadSeededBuiltins();
+            boolean seededFresh = seeded == null;
+            if (seededFresh) seeded = BuiltinReseed.initialSeeded(list, builtin);
+            Set<String> seededBefore = new HashSet<>(seeded);
+            List<MusicSite> appends = BuiltinReseed.planAppends(list, builtin, seeded);
+            for (MusicSite b : appends) {
+                list.add(b);
+                SpiderDebug.log("music", "已补播种后加预置插件：%s", b.name);
+            }
+            if (seededFresh || !seeded.equals(seededBefore)) saveSeededBuiltins(seeded);
+            if (!appends.isEmpty()) saveSites(list);
             return list;
         } catch (Exception e) {
             return new ArrayList<>();
@@ -286,6 +311,28 @@ public class MusicSourceManager {
             Prefers.put(K_SITES, gson.toJson(sites));
         } catch (Exception e) {
             SpiderDebug.log("music", "save sites failed %s", e.getMessage());
+        }
+    }
+
+    /** 已播种过的预置地址集合；键还没建（老存量没跑过补播种）返回 null，内容坏了按空集合 */
+    private Set<String> loadSeededBuiltins() {
+        String json = Prefers.getString(K_SEEDED_BUILTINS, "");
+        if (TextUtils.isEmpty(json)) return null;
+        try {
+            Type type = new TypeToken<List<String>>() {
+            }.getType();
+            List<String> urls = gson.fromJson(json, type);
+            return urls == null ? new HashSet<>() : new HashSet<>(urls);
+        } catch (Exception e) {
+            return new HashSet<>();
+        }
+    }
+
+    private void saveSeededBuiltins(Set<String> seeded) {
+        try {
+            Prefers.put(K_SEEDED_BUILTINS, gson.toJson(new ArrayList<>(seeded)));
+        } catch (Exception e) {
+            SpiderDebug.log("music", "save seeded builtins failed %s", e.getMessage());
         }
     }
 

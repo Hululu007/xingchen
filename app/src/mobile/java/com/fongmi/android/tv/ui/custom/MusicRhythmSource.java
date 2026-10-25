@@ -13,4 +13,14 @@ public interface MusicRhythmSource {
 
     /** 律动强度 0..1；未接通返回 0 */
     float level();
+
+    /** 节拍 a 路包络（dg0 对称 τ0.25）；默认与 level() 同值，源有双路时各自实现。 */
+    default float beatA() {
+        return level();
+    }
+
+    /** 节拍 b 路包络（dg0 升 0.09/降 0.32）；默认与 level() 同值，源有双路时各自实现。 */
+    default float beatB() {
+        return level();
+    }
 }

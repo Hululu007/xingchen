@@ -2581,6 +2581,9 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
                     bgSoftBitmap = ((BitmapDrawable) resource).getBitmap();
                     bgSoftUrl = cover;
                 }
+                if (binding.fluidAmbient != null && binding.fluidAmbient.getVisibility() == View.VISIBLE) {
+                    binding.fluidAmbient.setBackdropBitmap(bgSoftBitmap);
+                }
                 refreshBlurredAmbient();
                 if (resource instanceof BitmapDrawable) {
                     Bitmap bmp = ((BitmapDrawable) resource).getBitmap();
@@ -2762,7 +2765,7 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         ambientAnimator.addUpdateListener(a -> {
             ambientColor = (int) a.getAnimatedValue();
             if (binding.fluidAmbient != null && binding.fluidAmbient.getVisibility() == View.VISIBLE) {
-                binding.fluidAmbient.setColors(ambientColor, dominantColor, CoverColor.toneAdjust(ambientColor));
+                binding.fluidAmbient.setBaseColor(ambientColor);
             }
             if (lyricPageView != null && lyricPageVisible) {
                 lyricPageView.setToneColor(ambientColor);
@@ -2800,7 +2803,9 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
             if (binding.viewVeil != null) binding.viewVeil.setVisibility(on ? View.GONE : View.VISIBLE);
             if (on) {
                 binding.fluidAmbient.setSpeed(MusicPlayerSettings.fluidSpeedFactor());
-                binding.fluidAmbient.setColors(ambientColor, dominantColor, CoverColor.toneAdjust(ambientColor));
+                binding.fluidAmbient.setBaseColor(ambientColor);
+                // 糊底图层素材＝64×64 软图（与经典糊底同源，切歌时随取色点更新，见封面加载回调）
+                binding.fluidAmbient.setBackdropBitmap(bgSoftBitmap);
             } else {
                 bgAppliedUrl = null;
                 refreshBlurredAmbient();

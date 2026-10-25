@@ -987,6 +987,16 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
             CoverStackView.roundCard(coverBack1View, 22f, this);
             CoverStackView.roundCard(coverBack2View, 22f, this);
             CoverStackView.roundCard(cardExitView, 22f, this);
+            // 后叠卡阴影（GZ CoverImmersivePlaceholderCard 真值，smali 深挖 §15.1 第 8 项）：
+            // 高度 6dp、ambient 黑 0.10、spot 黑 0.16——Android 侧 elevation 6dp＋API 28 起的双阴影色对应。
+            for (View back : new View[]{coverBack1View, coverBack2View}) {
+                if (back == null) continue;
+                back.setElevation(6f * getResources().getDisplayMetrics().density);
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                    back.setOutlineAmbientShadowColor(0x1A000000);
+                    back.setOutlineSpotShadowColor(0x29000000);
+                }
+            }
             View wrap = find(R.id.tpCoverWrap);
             if (wrap != null) {
                 wrap.setClipToOutline(true);
@@ -997,6 +1007,12 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
                         outline.setRoundRect(0, 0, v.getWidth(), v.getHeight(), radius);
                     }
                 });
+                // 与后卡同 elevation（6dp）：z 序回到子序决定（后卡→出场→前卡），
+                // 避免后卡凭 elevation 压到前卡之上（见上后卡阴影注）。
+                wrap.setElevation(6f * getResources().getDisplayMetrics().density);
+                if (cardExitView != null) {
+                    cardExitView.setElevation(6f * getResources().getDisplayMetrics().density);
+                }
             }
         }
         if (lyricView != null && coverTheme) {
@@ -2290,7 +2306,8 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         cardExitView.setTranslationX(0f);
         // 缓动分工（GZ PlayerScreenKt.java:26882-26895；bs4.java:6,8,20）：滑移/缩放走出场曲线 (0.3,0,1,1)，
         // 淡出单独走 (0.2,0,0,1)——ViewPropertyAnimator 只有一个插值器，alpha 拆 ObjectAnimator 并行。
-        cardExitView.animate().translationX(-dir * w).scaleX(0.92f).scaleY(0.92f)
+        // 出场滑出量＝全幅÷4（smali 深挖 §15.1 第 8 项：偏移函数 case 6 是整除指令 div-int 4，非全幅滑出）。
+        cardExitView.animate().translationX(-dir * w / 4f).scaleX(0.92f).scaleY(0.92f)
                 .setDuration(350).setInterpolator(INTERP_EXIT)
                 .withEndAction(() -> {
                     if (cardExitView != null && coverExitGen == gen) {

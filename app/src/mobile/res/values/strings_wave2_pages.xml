@@ -47,5 +47,4 @@
     <string name="wave2_device_restore_all">恢复全部</string>
     <string name="wave2_device_restored">已恢复全部移除歌曲</string>
     <!-- 聆听报告：只用本地播放历史＋收藏算，口径见代码注释 -->
-    <string name="wave2_report_title">聆听报告</string>
 </resources>

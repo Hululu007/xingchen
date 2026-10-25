@@ -408,8 +408,6 @@
     <string name="music_lyric_chip_line">逐行</string>
     <string name="music_lyric_chip_plain">纯文本</string>
     <string name="music_lyric_chip_none">无词</string>
-    <string name="home_chart_more">完整榜单</string>
-    <string name="home_chart_play">播放榜单</string>
     <string name="home_guess_sub">每日精选</string>
     <string name="home_charts">排行榜</string>
     <string name="home_charts_sub">此刻热门</string>

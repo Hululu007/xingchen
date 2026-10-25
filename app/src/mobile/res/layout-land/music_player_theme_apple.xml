@@ -128,7 +128,6 @@
                 android:layout_width="34dp"
                 android:layout_height="34dp"
                 android:layout_marginStart="8dp"
-                android:alpha="0.85"
                 android:background="@drawable/bg_player_glass_btn"
                 android:contentDescription="@string/music_favorite"
                 android:padding="7dp"
@@ -140,7 +139,6 @@
                 android:layout_width="34dp"
                 android:layout_height="34dp"
                 android:layout_marginStart="12dp"
-                android:alpha="0.85"
                 android:background="@drawable/bg_player_glass_btn"
                 android:contentDescription="@string/music_more"
                 android:padding="7dp"
@@ -191,9 +189,9 @@
                 android:layout_marginStart="24dp"
                 android:contentDescription="@string/pl_play_pause"
                 android:paddingStart="12dp"
-                android:paddingTop="16dp"
+                android:paddingTop="15.75dp"
                 android:paddingEnd="12dp"
-                android:paddingBottom="16dp"
+                android:paddingBottom="15.75dp"
                 android:src="@drawable/ic_music_pause"
                 android:tint="#FFFFFF" />
 

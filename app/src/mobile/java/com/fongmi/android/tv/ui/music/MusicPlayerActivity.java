@@ -1725,8 +1725,18 @@ public class MusicPlayerActivity extends BaseActivity implements MusicPlayerHost
         View fav = find(R.id.tpAppleFav);
         if (fav != null) {
             fav.setOnClickListener(v -> toggleFavorite());
-            attachPressScale(fav, 0.96f);
+            attachPressScale(fav, 0.88f);
+            // 图标色 alpha 0.85 只压图标、不连带底色 0.14（GZ LiquidGlassButton 两参独立，
+            // PlayerScreenKt.java:3146-3159）；布局已摘整视图 alpha，改走 imageAlpha。
+            ((ImageView) fav).setImageAlpha(217);
         }
+        View appleMenu = find(R.id.tpBtnMenu);
+        if (appleMenu != null) {
+            attachPressScale(appleMenu, 0.88f);
+            ((ImageView) appleMenu).setImageAlpha(217);
+        }
+        // 专辑行按压 0.97（PlayerScreenKt.java:3138）
+        if (albumView != null) attachPressScale(albumView, 0.97f);
         // 运输行（§2 按压：上下首 0.88、播放 0.9）
         View prev = find(R.id.tpBtnPrev);
         if (prev != null) {

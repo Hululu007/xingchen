@@ -46,6 +46,8 @@ public class PlayerPageSwipeLayout extends FrameLayout {
     private boolean hapticArmed;
     private boolean commitPending;
     private VelocityTracker velocityTracker;
+    /** 提交段缓动 bs4.f＝(0.3,0,0.8,0.15)（SwipeExitSpec 150ms）。 */
+    private static final PathInterpolator COMMIT_INTERPOLATOR = new PathInterpolator(0.3f, 0f, 0.8f, 0.15f);
     private int touchSlop;
     private int statusBarHeight;
 
@@ -229,12 +231,13 @@ public class PlayerPageSwipeLayout extends FrameLayout {
         stopSpring();
         commitPending = true;
         float target = next ? -anchorPx() : anchorPx();
-        animate().translationY(target).setDuration(150).withEndAction(() -> {
-            setTranslationY(0f);
+        // 提交段（GZ 口径）：150ms＋缓动 (0.3,0,0.8,0.15) 滑到锚点→回调切歌→spring(0.9,1400) 回中，
+        // 不再瞬时归零（PlayerScreenKt.java:460；bs4.java:21；coverAxisLock$2.java:290-340）。
+        animate().translationY(target).setDuration(150).setInterpolator(COMMIT_INTERPOLATOR).withEndAction(() -> {
             commitPending = false;
             // 页面已销毁/已 detach 时不许替用户切歌（松手后立刻退页的迟到回调）
-            if (!isAttachedToWindow()) return;
-            if (swipeListener != null) swipeListener.onPageSwipe(next);
+            if (isAttachedToWindow() && swipeListener != null) swipeListener.onPageSwipe(next);
+            springBack();
         }).start();
     }
 

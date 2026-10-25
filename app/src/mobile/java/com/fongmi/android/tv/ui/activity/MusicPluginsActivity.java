@@ -1395,7 +1395,11 @@ public class MusicPluginsActivity extends BaseActivity {
 
         /** 插件行：名＋版本号小字＋格式标签；右侧开关（真接线启停）＋⋮菜单 */
         private void bindPlugin(PluginHolder h, int position) {
-            MusicSite s = (MusicSite) cards.get(position);
+            // cards 是混装列表（PluginGroup＋MusicSite）：绑定前先验型，
+            // 不靠视图分型的间接不变量兜底，混入第三类时不许强转崩列表（大扫查防崩同型命中）。
+            Object card = cards.get(position);
+            if (!(card instanceof MusicSite)) return;
+            MusicSite s = (MusicSite) card;
             h.name.setText(s.name == null ? "" : s.name);
             if (h.pluginIcon != null) {
                 h.pluginIcon.setImageResource(R.drawable.ic_music_puzzle);

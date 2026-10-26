@@ -1,22 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="wrap_content"
+    android:layout_height="56dp"
     android:background="@drawable/bg_music_quality_row"
     android:gravity="center_vertical"
-    android:minHeight="64dp"
-    android:padding="12dp">
+    android:paddingLeft="12dp"
+    android:paddingRight="12dp">
 
     <FrameLayout
         android:id="@+id/qr_icon_box"
-        android:layout_width="40dp"
-        android:layout_height="40dp"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
         android:background="@drawable/bg_music_quality_icon">
 
         <ImageView
             android:id="@+id/qr_icon"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
+            android:layout_width="22dp"
+            android:layout_height="22dp"
             android:layout_gravity="center" />
     </FrameLayout>
 
@@ -32,7 +32,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:textColor="#F1F4F5"
-            android:textSize="16sp"
+            android:textSize="13sp"
             android:textStyle="bold" />
 
         <TextView
@@ -40,16 +40,32 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="2dp"
-            android:textColor="#99FFFFFF"
-            android:textSize="12sp" />
+            android:textColor="#85FFFFFF"
+            android:textSize="10sp" />
     </LinearLayout>
 
-    <TextView
-        android:id="@+id/qr_size"
+    <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginStart="8dp"
-        android:text="未知"
-        android:textColor="#99FFFFFF"
-        android:textSize="13sp" />
+        android:layout_marginStart="10dp"
+        android:gravity="right"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/qr_size"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="未知"
+            android:textColor="#E0FFFFFF"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/qr_current"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="当前播放"
+            android:textColor="#85FFFFFF"
+            android:textSize="9sp"
+            android:visibility="gone" />
+    </LinearLayout>
 </LinearLayout>

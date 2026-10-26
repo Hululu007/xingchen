@@ -108,6 +108,9 @@ public class MusicController {
         public void onServiceDisconnected(ComponentName name) {
             if (svc != null) svc.removeListener(serviceListener);
             svc = null;
+            // 必须复位 bound：旧实现只清 svc，ensureBound 永远被 bound=true 挡住空转，
+            // runOnService 的 pending 永不执行、播放控制整体失效直到进程重启（扫描 M6）。
+            bound = false;
         }
     };
 

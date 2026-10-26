@@ -47,6 +47,7 @@ import com.fongmi.android.tv.ui.view.MoodWaveView;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.Task;
+import com.fongmi.android.tv.utils.XcFadeTransition;
 
 import java.util.ArrayList;
 import java.util.Calendar;
@@ -487,7 +488,9 @@ public class MusicActivity extends BaseActivity {
         } catch (Throwable t) {
             reason = Notify.NOTIF_OK;
         }
-        strip.setVisibility(reason != Notify.NOTIF_OK ? View.VISIBLE : View.GONE);
+        // 显隐走统一渐入渐出 200ms，不再直切。
+        if (reason != Notify.NOTIF_OK) XcFadeTransition.fadeIn(strip);
+        else XcFadeTransition.fadeOutThenGone(strip);
     }
 
     // ================= 五快捷计数 =================

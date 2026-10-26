@@ -190,7 +190,7 @@ public class MusicLyricStageView extends View {
         mContentVersion++;
         mRowNodes.clear();
         clearGlowCache();
-        mFontSp = MusicPlayerSettings.getCoverLyricFontSize();
+        mFontSp = MusicPlayerSettings.getFullLyricFontSize();
         mWeight = MusicStore.getLyricWeight();
         mAlign = MusicStore.getLyricAlign();
         mPrimary = MusicStore.getLyricPrimary();

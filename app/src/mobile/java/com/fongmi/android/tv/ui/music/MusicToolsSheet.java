@@ -1228,6 +1228,15 @@ public class MusicToolsSheet {
         // 直达开场（从全屏歌词页来）时没有主面板可回，返回＝关面板
         mPanelBox.addView(subHeader("歌词样式", mStartAtLyricStyle ? this::dismiss : this::showMain));
 
+        // 字号分键：从全屏歌词页直达时调全屏键（默认 24、钳 16–40），从播放页进来
+        // 时调封面键（默认 22、钳 14–32）——瓜子两页口径本就不同，不许并成一个值；
+        // 本面板其余行（粗细/对齐/模糊/主歌词/锚点）仍是两页共用键，不动。
+        final boolean fullSize = mStartAtLyricStyle;
+        final float sizeMin = fullSize ? 16f : 14f;
+        final float sizeMax = fullSize ? 40f : 32f;
+        final float sizeNow = fullSize ? MusicPlayerSettings.getFullLyricFontSize()
+                : MusicPlayerSettings.getCoverLyricFontSize();
+
         // 预览卡（当前歌曲真歌词行预览）
         LinearLayout preview = new LinearLayout(mActivity);
         preview.setOrientation(LinearLayout.VERTICAL);
@@ -1245,7 +1254,7 @@ public class MusicToolsSheet {
         TextView pv1 = new TextView(mActivity);
         pv1.setText(t == null ? "歌词预览" : t.displayTitle());
         pv1.setTextColor(0xFFFFFFFF);
-        pv1.setTextSize(MusicPlayerSettings.getCoverLyricFontSize());
+        pv1.setTextSize(sizeNow);
         pv1.getPaint().setTextSkewX(-0.12f);
         pv1.setMaxLines(1);
         pv1.setEllipsize(TextUtils.TruncateAt.END);
@@ -1253,7 +1262,7 @@ public class MusicToolsSheet {
         TextView pv2 = new TextView(mActivity);
         pv2.setText(t == null ? "" : t.displayArtist());
         pv2.setTextColor(0x4DFFFFFF);
-        pv2.setTextSize(MusicPlayerSettings.getCoverLyricFontSize());
+        pv2.setTextSize(sizeNow);
         pv2.getPaint().setTextSkewX(-0.12f);
         pv2.setMaxLines(1);
         preview.addView(pv2);
@@ -1285,20 +1294,21 @@ public class MusicToolsSheet {
         a.setTextSize(16);
         sizeRow.addView(a, new LinearLayout.LayoutParams(dp(22), ViewGroup.LayoutParams.WRAP_CONTENT));
         TextView val = new TextView(mActivity);
-        val.setText(String.valueOf(Math.round(MusicPlayerSettings.getCoverLyricFontSize())));
+        val.setText(String.valueOf(Math.round(sizeNow)));
         val.setTextColor(0xBFFFFFFF);
         val.setTextSize(11);
         val.setGravity(Gravity.END);
         sizeRow.addView(val, new LinearLayout.LayoutParams(dp(22), ViewGroup.LayoutParams.WRAP_CONTENT));
         SeekBar sizeBar = new SeekBar(mActivity);
-        sizeBar.setMax(18);
-        sizeBar.setProgress(Math.round(MusicPlayerSettings.getCoverLyricFontSize()) - 14);
+        sizeBar.setMax(Math.round(sizeMax - sizeMin));
+        sizeBar.setProgress(Math.round(sizeNow - sizeMin));
         sizeBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
             public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
                 if (!fromUser) return;
-                float v = 14 + progress;
-                MusicStore.setCoverLyricFontSize(v);
+                float v = sizeMin + progress;
+                if (fullSize) MusicStore.setFullLyricFontSize(v);
+                else MusicStore.setCoverLyricFontSize(v);
                 val.setText(String.valueOf(Math.round(v)));
                 pv1.setTextSize(v);
                 pv2.setTextSize(v);
@@ -1374,7 +1384,9 @@ public class MusicToolsSheet {
         reset.setTextSize(11);
         reset.setPadding(dp(12), dp(10), dp(12), dp(6));
         reset.setOnClickListener(v -> {
-            MusicStore.setCoverLyricFontSize(22f);
+            // 字号恢复默认跟开场来源走：全屏 24／播放页 22（两页口径不同）
+            if (fullSize) MusicStore.setFullLyricFontSize(24f);
+            else MusicStore.setCoverLyricFontSize(22f);
             // 扫描 T1：字重默认是 0（标准，MusicStore.LYRIC_WEIGHT_NORMAL），此前写 1（加粗）——
             // 「恢复默认」反而把全 App 歌词字重静默改成加粗
             MusicStore.setLyricWeight(0);

@@ -75,11 +75,16 @@ public class MusicPlayerSettings {
         Prefers.put(K_THEME, THEME_CLASSIC.equals(theme) ? theme : THEME_CLASSIC);
     }
 
-    // ===== #2 歌词字号（委托；唯一正本键 music_lyric_font_size_cover，默认 22，钳 14–32，
-    // 带一次性存量迁移——旧键 music_lyric_font_size 已收口删除，见 MusicStore） =====
+    // ===== #2 歌词字号（委托；播放页页内键 music_lyric_font_size_cover，默认 22，钳 14–32；
+    // 全屏歌词页另走全屏键 music_lyric_font_size_full，默认 24，钳 16–40——瓜子两页
+    // 口径本就不同，不并值，见 MusicStore） =====
 
     public static float getCoverLyricFontSize() {
         return MusicStore.getCoverLyricFontSize();
+    }
+
+    public static float getFullLyricFontSize() {
+        return MusicStore.getFullLyricFontSize();
     }
 
     // ===== #4 封面歌词模糊档（委托读档、本类算系数；默认 2 中档） =====

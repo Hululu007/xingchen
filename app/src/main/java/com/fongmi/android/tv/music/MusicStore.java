@@ -771,17 +771,22 @@ public class MusicStore {
     private static final String K_ADVANCED_FX = "music_advanced_fx";
     private static final String K_PLAYER_KEEP_SCREEN_ON = "music_player_keep_screen_on";
 
-    /** 歌词字号单键收口（2026-10-26 审计 #20 修复）：正本只留封面键
-     * music_lyric_font_size_cover——渲染器 InPageLyricsView 真读的键（播放页页内与
-     * 全屏歌词共用同一渲染器、同一字号），默认 22，钳 14–32。此前设置页字号行写的是
-     * 旧键 music_lyric_font_size（16–40／默认 24），除首读一次性迁移外无人消费，
-     * 稳态改了不生效；现设置页与播放页工具面板同写正本，改完立刻互通。
-     * 旧的双键拆分（L5）与必-6 迁移口径随本收口作废。 */
+    /** 歌词字号（2026-10-26 审计 #20 先单键收口、同日晚他拍板再拆全屏键）：
+     * 封面键 music_lyric_font_size_cover 是播放页页内（InPageLyricsView）的正本，
+     * 默认 22，钳 14–32，设置页字号行与播放页工具面板同写此键。
+     * 全屏歌词页另用全屏键 music_lyric_font_size_full（默认 24，钳 16–40）——
+     * 瓜子两页口径本就不同（页内默认 22sp／全屏默认 24sp、钳 16–40，
+     * 见 gz-player-values 第八节），不许把两页强行并成一个值。 */
     private static final String K_LYRIC_FONT_SIZE_COVER = "music_lyric_font_size_cover";
+    /** 全屏歌词字号键（默认 24，钳 16–40，瓜子全屏口径）。 */
+    private static final String K_LYRIC_FONT_SIZE_FULL = "music_lyric_font_size_full";
+    /** 全屏字号一次性播种标志：置位后全屏键独立演进，不再回看其它键。 */
+    private static final String K_LYRIC_FONT_SIZE_FULL_SEEDED = "music_lyric_font_size_full_seeded";
     /** 字号单键统一迁移标志：置位后旧键 music_lyric_font_size 永不再被读。 */
     private static final String K_LYRIC_FONT_SIZE_UNIFIED = "music_lyric_font_size_unified";
 
-    /** 歌词字号 sp（唯一正本：music_lyric_font_size_cover，默认 22，钳 14–32） */
+    /** 播放页页内歌词字号 sp（键 music_lyric_font_size_cover，默认 22，钳 14–32；
+     * 全屏歌词页走 getFullLyricFontSize，两页口径不同、互不并值） */
     public static float getCoverLyricFontSize() {
         migrateLyricFontSizeOnce();
         float size = Prefers.getFloat(K_LYRIC_FONT_SIZE_COVER, 22f);
@@ -790,6 +795,40 @@ public class MusicStore {
 
     public static void setCoverLyricFontSize(float size) {
         Prefers.put(K_LYRIC_FONT_SIZE_COVER, Math.max(14f, Math.min(32f, size)));
+    }
+
+    /** 全屏歌词字号 sp（默认 24，钳 16–40，瓜子全屏口径） */
+    public static float getFullLyricFontSize() {
+        seedFullLyricFontSizeOnce();
+        float size = Prefers.getFloat(K_LYRIC_FONT_SIZE_FULL, 24f);
+        return Math.max(16f, Math.min(40f, size));
+    }
+
+    public static void setFullLyricFontSize(float size) {
+        Prefers.put(K_LYRIC_FONT_SIZE_FULL, Math.max(16f, Math.min(40f, size)));
+    }
+
+    /** 全屏字号一次性播种：全屏键从未有值时，按「旧全屏键 music_lyric_font_size
+     * （双键时代的字号，若统一迁移还没删它）＞封面键现值＞不写（走默认 24）」取
+     * 一份存量、钳进 16–40 写进全屏键——老用户此前调过的字号平滑带过来，不跳变。
+     * 注意别调 getCoverLyricFontSize()：它会触发统一迁移删旧键，这里直接读原始值。 */
+    private static void seedFullLyricFontSizeOnce() {
+        if (Prefers.getBoolean(K_LYRIC_FONT_SIZE_FULL_SEEDED, false)) return;
+        try {
+            if (!Prefers.getPrefers().contains(K_LYRIC_FONT_SIZE_FULL)) {
+                Float seed = null;
+                if (Prefers.getPrefers().contains(K_LYRIC_FONT_SIZE)) {
+                    seed = Prefers.getFloat(K_LYRIC_FONT_SIZE, 24f);
+                } else if (Prefers.getPrefers().contains(K_LYRIC_FONT_SIZE_COVER)) {
+                    seed = Prefers.getFloat(K_LYRIC_FONT_SIZE_COVER, 24f);
+                }
+                if (seed != null) {
+                    Prefers.put(K_LYRIC_FONT_SIZE_FULL, Math.max(16f, Math.min(40f, seed)));
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        Prefers.put(K_LYRIC_FONT_SIZE_FULL_SEEDED, true);
     }
 
     /** 一次性存量迁移：旧键 music_lyric_font_size 的存值无损搬进正本，搬完删旧键。

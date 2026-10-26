@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 音乐收藏独立页（拆页 p4，2026-10-25）：从旧列表壳的 favorite 模式拆出。
      构成照旧页 favorite 模式实际引用子集：顶栏（旧 favorite 模式被英雄卡顶替、代码隐藏）
-     ＋收藏英雄卡（拼贴＋大标题＋N 首＋播放全部／随机播放／多选＋搜索框＋续播卡＋区头；清空钮收藏恒隐藏、仅占位复用）
+     ＋收藏英雄卡（大标题＋N 首＋播放全部／随机播放／多选＋搜索框＋续播卡＋区头；清空钮收藏恒隐藏、仅占位复用）
      ＋工具栏（多选态删除所选复用 btnPlayAll＋排序键）＋列表＋空态覆盖层。
+     页头拼贴封面块已整块移除（2026-10-26 潇洒哥令），标题与首数行左对齐顶页边。
      根与背景层照旧列表布局：根底 home_bg_page 兜底＋MusicGlassBackgroundView 铺满。
      无返回箭头（铁律），关页走系统返回；界面只放名字和状态，无介绍文字。 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -53,8 +54,8 @@
                 android:visibility="gone" />
         </RelativeLayout>
 
-        <!-- 收藏英雄卡（GZ：封面拼贴 76dp＋大标题 28sp＋N 首 12sp＋
-             播放全部／随机播放＋搜索框＋续播卡；收藏页清空钮恒隐藏） -->
+        <!-- 收藏英雄卡（大标题＋N 首＋播放全部／随机播放＋搜索框＋续播卡；
+             收藏页清空钮恒隐藏。页头原封面拼贴块整块移除，标题行左对齐顶页边） -->
         <LinearLayout
             android:id="@+id/favHistHero"
             android:layout_width="match_parent"
@@ -69,53 +70,8 @@
                 android:orientation="horizontal">
 
                 <LinearLayout
-                    android:id="@+id/favHistMosaic"
-                    android:layout_width="76dp"
-                    android:layout_height="76dp"
-                    android:background="@drawable/card_music"
-                    android:orientation="vertical">
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="38dp"
-                        android:orientation="horizontal">
-
-                        <ImageView
-                            android:id="@+id/ivMosaic0"
-                            android:layout_width="38dp"
-                            android:layout_height="38dp"
-                            android:scaleType="centerCrop" />
-
-                        <ImageView
-                            android:id="@+id/ivMosaic1"
-                            android:layout_width="38dp"
-                            android:layout_height="38dp"
-                            android:scaleType="centerCrop" />
-                    </LinearLayout>
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="38dp"
-                        android:orientation="horizontal">
-
-                        <ImageView
-                            android:id="@+id/ivMosaic2"
-                            android:layout_width="38dp"
-                            android:layout_height="38dp"
-                            android:scaleType="centerCrop" />
-
-                        <ImageView
-                            android:id="@+id/ivMosaic3"
-                            android:layout_width="38dp"
-                            android:layout_height="38dp"
-                            android:scaleType="centerCrop" />
-                    </LinearLayout>
-                </LinearLayout>
-
-                <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="16dp"
                     android:layout_weight="1"
                     android:orientation="vertical">
 

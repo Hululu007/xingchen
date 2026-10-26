@@ -30,6 +30,9 @@ public class AiAsrAudioProcessor implements AudioProcessor {
     /** 重采样状态（线性插值） */
     private double resamplePos = 0;
 
+    /** 流尾标记：queueEndOfStream 后置真，flush/reset 时清零（照上游 PlaybackMediaAudioProcessor 口径） */
+    private boolean inputEnded = false;
+
     public void setCaptureEnabled(boolean enabled) {
         this.captureEnabled = enabled;
         if (!enabled) {
@@ -162,17 +165,19 @@ public class AiAsrAudioProcessor implements AudioProcessor {
 
     @Override
     public boolean isEnded() {
-        return false;
+        return inputEnded && !outputBuffer.hasRemaining();
     }
 
     @Override
     public void flush() {
         outputBuffer = EMPTY_BUFFER;
         resamplePos = 0;
+        inputEnded = false;
     }
 
     @Override
     public void queueEndOfStream() {
+        inputEnded = true;
     }
 
     @Override

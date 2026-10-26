@@ -31,6 +31,7 @@ import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.ui.dialog.MusicFxDialog;
 import com.fongmi.android.tv.ui.dialog.MusicOptionsDialog;
 import com.fongmi.android.tv.ui.dialog.ParametricEqDialog;
+import com.fongmi.android.tv.ui.music.MusicGlassDialogBuilder;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.Task;
 
@@ -297,7 +298,7 @@ public class MusicSettingsActivity extends BaseActivity {
             apply.run();
         });
         box.addView(reset, resetLp);
-        new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+        new MusicGlassDialogBuilder(this)
                 .setTitle("歌词时间偏移")
                 .setView(box)
                 .setPositiveButton("完成", null)
@@ -493,7 +494,7 @@ public class MusicSettingsActivity extends BaseActivity {
             apply.run();
         });
         box.addView(reset, resetLp);
-        new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+        new MusicGlassDialogBuilder(this)
                 .setTitle("歌词字号")
                 .setView(box)
                 .setPositiveButton("完成", null)

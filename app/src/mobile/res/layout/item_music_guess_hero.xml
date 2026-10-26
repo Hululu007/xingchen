@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 猜你喜欢页头图卡（列表位 1）：叠卡三层＝池前 3 首封面（不够的层隐藏、不编假封面），
-     卡底 bg_guess_hero 占位、运行时按首首封面取色淡染；下行计数＋线索文案；
-     操作行三钮：播放全部／随机播放／保存歌单。 -->
+     卡底 bg_guess_hero 只是未接线前的下限，绑定时运行时换液态玻璃、封面取色只作玻璃 tone；
+     下行计数＋线索文案；操作行三钮：播放全部／随机播放／保存歌单。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/guessHeroRoot"
     android:layout_width="match_parent"

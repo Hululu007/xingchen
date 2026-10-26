@@ -6,7 +6,6 @@ import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.drawable.Drawable;
-import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -55,7 +54,8 @@ import java.util.Set;
  * 线索数＝收藏＋最近播放按 id 去重后的条数。
  * 列表构成：位 0 标题行（纯静态）、位 1 英雄卡（叠卡三层＋计数＋线索＋播放全部/随机/保存）、
  * 位 2 精选区头（计数＋换个顺序＝本地重排）、其余精选行（adapter 位＝ tracks 下标＋3）。
- * 回页不重拉（onResume 只回滚滚动位）；行菜单/下载选档/删本地/收藏/加歌单照旧口径自带。
+ * 回页重拉（首个 onResume 除外）：在别处取消收藏/新下载后回页必须见新账，不许留旧池；
+ * 行菜单/下载选档/删本地/收藏/加歌单照旧口径自带。
  */
 public class MusicGuessActivity extends BaseActivity {
 
@@ -96,6 +96,8 @@ public class MusicGuessActivity extends BaseActivity {
     private String bigTitle = "";
     private android.os.Parcelable pendingListState;
     private boolean scrollRestoreDone;
+    /** 首个 onResume 紧跟 initView 的 loadGuess，不重拉；之后每次回页都重拉。 */
+    private boolean firstResume = true;
 
     private final MusicController.Listener listener = new MusicController.Listener() {
         @Override
@@ -136,7 +138,10 @@ public class MusicGuessActivity extends BaseActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        // 回页不重拉，只回滚滚动位一次
+        // 回页重拉（首回除外，initView 已拉过）：别处改了收藏/下载，回页池与线索数必须跟上
+        if (firstResume) firstResume = false;
+        else loadGuess();
+        // 滚动位只回滚一次
         if (!scrollRestoreDone && pendingListState != null && recycler != null) {
             recycler.post(() -> {
                 try {
@@ -357,7 +362,7 @@ public class MusicGuessActivity extends BaseActivity {
 
     private void toggleFavorite(MusicTrack t, boolean currentlyFav) {
         MusicLibrary.setFavorite(t, !currentlyFav, () -> runOnUiThread(() ->
-                Notify.show(!currentlyFav ? R.string.music_favorited : R.string.music_favorite)));
+                Notify.show(!currentlyFav ? R.string.music_favorited : R.string.music_unfavorited)));
     }
 
     private void pickPlaylist(MusicTrack t) {
@@ -446,8 +451,12 @@ public class MusicGuessActivity extends BaseActivity {
         if (tracks.isEmpty()) return;
         inputPlaylistName(name -> MusicLibrary.importPlaylist(name, new ArrayList<>(tracks), result ->
                 runOnUiThread(() -> {
-                    if (result == null || result.inserted <= 0) {
+                    if (result == null) {
                         Notify.show(R.string.music_import_err_empty);
+                    } else if (result.inserted <= 0) {
+                        // 池明明非空（空池在入口已拦）：一首没存进去是「无新增」，
+                        // 不许再报「这个歌单里没有歌」——那句说的是输入为空，与真因相反
+                        Notify.show("没有新增的歌");
                     } else {
                         Notify.show(getString(R.string.music_imported, name, result.inserted));
                     }
@@ -456,7 +465,9 @@ public class MusicGuessActivity extends BaseActivity {
 
     // ================= 英雄卡取色 =================
 
-    /** 首首封面取色淡染卡面：主色×0.15＋白×0.85、1dp 0x14000000 描边、圆角 20dp；tag 守卫防迟到串色。 */
+    /** 首首封面取色只作玻璃 tone（与榜单卡 tintChartCard 同口径 0.45），不许整卡换实染面：
+     * 此前这里把根背景整块换成浅色 GradientDrawable，英雄卡根本不是玻璃（体检 A 片）。
+     * tag 守卫防迟到串色；根不是玻璃时先补 glassify（bindGuessHero 已接，这里兜底）。 */
     private void tintGuessHero(View heroRoot, String cover) {
         if (heroRoot == null || cover == null || cover.isEmpty()) return;
         heroRoot.setTag(cover);
@@ -464,14 +475,15 @@ public class MusicGuessActivity extends BaseActivity {
             @Override
             public void onResourceReady(Bitmap resource, @Nullable Transition<? super Bitmap> transition) {
                 int main = averageColor(resource);
-                int tint = MusicHomeMood.mixColors(main, 0xFFFFFFFF, 0.85f);
                 runOnUiThread(() -> {
                     if (!cover.equals(heroRoot.getTag())) return;
-                    GradientDrawable bg = new GradientDrawable();
-                    bg.setCornerRadius(dp(20));
-                    bg.setColor(tint);
-                    bg.setStroke(dp(1), 0x14000000);
-                    heroRoot.setBackground(bg);
+                    if (!(heroRoot.getBackground() instanceof com.fongmi.android.tv.ui.music.MusicGlassDrawable)) {
+                        MusicGlassWire.glassifyView(heroRoot, 20f);
+                    }
+                    if (heroRoot.getBackground() instanceof com.fongmi.android.tv.ui.music.MusicGlassDrawable) {
+                        ((com.fongmi.android.tv.ui.music.MusicGlassDrawable) heroRoot.getBackground())
+                                .setToneColor(main, 0.45f);
+                    }
                 });
             }
 
@@ -497,10 +509,6 @@ public class MusicGuessActivity extends BaseActivity {
         }
         if (n == 0) return 0xFF8E8E93;
         return Color.rgb((int) (r / n), (int) (g / n), (int) (b / n));
-    }
-
-    private int dp(int value) {
-        return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
     // ================= Adapter =================
@@ -596,6 +604,9 @@ public class MusicGuessActivity extends BaseActivity {
     }
 
     private void bindGuessHero(HeroHolder h) {
+        // 英雄卡根接玻璃（20dp）：bg_guess_hero 虽在识别表内，但 item 是页面 glassifyTree
+        // 之后才建的、此前从未有接线点——绑定时直换，顺带把卡内计数/线索字翻白系
+        MusicGlassWire.glassifyView(h.root, 20f);
         loadDeckCover(h.deckFront, 0);
         loadDeckCover(h.deckBack1, 1);
         loadDeckCover(h.deckBack2, 2);

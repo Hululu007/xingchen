@@ -81,7 +81,13 @@ public final class CspWarmup {
         try {
             SpiderDebug.log("csp-warmup", "init start reason=%s site=%s api=%s jar=%s", reason, site.getKey(), site.getApi(), jarKey(site));
             // 后台预热走静默加载：PY 源失败只落强制日志，不弹「PY加载失败」。
-            site.recent().spiderQuiet();
+            // 扫描 T8：成败看返回值——加载失败回的是 SpiderNull 而非抛异常，
+            // 此前不接返回值恒记 init done 并计入 success，靠日志定位时被假成功误导。
+            com.github.catvod.crawler.Spider spider = site.recent().spiderQuiet();
+            if (spider == null || spider instanceof com.github.catvod.crawler.SpiderNull) {
+                SpiderDebug.log("csp-warmup", "init failed reason=%s site=%s api=%s (spider null) cost=%sms", reason, site.getKey(), site.getApi(), System.currentTimeMillis() - start);
+                return false;
+            }
             SpiderDebug.log("csp-warmup", "init done reason=%s site=%s api=%s cost=%sms", reason, site.getKey(), site.getApi(), System.currentTimeMillis() - start);
             return true;
         } catch (Throwable e) {

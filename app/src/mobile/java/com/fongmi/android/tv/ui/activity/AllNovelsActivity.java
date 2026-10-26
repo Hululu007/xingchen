@@ -149,6 +149,36 @@ public class AllNovelsActivity extends AppCompatActivity {
         for (ReadingStore.Record r : ReadingStore.list()) {
             if ("NOVEL".equals(r.kind)) all.add(r);
         }
+        // 本地导入的小说只落 LocalBookStore，没读过就没有 ReadingStore 记录，
+        // 只读记录会漏掉未读的本地小说（书架页 D1 同病同法）：按 localId 对账
+        // 补列——已有记录的以记录为准（带进度），没记录的用注册表元数据
+        // 合成一张同型卡，并入后仍按 updatedAt 倒序；点击仍走 openRecord
+        // 的本地分支（LocalBookSession 全表重建），不另造打开路径。
+        java.util.Set<String> recordedLocal = new java.util.HashSet<>();
+        for (ReadingStore.Record r : all) {
+            if ("local".equals(r.origin) && !TextUtils.isEmpty(r.localId)) {
+                recordedLocal.add(r.localId);
+            }
+        }
+        for (com.fongmi.android.tv.localbook.LocalBook b
+                : com.fongmi.android.tv.localbook.LocalBookStore.list()) {
+            if (b == null || TextUtils.isEmpty(b.id) || recordedLocal.contains(b.id)) continue;
+            // 本页只收小说：漫画本地书归书架漫画栏（与书架页 kind 映射同口径）
+            if ("COMIC".equals(b.kind)) continue;
+            ReadingStore.Record r = new ReadingStore.Record();
+            r.kind = "NOVEL";
+            r.sourceName = "本地书";
+            r.bookTitle = b.title == null ? "" : b.title;
+            r.coverUrl = TextUtils.isEmpty(b.coverPath) ? "" : "file://" + b.coverPath;
+            r.origin = "local";
+            r.localId = b.id;
+            r.chapterIndex = 0;
+            if (b.chapters != null && !b.chapters.isEmpty()) {
+                r.chapterName = b.chapters.get(0).name == null ? "" : b.chapters.get(0).name;
+            }
+            r.updatedAt = b.addedAt;
+            all.add(r);
+        }
         all.sort((a, b) -> Long.compare(b.updatedAt, a.updatedAt));
         render();
     }

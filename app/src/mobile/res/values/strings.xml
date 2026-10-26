@@ -202,7 +202,7 @@
     <string name="music_battery_ignored">已忽略电池优化</string>
     <string name="music_battery_not_ignored">未忽略电池优化</string>
     <string name="music_amll_title">AMLL 歌词</string>
-    <string name="music_amll_desc">优先使用 AMLL 人工校对歌词库（支持对唱／背景人声）</string>
+    <string name="music_amll_desc">AMLL 人工校对歌词库参与歌词收集，是否优先由在线歌词优先级决定（支持对唱／背景人声）</string>
     <string name="music_no_site">暂无音乐源</string>
     <string name="music_site_added">已添加</string>
     <string name="music_enable">启用</string>

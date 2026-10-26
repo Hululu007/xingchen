@@ -412,15 +412,16 @@ public class MusicChartsActivity extends BaseActivity {
     }
 
     /** 指定圆角加载（ImgUtil.loadRounded 写死 8dp；榜单卡 14dp 在此另起；
-     * 占位／失败素图口径与行内 CoverTextDrawable 一致） */
+     * 本 helper 只在有封面地址时被调用，占位/失败一律透明，见 helper 内注） */
     private void loadCoverRounded(String text, String url, ImageView view, int radiusDp) {
         view.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        float r = radiusDp * view.getResources().getDisplayMetrics().density;
         try {
             com.bumptech.glide.Glide.with(view).clear(view);
             com.bumptech.glide.Glide.with(view).load(ImgUtil.getUrl(url))
-                    .placeholder(new com.fongmi.android.tv.utils.CoverTextDrawable(text, false, r))
-                    .error(new com.fongmi.android.tv.utils.CoverTextDrawable(text, false, r))
+                    // 封面占位定案（扫描 M22）：有地址永远透明——加载中/失败都不许变素图，
+                    // 只有真没地址才上素图（那条路在绑定处直设 CoverTextDrawable，不走本 helper）
+                    .placeholder(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
+                    .error(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
                     .transform(new com.bumptech.glide.load.resource.bitmap.CenterCrop(),
                             new com.bumptech.glide.load.resource.bitmap.RoundedCorners(dp(radiusDp)))
                     .into(view);

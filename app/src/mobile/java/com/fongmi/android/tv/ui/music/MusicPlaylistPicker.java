@@ -24,16 +24,15 @@ import java.util.List;
 
 /**
  * 加到歌单面板（瓜子 AddToPlaylistSheet 规格，数值照抠值全表第十八节）：
- * 底板 sheetPanelBg（深 #FF1C1C1E）、横内边距 16、底内边距 10；头「添加到歌单（N 首）」17sp；
+ * 横内边距 16、底内边距 10；头「添加到歌单（N 首）」17sp；
  * 提示 11sp sheetTextLow、内边距 (0,12,0,10)；新建行盒 52、圆角 16、红渐变、图标 28、
- * 「新建歌单」18sp/800/字距 −0.3；输入框高 48、圆角 14、底 inset、字 14sp；
- * 列表框圆角 16、最大高 320、底 sheetListBg；歌单行高 56、横内边距 16、封面 36 圆角 10。
- * 星辰口径：底板走深色（不用白底），不放介绍文字。
+ * 「新建歌单」18sp/800/字距 −0.3；输入框高 48、圆角 14、字 14sp；
+ * 列表区最大高 320；歌单行高 56、横内边距 16、封面 36 圆角 10。
+ * 星辰口径：不放介绍文字；材料按全玻璃口径——底板同源液态玻璃（仅顶角 16）、
+ * 歌单行一行一框、输入框玻璃；瓜子的深色实底只借版式数值、不借实底（2026-10-26 全扫改）。
  */
 public final class MusicPlaylistPicker {
 
-    private static final int BG = 0xFF1C1C1E;
-    private static final int LIST_BG = 0xFF2C2C2E;
     private static final int TEXT_HIGH = 0xFFF2F2F7;
     private static final int TEXT_LOW = 0xFF636366;
     private static final int ACCENT = 0xFFFA243C;
@@ -53,10 +52,9 @@ public final class MusicPlaylistPicker {
         LinearLayout root = new LinearLayout(activity);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(activity, 16), dp(activity, 12), dp(activity, 16), dp(activity, 10));
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(BG);
-        bg.setCornerRadii(new float[]{dp(activity, 16), dp(activity, 16), dp(activity, 16), dp(activity, 16), 0, 0, 0, 0});
-        root.setBackground(bg);
+        // 面板根底换同源液态玻璃（仅顶角 16，与其它音乐面板同款）：原是瓜子深色实底平铺，
+        // 在全玻璃口径下是整块实底漏网（2026-10-26 全扫）。
+        root.setBackground(new MusicGlassDrawable(activity, 16, true));
 
         // 头：标题居中（带首数）＋右侧 × 关（他的铁律：不放返回箭头，× 可以）
         FrameLayout header = new FrameLayout(activity);
@@ -89,16 +87,10 @@ public final class MusicPlaylistPicker {
         root.addView(createBox, cblp);
         showCreateRow(activity, createBox, track, dialog);
 
-        // 歌单列表框
+        // 歌单列表区：不再套实底盒（原 #2C2C2E 整盒），行各自一框（见 playlistRow），容器只作纵向排布
         ScrollView scroll = new ScrollView(activity);
         LinearLayout listBox = new LinearLayout(activity);
         listBox.setOrientation(LinearLayout.VERTICAL);
-        GradientDrawable lbg = new GradientDrawable();
-        lbg.setColor(LIST_BG);
-        lbg.setCornerRadius(dp(activity, 16));
-        lbg.setStroke(1, 0x0D000000);
-        listBox.setBackground(lbg);
-        listBox.setClipToOutline(true);
         scroll.addView(listBox);
         LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -147,18 +139,15 @@ public final class MusicPlaylistPicker {
                 });
             }
         });
+        MusicGlassWire.glassifyTree(root); // 整树接线：给 ScrollView 挂滚动钩子，行玻璃滚动时跟着重裁
         dialog.show();
     }
 
+    /** 行间垫高：一行一框后以 8dp 间距代替分隔线（与选项行 4+4 的行距口径一致）。 */
     private static View divider(AppCompatActivity a) {
         View v = new View(a);
-        GradientDrawable d = new GradientDrawable();
-        d.setColor(0x14FFFFFF);
-        v.setBackground(d);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, dp(a, 0.5f)));
-        lp.leftMargin = dp(a, 16);
-        v.setLayoutParams(lp);
+        v.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(a, 8)));
         return v;
     }
 
@@ -203,6 +192,7 @@ public final class MusicPlaylistPicker {
         LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
         tlp.leftMargin = dp(a, 12);
         row.addView(texts, tlp);
+        MusicGlassWire.frameRow(row); // 一行一框：与其它音乐列表行同口径
         return row;
     }
 
@@ -248,10 +238,7 @@ public final class MusicPlaylistPicker {
         input.setHint("歌单名");
         input.setTextSize(14);
         input.setPadding(dp(a, 14), 0, dp(a, 14), 0);
-        GradientDrawable ig = new GradientDrawable();
-        ig.setColor(0x1AFFFFFF);
-        ig.setCornerRadius(dp(a, 14));
-        input.setBackground(ig);
+        MusicGlassWire.glassifyView(input, 14f); // 输入框同换玻璃（原是白 0.10 平铺）
         box.addView(input, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(a, 48)));
 

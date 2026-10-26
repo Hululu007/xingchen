@@ -452,6 +452,29 @@ public class MusicSourceManager {
         } catch (Exception e) {
             SpiderDebug.log("music", "save sites failed %s", e.getMessage());
         }
+        mirrorProxyDesignations(sites);
+    }
+
+    /**
+     * 「需代理」指定源的策略镜像（Emby 的 EmbyStore 镜像同款）：源表是播种/增删的唯一
+     * 写入口，凡表里有指定源、而节点策略表里从没写过它的条目，就把 (music, srcUrl)=开
+     * 镜像进去——定案自带生效，不要求用户再去拨总开关或逐源开关。只补「从没写过」：
+     * 用户日后在策略表里明确关掉（条目在、值为关）不复活。
+     */
+    private void mirrorProxyDesignations(List<MusicSite> sites) {
+        try {
+            if (sites == null) return;
+            App app = App.get();
+            if (app == null) return;
+            for (MusicSite s : sites) {
+                if (s == null || !isProxyDesignated(s.srcUrl)) continue;
+                if (!SourceProxyPolicy.hasEntry(app, SourceProxyPolicy.KIND_MUSIC, s.srcUrl)) {
+                    SourceProxyPolicy.setEnabled(app, SourceProxyPolicy.KIND_MUSIC, s.srcUrl, true);
+                    SpiderDebug.log("clash", "gate music designated mirrored id=%s", s.srcUrl);
+                }
+            }
+        } catch (Throwable ignored) {
+        }
     }
 
     /** 已播种过的预置地址集合；键还没建（老存量没跑过补播种）返回 null，内容坏了按空集合 */
@@ -601,9 +624,16 @@ public class MusicSourceManager {
     /* ---------------- 桥 ---------------- */
 
     private String downloadJs(String srcUrl) throws Exception {
-        String js = OkHttp.string(srcUrl, 20000);
-        if (TextUtils.isEmpty(js)) throw new IllegalStateException("插件下载失败：" + srcUrl);
-        return js;
+        // 脚本下载也是该源的流量：同桥内请求一个口径打点（kind=music、id=srcUrl），
+        // 走不走节点由策略表裁决；未开走节点的源打点只多一条决策留痕、路由不变。
+        SourceGate.Mark prev = SourceGate.push(SourceProxyPolicy.KIND_MUSIC, srcUrl == null ? "" : srcUrl);
+        try {
+            String js = OkHttp.string(srcUrl, 20000);
+            if (TextUtils.isEmpty(js)) throw new IllegalStateException("插件下载失败：" + srcUrl);
+            return js;
+        } finally {
+            SourceGate.pop(prev);
+        }
     }
 
     private static final java.util.concurrent.atomic.AtomicBoolean bridgesPrewarmed =

@@ -586,7 +586,7 @@ public class CloudDriveActivity extends BaseActivity {
 
     private void showOfflineDialog() {
         EditText input = makeInput("粘贴 magnet / ed2k / http 链接");
-        new AlertDialog.Builder(this)
+        AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("离线下载")
                 .setView(input)
                 .setPositiveButton("开始", (d, w) -> {
@@ -598,7 +598,9 @@ public class CloudDriveActivity extends BaseActivity {
                     doOfflineDownload(url);
                 })
                 .setNegativeButton("取消", null)
-                .show();
+                .create();
+        MusicGlassDialogs.attach(dialog);
+        dialog.show();
     }
 
     private void doOfflineDownload(String url) {
@@ -625,7 +627,7 @@ public class CloudDriveActivity extends BaseActivity {
         EditText pwd = makeInput("提取码（可选）");
         layout.addView(link);
         layout.addView(pwd);
-        new AlertDialog.Builder(this)
+        AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("转存分享链接")
                 .setView(layout)
                 .setPositiveButton("转存", (d, w) -> {
@@ -637,7 +639,9 @@ public class CloudDriveActivity extends BaseActivity {
                     doSaveShare(shareUrl, pwd.getText().toString().trim());
                 })
                 .setNegativeButton("取消", null)
-                .show();
+                .create();
+        MusicGlassDialogs.attach(dialog);
+        dialog.show();
     }
 
     private void doSaveShare(String shareUrl, String password) {
@@ -658,7 +662,7 @@ public class CloudDriveActivity extends BaseActivity {
 
     private void showCreateFolderDialog() {
         EditText input = makeInput("文件夹名称");
-        new AlertDialog.Builder(this)
+        AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("新建文件夹")
                 .setView(input)
                 .setPositiveButton("创建", (d, w) -> {
@@ -670,7 +674,9 @@ public class CloudDriveActivity extends BaseActivity {
                     doCreateFolder(name);
                 })
                 .setNegativeButton("取消", null)
-                .show();
+                .create();
+        MusicGlassDialogs.attach(dialog);
+        dialog.show();
     }
 
     private void doCreateFolder(String name) {

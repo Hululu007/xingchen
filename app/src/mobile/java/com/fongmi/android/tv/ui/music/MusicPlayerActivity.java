@@ -615,7 +615,7 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
                 || (local && (TextUtils.isEmpty(track.displayArtist()) || TextUtils.isEmpty(track.displayAlbum())));
         if (!need || !mMetaTried.add(key)) return;
         com.fongmi.android.tv.utils.Task.execute(() -> {
-            MusicTrack hit = MusicRepository.onlineMeta(track);
+            MusicTrack hit = com.fongmi.android.tv.music.MusicRepository.onlineMeta(track);
             if (hit == null) return;
             boolean coverFilled = false;
             if (TextUtils.isEmpty(track.cover) && !TextUtils.isEmpty(hit.cover)) {

@@ -68,6 +68,7 @@ import com.fongmi.android.tv.music.MusicController;
 import com.fongmi.android.tv.music.MusicDownloadStore;
 import com.fongmi.android.tv.music.MusicQueue;
 import com.fongmi.android.tv.music.MusicRepository;
+import com.fongmi.android.tv.music.PyMusicSource;
 import com.fongmi.android.tv.music.ParametricEq;
 import com.fongmi.android.tv.music.ParametricEqProcessor;
 import com.fongmi.android.tv.music.MusicStore;
@@ -1991,18 +1992,32 @@ public class MusicPlaybackService extends MediaSessionService {
         // 出词提速：下一首的词与链同批预取（同门控），切过去时缓存已有词、跟歌一起出。
         // 共享单飞保证与起播同刻/页面那份调用并成一条链，不重复跑。取词任务内含等链
         // 收口的阻塞等待，不许占音乐池（4 线程，与取链共用会互相饿死）——走大池。
-        Task.largeExecutor().execute(() -> {
-            try {
-                MusicRepository.fetchLyricForPlayback(snapshot);
-            } catch (Throwable ignored) {
-            }
-        });
+        // 例外（py 歌词打架三修之一）：py 歌歌手要等取链回填（lyricMetaPending），
+        // 信息未齐时不许拿纯歌名先跑一链——取词改挂到取链任务尾巴、回填后发车。
+        final boolean deferLyric = lyricMetaPending(snapshot);
+        if (!deferLyric) {
+            Task.largeExecutor().execute(() -> {
+                try {
+                    MusicRepository.fetchLyricForPlayback(snapshot);
+                } catch (Throwable ignored) {
+                }
+            });
+        }
         // 预加载走音乐专用池（P3）：不占共享 5 线程池，不许预加载僵尸任务拖垮正式取链
         Task.executeMusic(() -> {
             String url = null;
             try {
                 url = MusicRepository.playUrl(snapshot, q);
             } catch (Throwable ignored) {
+            }
+            if (deferLyric) {
+                // 同一曲目对象 playUrl 已回填歌手（回填不到就按现有信息发车，见 lyricMetaPending）
+                Task.largeExecutor().execute(() -> {
+                    try {
+                        MusicRepository.fetchLyricForPlayback(snapshot);
+                    } catch (Throwable ignored) {
+                    }
+                });
             }
             final String fUrl = url;
             App.post(() -> {
@@ -2012,6 +2027,21 @@ public class MusicPlaybackService extends MediaSessionService {
                 }
             });
         });
+    }
+
+    /**
+     * 取词发车的信息关（py 歌词打架三修之一）：py 歌的歌手靠取链时才回填
+     * （PyMusicSource.playUrl 拿详情把 actor 写回同一曲目对象），起播受理那一刻
+     * 歌手常还是空的——抢先发车只能拿纯歌名对歌，且回填后再跑可能落到另一个
+     * 版本（定性报告放大器 3）。故 py 平台且歌手为空时不在受理点发车：起播改在
+     * 取链定案落点补发（prepareTrack 成功路径）、下一首预取改挂取链尾巴
+     * （maybePreloadNext）。回填实在不到（详情无 actor）时补发照走现有信息发车，
+     * 靠时长缺失收紧判据防错版，不无限等、不拖死。其它平台的歌手不经取链回填，
+     * 不进本关、照旧受理即发车，出词速度不变。
+     */
+    private boolean lyricMetaPending(MusicTrack track) {
+        return track != null && PyMusicSource.PLATFORM.equals(track.platform)
+                && (track.artist == null || track.artist.trim().isEmpty());
     }
 
     /** 出词提速：起播同刻的服务侧取词。只备词＋回写缓存＋（仍是当前歌才）通知页面，
@@ -2028,7 +2058,13 @@ public class MusicPlaybackService extends MediaSessionService {
             if (lyric == null || !lyric.hasLyric()) return;
             MusicTrack cur = queue.current();
             if (cur != null && MusicQueue.trackKey(cur).equals(MusicQueue.trackKey(track))) {
-                listeners.forEach(l -> l.onLyricReady(track));
+                // 同源同版免换（py 歌词打架三修之三）：先行版已上屏且终版就是同一版时，
+                // 页面显示的已是终版，不再发 onLyricReady 让它重读缓存重设行表
+                //（那一下重设看着就是「又换了一次词」）；真换版才照常发。
+                // 通知卡不经先行发布、照常补达。
+                if (!MusicRepository.earlyDeliveredSameVersion(track, lyric)) {
+                    listeners.forEach(l -> l.onLyricReady(track));
+                }
                 // 通知歌词面同刻补达：词刚进缓存，展开大卡的歌词组从无到有靠这一声
                 if (musicNotificationProvider != null) musicNotificationProvider.onLyricReady();
             }
@@ -2067,7 +2103,10 @@ public class MusicPlaybackService extends MediaSessionService {
         // 出词提速：取词与取链同刻启动、并行——不等播放器回调、不等播放页绑定。
         // 与页面那份取词走共享单飞并成一条链，结果回写缓存；备好时若仍是当前歌，
         // 经 onLyricReady 通知页面直接读缓存上屏（词跟歌一起到）。
-        startLyricFetch(track);
+        // 例外（py 歌词打架三修之一）：py 歌且歌手未回填时不在此发车（lyricMetaPending），
+        // 改到取链定案的成功落点补发——先拿纯歌名跑的那一链正是选错版的源头之一。
+        final boolean lyricDeferred = lyricMetaPending(track);
+        if (!lyricDeferred) startLyricFetch(track);
         // 看门狗：取链卡死（源挂死/桥死等）时不许无限期顶着 preparing，超时按失败收口；
         // P3：到点同时取消在途取链任务（interrupt），不只放弃等待——否则僵尸任务继续占池
         main.postDelayed(() -> {
@@ -2172,6 +2211,10 @@ public class MusicPlaybackService extends MediaSessionService {
                     onPlayFailed(track);
                     return;
                 }
+                // 延迟取词补发（py 歌词打架三修之一）：走到这里取链已定案、歌手已由
+                // playUrl 回填进同一曲目对象，此时才发取词车；回填不到（详情无 actor）
+                // 也照发——按现有信息走收紧判据，宁可无词不许错版，不再继续等。
+                if (lyricDeferred) startLyricFetch(track);
                 MediaItem item = new MediaItem.Builder()
                         .setMediaId(track.id == null ? "" : track.id)
                         .setUri(fUrl)

@@ -28,16 +28,20 @@ public class PlatformWordLyricSource {
     private final NeteaseClient netease = new NeteaseClient();
 
     /** 首个词级命中（快路径用）；无词级返回空。三源串行共用一个总预算（X-29 补账：
-     * 取词口径 18 秒整链封顶，剩余预算逐源递减，不是每源一份）。 */
+     * 取词口径 18 秒整链封顶，剩余预算逐源递减，不是每源一份）。
+     * 时长缺失收紧（py 歌词打架三修之二）：本路是自动取词链——目标歌时长缺失
+     * （0／未知）时，候选结果自带歌名／歌手，过不了 GzLyricMatch 收紧对版关
+     * （歌名全等＋歌手双对上）的跳过不收，宁可无词不许拿异版本词垫；
+     * 全量聚合 lyricRichAll 是版本面板口径，不设此关、全收由用户自选。 */
     public MusicLyric lyricRich(MusicTrack track) {
         LyricsRequest request = requestOf(track);
         if (request == null) return null;
         long deadline = LyricsRepository.deadlineAfter(LyricsRepository.LOAD_TIMEOUT_MS);
-        MusicLyric lyric = firstWord(safeFind(request, deadline, req -> kugou.findAll(req, 8), "Kugou"), "酷狗", "KRC");
+        MusicLyric lyric = firstWord(safeFind(request, deadline, req -> kugou.findAll(req, 8), "Kugou"), "酷狗", "KRC", track);
         if (lyric != null) return lyric;
-        lyric = firstWord(safeFind(request, deadline, req -> qq.findAll(req, 8), "QqMusic"), "QQ音乐", "QRC");
+        lyric = firstWord(safeFind(request, deadline, req -> qq.findAll(req, 8), "QqMusic"), "QQ音乐", "QRC", track);
         if (lyric != null) return lyric;
-        return firstWord(safeFind(request, deadline, req -> netease.findAll(req, 8), "Netease"), "网易云", "YRC");
+        return firstWord(safeFind(request, deadline, req -> netease.findAll(req, 8), "Netease"), "网易云", "YRC", track);
     }
 
     /** 每平台各收一词级版（版本聚合用；行级不收）。三源串行共用一个总预算
@@ -68,14 +72,19 @@ public class PlatformWordLyricSource {
     }
 
     private void addWord(List<MusicLyric> out, List<LyricsResult> results, String sourceName, String format) {
-        MusicLyric lyric = firstWord(results, sourceName, format);
+        MusicLyric lyric = firstWord(results, sourceName, format, null);
         if (lyric != null) out.add(lyric);
     }
 
-    private MusicLyric firstWord(List<LyricsResult> results, String sourceName, String format) {
+    /** gateTrack 非空且其时长缺失时启用收紧对版关（仅快路径传，聚合路传 null 不设关） */
+    private MusicLyric firstWord(List<LyricsResult> results, String sourceName, String format, MusicTrack gateTrack) {
         if (results == null) return null;
         for (LyricsResult r : results) {
             if (r == null) continue;
+            if (gateTrack != null && gateTrack.duration <= 0 && !com.fongmi.android.tv.music.GzLyricMatch
+                    .strictTitleArtistMatch(gateTrack.title, gateTrack.artist, r.getTrackName(), r.getArtistName())) {
+                continue;
+            }
             String text = r.getLyrics();
             if (text == null || text.trim().isEmpty()) continue;
             if (!hasWord(text)) continue;

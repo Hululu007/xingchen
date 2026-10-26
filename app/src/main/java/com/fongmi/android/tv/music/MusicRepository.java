@@ -1044,10 +1044,15 @@ public class MusicRepository {
     }
 
     public static MusicLyric lyricRich(MusicTrack track, boolean force) {
-        return lyricRichInternal(track, force);
+        return lyricRichInternal(track, force, true);
     }
 
-    private static MusicLyric lyricRichInternal(MusicTrack track, boolean force) {
+    /**
+     * @param publishEarly 本链的先行版许不许打进页面：起播／页面链＝true；缓存复核链
+     * ＝false（py 歌词打架三修之三——复核归复核，只更新缓存，不碰正在显示的词，
+     * 复核链的先行候选此前会经页面注册的监听打进正在播的页面、中途换掉手头版）。
+     */
+    private static MusicLyric lyricRichInternal(MusicTrack track, boolean force, boolean publishEarly) {
         if (track == null) return null;
         // 整链总时限起点（F2 审计·超时层叠收口）：此前各层封顶互不知情——CfLyricClient
         // 单发最坏 ≈25 秒、预取单步 await 45 秒、共享搭链 75 秒，层层相加没有一条总账。
@@ -1068,7 +1073,7 @@ public class MusicRepository {
         // 消费与挑选口径不变：四步的结果仍由 LyricPrefetch 在原步序（4／5／5.5／6）
         // 接管消费；链在接管前退出（含恢复命中）时一律 abandon 撤下。
         EarlyLyricFetch earlyFetch = EarlyLyricFetch.start(track,
-                lyric -> fireEarlyLyric(track, lyric, earlyFired));
+                lyric -> fireEarlyLyric(track, lyric, earlyFired, publishEarly));
         // L10：非手动重搜时先试恢复上次手动选的版本（瓜子 restoreManualLyricChoice 口径）。
         // F2 审计改轻量恢复路：此前每次起播先跑一遍全量聚合（lyricRichAllDetailed）才出词，
         // 且不完整聚合（transient 失败）时恢复无痕跳过、无日志、下一首再付一遍全量。
@@ -1156,7 +1161,7 @@ public class MusicRepository {
         if (own != null && (own.sourceName == null || own.sourceName.isEmpty())) {
             own.sourceName = siteNameForPlatform(track.platform);
         }
-        fireEarlyLyric(track, own, earlyFired);
+        fireEarlyLyric(track, own, earlyFired, publishEarly);
         MusicLyric hit = pick.note(own);
         if (hit != null) {
             earlyFetch.abandon();
@@ -1193,7 +1198,7 @@ public class MusicRepository {
                         ? ((FreeJsMusicSource) s).lyricFallbackRichAtLevel(track, MATCH_EXACT)
                         : ((FreeJsMusicSource) s).lyricFallbackRich(track));
                 if (force && hasRaw(fb)) exactPhaseRaw = true;
-                fireEarlyLyric(track, fb, earlyFired);
+                fireEarlyLyric(track, fb, earlyFired, publishEarly);
                 hit = pick.note(fb);
                 if (hit != null) {
                     earlyFetch.abandon();
@@ -1220,7 +1225,7 @@ public class MusicRepository {
         CrossCollect cross = prefetch.cross();
         if (force && hasRawEntry(cross.lyrics)) exactPhaseRaw = true;
         for (MusicLyric lrc : cross.lyrics) {
-            fireEarlyLyric(track, lrc, earlyFired);
+            fireEarlyLyric(track, lrc, earlyFired, publishEarly);
             hit = pick.note(lrc);
             if (hit != null) {
                 prefetch.abandon();
@@ -1241,7 +1246,7 @@ public class MusicRepository {
             if (s instanceof FreeJsMusicSource) {
                 try {
                     MusicLyric fb = normalizeRich(((FreeJsMusicSource) s).lyricFallbackRichAtLevel(track, MATCH_CONTAINS));
-                    fireEarlyLyric(track, fb, earlyFired);
+                    fireEarlyLyric(track, fb, earlyFired, publishEarly);
                     hit = pick.note(fb);
                     if (hit != null) {
                         prefetch.abandon();
@@ -1255,7 +1260,7 @@ public class MusicRepository {
             CrossCollect cc2 = new CrossCollect();
             collectCrossPass(track, s, queries, MATCH_CONTAINS, new LyricPick(MusicStore.getLyricPriority()), cc2);
             for (MusicLyric lrc : cc2.lyrics) {
-                fireEarlyLyric(track, lrc, earlyFired);
+                fireEarlyLyric(track, lrc, earlyFired, publishEarly);
                 hit = pick.note(lrc);
                 if (hit != null) {
                     prefetch.abandon();
@@ -1270,7 +1275,7 @@ public class MusicRepository {
         }
         // 3. 歌词型插件直查（与 lyric() 同一步、同口径）
         for (MusicLyric lrc : prefetch.pluginLyrics()) {
-            fireEarlyLyric(track, lrc, earlyFired);
+            fireEarlyLyric(track, lrc, earlyFired, publishEarly);
             hit = pick.note(lrc);
             if (hit != null) {
                 prefetch.abandon();
@@ -1285,7 +1290,7 @@ public class MusicRepository {
         // 不是「先等 Worker、失败才走别家」的串行主从——注释与步序按此对齐，不改步序
         // （步序是 1.4.45 首帧定罪后的并行设计，改回串行会把首帧重新拖回串行总和）。
         MusicLyric cfHit = prefetch.cf();
-        fireEarlyLyric(track, cfHit, earlyFired);
+        fireEarlyLyric(track, cfHit, earlyFired, publishEarly);
         hit = pick.note(cfHit);
         if (hit != null) {
             prefetch.abandon();
@@ -1297,7 +1302,7 @@ public class MusicRepository {
         // 链头已与 Worker 并行发出（EarlyLyricFetch），此处只是按链序消费它的结果、
         // 由 pick 按优先级裁定取舍；无条件消费正是有词可显的保障，不许改成条件触发。
         MusicLyric platformHit = prefetch.platform();
-        fireEarlyLyric(track, platformHit, earlyFired);
+        fireEarlyLyric(track, platformHit, earlyFired, publishEarly);
         hit = pick.note(platformHit);
         if (hit != null) {
             prefetch.abandon();
@@ -1309,7 +1314,7 @@ public class MusicRepository {
         // （空数据已判空回空串，绝不崩）按歌名直取行级词，记进 pick 的行级／首版桶——
         // 默认逐字模式下不截断链（词版仍优先），最终 pick 无词版时回落本版，歌不再无词可显。
         MusicLyric kuwoHit = prefetch.kuwo();
-        fireEarlyLyric(track, kuwoHit, earlyFired);
+        fireEarlyLyric(track, kuwoHit, earlyFired, publishEarly);
         hit = pick.note(kuwoHit);
         if (hit != null) {
             prefetch.abandon();
@@ -1319,7 +1324,7 @@ public class MusicRepository {
         // 6. AMLL（B8）：最后兜底，AMLL 档带档位元数据；无命中返回空，不冒充
         // S6 门控：开关关时预取不提交本步（结果为空），默认开，行为与原来一致
         MusicLyric amllHit = prefetch.amll();
-        fireEarlyLyric(track, amllHit, earlyFired);
+        fireEarlyLyric(track, amllHit, earlyFired, publishEarly);
         hit = pick.note(amllHit);
         if (hit != null) {
             prefetch.abandon();
@@ -1382,24 +1387,62 @@ public class MusicRepository {
         LYRIC_EARLY.remove(MusicQueue.trackKey(track), listener);
     }
 
-    private static void fireEarlyLyric(MusicTrack track, MusicLyric candidate, java.util.concurrent.atomic.AtomicBoolean fired) {
+    /** 先行版已送达记录：key＝trackKey，value＝送达那版的版本 key（lyricVersionKey 口径）。
+     * 终版与先行版同源同版时服务据此免发 onLyricReady（py 歌词打架三修之三：页面已
+     * 显示的就是终版，不许再中途「换」一次同版——applyLyric 重设行表会闪一下）。
+     * 记录由服务在比对时消费清除；新链起跑时先清旧记录防跨链误认。 */
+    private static final java.util.Map<String, String> LYRIC_EARLY_SENT =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    /**
+     * 先行发布唯一出口，三道关（py 歌词打架三修之三＋四）：
+     * 1) publishEarly＝false 的链（缓存复核链）一律不发——复核只更新缓存，不碰正在显示的词；
+     * 2) 时长缺失的歌（py 这类）一律不发——先行版没过收紧对版关之前不许上屏，宁可
+     *    晚出等终版收口（整链 60 秒总时限＋共享等待 75 秒封顶，见 LyricPrefetch／
+     *    LYRIC_SHARED_AWAIT_MS），超时仍无过关版按无词，绝不拿未过关版垫；
+     *    时长在位的正常源不受此关，先行速度不变；
+     * 3) 发成功后记下送达版本 key，供终版同版免换判定（earlyDeliveredSameVersion）。
+     */
+    private static void fireEarlyLyric(MusicTrack track, MusicLyric candidate, java.util.concurrent.atomic.AtomicBoolean fired,
+                                       boolean publishEarly) {
+        if (!publishEarly) return;
         if (!hasRaw(candidate)) return;
+        if (lyricDurationMissing(track)) return;
         java.util.function.Consumer<MusicLyric> listener = LYRIC_EARLY.get(MusicQueue.trackKey(track));
         if (listener == null) return;
         if (!fired.compareAndSet(false, true)) return;
         try {
             listener.accept(candidate);
+            String sentKey = lyricVersionKey(displayedVersion(candidate, null));
+            if (!sentKey.isEmpty()) LYRIC_EARLY_SENT.put(MusicQueue.trackKey(track), sentKey);
         } catch (Throwable ignored) {
         }
     }
 
+    /** 终版与先行送达版是否同源同版（同版＝版本 key 相等，key 已含档位＋正文／译文／音译）：
+     * 是则消费记录并回 true——服务据此跳过 onLyricReady 的重复上屏。无记录／不同版回 false。 */
+    public static boolean earlyDeliveredSameVersion(MusicTrack track, MusicLyric finalLyric) {
+        if (track == null || finalLyric == null || !finalLyric.hasLyric()) return false;
+        String sent = LYRIC_EARLY_SENT.remove(MusicQueue.trackKey(track));
+        if (sent == null || sent.isEmpty()) return false;
+        return sent.equals(lyricVersionKey(displayedVersion(finalLyric, null)));
+    }
+
     private static Future<MusicLyric> lyricInFlight(MusicTrack track, boolean force) {
+        return lyricInFlight(track, force, true);
+    }
+
+    /** publishEarly 随链走：复核链以 false 起跑后，后来者搭链也搭的是这条链的口径
+     * （终版照样回写缓存＋经服务返回，先行不发对正在播的页面无损）；反之起播链先跑
+     * 时复核只是搭登记，不重复发链、更不会把起播链改成静默。 */
+    private static Future<MusicLyric> lyricInFlight(MusicTrack track, boolean force, boolean publishEarly) {
         String key = lyricSharedKey(track, force);
         Future<MusicLyric> f = LYRIC_IN_FLIGHT.get(key);
         if (f != null && !f.isDone()) return f;
+        LYRIC_EARLY_SENT.remove(MusicQueue.trackKey(track));
         Future<MusicLyric> nf = LYRIC_CHAIN_POOL.submit(() -> {
             try {
-                MusicLyric r = lyricRichInternal(track, force);
+                MusicLyric r = lyricRichInternal(track, force, publishEarly);
                 if (r != null && r.hasLyric()) MusicLyricCache.put(track, r);
                 return r;
             } finally {
@@ -1438,6 +1481,13 @@ public class MusicRepository {
         lyricInFlight(track, false);
     }
 
+    /** 缓存复核专用发起：链照跑、结果照写缓存，但先行版不许打进正在播的页面
+     * （py 歌词打架三修之三）。同歌已有链在飞时只是搭登记，不另起。 */
+    public static void prefetchLyricRevalidate(MusicTrack track) {
+        if (track == null) return;
+        lyricInFlight(track, false, false);
+    }
+
     /**
      * 服务侧取词（起播同刻／下一首预取共用）：缓存命中直接收；否则搭共享链，
      * rich 空时再走纯文本链并回写缓存。与播放页取词同口径，只是没有 UI 副作用；
@@ -1451,7 +1501,10 @@ public class MusicRepository {
             // 时后台重走一条自动链复核——链内 put() 成功即换新版，错版词由此有被自动链
             // 纠正的路；本调用仍立即返回手头这份，播放不等待、不中断。链是共享单飞，
             // 同歌已有链在飞时只是搭上登记，不重复发。
-            if (MusicLyricCache.isStale(track)) prefetchLyricRich(track);
+            // 复核链走静默口径（prefetchLyricRevalidate）：只更新缓存，先行版不许打进
+            // 正在播的页面中途换掉手头版——此前复核链的先行候选会经页面监听上屏，
+            // 而终版只静默写缓存，页面与缓存能出现三个不同版本（定性报告形态二通道 2）。
+            if (MusicLyricCache.isStale(track)) prefetchLyricRevalidate(track);
             return cached;
         }
         MusicLyric rich = null;
@@ -1491,6 +1544,14 @@ public class MusicRepository {
             sLastCfNote = response.fetchNote;
             seedVersionsFromBundle(track, response);
             for (CfLyricClient.CfVersion version : response.versions) {
+                // 时长缺失收紧（py 歌词打架三修之二）：目标时长缺失时 Worker 回包版本也要过
+                // 收紧对版关（回包自带候选歌名／歌手，够判）——过不了的版本不许被自动链
+                // 选作起播词，跳过看下一版；版本面板的全量收集（collectCfVersions）不走
+                // 本路、不受此关，面板照旧全列由用户自选。
+                if (lyricDurationMissing(track) && !GzLyricMatch.strictTitleArtistMatch(
+                        track.title, track.artist, version.songTitle, version.songArtist)) {
+                    continue;
+                }
                 MusicLyric lyric = toMusicLyric(version);
                 if (hasWordLyric(lyric)) {
                     // 整包消费（照瓜子 bundle 模型）：选中的逐字版自身没译文时，用回包
@@ -1520,7 +1581,17 @@ public class MusicRepository {
      * 只返回 null 不抛错；本方法再兜一层 try，绝不把异常漏进回退链。
      * 行级版不冒充逐字：format 标 LRC（行级），sourceName 标酷我。
      */
+    /** 自动链口径：时长缺失时结果过收紧对版关（见重载） */
     private static MusicLyric kuwoLineLyric(MusicTrack track) {
+        return kuwoLineLyric(track, true);
+    }
+
+    /**
+     * @param strictGate true＝自动取词链（结果要过时长缺失收紧关：结果自带候选
+     * 歌名／歌手，目标时长缺失时双对不上就跳过、宁可无词）；false＝版本面板
+     * 全量收集（照旧全收、由用户看定级自选）。
+     */
+    private static MusicLyric kuwoLineLyric(MusicTrack track, boolean strictGate) {
         try {
             if (track == null || track.title == null || track.title.trim().isEmpty()) return null;
             String artist = track.artist == null ? "" : track.artist.trim();
@@ -1532,6 +1603,10 @@ public class MusicRepository {
             if (results == null || results.isEmpty()) return null;
             for (LyricsResult r : results) {
                 if (r == null) continue;
+                if (strictGate && lyricDurationMissing(track) && !GzLyricMatch.strictTitleArtistMatch(
+                        track.title, track.artist, r.getTrackName(), r.getArtistName())) {
+                    continue;
+                }
                 String text = r.getLyrics();
                 if (text == null || text.trim().isEmpty()) continue;
                 MusicLyric lyric = new MusicLyric(text);
@@ -1898,7 +1973,7 @@ public class MusicRepository {
                     ? Task.largeExecutor().submit(() -> {
                         MusicLyric v = null;
                         try {
-                            v = normalizeRich(new AmllMusicLyricSource().lyricRich(track));
+                            v = normalizeRich(new AmllMusicLyricSource().lyricRich(track, true));
                         } catch (Throwable t) {
                             SpiderDebug.log("music", "lyricRich amll error %s", t.getMessage());
                         }
@@ -2291,7 +2366,7 @@ public class MusicRepository {
         }
         // 5.5 酷我行级直连（与快路径同款：插件崩后宿主自有空安全客户端补一行级版，版本条行级桶收）。
         try {
-            addVersion(out, seen, normalizeRich(kuwoLineLyric(track)));
+            addVersion(out, seen, normalizeRich(kuwoLineLyric(track, false)));
         } catch (Throwable t) {
             complete = false;
             SpiderDebug.log("music", "lyricRichAll kuwo line error %s", t.getMessage());
@@ -2493,9 +2568,24 @@ public class MusicRepository {
         // 占位歌手（<unknown>／unknown 类）从不参与对歌：它不是真歌手，拿它卡人只会把对的歌也拒掉
         String artist = LocalTrackMeta.isPlaceholderArtist(target.artist) ? "" : normalizeSong(target.artist);
         if (!artistMatch(artist, candidate.artist)) return MATCH_NONE;
-        if (ct.equals(title)) return MATCH_EXACT;
-        if (ct.contains(title) || title.contains(ct)) return MATCH_CONTAINS;
-        return MATCH_NONE;
+        int level;
+        if (ct.equals(title)) level = MATCH_EXACT;
+        else if (ct.contains(title) || title.contains(ct)) level = MATCH_CONTAINS;
+        else return MATCH_NONE;
+        // 时长缺失收紧（py 歌词打架三修之二）：目标时长缺失（0／未知，py 歌恒 0）时
+        // 时长尺恒失效，对歌只剩歌名＋歌手——此时包含级不算命中、精确级也要再过
+        // GzLyricMatch.strictTitleArtistMatch 收紧关（歌名硬归一全等＋歌手双对上），
+        // 过不了按不中处理：宁可无词不许拿异版本词垫。时长在位时维持原口径不变。
+        if (target.duration <= 0) {
+            return GzLyricMatch.strictTitleArtistMatch(target.title, target.artist,
+                    candidate.title, candidate.artist) ? MATCH_EXACT : MATCH_NONE;
+        }
+        return level;
+    }
+
+    /** 时长缺失判据（py 歌词打架三修共用）：duration<=0 即缺失（py 歌恒 0、无数据源不补不编） */
+    public static boolean lyricDurationMissing(MusicTrack track) {
+        return track == null || track.duration <= 0;
     }
 
     /** 只认指定级别的第一个候选（保列表序）；无该级命中返回 null */

@@ -19,8 +19,17 @@ public class AmllMusicLyricSource {
 
     private final TtmlClient client = new TtmlClient();
 
-    /** AMLL 歌词：命中返回带档位元数据的 MusicLyric；无命中返回空 */
+    /** AMLL 歌词：命中返回带档位元数据的 MusicLyric；无命中返回空（版本面板口径：不设收紧关，全收由用户自选） */
     public MusicLyric lyricRich(MusicTrack track) {
+        return lyricRich(track, false);
+    }
+
+    /**
+     * 自动取词链口径（strictGate＝true）：目标歌时长缺失（0／未知）时，结果自带
+     * 候选歌名／歌手，过不了 GzLyricMatch 收紧对版关（歌名全等＋歌手双对上）就
+     * 按无命中返回——宁可无词不许拿异版本词垫（py 歌词打架三修之二）。
+     */
+    public MusicLyric lyricRich(MusicTrack track, boolean strictGate) {
         if (track == null) return null;
         String title = track.title == null ? "" : track.title.trim();
         String artist = track.artist == null ? "" : track.artist.trim();
@@ -41,6 +50,10 @@ public class AmllMusicLyricSource {
                     });
             LyricsResult r = capped.isEmpty() ? null : capped.get(0);
             if (r == null || r.getLyrics() == null || r.getLyrics().trim().isEmpty()) return null;
+            if (strictGate && track.duration <= 0 && !com.fongmi.android.tv.music.GzLyricMatch
+                    .strictTitleArtistMatch(title, artist, r.getTrackName(), r.getArtistName())) {
+                return null;
+            }
             MusicLyric lyric = new MusicLyric(r.getLyrics());
             lyric.format = "AMLL";
             lyric.sourceName = "AMLL";

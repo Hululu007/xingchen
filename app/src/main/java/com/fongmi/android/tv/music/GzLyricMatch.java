@@ -97,6 +97,26 @@ if (titleDice > 0.9 && artistDice > 0.85) return 1.0;
 return 0;
 }
 
+/**
+* 时长缺失时的收紧对版关（星辰自有判据，非瓜子口径、不动上面三把尺的值）：
+* 目标歌时长缺失（0／未知，如 py 歌恒 0）时，15 秒时长淘汰门恒失效（见 level），
+* 对歌只剩歌名＋歌手两把尺——此时「算命中」的门槛收紧为双对上：歌名硬归一
+* （norm，括号内容照留）全等，且歌手双方都非空、归一分词后全等或互为子集。
+* 任一不满足即不算命中，宁可无词不许拿异版本词垫。歌手为空／占位（归一后
+* 无有效分词，或只剩 unknown 这类假名）视为对不上：歌手对不上就是没对上。
+*/
+public static boolean strictTitleArtistMatch(String targetTitle, String targetArtist,
+String candTitle, String candArtist) {
+String nt = norm(targetTitle);
+if (nt.isEmpty() || !nt.equals(norm(candTitle))) return false;
+List<String> at = artists(targetArtist);
+List<String> ac = artists(candArtist);
+if (at.isEmpty() || ac.isEmpty()) return false;
+if (at.size() == 1 && at.get(0).equals("unknown")) return false;
+if (ac.size() == 1 && ac.get(0).equals("unknown")) return false;
+return at.equals(ac) || at.containsAll(ac) || ac.containsAll(at);
+}
+
 /** 瓜子等级→匹配度分数（gq4 映射，逐档照抄）：≥3→1.0、≥2→0.85、≥1.5→0.75、≥1.4→0.65、其余（1.0 级）→0.5 */
 public static float scoreForLevel(double level) {
 if (level >= 3.0) return 1.0f;

@@ -108,6 +108,11 @@
             android:theme="@android:style/Theme.Material.NoActionBar" />
 
         <activity
+            android:name=".ui.web.CatWebActivity"
+            android:exported="false"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|uiMode" />
+
+        <activity
             android:name=".ui.activity.PlaybackRecoveryActivity"
             android:exported="false"
             android:excludeFromRecents="true"

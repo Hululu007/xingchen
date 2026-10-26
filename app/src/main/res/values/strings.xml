@@ -1598,4 +1598,9 @@
     <string name="node_background">后台运行</string>
     <string name="node_speed">%1$s/s</string>
     <string name="node_size_pair">%1$s / %2$s</string>
+    <string name="cat_web_opening">Opening settings</string>
+    <string name="cat_web_failed">Failed to load page: %1$s</string>
+    <string name="cat_web_external">Opened in browser</string>
+    <string name="cat_web_download">Downloading %1$s to Downloads</string>
+    <string name="cat_web_download_failed">Download failed</string>
 </resources>

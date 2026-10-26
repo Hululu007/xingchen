@@ -1543,4 +1543,9 @@
 
     <string name="player_audio_badge_queue">队列</string>
     <string name="player_audio_repeat">循环</string>
+    <string name="cat_web_opening">正在打开设置中心</string>
+    <string name="cat_web_failed">页面加载失败：%1$s</string>
+    <string name="cat_web_external">已用浏览器打开</string>
+    <string name="cat_web_download">正在下载 %1$s 到「下载」目录</string>
+    <string name="cat_web_download_failed">下载失败</string>
 </resources>

@@ -23,6 +23,9 @@ public class ParametricEqProcessor implements AudioProcessor {
     private volatile List<ParametricEq.Band> bands = new ArrayList<>();
     private volatile long configVersion;
     private long appliedVersion = -1;
+
+    /** 流尾标记：queueEndOfStream 后置真，flush/reset 时清零（照上游 PlaybackMediaAudioProcessor 口径） */
+    private boolean inputEnded = false;
     private final ParametricEq eq = new ParametricEq();
 
     public void setEnabled(boolean enabled) {
@@ -126,17 +129,19 @@ public class ParametricEqProcessor implements AudioProcessor {
 
     @Override
     public boolean isEnded() {
-        return false;
+        return inputEnded && !outputBuffer.hasRemaining();
     }
 
     @Override
     public void flush() {
         outputBuffer = EMPTY_BUFFER;
         appliedVersion = -1;
+        inputEnded = false;
     }
 
     @Override
     public void queueEndOfStream() {
+        inputEnded = true;
     }
 
     @Override

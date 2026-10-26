@@ -510,8 +510,9 @@ public class CloudDriveActivity extends BaseActivity {
     }
 
     private void setLoading(boolean loading) {
-        if (!binding.refresh.isRefreshing() && loading) binding.refresh.setRefreshing(true);
-        if (binding.refresh.isRefreshing() && !loading) binding.refresh.setRefreshing(false);
+        // 圈只留给用户下拉刷新：程序加载（进文件夹等）不许自己起圈，
+        // 加载结束只负责把下拉触发的那圈收掉（没在转时调它无副作用）
+        if (!loading && binding.refresh.isRefreshing()) binding.refresh.setRefreshing(false);
     }
 
     /**

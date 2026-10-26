@@ -26,6 +26,14 @@ public class MusicTrack {
      * 取链/歌词时桥按此原样重建 musicItem 再调插件，播放器侧不用管。
      */
     public String rawJson;
+    /** 运行时标记（不落盘）：封面有异步补图在途（酷狗专辑图后补）——搜索行此时
+     * 留玻璃空位、不上素图；补到后 cover 被回填、coverBackfilled 置位，行只淡入一次。 */
+    public transient boolean coverPending;
+    /** 运行时标记（不落盘）：封面刚由异步补图回填、尚未在任何行上展示过（淡入一次的凭据） */
+    public transient boolean coverBackfilled;
+    /** 运行时标记（不落盘）：时长有异步补查在途（咪咕 resourceinfo 后补）——行上先 --:--，补到即重绑 */
+    public transient boolean durationPending;
+
     /** 歌单内加入时间（仅歌单曲目有值，供「加入歌单时间」排序；其它来源为 0） */
     public long playlistAddedTime;
     /** 收藏时间（仅收藏曲目有值，供「最近收藏／最早收藏」排序；其它来源为 0） */

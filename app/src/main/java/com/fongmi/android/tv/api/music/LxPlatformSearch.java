@@ -640,6 +640,114 @@ public class LxPlatformSearch {
 
     /* ---------------- 咪咕 mg ---------------- */
 
+    /** 咪咕时长进程内缓存（copyrightId → 毫秒）：resourceinfo 的 length 字段查到后同歌免再查 */
+    private static final java.util.Map<String, Long> MG_DURATION_CACHE =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** 咪咕时长后补监听：补查回填完一批曲目后回调（搜索页据此重绑那几行） */
+    public interface MgDurationListener {
+        void onMgDurationsFilled(List<MusicTrack> tracks);
+    }
+
+    private static final java.util.List<MgDurationListener> MG_DURATION_LISTENERS =
+            new java.util.concurrent.CopyOnWriteArrayList<>();
+
+    public static void addMgDurationListener(MgDurationListener l) {
+        if (l != null && !MG_DURATION_LISTENERS.contains(l)) MG_DURATION_LISTENERS.add(l);
+    }
+
+    public static void removeMgDurationListener(MgDurationListener l) {
+        MG_DURATION_LISTENERS.remove(l);
+    }
+
+    /**
+     * 咪咕时长后补（F1 咪咕条）：search_all 回包全字段无时长（本机实测逐字段核过），
+     * 但既有端点 resourceinfo.do（lyricMg 与视频侧 MiguClient 同一端点）的
+     * resource[0].length 带真时长（"00:04:30" 形态，2026-10-26 本机实测《晴天》）。
+     * 逐首一发、不能堵搜索：先出列表（时长 --:--），后台 5 路并发补查回填同一批
+     * 曲目对象并通知监听方重绑；结果进进程缓存，同歌再搜直出。
+     */
+    private static void scheduleMgDurationFill(List<MusicTrack> tracks) {
+        final List<MusicTrack> batch = new ArrayList<>();
+        for (MusicTrack t : tracks) if (t != null && t.durationPending) batch.add(t);
+        if (batch.isEmpty()) return;
+        KG_FILL_POOL.execute(() -> {
+            java.util.concurrent.ExecutorService pool =
+                    java.util.concurrent.Executors.newFixedThreadPool(Math.min(5, batch.size()));
+            java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(batch.size());
+            for (MusicTrack t : batch) {
+                pool.execute(() -> {
+                    try {
+                        String copyrightId = "";
+                        try {
+                            JsonObject wrap = JsonParser.parseString(t.rawJson).getAsJsonObject();
+                            if (wrap.has("_item") && wrap.get("_item").isJsonObject()) {
+                                copyrightId = optStr(wrap.getAsJsonObject("_item"), "copyrightId");
+                            }
+                        } catch (Throwable ignored) {
+                        }
+                        long ms = copyrightId.isEmpty() ? 0 : mgDurationMs(copyrightId);
+                        if (ms > 0) t.duration = ms;
+                    } catch (Throwable ignored) {
+                    } finally {
+                        t.durationPending = false;
+                        latch.countDown();
+                    }
+                });
+            }
+            try {
+                latch.await(30, java.util.concurrent.TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            pool.shutdownNow();
+            List<MusicTrack> changed = new ArrayList<>();
+            for (MusicTrack t : batch) if (t.duration > 0) changed.add(t);
+            SpiderDebug.log("music", "mg duration fill batch=%d filled=%d", batch.size(), changed.size());
+            if (!changed.isEmpty()) {
+                for (MgDurationListener l : MG_DURATION_LISTENERS) {
+                    try {
+                        l.onMgDurationsFilled(changed);
+                    } catch (Throwable ignored) {
+                    }
+                }
+            }
+        });
+    }
+
+    /** resourceinfo 单查时长：length "hh:mm:ss"/"mm:ss" → 毫秒；取不到返回 0（不编造） */
+    private static long mgDurationMs(String copyrightId) {
+        Long cached = MG_DURATION_CACHE.get(copyrightId);
+        if (cached != null) return cached;
+        long ms = 0;
+        try {
+            String text = http("https://app.c.nf.migu.cn/MIGUM3.0/v1.0/content/resourceinfo.do?copyrightId="
+                    + enc(copyrightId) + "&resourceType=2", "GET", null, "https://music.migu.cn/", 6000);
+            JsonObject root = JsonParser.parseString(text).getAsJsonObject();
+            JsonArray resource = root.has("resource") && root.get("resource").isJsonArray()
+                    ? root.getAsJsonArray("resource") : null;
+            if (resource != null && resource.size() > 0 && resource.get(0).isJsonObject()) {
+                ms = parseColonDurationMs(optStr(resource.get(0).getAsJsonObject(), "length"));
+            }
+        } catch (Throwable t) {
+            SpiderDebug.log("music", "mg duration fail copyrightId=%s %s", copyrightId, errText(t));
+        }
+        if (ms > 0) MG_DURATION_CACHE.put(copyrightId, ms);
+        return ms;
+    }
+
+    /** "00:04:30"／"04:30" 形态时长 → 毫秒；认不出返回 0 */
+    private static long parseColonDurationMs(String s) {
+        if (s == null || s.isEmpty() || !s.contains(":")) return 0;
+        try {
+            long totalSec = 0;
+            for (String p : s.trim().split(":")) totalSec = totalSec * 60 + Long.parseLong(p.trim());
+            return totalSec * 1000;
+        } catch (Throwable ignored) {
+            return 0;
+        }
+    }
+
     private static List<MusicTrack> searchMg(String keyword, int page) throws Exception {
         String sw = URLEncoder.encode("{\"song\":1,\"album\":0,\"singer\":0,\"tag\":0,\"lyric\":0,\"bestShow\":1,\"mv\":0,\"songlist\":0,\"singerCard\":0}", "UTF-8");
         String url = "https://app.c.nf.migu.cn/MIGUM2.0/v1.0/content/search_all.do?text=" + enc(keyword)
@@ -674,8 +782,9 @@ public class LxPlatformSearch {
             }
             // 封面真字段（2026-10-25 本机实证回包）：歌曲本级 imgItems[{img, imgSizeType}]，
             // 20/20 条都有；旧实现猜的 pic/img/cover/picUrl 等字段回包里根本不存在、封面恒空。
-            // imgSizeType 越大图越大（01/02/03），取最大的一张。时长字段回包全字段皆无——
-            // 本接口不给时长，t.duration 保持 0（行上 --:--），不许编造。
+            // imgSizeType 越大图越大（01/02/03），取最大的一张。时长字段本接口回包
+            // 全字段皆无（不许编造）——改走第二数据源 resourceinfo 的 length 后补，
+            // 见下方 durationPending 接线与 scheduleMgDurationFill。
             if (o.has("imgItems") && o.get("imgItems").isJsonArray()) {
                 String best = "";
                 String bestSize = "";
@@ -692,11 +801,18 @@ public class LxPlatformSearch {
             }
             JsonObject item = new JsonObject();
             item.addProperty("songmid", contentId);
-            item.addProperty("copyrightId", optStr(o, "copyrightId"));
+            String copyrightId = optStr(o, "copyrightId");
+            item.addProperty("copyrightId", copyrightId);
             item.addProperty("id", id);
+            // 时长第二数据源（见 scheduleMgDurationFill 注释）：缓存命中直填，
+            // 未命中标 pending、列表先行后补；本接口自身确实无时长字段，不编造。
+            Long cachedDur = copyrightId.isEmpty() ? null : MG_DURATION_CACHE.get(copyrightId);
+            if (cachedDur != null && cachedDur > 0) t.duration = cachedDur;
+            else if (!copyrightId.isEmpty()) t.durationPending = true;
             finish(t, item);
             out.add(t);
         }
+        scheduleMgDurationFill(out);
         return out;
     }
 

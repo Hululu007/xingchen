@@ -175,17 +175,62 @@ public final class MusicGlassWire {
 
     /** 滚动回调里调：令全部已登记玻璃件重画（位置变了、取样跟着身后变）。
      *  只刷当前可见的件：不可见/别的页面的件跟着刷是纯浪费——滑动卡顿的一条来源（2026-10-26）。 */
-    private static boolean sFrameRefreshQueued;
+    private static boolean sRefreshing;
 
-    /** 滚动钩子每个事件都调本方法；逐个事件全量重绘＝掉帧（他点名设置页滑动像掉帧）。
-     *  改为逐帧合并：一个动画帧内多次调用只在帧边界刷一次。 */
+    /**
+     * 同步刷（2026-10-26 晚定罪后改）：旧实现经 Choreographer 逐帧合并——滚动回调先到、
+     * 帧回调下一帧才跑、invalidate 再等下一次重录，取样纹理注定迟到一帧以上；快速滑动时
+     * 一帧就是几百像素，纹理被锁在旧滚动位上跟卡走＝他录屏实证的「背景随着滑动一直在动」
+     * （原样底边距静止、卡内透出的光斑峰随滚动漂移数百像素、时而锁在场景顶）。
+     * 框架侧的时序（AOSP ViewRootImpl.draw 开头派发 OnScrollChanged）决定了同步刷的落点：
+     * 滚动派发发生在本帧绘制开始、子件重录之前，此刻同步 invalidate 恰好赶上本帧重录、
+     * 读到的就是本帧要渲染的滚动位。频率天然有界：OnScrollChanged 派发一帧至多一次
+     * （框架用标志位合并多次滚动），RecyclerView onScrolled 按滚动步走，重复 invalidate
+     * 被脏标志合并，不会比逐帧合并更贵。重入守卫防刷新里再触发刷新套娃。
+     */
     static void refreshGlassViews() {
-        if (sFrameRefreshQueued) return;
-        sFrameRefreshQueued = true;
-        android.view.Choreographer.getInstance().postFrameCallback(t -> {
-            sFrameRefreshQueued = false;
+        if (sRefreshing) return;
+        sRefreshing = true;
+        try {
             doRefreshGlassViews();
+        } finally {
+            sRefreshing = false;
+        }
+    }
+
+    // ---------- 绘制前兜底网（与滚动钩子互为保险） ----------
+    // 钩子覆盖不到的滚动步（如 fling 中 computeScroll 在绘制内推进、程序滚动）由每帧
+    // 绘制前比对容器滚动位兜住：位变了才同步刷，没变零成本放行。在 onPreDraw 里
+    // invalidate 是框架允许的定式，脏标记赶上即将开始的这一帧重录。
+    private static final Set<View> sPreDrawHooked =
+            Collections.newSetFromMap(new WeakHashMap<>());
+    private static final Map<View, Integer> sLastScrollPos = new WeakHashMap<>();
+
+    private static void hookPreDraw(final View container) {
+        synchronized (sPreDrawHooked) {
+            if (!sPreDrawHooked.add(container)) return;
+        }
+        container.getViewTreeObserver().addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener() {
+            @Override
+            public boolean onPreDraw() {
+                if (!container.isAttachedToWindow()) return true;
+                int pos = scrollPosOf(container);
+                Integer last = sLastScrollPos.get(container);
+                if (last == null || last != pos) {
+                    sLastScrollPos.put(container, pos);
+                    refreshGlassViews();
+                }
+                return true;
+            }
         });
+    }
+
+    private static int scrollPosOf(View v) {
+        if (v instanceof RecyclerView) {
+            RecyclerView rv = (RecyclerView) v;
+            return rv.computeVerticalScrollOffset() * 131 + rv.computeHorizontalScrollOffset();
+        }
+        return v.getScrollY() * 131 + v.getScrollX();
     }
 
     private static void doRefreshGlassViews() {
@@ -563,6 +608,7 @@ public final class MusicGlassWire {
         synchronized (sScrollHooked) {
             if (!sScrollHooked.add(rv)) return;
         }
+        hookPreDraw(rv);
         rv.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override
             public void onScrolled(RecyclerView recyclerView, int dx, int dy) {
@@ -586,6 +632,7 @@ public final class MusicGlassWire {
         synchronized (sScrollViewHooked) {
             if (!sScrollViewHooked.add(sv)) return;
         }
+        hookPreDraw(sv);
         final Runnable idle = () -> {
             MusicGlassDrawable.noteScrollActive(false);
             refreshGlassViews();
@@ -595,8 +642,9 @@ public final class MusicGlassWire {
             MusicGlassDrawable.noteScrollActive(true);
             refreshGlassViews();
             sv.removeCallbacks(idle);
-            // 130ms 太短：慢拖时手指一顿就翻回着色器全量重绘大卡（设置页顿挫的一源）；
-            // 放宽到 260ms，停稳后折射回来晚一帧无感，慢拖全程走取样路。
+            // 停稳兜底：滚动停 260ms 后再同步刷一次，保证终态取样与最终滚动位对死
+            // （滚动中的同步刷万一漏掉一步，这里补齐；noteScrollActive 本身无绘制语义，
+            // 见 MusicGlassDrawable 类头）。
             sv.postDelayed(idle, 260);
         });
     }

@@ -494,6 +494,11 @@ public class MusicController {
 
     public void setQuality(int quality) {
         MusicStore.setQuality(quality);
+        // 高10：选档不许只落盘——写档后把「当前曲按新档重取」递给服务侧判定
+        // （无当前曲／本地类／生效档没变都在 reloadCurrent 里挡下，这里无条件递）。
+        // 不走 reloadQuality()：它带 pauseVideoForMusic，换档不是起播，
+        // 视频正在播时不许被一次换档暂停。
+        runOnService(() -> service().reloadCurrent());
     }
 
     public int getQuality() {

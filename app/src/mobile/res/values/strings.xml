@@ -289,6 +289,7 @@
     <string name="music_menu_setting_sub">播放／下载／外观</string>
     <string name="music_cloud_drive">网盘</string>
     <string name="music_set_play_quality">播放音质</string>
+    <string name="music_quality_reload_failed">新音质没取到，继续按原音质播放</string>
     <string name="music_set_download_quality">下载音质</string>
     <string name="music_dl_mode_ask">每次询问</string>
     <string name="music_dl_ask_no_activity">下载音质设为每次询问，请从播放页或列表里点下载选档</string>

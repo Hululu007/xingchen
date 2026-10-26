@@ -119,9 +119,11 @@ public class AiActionExecutor {
                     return "已切换到" + (site == null || site.name == null ? "音乐源" : site.name);
                 }
                 case AiVoiceCommand.ACTION_MUSIC_QUALITY: {
-                    // 源层：音质四档轮换（128k/320k/FLAC/母带）
+                    // 源层：音质四档轮换（128k/320k/FLAC/母带）；高10 同口径：走
+                    // Controller 选档口——写档后当前曲按新档重取，不再只落盘
+                    // 嘴上说已切换（旧法当前曲原档播到底）
                     int q = (com.fongmi.android.tv.music.MusicStore.getQuality() + 1) % 4;
-                    com.fongmi.android.tv.music.MusicStore.setQuality(q);
+                    com.fongmi.android.tv.music.MusicController.get().setQuality(q);
                     return "音质已切换为" + com.fongmi.android.tv.music.MusicStore.qualityName(q);
                 }
                 default:

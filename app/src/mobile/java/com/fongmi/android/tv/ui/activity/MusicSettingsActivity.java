@@ -619,8 +619,10 @@ public class MusicSettingsActivity extends BaseActivity {
         MusicOptionsDialog.show(this, getString(play ? R.string.music_set_play_quality : R.string.music_set_download_quality),
                 opts, cur, idx -> {
                     if (play) {
-                        // 只存默认：下一首 prepare 时生效，不动播放页的单曲临时音质入口
-                        MusicStore.setQuality(values[idx]);
+                        // 高10 同口径：与播放页音质面板走同一个选档口——写档后当前曲
+                        // 由服务侧判定要不要按新档重取（旧「只存默认、下一首生效」作废，
+                        // 存档本就只有 K_QUALITY 一个键，两处从来是同一档）
+                        MusicController.get().setQuality(values[idx]);
                         binding.tvPlayQuality.setText(MusicStore.qualityName(values[idx]));
                     } else {
                         MusicStore.setDownloadQuality(values[idx]);

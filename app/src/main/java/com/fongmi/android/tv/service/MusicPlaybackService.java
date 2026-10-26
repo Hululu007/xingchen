@@ -296,6 +296,13 @@ public class MusicPlaybackService extends MediaSessionService {
     private String preloadKey;
     private String preloadUrl;
     private int preloadQuality = -1;
+    /** 高10：在播流的生效档（装配成功落点记、停机清；-1＝没装着流）。选档重取靠它判
+     * 「生效档到底变没变」，不许拿存档请求值冒充——请求档与生效档是两回事
+     * （流量固定档会压档、源没这档时降档回落也照播）。 */
+    private int loadedQuality = -1;
+    /** 高10：本次 prepare 是「选档后当前曲重取」标记：取回同链免重装、取链失败
+     * 不许按切歌失败停掉旧流；消费点在 prepareTrack 成功落点与 onPlayFailed 开头。 */
+    private boolean qualityReload;
     /** 预取链落槽时刻（墙钟）：签名直链有时效，超 TTL 的预取链一律作废回源重取，
      * 不许拿陈旧链直播放（失败还会走跳歌、把好歌跳过去）。 */
     private long preloadTime;
@@ -1145,10 +1152,24 @@ public class MusicPlaybackService extends MediaSessionService {
         }
     }
 
-    /** 音质切换后：当前歌按新音质重取直链，进度保留 */
+    /** 音质切换后：当前歌按新音质重取直链，进度保留。
+     * 高10：本法此前零调用者（选档端只写存档），整条链是死的；接通后先过三道挡——
+     * ①队列游标那首必须就是播放器里真装着的那首，不是（失败态／没装过）按没当前曲处理；
+     * ②本地类的链与档位无关（本地文件／已下载／设备／网盘直链），换档对它们无意义，如实不动；
+     * ③生效档没变（同档重选，或流量固定档压着、改了也不生效）——重取只会拿回同一条链，不折腾。
+     * 真要重取才置 qualityReload（同链免重装、失败保旧流，见两个消费点）；
+     * 暂停中重取走 prepareTrack 的 autoplay=false：装好停在原进度，绝不自己响起来。 */
     public void reloadCurrent() {
         int idx = queue.getIndex();
         if (idx < 0 || player == null) return;
+        MusicTrack track = queue.get(idx);
+        if (track == null || track != loadedTrack) return;
+        if (track.localPath != null && !track.localPath.isEmpty()) return;
+        if (MusicDownloadStore.isLocal(track)) return;
+        if (com.fongmi.android.tv.music.DeviceMusicSource.PLATFORM.equals(track.platform)
+                || com.fongmi.android.tv.music.CloudMusicSource.PLATFORM.equals(track.platform)) return;
+        if (loadedQuality >= 0 && loadedQuality == effectivePlayQuality(track)) return;
+        qualityReload = true;
         prepareTrack(idx, position(), isPlaying());
     }
 
@@ -1177,6 +1198,8 @@ public class MusicPlaybackService extends MediaSessionService {
         hasMediaItem = false;
         loadedTrack = null;
         currentPlayUrl = null;
+        loadedQuality = -1; // 高10：停机即无在播流，生效档与换档标记一并作废
+        qualityReload = false;
         // P6 服务侧：停播清实测音质并通知——播放页 bindTrack(null) 提前返回刷不到音质格时，
         // 至少监听侧拿到的 audioInfo 已是空，不留上一首的实测值
         if (audioInfo != null) {
@@ -2215,6 +2238,14 @@ public class MusicPlaybackService extends MediaSessionService {
                 // playUrl 回填进同一曲目对象，此时才发取词车；回填不到（详情无 actor）
                 // 也照发——按现有信息走收紧判据，宁可无词不许错版，不再继续等。
                 if (lyricDeferred) startLyricFetch(track);
+                // 高10 换档重取取回同一条链（源最高就这档／降档回落到同一文件）：
+                // 免重装——不许为换档把同一条流重缓冲一遍；audioInfo 不清（仍是这条
+                // 流的实测，面板当前档照旧按它标），进度／播停／歌词／队列全未动。
+                if (qualityReload && track == loadedTrack && fUrl.equals(currentPlayUrl)) {
+                    qualityReload = false;
+                    loadedQuality = quality;
+                    return;
+                }
                 MediaItem item = new MediaItem.Builder()
                         .setMediaId(track.id == null ? "" : track.id)
                         .setUri(fUrl)
@@ -2239,6 +2270,8 @@ public class MusicPlaybackService extends MediaSessionService {
                 // 就被系统收掉，歌自己停（第十二件主根因）。已在前台时重复调无害。
                 startForegroundNow();
                 currentPlayUrl = fUrl;
+                loadedQuality = quality; // 高10：记在播流的生效档，供下次选档判变没变
+                qualityReload = false; // 换档标记在装配成功处消费（同链支已在前面先行消费）
                 // 三-42：与直链同点记渠道（按 trackKey 从仓库旁路记录读那次命中；
                 // 预载命中的链也是预载取链时记的同键记录，读到的就是真渠道）
                 playChannelKey = MusicQueue.trackKey(track);
@@ -2359,6 +2392,17 @@ public class MusicPlaybackService extends MediaSessionService {
     }
 
     private void onPlayFailed(MusicTrack failed) {
+        // 高10：换档重取失败（取链环与看门狗都收口到这里）——取链期播放器没被碰过、
+        // 旧档流还装着且健康：不记失败账、不拉黑、不停旧流，只报没换成，播停态照旧。
+        // 旧流若在取链期间自己先坏了（播放器已带错误），不在此支保它、走正常收口；
+        // 装配成功后新流自己的拉流报错也不走这支（标记已在装配落点消费）。
+        if (qualityReload && failed != null && failed == loadedTrack && hasMediaItem && player != null
+                && player.getPlayerError() == null) {
+            qualityReload = false;
+            preparing = false;
+            Notify.show(R.string.music_quality_reload_failed);
+            return;
+        }
         recordFailure(failed);
         startFromHistory = false;
         // P1：失败计数记在 failed 这首上（不是 queue.current()），键用 trackKey；

@@ -214,6 +214,7 @@ public class AccountPlaylistDialog extends BaseBottomSheetDialog {
 
             Holder(View v) {
                 super(v);
+                MusicGlassWire.frameRow(v); // 一行一框：原行只有涟漪无框（2026-10-26 全扫漏网）
                 cover = v.findViewById(R.id.cover);
                 name = v.findViewById(R.id.name);
                 sub = v.findViewById(R.id.sub);

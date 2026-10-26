@@ -144,24 +144,8 @@
                 android:layout_marginTop="10dp" />
         </LinearLayout>
 
-        <!-- 分类页签：单曲／专辑／歌手／歌单（构成与次序照参照图），四等分横排，子项由代码 inflate item_music_search_tab -->
-        <LinearLayout
-            android:id="@+id/tabRow"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:orientation="horizontal"
-            android:visibility="gone" />
-
-        <!-- 源横排 chips：chips 是本 App 自己的可搜源，点哪个看哪个源的结果 -->
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/sourceRow"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:clipToPadding="false"
-            android:overScrollMode="never"
-            android:visibility="gone" />
+        <!-- 搜索页构成定案（2026-10-25 他亲口）：只留标题＋搜索框＋取消＋结果列表＋搜索历史；
+             分类页签与源横排 chips 已按定案摘除（扫描 M25），搜索恒走单曲＋全源聚合 -->
 
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/recycler"

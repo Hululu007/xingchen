@@ -76,8 +76,6 @@ public class MusicSearchActivity extends BaseActivity {
 
     private View rootView;
     private EditText etKeyword;
-    private LinearLayout tabRow;
-    private RecyclerView sourceRow;
     private RecyclerView recycler;
     private TextView empty;
     private View historyBox;
@@ -86,14 +84,11 @@ public class MusicSearchActivity extends BaseActivity {
     private final List<MusicTrack> tracks = new ArrayList<>();
     private final List<Object> cards = new ArrayList<>();
     private SearchAdapter adapter;
-    private ChipAdapter chipAdapter;
-    private final List<TextView> tabNames = new ArrayList<>();
-    private final List<View> tabBars = new ArrayList<>();
     private String keyword = "";
     private String bigTitle = "";
 
-    // 分类页签（构成与次序照参照图：单曲／专辑／歌手／歌单）
-    private final List<String> searchCatNames = java.util.Arrays.asList("单曲", "专辑", "歌手", "歌单");
+    // 搜索页构成定案（2026-10-25）：无分类页签、无源 chips——恒走单曲＋全源聚合展示。
+    // selectedCat 恒 0（单曲），仅为残余分组/歌单分支的守卫保留，不再有 UI 能改它。
     private final List<MusicTrack> allResults = Collections.synchronizedList(new ArrayList<>());
     private final AtomicInteger searchTotalSites = new AtomicInteger(0);
     private final AtomicInteger searchFailedSites = new AtomicInteger(0);
@@ -103,12 +98,12 @@ public class MusicSearchActivity extends BaseActivity {
     private int searchGroupType = -1;
     private String searchGroupKey = "";
     /** 搜索按源分桶（键＝searchBucketKey：srcUrl 非空用 srcUrl、空走 "site:"+index；
-     * 快照 searchSitesSnap 保 sites 顺序，与 chips 同序同键）。
-     * selectedSource＝当前 chip 选中源的桶键；chips 无「全部」项，默认选中第一个源。 */
+     * 快照 searchSitesSnap 保 sites 顺序）。分桶只服务两件事：行来源名按桶反查、
+     * 续页按桶推进；展示恒为全源聚合（见 currentSearchPool），不再有选中源概念。
+     * selectedSource 仅作历史字段保留（恒为第一个源的桶键，无消费点依赖其语义）。 */
     private final LinkedHashMap<String, List<MusicTrack>> searchBySite = new LinkedHashMap<>();
     private final List<MusicSite> searchSitesSnap = new ArrayList<>();
     private String selectedSource = null;
-    private int selectedChip = -1;
     private boolean searchAllReady = false;
     /** 分页态（按桶键记；三表都只在 synchronized(searchBySite) 内读写）：
      * bucketPages＝已到齐的最大页码、bucketEnded＝没有更多（空页／全重复／失败）、
@@ -161,15 +156,13 @@ public class MusicSearchActivity extends BaseActivity {
         if (savedInstanceState != null) {
             String savedKw = savedInstanceState.getString("ml_keyword");
             if (savedKw != null) keyword = savedKw;
-            selectedCat = savedInstanceState.getInt("ml_selectedCat", selectedCat);
-            if (selectedCat < 0 || selectedCat >= searchCatNames.size()) selectedCat = 0;
+            // 页签已摘除：分类恒单曲，旧存档里的页签值一律不回填（防升级后残值把展示带偏）
+            selectedCat = 0;
             pendingListState = savedInstanceState.getParcelable("ml_listState");
         }
         bigTitle = getString(R.string.music_search);
 
         etKeyword = findViewById(R.id.etKeyword);
-        tabRow = findViewById(R.id.tabRow);
-        sourceRow = findViewById(R.id.sourceRow);
         recycler = findViewById(R.id.recycler);
         empty = findViewById(R.id.empty);
         empty.setOnClickListener(null);
@@ -181,7 +174,7 @@ public class MusicSearchActivity extends BaseActivity {
         });
 
         recycler.setLayoutManager(new LinearLayoutManager(this));
-        // 滑到底部附近自动续下一页（只续当前选中源的桶，见 tryLoadMore）
+        // 滑到底部附近自动续下一页（逐桶推进，见 tryLoadMore）
         recycler.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override
             public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
@@ -194,9 +187,6 @@ public class MusicSearchActivity extends BaseActivity {
         });
         MusicGlassWire.glassifyTree(rootView);
         recycler.setAdapter(adapter = new SearchAdapter());
-        sourceRow.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
-        sourceRow.setAdapter(chipAdapter = new ChipAdapter());
-        buildTabs();
 
         findViewById(R.id.searchCancel).setOnClickListener(v -> finish());
         // 搜索只由键盘搜索键显式触发，输入框无任何 TextWatcher 自动搜；
@@ -305,62 +295,11 @@ public class MusicSearchActivity extends BaseActivity {
         super.onDestroy();
     }
 
-    // ================= 页签与源 chips =================
-
-    /** 分类页签：子项 inflate item_music_search_tab、四等分（weight 1）横排，摆法照参照图。 */
-    private void buildTabs() {
-        tabRow.removeAllViews();
-        tabNames.clear();
-        tabBars.clear();
-        LayoutInflater inf = LayoutInflater.from(this);
-        for (int idx = 0; idx < searchCatNames.size(); idx++) {
-            final int cat = idx;
-            View v = inf.inflate(R.layout.item_music_search_tab, tabRow, false);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-            v.setLayoutParams(lp);
-            TextView name = v.findViewById(R.id.tabName);
-            name.setText(searchCatNames.get(idx));
-            tabNames.add(name);
-            tabBars.add(v.findViewById(R.id.tabBar));
-            v.setOnClickListener(view -> selectCategory(cat));
-            tabRow.addView(v);
-        }
-        refreshTabs();
-    }
-
-    private void refreshTabs() {
-        for (int idx = 0; idx < tabNames.size(); idx++) {
-            boolean sel = idx == selectedCat;
-            tabNames.get(idx).setTextColor(sel ? 0xFFFA243C : 0xFF9AA7B8);
-            tabBars.get(idx).setBackgroundResource(sel ? R.drawable.bg_tab_indicator : 0);
-        }
-    }
-
-    private void selectCategory(int idx) {
-        if (idx < 0 || idx >= searchCatNames.size()) return;
-        selectedCat = idx;
-        // 重新点页签即退出组内钻取（组筛选条已摘，钻取的退出走页签本身）
-        searchGroupType = -1;
-        searchGroupKey = "";
-        refreshTabs();
-        showSearchResults();
-    }
-
-    private void selectSource(int idx) {
-        if (idx < 0 || idx >= searchSitesSnap.size()) return;
-        selectedChip = idx;
-        selectedSource = searchBucketKey(searchSitesSnap.get(idx), idx);
-        chipAdapter.notifyDataSetChanged();
-        sourceRow.smoothScrollToPosition(idx);
-        showSearchResults();
-    }
-
     // ================= 搜索 =================
 
     /**
-     * 搜索：多源并发搜、各源结果按源分桶；chips 与分桶同序，默认选中第一个源，
-     * 展示永远只摆当前选中源在当前页签下的结果。切页签／切源只换显示、不重搜。
+     * 搜索：多源并发搜、各源结果按源分桶（桶只供行来源名反查与按桶续页），
+     * 展示恒为全源聚合的单曲列表（定案构成：无页签、无源 chips）。
      * 某个源报错只影响它自己，其它源照常出结果；全部失败才显「搜索失败，请重试」。
      */
     private void doSearch() {
@@ -384,17 +323,12 @@ public class MusicSearchActivity extends BaseActivity {
         }
         searchSitesSnap.clear();
         selectedSource = null;
-        selectedChip = -1;
         searchAllReady = false;
         searchTotalSites.set(0);
         searchFailedSites.set(0);
         selectedCat = 0;
         searchGroupType = -1;
         searchGroupKey = "";
-        refreshTabs();
-        chipAdapter.notifyDataSetChanged();
-        tabRow.setVisibility(View.VISIBLE);
-        sourceRow.setVisibility(View.VISIBLE);
         tracks.clear();
         cards.clear();
         adapter.notifyDataSetChanged();
@@ -415,12 +349,10 @@ public class MusicSearchActivity extends BaseActivity {
                 });
                 return;
             }
-            // 快照到位先落 chips 并默认选中第一个源（不等全部源搜完）
+            // 快照到位先记第一个源的桶键（历史字段，无展示语义；展示走全源聚合）
             runOnUiThread(() -> {
                 if (seq != searchSeq) return;
-                selectedChip = 0;
                 selectedSource = searchBucketKey(searchSitesSnap.get(0), 0);
-                chipAdapter.notifyDataSetChanged();
             });
             final AtomicInteger pending = new AtomicInteger(tabs.size());
             for (int si = 0; si < tabs.size(); si++) {
@@ -464,15 +396,14 @@ public class MusicSearchActivity extends BaseActivity {
                         // 旧搜索的迟到回调不许动新搜索的状态
                         if (seq == searchSeq) {
                             boolean last = pending.decrementAndGet() == 0;
-                            // 当前选中源先到齐就先刷，不等全部源；最后一源到齐置 ready 后总刷一次
-                            if (last || bucketKey.equals(selectedSource)) {
-                                runOnUiThread(() -> {
-                                    if (seq == searchSeq) {
-                                        if (last) searchAllReady = true;
-                                        showSearchResults();
-                                    }
-                                });
-                            }
+                            // 全源聚合展示：任一源到齐就刷一次（结果流入式变多），
+                            // 最后一源到齐置 ready 后总刷一次
+                            runOnUiThread(() -> {
+                                if (seq == searchSeq) {
+                                    if (last) searchAllReady = true;
+                                    showSearchResults();
+                                }
+                            });
                         }
                     }
                 });
@@ -481,15 +412,25 @@ public class MusicSearchActivity extends BaseActivity {
     }
 
     /**
-     * 续下一页：只续当前选中源的桶（展示永远是单源）。歌单签是本地数据无源分页、
-     * 组内钻取态不续（钻取数据随桶长大自然变多，退出钻取后可继续续）。
+     * 续下一页：全源聚合展示下逐桶推进——取第一个还没到终局、不在途的桶续一页
+     * （一次滚底续一个桶，反复滚底自然把各源都续下去）。组内钻取态不续
+     * （钻取数据随桶长大自然变多，退出钻取后可继续续）。
      * 续页结果按 track id 去重后并入桶——源不认页码回了重复页时全重复即判终局，
      * 不会无限续同一页；空页／失败同样判终局。
      */
     private void tryLoadMore() {
         if (keyword == null || keyword.isEmpty()) return;
         if (selectedCat == 3 || searchGroupType >= 0) return;
-        final String bucketKey = selectedSource;
+        String picked = null;
+        synchronized (searchBySite) {
+            for (String k : searchBySite.keySet()) {
+                if (bucketEnded.contains(k) || bucketLoading.contains(k)) continue;
+                if (!bucketPages.containsKey(k)) continue;
+                picked = k;
+                break;
+            }
+        }
+        final String bucketKey = picked;
         if (bucketKey == null) return;
         final int seq = searchSeq;
         final String kw = keyword;
@@ -548,14 +489,14 @@ public class MusicSearchActivity extends BaseActivity {
                     if (added > 0) bucketPages.put(bucketKey, nextPage);
                     else bucketEnded.add(bucketKey);
                 }
-                if (added > 0 && seq == searchSeq && bucketKey.equals(selectedSource)) {
+                if (added > 0 && seq == searchSeq) {
                     showSearchResults();
                 }
             });
         });
     }
 
-    /** 回初始态：清结果与选择、页签与源 chips 收起、状态层收起，只剩标题＋搜索框（＋历史）。 */
+    /** 回初始态：清结果、状态层收起，只剩标题＋搜索框（＋历史）。 */
     private void resetToIdle() {
         searchSeq++;
         keyword = "";
@@ -568,33 +509,22 @@ public class MusicSearchActivity extends BaseActivity {
         }
         searchSitesSnap.clear();
         selectedSource = null;
-        selectedChip = -1;
         searchAllReady = false;
         selectedCat = 0;
         searchGroupType = -1;
         searchGroupKey = "";
-        refreshTabs();
-        chipAdapter.notifyDataSetChanged();
         tracks.clear();
         cards.clear();
         adapter.notifyDataSetChanged();
-        tabRow.setVisibility(View.GONE);
-        sourceRow.setVisibility(View.GONE);
         empty.setVisibility(View.GONE);
         refreshHistory();
     }
 
-    /** 当前选中源的桶（chips 无「全部」视图，展示永远是单源的）。 */
+    /** 展示池：全源聚合（allResults 在各源到齐时按到达序并入，续页同样并入尾部）。
+     * allResults 是 synchronizedList，拷贝必须持本体锁，在途源还在 addAll 时裸拷会撕裂。 */
     private List<MusicTrack> currentSearchPool() {
-        if (selectedSource == null) return new ArrayList<>();
-        List<MusicTrack> bucket;
-        synchronized (searchBySite) {
-            bucket = searchBySite.get(selectedSource);
-        }
-        if (bucket == null) return new ArrayList<>();
-        // synchronizedList 的拷贝构造会迭代本体，必须持桶锁拷，在途源还在 addAll 时裸拷会撕裂
-        synchronized (bucket) {
-            return new ArrayList<>(bucket);
+        synchronized (allResults) {
+            return new ArrayList<>(allResults);
         }
     }
 
@@ -638,12 +568,12 @@ public class MusicSearchActivity extends BaseActivity {
         return site != null && site.srcUrl != null && !site.srcUrl.isEmpty() ? site.srcUrl : "site:" + index;
     }
 
-    /** 按当前页签把当前选中源的搜索结果显示到列表区；组内钻取时只显示该组歌曲 */
+    /** 把全源聚合的搜索结果显示到列表区（恒单曲列表）；组内钻取分支随页签摘除已不可达、保留守卫 */
     private void showSearchResults() {
         if (keyword == null || keyword.isEmpty()) return;
         boolean allFailed = searchTotalSites.get() > 0 && searchFailedSites.get() >= searchTotalSites.get();
         if (searchGroupType == 1 || searchGroupType == 3) {
-            // 组内歌曲列：按歌手／专辑在当前源桶内过滤；退出钻取走重新点页签（见 selectCategory）
+            // 组内歌曲列（页签摘除后不可达，保留守卫）：按歌手／专辑在聚合池内过滤
             List<MusicTrack> pool = currentSearchPool();
             List<MusicTrack> g = new ArrayList<>();
             for (MusicTrack t : pool) {
@@ -1267,46 +1197,4 @@ public class MusicSearchActivity extends BaseActivity {
         }
     }
 
-    /** 源横排 chips：chips 是本 App 自己的可搜源、与分桶同序；选中态红字＋红淡玻璃底 */
-    private class ChipAdapter extends RecyclerView.Adapter<ChipAdapter.ChipHolder> {
-
-        @NonNull
-        @Override
-        public ChipHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-            View v = LayoutInflater.from(parent.getContext())
-                    .inflate(R.layout.item_music_search_chip, parent, false);
-            MusicGlassWire.glassify(v);
-            return new ChipHolder((TextView) v);
-        }
-
-        @Override
-        public void onBindViewHolder(@NonNull ChipHolder h, int position) {
-            MusicSite site = searchSitesSnap.get(position);
-            boolean sel = position == selectedChip;
-            h.chip.setText(site == null || site.name == null ? "" : site.name);
-            // 选中＝样张口径的带色玻璃（青 tone）＋白字；bind 只切 tone 不换资源（防粉块盖回）
-            if (h.chip.getBackground() instanceof MusicGlassDrawable) {
-                MusicGlassDrawable chipGlass = (MusicGlassDrawable) h.chip.getBackground();
-                if (sel) chipGlass.setToneColor(0xFF305F67, 0.55f);
-                else chipGlass.setToneColor(0, 0f);
-            }
-            h.chip.setTextColor(sel ? 0xFFF1F4F5 : 0x99FFFFFF);
-            h.chip.setTypeface(null, sel ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
-            h.chip.setOnClickListener(v -> selectSource(h.getBindingAdapterPosition()));
-        }
-
-        @Override
-        public int getItemCount() {
-            return searchSitesSnap.size();
-        }
-
-        class ChipHolder extends RecyclerView.ViewHolder {
-            final TextView chip;
-
-            ChipHolder(TextView v) {
-                super(v);
-                chip = v;
-            }
-        }
-    }
 }

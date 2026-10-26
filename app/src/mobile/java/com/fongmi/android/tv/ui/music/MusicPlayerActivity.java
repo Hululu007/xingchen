@@ -207,6 +207,21 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
     }
 
     @Override
+    protected void onPause() {
+        // tick 只喂界面（进度/歌词位置/展开态）：页面退到后台就停，不在后台每 250ms 空转
+        mTickHandler.removeCallbacks(mTick);
+        super.onPause();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // 先摘再挂：与 onCreate 的首挂不叠，链永远只有一条
+        mTickHandler.removeCallbacks(mTick);
+        mTickHandler.post(mTick);
+    }
+
+    @Override
     protected void onDestroy() {
         if (mEarlyTrack != null && mEarlyListener != null) {
             com.fongmi.android.tv.music.MusicRepository.clearEarlyLyricListener(mEarlyTrack, mEarlyListener);

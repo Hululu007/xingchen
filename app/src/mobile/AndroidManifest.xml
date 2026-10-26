@@ -139,6 +139,12 @@
             android:theme="@style/Theme.XingChen.MusicPlayer" />
 
         <activity
+            android:name=".ui.music.MusicLyricActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout"
+            android:screenOrientation="fullUser"
+            android:theme="@style/Theme.XingChen.MusicPlayer" />
+
+        <activity
             android:name=".ui.activity.MusicPluginsActivity"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout"
             android:screenOrientation="fullUser"

@@ -157,6 +157,13 @@
             android:process=":nodejs"
             android:stopWithTask="true" />
 
+        <service
+            android:name=".node.NodeService"
+            android:exported="false"
+            android:process=":node"
+            android:foregroundServiceType="dataSync"
+            android:stopWithTask="false" />
+
         <meta-data
             android:name="com.google.android.gms.car.application"
             android:resource="@xml/automotive_app_desc" />

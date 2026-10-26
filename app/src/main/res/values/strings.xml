@@ -1584,4 +1584,18 @@
     <string name="module_cancel">取消</string>
     <string name="module_test_changed">模块已变化，请重新检测</string>
     <string name="module_update_notice">模块有更新：%1$s</string>
+    <string name="node_title">准备猫源</string>
+    <string name="node_prepare">准备中…</string>
+    <string name="node_hint">仅首次运行需要：Node 运行时只下载一次，之后重复使用。</string>
+    <string name="node_downloading">正在下载 Node 运行时</string>
+    <string name="node_extracting">解压中…</string>
+    <string name="node_bundle">正在校验猫源包…</string>
+    <string name="node_starting">正在启动服务…</string>
+    <string name="node_waiting">正在等待服务就绪…</string>
+    <string name="node_ready">猫源已就绪</string>
+    <string name="node_stopping">正在停止上一个猫源…</string>
+    <string name="node_switch_restart">正在切换猫源…</string>
+    <string name="node_background">后台运行</string>
+    <string name="node_speed">%1$s/s</string>
+    <string name="node_size_pair">%1$s / %2$s</string>
 </resources>

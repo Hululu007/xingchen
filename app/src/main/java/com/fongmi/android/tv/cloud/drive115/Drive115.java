@@ -53,6 +53,11 @@ public class Drive115 implements CloudDrive {
     private String cookie = "";
     private String userName = "";
     private long userId = 0;
+    /** 账号信息（fetchAccountInfo 填充，未取到时 vipText 为空、容量为 -1） */
+    private String vipText = "";
+    private long spaceUsed = -1;
+    private long spaceTotal = -1;
+    private String spaceText = "";
     /** 会话 cookie 罐（对照 PY Api._jar）：115 CDN 门票 cookie 全量吸收 */
     private final CookieJar115 cookieJar = new CookieJar115();
     /** 播放地址构造器（本机代理） */
@@ -233,17 +238,171 @@ public class Drive115 implements CloudDrive {
 
     /** 取用户信息（对照 PY Api.nav） */
     public void nav() {
+        fetchAccountInfo();
+    }
+
+    /**
+     * 取账号信息（对照 PY Api.nav）：用户名之外，把容量与 VIP 一并解析出来。
+     * nav 的 data 字段形态未经真机验过，空间/VIP 按多路候选键防御性解析，
+     * 并把关键子树原文打进调试日志，真机一跑即可对字段。
+     *
+     * @return 拿到 data 并完成解析返回 true
+     */
+    public boolean fetchAccountInfo() {
         try {
             Map<String, String> p = new HashMap<>();
             p.put("_", nowMs());
             JSONObject d = reqJson(API_NAV, p, null, null, null);
             JSONObject data = d.optJSONObject("data");
-            if (data != null) {
-                userName = data.optString("user_name", data.optString("uname", ""));
-                if (data.optLong("user_id", 0) > 0) userId = data.optLong("user_id");
+            if (data == null) return false;
+            userName = data.optString("user_name", data.optString("uname", ""));
+            if (data.optLong("user_id", 0) > 0) userId = data.optLong("user_id");
+            parseSpace(data);
+            vipText = parseVip(data);
+            try {
+                com.github.catvod.crawler.SpiderDebug.log("panacct",
+                        "115 nav keys=%s space_info=%s vip_info=%s",
+                        String.valueOf(data.names()),
+                        String.valueOf(data.opt("space_info")),
+                        String.valueOf(data.opt("vip_info")));
+            } catch (Throwable ignored) {
             }
-        } catch (Exception ignored) {
+            return true;
+        } catch (Exception e) {
+            return false;
         }
+    }
+
+    /** 空间：data.space_info 的 all_total/all_use，每项可为数字、字符串或 {size,str} 对象 */
+    private void parseSpace(JSONObject data) {
+        spaceUsed = -1;
+        spaceTotal = -1;
+        spaceText = "";
+        JSONObject si = data.optJSONObject("space_info");
+        if (si == null) return;
+        spaceTotal = spaceBytes(si.opt("all_total"));
+        spaceUsed = spaceBytes(si.opt("all_use"));
+        if (spaceTotal > 0 && spaceUsed >= 0) {
+            spaceText = "已用 " + formatSize(spaceUsed) + " / 共 " + formatSize(spaceTotal);
+            return;
+        }
+        // 字节数拿不到时退而求其次：用服务端给的格式化字符串拼
+        String totalStr = spaceStr(si.opt("all_total"));
+        String usedStr = spaceStr(si.opt("all_use"));
+        if (!totalStr.isEmpty() && !usedStr.isEmpty()) {
+            spaceText = "已用 " + usedStr + " / 共 " + totalStr;
+        }
+    }
+
+    private static long spaceBytes(Object v) {
+        if (v instanceof Number) return ((Number) v).longValue();
+        if (v instanceof JSONObject) {
+            JSONObject o = (JSONObject) v;
+            long s = o.optLong("size", -1);
+            if (s >= 0) return s;
+            return spaceBytes(o.opt("total"));
+        }
+        if (v instanceof String) {
+            try {
+                return Long.parseLong(((String) v).trim());
+            } catch (Exception e) {
+                return -1;
+            }
+        }
+        return -1;
+    }
+
+    private static String spaceStr(Object v) {
+        if (v instanceof JSONObject) {
+            JSONObject o = (JSONObject) v;
+            String s = o.optString("str", o.optString("fmt_size", ""));
+            return s == null ? "" : s.trim();
+        }
+        return "";
+    }
+
+    /** VIP：优先 data.vip_info 对象，回退 data 上的直挂字段；判不出就回空串 */
+    private static String parseVip(JSONObject data) {
+        JSONObject vi = data.optJSONObject("vip_info");
+        String name = "";
+        String expire = "";
+        boolean vip = false;
+        if (vi != null) {
+            name = vi.optString("name", vi.optString("level_name",
+                    vi.optString("title", vi.optString("vip_name", ""))));
+            expire = vipExpire(vi.opt("expire_time"), vi.opt("expire_date"),
+                    vi.opt("end_time"), vi.opt("vip_expire_time"));
+            vip = flagOn(vi.opt("is_vip")) || flagOn(vi.opt("vip"))
+                    || !name.isEmpty() || !expire.isEmpty();
+        }
+        if (!vip) {
+            vip = flagOn(data.opt("is_vip")) || flagOn(data.opt("vip"));
+            if (vip && expire.isEmpty()) {
+                expire = vipExpire(data.opt("vip_expire_time"), data.opt("expire_time"),
+                        data.opt("vip_end_time"), data.opt("expire_date"));
+            }
+        }
+        if (!vip) return "";
+        String base = name.isEmpty() ? "VIP" : name;
+        return expire.isEmpty() ? base : base + " · " + expire + " 到期";
+    }
+
+    private static boolean flagOn(Object v) {
+        if (v instanceof Boolean) return (Boolean) v;
+        if (v instanceof Number) return ((Number) v).intValue() != 0;
+        if (v instanceof String) {
+            String s = ((String) v).trim();
+            return "1".equals(s) || "true".equalsIgnoreCase(s);
+        }
+        return false;
+    }
+
+    /** 到期值归一成 yyyy-MM-dd：字符串取前 10 位，数字按秒/毫秒时间戳换算 */
+    private static String vipExpire(Object... candidates) {
+        for (Object v : candidates) {
+            if (v == null) continue;
+            if (v instanceof Number) {
+                long n = ((Number) v).longValue();
+                if (n > 0) return formatDate(n < 100000000000L ? n * 1000 : n);
+            } else if (v instanceof String) {
+                String s = ((String) v).trim();
+                if (s.length() >= 10) return s.substring(0, 10);
+                try {
+                    long n = Long.parseLong(s);
+                    if (n > 0) return formatDate(n < 100000000000L ? n * 1000 : n);
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        return "";
+    }
+
+    private static String formatDate(long epochMs) {
+        return new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+                .format(new java.util.Date(epochMs));
+    }
+
+    private static String formatSize(long size) {
+        if (size < 0) return "";
+        if (size < 1024) return size + "B";
+        int z = (63 - Long.numberOfLeadingZeros(size)) / 10;
+        return String.format(java.util.Locale.US, "%.1f%sB", (double) size / (1L << (z * 10)), " KMGTPE".charAt(z));
+    }
+
+    /** VIP 文案（如「VIP · 2027-01-01 到期」），须先 fetchAccountInfo */
+    public String getVipText() {
+        return vipText;
+    }
+
+    /** 容量摘要（如「已用 12GB / 共 2TB」），未取到返回空 */
+    public String getSpaceText() {
+        return spaceText;
+    }
+
+    @Override
+    public String storageSummary() {
+        if (spaceText.isEmpty()) fetchAccountInfo();
+        return spaceText;
     }
 
     @Override

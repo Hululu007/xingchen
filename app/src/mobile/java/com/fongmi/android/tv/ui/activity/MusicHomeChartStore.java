@@ -112,15 +112,6 @@ public final class MusicHomeChartStore {
         writeDisk(s);
     }
 
-    /** 只更新语气色（封面取色迟到回填点）：守卫由调用方做（封面须仍是当前签榜首封面）。 */
-    public static synchronized void saveTone(int tone, String toneCover) {
-        if (sSnapshot == null) return;
-        sSnapshot.tone = tone;
-        sSnapshot.toneCover = toneCover == null ? "" : toneCover;
-        sSnapshot.toneSet = true;
-        writeDisk(sSnapshot);
-    }
-
     /** 冷启动灌盘：只读一次；读回逐字段定型还原，元素必须是真 MusicChart/MusicTrack 类型。 */
     public static synchronized void loadDiskIfNeeded() {
         if (sDiskLoaded) return;

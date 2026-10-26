@@ -27,6 +27,7 @@ import android.widget.TextView;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.R;
+import com.fongmi.android.tv.api.music.MusicSourceManager;
 import com.fongmi.android.tv.bean.MusicPlaylist;
 import com.fongmi.android.tv.bean.music.MusicChart;
 import com.fongmi.android.tv.bean.music.MusicSite;
@@ -103,6 +104,8 @@ public class MusicActivity extends BaseActivity {
     private List<MusicTrack> chartTracks = new ArrayList<>();
     private String chartSelKey = "";
     private int chartSeq;
+    /** 榜单全失败且无任何旧数据可显时置位：三彩卡三行改失败态＋点行重试，不许空白假装正常。 */
+    private boolean chartFailed;
 
     private String savedChartSelKey;
     private int pendingScrollY;
@@ -127,15 +130,30 @@ public class MusicActivity extends BaseActivity {
                 refreshShuffleSubtitle();
             });
         }
+
+        /** 继续播放卡进度跟随真位置：此前 Listener 没消费 onProgress，停在首页播放时
+         * 进度条只在回页/切歌时跳一格、平时冻结（体检 A 片）。这里只推进度条本身，
+         * 不整卡重绑（封面/歌名由 onTrackChanged 管）。 */
+        @Override
+        public void onProgress(long position, long duration) {
+            runOnUiThread(() -> {
+                if (homeContinueProgress != null && duration > 0) {
+                    homeContinueProgress.setProgress((int) (1000L * position / duration));
+                }
+            });
+        }
     };
 
     public static void start(Activity activity) {
         activity.startActivity(new android.content.Intent(activity, MusicActivity.class));
     }
 
-    /** 榜单快照清缓存的同名静态入口（其它页调用点契约不变）：转调 MusicHomeChartStore。 */
+    /** 榜单快照清缓存的同名静态入口（其它页调用点契约不变）：转调 MusicHomeChartStore。
+     * 只清快照不够：已活首页实例手里还攥着旧 chartTabs，onResume 的重拉判据是
+     * 「失效位‖chartTabs 空」——必须同时置失效位，回页才真重拉（插件增删/启停走这条）。 */
     public static void clearHomeChartCache() {
         MusicHomeChartStore.clear();
+        MusicHomeChartStore.invalidate();
     }
 
     @Override
@@ -208,9 +226,11 @@ public class MusicActivity extends BaseActivity {
             homeScroll.post(() -> homeScroll.scrollTo(0, y));
         }
         scrollRestoreDone = true;
-        // 消费榜单失效位：源增删等外部变化置位时回页重拉
+        // 消费榜单失效位：源增删等外部变化置位时回页必须重拉——失效路直走 fetchChart，
+        // 不许再过 loadChart 的快照/TTL 闸（快照刚被清也可能被静默刷新路当新鲜停掉）
         boolean invalidated = MusicHomeChartStore.consumeInvalidated();
-        if (invalidated || chartTabs.isEmpty()) loadChart();
+        if (invalidated) fetchChart(null);
+        else if (chartTabs.isEmpty()) loadChart();
         refreshCounts();
         refreshShuffleSubtitle();
         refreshMoodState();
@@ -351,7 +371,9 @@ public class MusicActivity extends BaseActivity {
 
         int sites = 0;
         try {
-            sites = MusicRepository.sites().size();
+            // 计数口径与插件管理页对齐（listSites：含停用插件、不含 QQ 合成站与 py 源）；
+            // 此前用 Repository.sites() 聚合口径：停用不计、没装的 QQ 合成站多计 1、py 源冒充插件
+            sites = MusicSourceManager.get().listSites().size();
         } catch (Throwable ignored) {
         }
         card.addView(menuRow(R.drawable.ic_music_puzzle, 0xFFAF52DE, "插件管理",
@@ -807,8 +829,13 @@ public class MusicActivity extends BaseActivity {
             refreshMoodState();
             return;
         }
-        if (moodBuilding) return;
+        if (moodBuilding) {
+            // 建台中再点不能静默吞掉：给明确反馈（此前无任何提示，用户无从知道正在建台）
+            Notify.show("正在找这个心情的歌…");
+            return;
+        }
         moodBuilding = true;
+        homeMoodPlay.setAlpha(0.45f);
         final MusicHomeMood.Mood mood = MusicHomeMood.at(moodIndex);
         Task.execute(() -> {
             List<MusicTrack> result = new ArrayList<>();
@@ -819,6 +846,7 @@ public class MusicActivity extends BaseActivity {
             }
             runOnUiThread(() -> {
                 moodBuilding = false;
+                homeMoodPlay.setAlpha(1f);
                 if (result.isEmpty()) {
                     Notify.show("没找到这个心情的歌");
                     return;
@@ -919,7 +947,11 @@ public class MusicActivity extends BaseActivity {
             List<MusicChart> fresh = fetchTabsBlocking();
             runOnUiThread(() -> {
                 if (isFinishing() || isDestroyed() || seq != chartSeq) return;
-                if (fresh.isEmpty()) return;
+                if (fresh.isEmpty()) {
+                    // 全部站点失败/无榜可拉：手里也没旧账时上失败态，不许三行空白假装正常
+                    if (chartTabs.isEmpty()) showChartFailed();
+                    return;
+                }
                 chartTabs.clear();
                 chartTabs.addAll(fresh);
                 MusicChart sel = null;
@@ -970,8 +1002,21 @@ public class MusicActivity extends BaseActivity {
         });
     }
 
+    /** 榜单全失败态：三行改失败文案，点任意一行重拉；成功回填（fillChart）时摘掉行点击。 */
+    private void showChartFailed() {
+        chartFailed = true;
+        homeChartTops[0].setText("榜单加载失败");
+        homeChartTops[1].setText("点这里重试");
+        homeChartTops[2].setText("");
+        for (TextView tv : homeChartTops) tv.setOnClickListener(v -> fetchChart(null));
+    }
+
     /** 榜单数据落点只剩两处：三彩卡前三行小字＋猜你喜欢封面堆（大榜单卡已摘）。 */
     private void fillChart() {
+        if (chartFailed) {
+            chartFailed = false;
+            for (TextView tv : homeChartTops) tv.setOnClickListener(null);
+        }
         for (int i = 0; i < 3; i++) {
             MusicTrack t = i < chartTracks.size() ? chartTracks.get(i) : null;
             homeChartTops[i].setText(t == null ? "" : (i + 1) + " " + t.displayTitle());

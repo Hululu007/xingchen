@@ -22,6 +22,7 @@ import com.fongmi.android.tv.bean.Class;
 import com.fongmi.android.tv.bean.Result;
 import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.bean.Vod;
+import com.fongmi.android.tv.event.CatWebEvent;
 import com.fongmi.android.tv.event.RefreshEvent;
 import com.fongmi.android.tv.player.Source;
 import com.fongmi.android.tv.read.ReadingGate;
@@ -693,6 +694,7 @@ public class SiteApi {
                     return result;
                 }
             }
+            long beforeSpider = System.currentTimeMillis();
             String detailContent = marked(site, () -> site.recent().spider().detailContent(Arrays.asList(id)));
             SpiderDebug.log("detail", detailContent);
             Result result = Result.fromJson(detailContent);
@@ -706,6 +708,11 @@ public class SiteApi {
                 actionStubs.put(strikeKey, System.currentTimeMillis());
                 stubDirtyKeys.put(key, Boolean.TRUE);
                 SpiderDebug.log("detail", "action stub key=%s id=%s api=%s", key, id, site.getApi());
+            } else if (CatAction.blank(result.getVod()) || CatWebEvent.requestedAfter(beforeSpider)) {
+                // 猫源动作项（全空条目）或这次调用顺带开过网页：那是副作用不是详情——
+                // 不计次、不驱逐、不入缓存（默影视 cacheDetail 同挡板：缓存住它，第二次点击
+                // 命中缓存压根不调 spider，网页再也不开；计次则会把猫源蜘蛛误驱逐）。
+                SpiderDebug.log("detail", "cat action/web-opened result, skip strikes+cache key=%s id=%s", key, id);
             } else if (vod == null || vod.getPlayFrom().isEmpty() || vod.getPlayUrl().isEmpty()) {
                 // 一次空详情可能是站点抖动：先记一笔，连续空达到阈值才驱逐蜘蛛。
                 // 旧写法一次空就驱逐，下次详情／起播付全额重建——抖动一次慢两次。

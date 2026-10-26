@@ -511,7 +511,17 @@ public class MusicLyricStageView extends View {
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
         int w = getWidth(), h = getHeight();
-        if (w <= 0 || h <= 0 || mLines.isEmpty()) return;
+        if (w <= 0 || h <= 0) return;
+        if (mLines.isEmpty()) {
+            // 与页内歌词同口径（体检低）：无词补占位字，不摆整片空白。
+            Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+            p.setTextSize(dp(15));
+            p.setColor(0x66FFFFFF);
+            p.setTextAlign(Paint.Align.CENTER);
+            canvas.drawText(getContext().getString(
+                    com.fongmi.android.tv.R.string.music_no_lyric), w / 2f, h / 2f, p);
+            return;
+        }
         long now = now();
         float scroll = effScroll();
 

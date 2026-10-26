@@ -511,7 +511,9 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
         boolean empty = tracks.isEmpty();
         binding.recycler.setVisibility(empty ? View.GONE : View.VISIBLE);
         binding.emptyBox.setVisibility(empty ? View.VISIBLE : View.GONE);
-        binding.tvHint.setVisibility(View.VISIBLE);
+        // 体检低：提示行（长按拖动调整顺序）此前恒显、空队列也摆着——按空态收口，
+        // 无歌可拖时不显，与 recycler/emptyBox 同一 empty 判据。
+        binding.tvHint.setVisibility(empty ? View.GONE : View.VISIBLE);
         binding.btnClear.setVisibility(empty ? View.GONE : View.VISIBLE);
         adapter.notifyDataSetChanged();
         updateSheetHeight();

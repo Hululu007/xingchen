@@ -465,7 +465,18 @@ public class InPageLyricsView extends View {
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
         int w = getWidth(), h = getHeight();
-        if (w <= 0 || h <= 0 || mLines.isEmpty()) return;
+        if (w <= 0 || h <= 0) return;
+        if (mLines.isEmpty()) {
+            // 体检低：无词时整片空白像坏了——补占位字（既有文案 music_no_lyric），
+            // 居中一行、白 40%，不抢正文样式。
+            Paint p = new Paint(mSubPaint);
+            p.setTextSize(dp(14));
+            p.setColor(0x66FFFFFF);
+            p.setTextAlign(Paint.Align.CENTER);
+            canvas.drawText(getContext().getString(
+                    com.fongmi.android.tv.R.string.music_no_lyric), w / 2f, h / 2f, p);
+            return;
+        }
         long now = now();
 
         for (int i = 0; i < mLines.size(); i++) {
@@ -748,7 +759,11 @@ public class InPageLyricsView extends View {
                         float[] lay = mLayout.get(i);
                         if (y >= lay[0] && y <= lay[0] + lay[2]) {
                             RichLyrics.Line l = mLines.get(i);
-                            if (l != null && l.main != null) mListener.onLineTap(l.main.getTimeMs());
+                            // 体检低：行点击快进要与显示同口径——行时间是原始时间轴、
+                            // 显示位置走 now()＝原始＋用户偏移；直接拿原始时间 seek 会
+                            // 差一个偏移量。回传原始－偏移（下限 0），与 now() 互逆。
+                            if (l != null && l.main != null) mListener.onLineTap(
+                                    Math.max(0L, l.main.getTimeMs() - MusicStore.getLyricOffsetMs()));
                             break;
                         }
                     }

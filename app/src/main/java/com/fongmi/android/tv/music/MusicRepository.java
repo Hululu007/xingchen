@@ -537,6 +537,8 @@ public class MusicRepository {
      * 不失败、不静默丢歌；指派插件可用时先试它一个——试出链直接返回，试空／试错时
      * fallback 策略回落现有路径（成功率优先），pluginOnly 策略停住返回 null
      * （仅插件、不跨插件换源，符合插件页“仅通过第三方插件取链”文案）。
+     * 未指派平台同守 pluginOnly：freejs／lx 本身经插件桥、local／device 本机文件
+     * 不在此限，其余直连平台判空（手动点歌回落一次原路，见方法内注）。
      * 密钥问题（LxKeyIssue）两种策略都不回落，照旧重抛给服务弹提示。
      * FreeJS 指派与本歌同源插件时跳过单试（现有路径本来就是该桥，免得重复取链）；
      * FreeJS 跨插件单试以本歌原条目 _item 直传指派桥（用户显式指派的后果，不做
@@ -610,6 +612,32 @@ public class MusicRepository {
                 }
             }
             // 同源跳过：现有路径本来就是该桥，不进单试／不触发 pluginOnly 停住，直接走现有路径
+        }
+        if (assigned == null) {
+            // 未指派平台也要尊重 pluginOnly：旧口径只在已指派支读策略，未指派时
+            // 与 fallback 走同一条直连路，「仅通过第三方插件取链」对直连平台不成立。
+            // freejs／lx 两路本身就经插件桥取链、天然合规；local／device 是本机文件
+            // 直链、不经平台取链，不在此限；其余平台（py／hk／pan／kw／qq 等直连路）
+            // 在 pluginOnly 下直接判空。手动点歌（manualOriginFallback）照已指派支
+            // 口径回落一次原路，不让点下去的歌凭空消失。
+            boolean pluginOnly = false;
+            try {
+                pluginOnly = MusicStore.LINK_POLICY_PLUGIN_ONLY.equals(MusicStore.getLinkPolicy());
+            } catch (Throwable ignored) {
+            }
+            if (pluginOnly && !manualOriginFallback
+                    && !FreeJsMusicSource.PLATFORM.equals(track.platform)
+                    && !LxMusicSource.PLATFORM.equals(track.platform)
+                    && !LocalMusicSource.PLATFORM.equals(track.platform)
+                    && !DeviceMusicSource.PLATFORM.equals(track.platform)) {
+                SpiderDebug.log("music", "playUrl pluginOnly unassigned blocked platform=%s id=%s",
+                        track.platform, track.id);
+                return null;
+            }
+            if (pluginOnly && manualOriginFallback) {
+                SpiderDebug.log("music", "playUrl pluginOnly unassigned, manual fallback to origin platform=%s",
+                        track.platform);
+            }
         }
         try {
             String url = s.playUrl(track, quality, probe);

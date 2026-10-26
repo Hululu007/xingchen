@@ -25,6 +25,7 @@ import android.widget.TextView;
 
 import androidx.viewbinding.ViewBinding;
 
+import com.fongmi.android.tv.cloud.PanAccountInfo;
 import com.fongmi.android.tv.cloud.drivepikpak.DrivePikPak;
 import com.fongmi.android.tv.login.LoginManager;
 import com.fongmi.android.tv.cloud.drivequark.DriveQuark;
@@ -77,23 +78,39 @@ public class PanLoginActivity extends BaseActivity {
 
     private void refreshSub() {
         if (PanAuth.is115LoggedIn()) {
-            String vip = PanAuth.get115Vip();
-            binding.tvPan115Sub.setText(vip.isEmpty() ? "已登录，点击进入文件" : "已登录 · " + vip);
+            binding.tvPan115Sub.setText(accountSub(PanAuth.get115Vip(), PanAuth.get115Space()));
         } else {
             binding.tvPan115Sub.setText("未登录");
         }
         if (PanAuth.isQuarkLoggedIn()) {
-            String vip = PanAuth.getQuarkVip();
-            binding.tvPanQuarkSub.setText(vip.isEmpty() ? "已登录，点击进入文件" : "已登录 · " + vip);
+            binding.tvPanQuarkSub.setText(accountSub(PanAuth.getQuarkVip(), PanAuth.getQuarkSpace()));
         } else {
             binding.tvPanQuarkSub.setText("未登录");
         }
         if (PanAuth.isPikPakLoggedIn()) {
             String name = PanAuth.getPikPakUserName();
-            binding.tvPanPikpakSub.setText(name.isEmpty() ? "已登录，点击进入文件" : "已登录 · " + name);
+            String vip = PanAuth.getPikPakVip();
+            // 身份位优先用户名（原有口径），没名时用会员文案顶上
+            String identity = !name.isEmpty() ? name : vip;
+            binding.tvPanPikpakSub.setText(accountSub(identity, PanAuth.getPikPakSpace()));
         } else {
             binding.tvPanPikpakSub.setText("未登录");
         }
+        // 容量/VIP 按需后台抓取（登录/过期自动失效），回来后刷一次副标题
+        PanAccountInfo.maybeFetch(() -> {
+            if (!destroyed && !isFinishing()) refreshSub();
+        });
+    }
+
+    /** 副标题拼装：「已登录 · VIP · 已用/总量」；两样都没有时回退原提示 */
+    private static String accountSub(String vip, String space) {
+        boolean noVip = vip == null || vip.isEmpty();
+        boolean noSpace = space == null || space.isEmpty();
+        if (noVip && noSpace) return "已登录，点击进入文件";
+        StringBuilder sb = new StringBuilder("已登录");
+        if (!noVip) sb.append(" · ").append(vip);
+        if (!noSpace) sb.append(" · ").append(space);
+        return sb.toString();
     }
 
     // ================= 115 =================

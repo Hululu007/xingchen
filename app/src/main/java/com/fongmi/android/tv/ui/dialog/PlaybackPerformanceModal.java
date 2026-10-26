@@ -81,6 +81,8 @@ final class PlaybackPerformanceModal {
             Context context,
             CharSequence title) {
         Dialog dialog = new Dialog(context, R.style.Theme_WebHTV_LightDialog);
+        // 进出统一口径：淡入淡出 200ms（与 BaseAlertDialog 基类同一套 HkDialogFade）
+        if (dialog.getWindow() != null) dialog.getWindow().setWindowAnimations(R.style.HkDialogFade);
         LinearLayout root = new LinearLayout(context);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundResource(R.drawable.shape_shell_proxy_dialog);

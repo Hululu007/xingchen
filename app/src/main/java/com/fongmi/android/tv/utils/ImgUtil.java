@@ -193,6 +193,17 @@ public class ImgUtil {
         loadCircle(text, url, view, null);
     }
 
+    /** 圆形封面渐显版：只许非回收的单图面调用（随心听唱片封面等）；回收行仍走 loadCircle 即贴。 */
+    public static void loadCircleFade(String text, String url, ImageView view) {
+        view.setScaleType(CENTER_CROP);
+        if (TextUtils.isEmpty(url)) showEmptyCover(view, text, true, -1);
+        else try {
+            Glide.with(view).load(getUrl(url)).listener(getListener(text, url, view, true)).placeholder(getTextDrawable(text, true)).transition(DrawableTransitionOptions.withCrossFade(200)).circleCrop().into(view);
+        } catch (Throwable e) {
+            e.printStackTrace();
+        }
+    }
+
     /** 海阔列表：ruleUrl 为当前规则页 URL，用于 8.83 同款自动 Referer。 */
     public static void loadCircle(String text, String url, ImageView view, String ruleUrl) {
         view.setScaleType(CENTER_CROP);

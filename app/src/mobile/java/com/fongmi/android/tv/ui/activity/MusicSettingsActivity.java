@@ -72,6 +72,12 @@ public class MusicSettingsActivity extends BaseActivity {
     @Override
     protected void initView(Bundle savedInstanceState) {
         MusicGlassWire.glassifyTree(getBinding().getRoot()); // 全页玻璃件同源接线：共用件按资源识别统一换液态玻璃（MusicGlassWire）
+        // 内容区入场：与列表页 fadeListInOnce 同口径——滚动内容整区淡入 200ms（背景层不参与，防进页闪）
+        android.view.View settingsScroll = findViewById(R.id.settingsScroll);
+        if (settingsScroll != null) {
+            settingsScroll.setAlpha(0f);
+            com.fongmi.android.tv.utils.XcFadeTransition.fadeIn(settingsScroll);
+        }
         // 照其它音乐页口径 bind 控制器（体检 E-P7）：进页即把播放服务拉起，
         // 均衡器入口不再绑服务存活（此前本页不 bind、服务没起时音效面板自关）。
         MusicController.get().bind(this);

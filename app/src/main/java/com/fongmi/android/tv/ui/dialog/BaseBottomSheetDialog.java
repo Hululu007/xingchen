@@ -36,6 +36,10 @@ public abstract class BaseBottomSheetDialog extends BottomSheetDialogFragment {
         });
         Window window = dialog.getWindow();
         if (window == null) return dialog;
+        // 进出统一口径：滑上滑下＋淡入淡出 200ms（与裸 Dialog 底部面板的 XcBottomSheetSlide 同一套）。
+        // 只换窗口动画，Material 的拖拽/行为动画不走窗口动画、不受影响；子类若自设窗口动画，
+        // 其 onCreateDialog 在 super 之后执行、仍以子类为准。
+        window.setWindowAnimations(R.style.XcBottomSheetSlide);
         if (stableOverlay()) {
             window.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND | WindowManager.LayoutParams.FLAG_FULLSCREEN);
             window.setDimAmount(0f);

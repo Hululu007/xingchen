@@ -3986,6 +3986,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private void onMorePanel() {
         DialogPlayerMoreBinding binding = DialogPlayerMoreBinding.inflate(getLayoutInflater());
         BottomSheetDialog dialog = new BottomSheetDialog(this);
+        // 底部面板进出统一口径：滑上滑下＋淡入淡出 200ms（与 BaseBottomSheetDialog 基类同一套）
+        if (dialog.getWindow() != null) dialog.getWindow().setWindowAnimations(R.style.XcBottomSheetSlide);
         dialog.setContentView(binding.getRoot());
         binding.moreClose.setOnClickListener(v -> dialog.dismiss());
         binding.morePlayParams.setOnClickListener(v -> { dialog.dismiss(); onPlayParams(); });
@@ -6293,6 +6295,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             SpiderDebug.log("video-flow", "fullscreen enter deferred reason=player-not-ready");
             return;
         }
+        coverVideoForFullscreenSwap();
         logVideoFrame("enterFullscreen before");
         setFullscreen(true);
         // 方向判定优先级：1) 后台预取的真实宽高缓存（最准） 2) 播放器元数据 3) 短剧启发式
@@ -6310,6 +6313,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         App.post(mR3, 2000);
         hideControl();
         logVideoFrame("enterFullscreen after");
+        revealVideoAfterFullscreenSwap();
     }
 
     private void exitFullscreen() {
@@ -6319,6 +6323,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             SpiderDebug.log("video-flow", "fullscreen exit deferred reason=player-not-ready");
             return;
         }
+        coverVideoForFullscreenSwap();
         logVideoFrame("exitFullscreen before");
         setFullscreen(false);
         // Restore system bars: hideSystemUI() set FLAG_FULLSCREEN, must clear it
@@ -6343,6 +6348,53 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         setRotate(false);
         hideControl();
         logVideoFrame("exitFullscreen after");
+        revealVideoAfterFullscreenSwap();
+    }
+
+    private View mFullscreenFadeCover;
+
+    /**
+     * 全屏进出渐变（只作用在容器层）：切换瞬间先用黑罩盖满视频容器，尺寸与方向的
+     * 跳变在罩下完成，随后罩用全 App 统一的 200ms 淡出。黑罩只是视频容器里的普通
+     * View，不碰播放器表面、解码与渲染路径，也不延迟任何切换动作；原生内核跳过尺寸
+     * 补间时同样靠这一层兜住硬切。系统动画关闭时 reveal 直接摘罩、不留黑屏。
+     */
+    private void coverVideoForFullscreenSwap() {
+        try {
+            if (mFullscreenFadeCover == null) {
+                mFullscreenFadeCover = new View(this);
+                mFullscreenFadeCover.setBackgroundColor(Color.BLACK);
+                mFullscreenFadeCover.setClickable(false);
+                mFullscreenFadeCover.setFocusable(false);
+            }
+            View cover = mFullscreenFadeCover;
+            if (cover.getParent() != mBinding.video) {
+                if (cover.getParent() instanceof ViewGroup) ((ViewGroup) cover.getParent()).removeView(cover);
+                mBinding.video.addView(cover, new FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+            } else {
+                cover.bringToFront();
+            }
+            cover.animate().cancel();
+            cover.setAlpha(1f);
+            cover.setVisibility(View.VISIBLE);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void revealVideoAfterFullscreenSwap() {
+        final View cover = mFullscreenFadeCover;
+        if (cover == null || cover.getVisibility() != View.VISIBLE) return;
+        if (!XcFadeTransition.isAnimEnabled(this)) {
+            cover.setVisibility(View.GONE);
+            return;
+        }
+        cover.animate().alpha(0f).setDuration(XcFadeTransition.DURATION_MS)
+                .setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator())
+                .withEndAction(() -> {
+                    if (mFullscreenFadeCover == cover) cover.setVisibility(View.GONE);
+                })
+                .start();
     }
 
     private void setTransition() {
@@ -7514,7 +7566,10 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private BottomSheetDialog createAudioSheet() {
-        return new BottomSheetDialog(this);
+        BottomSheetDialog dialog = new BottomSheetDialog(this);
+        // 底部面板进出统一口径：滑上滑下＋淡入淡出 200ms（与 BaseBottomSheetDialog 基类同一套）
+        if (dialog.getWindow() != null) dialog.getWindow().setWindowAnimations(R.style.XcBottomSheetSlide);
+        return dialog;
     }
 
     private LinearLayout createAudioSheetRoot() {

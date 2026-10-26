@@ -28,6 +28,7 @@ import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.Task;
+import com.fongmi.android.tv.utils.XcFadeTransition;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -536,11 +537,11 @@ public class MusicRandomActivity extends BaseActivity {
         setFinding(false);
         freezeProgress();
         binding.tvShuffleTitle.setText(failed.displayTitle());
-        binding.tvShuffleTitle.setVisibility(View.VISIBLE);
+        XcFadeTransition.fadeIn(binding.tvShuffleTitle);
         setMetaLine(failed);
-        binding.tvShuffleSub.setVisibility(View.VISIBLE);
-        binding.tvShuffleFinding.setVisibility(View.GONE);
-        binding.failedBlock.setVisibility(View.VISIBLE);
+        XcFadeTransition.fadeIn(binding.tvShuffleSub);
+        XcFadeTransition.fadeOutThenGone(binding.tvShuffleFinding);
+        XcFadeTransition.fadeIn(binding.failedBlock);
         binding.tvFailedHint.setText(R.string.random_failed_hint);
         updateState();
         updatePlaying(MusicController.get().isPlaying());
@@ -554,13 +555,13 @@ public class MusicRandomActivity extends BaseActivity {
     }
 
     private void hideFailed() {
-        binding.failedBlock.setVisibility(View.GONE);
+        XcFadeTransition.fadeOutThenGone(binding.failedBlock);
     }
 
     private void setEmpty(boolean on) {
-        binding.emptyBlock.setVisibility(on ? View.VISIBLE : View.GONE);
+        if (on) XcFadeTransition.fadeIn(binding.emptyBlock); else XcFadeTransition.fadeOutThenGone(binding.emptyBlock);
         // 空态下不给“再随机一次”空转同一条空链的口子；有队时恢复
-        binding.tvRediscover.setVisibility(on ? View.GONE : View.VISIBLE);
+        if (on) XcFadeTransition.fadeOutThenGone(binding.tvRediscover); else XcFadeTransition.fadeIn(binding.tvRediscover);
     }
 
     private void showTrack(MusicTrack track) {
@@ -576,9 +577,9 @@ public class MusicRandomActivity extends BaseActivity {
             return;
         }
         binding.tvShuffleTitle.setText(track.displayTitle());
-        binding.tvShuffleTitle.setVisibility(View.VISIBLE);
+        XcFadeTransition.fadeIn(binding.tvShuffleTitle);
         setMetaLine(track);
-        binding.tvShuffleSub.setVisibility(View.VISIBLE);
+        XcFadeTransition.fadeIn(binding.tvShuffleSub);
         if (track.cover == null || track.cover.isEmpty()) {
             try {
                 com.bumptech.glide.Glide.with(binding.ivDiscCover).clear(binding.ivDiscCover);
@@ -588,7 +589,7 @@ public class MusicRandomActivity extends BaseActivity {
             binding.ivDiscFallback.setVisibility(View.VISIBLE);
         } else {
             binding.ivDiscFallback.setVisibility(View.GONE);
-            ImgUtil.loadCircle(track.displayTitle(), track.cover, binding.ivDiscCover);
+            ImgUtil.loadCircleFade(track.displayTitle(), track.cover, binding.ivDiscCover);
         }
         refreshFavButton();
         unfreezeProgress();
@@ -598,8 +599,8 @@ public class MusicRandomActivity extends BaseActivity {
 
     private void showEmptyTrack() {
         binding.tvShuffleTitle.setText("");
-        binding.tvShuffleTitle.setVisibility(View.VISIBLE);
-        binding.tvShuffleMeta.setVisibility(View.GONE);
+        XcFadeTransition.fadeIn(binding.tvShuffleTitle);
+        XcFadeTransition.fadeOutThenGone(binding.tvShuffleMeta);
         binding.ivDiscFallback.setVisibility(View.VISIBLE);
         binding.ivDiscCover.setImageDrawable(null);
         unfreezeProgress();
@@ -622,10 +623,10 @@ public class MusicRandomActivity extends BaseActivity {
             sb.append(source);
         }
         if (sb.length() == 0) {
-            binding.tvShuffleMeta.setVisibility(View.GONE);
+            XcFadeTransition.fadeOutThenGone(binding.tvShuffleMeta);
         } else {
             binding.tvShuffleMeta.setText(sb.toString());
-            binding.tvShuffleMeta.setVisibility(View.VISIBLE);
+            XcFadeTransition.fadeIn(binding.tvShuffleMeta);
         }
     }
 
@@ -691,12 +692,12 @@ public class MusicRandomActivity extends BaseActivity {
 
     private void setFinding(boolean on) {
         finding = on;
-        binding.tvShuffleFinding.setVisibility(on ? View.VISIBLE : View.GONE);
+        if (on) XcFadeTransition.fadeIn(binding.tvShuffleFinding); else XcFadeTransition.fadeOutThenGone(binding.tvShuffleFinding);
         if (on) {
             binding.tvShuffleFinding.setText(R.string.random_finding);
-            binding.tvShuffleTitle.setVisibility(View.GONE);
-            binding.tvShuffleMeta.setVisibility(View.GONE);
-            binding.tvShuffleSub.setVisibility(View.GONE);
+            XcFadeTransition.fadeOutThenGone(binding.tvShuffleTitle);
+            XcFadeTransition.fadeOutThenGone(binding.tvShuffleMeta);
+            XcFadeTransition.fadeOutThenGone(binding.tvShuffleSub);
             freezeProgress();
         } else {
             if (!failedState) unfreezeProgress();
@@ -706,7 +707,7 @@ public class MusicRandomActivity extends BaseActivity {
 
     /** R10／R17 页内：取链期显“加载中”，标题不动、进度冻结淡化、拖动禁用 */
     private void applyResolvingUi() {
-        binding.tvShuffleFinding.setVisibility(View.VISIBLE);
+        XcFadeTransition.fadeIn(binding.tvShuffleFinding);
         binding.tvShuffleFinding.setText(R.string.random_loading);
         freezeProgress();
         updateState();

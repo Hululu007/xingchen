@@ -12,6 +12,8 @@ import android.view.WindowManager;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import com.fongmi.android.tv.R;
+
 /**
  * 实验室深底弹窗工具箱（照设计稿 a2-dialogs 五张逐值实现）：
  * 遮罩 rgba(0,0,0,.40)；面板 rgba(26,23,20,.97)、圆角 26dp、内边距 32/28；
@@ -35,6 +37,8 @@ public final class LabInstallDialog {
         d.requestWindowFeature(Window.FEATURE_NO_TITLE);
         Window w = d.getWindow();
         if (w != null) {
+            // 进出统一口径：淡入淡出 200ms（与 BaseAlertDialog 基类同一套 HkDialogFade）
+            w.setWindowAnimations(R.style.HkDialogFade);
             w.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
             w.setDimAmount(0.40f);
             WindowManager.LayoutParams lp = w.getAttributes();

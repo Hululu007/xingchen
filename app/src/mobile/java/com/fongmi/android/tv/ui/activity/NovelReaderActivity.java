@@ -24,6 +24,7 @@ import com.fongmi.android.tv.read.ReadDialogs;
 import com.fongmi.android.tv.read.ReadingSession;
 import com.fongmi.android.tv.read.ReadingStore;
 import com.fongmi.android.tv.utils.Task;
+import com.fongmi.android.tv.utils.XcFadeTransition;
 import com.fongmi.android.tv.R;
 
 /**
@@ -925,8 +926,19 @@ public class NovelReaderActivity extends AppCompatActivity {
 
     private void setBarsVisible(boolean show) {
         barsShown = show;
-        topBar.setVisibility(show ? View.VISIBLE : View.GONE);
-        bottomBar.setVisibility(show ? View.VISIBLE : View.GONE);
+        // 未挂载（开页建栏后那次收起）直切，不走动画防开页闪；已上屏的唤出/收起走统一淡入淡出 200ms
+        if (!topBar.isAttachedToWindow()) {
+            topBar.setVisibility(show ? View.VISIBLE : View.GONE);
+            bottomBar.setVisibility(show ? View.VISIBLE : View.GONE);
+            return;
+        }
+        if (show) {
+            XcFadeTransition.fadeIn(topBar);
+            XcFadeTransition.fadeIn(bottomBar);
+        } else {
+            XcFadeTransition.fadeOutThenGone(topBar);
+            XcFadeTransition.fadeOutThenGone(bottomBar);
+        }
     }
 
     private void refreshTitle() {

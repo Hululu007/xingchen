@@ -188,6 +188,9 @@ public class MusicActivity extends BaseActivity {
         int status = statusBarHeight();
         content.setPadding(content.getPaddingStart(), status + dp(12),
                 content.getPaddingEnd(), content.getPaddingBottom());
+        // 内容区入场：与列表页 fadeListInOnce 同口径——整区淡入 200ms（initView 只跑一次，即入场一次）
+        content.setAlpha(0f);
+        XcFadeTransition.fadeIn(content);
 
         paintTitle();
         tintQuickIcons();
@@ -571,7 +574,7 @@ public class MusicActivity extends BaseActivity {
                     refreshContinue();
                 });
                 card.setOnClickListener(v -> openPlayer());
-                card.setVisibility(View.VISIBLE);
+                XcFadeTransition.fadeIn(card);
                 return;
             }
             List<MusicTrack> bpQueue = MusicStore.loadQueue();
@@ -590,7 +593,7 @@ public class MusicActivity extends BaseActivity {
                 homeContinuePlay.setImageResource(R.drawable.ic_music_play);
                 homeContinuePlay.setOnClickListener(v -> onContinuePlay());
                 card.setOnClickListener(v -> onContinuePlay());
-                card.setVisibility(View.VISIBLE);
+                XcFadeTransition.fadeIn(card);
                 return;
             }
             if (bpQueue != null && !bpQueue.isEmpty()) {
@@ -603,12 +606,12 @@ public class MusicActivity extends BaseActivity {
                 homeContinuePlay.setImageResource(R.drawable.ic_music_play);
                 homeContinuePlay.setOnClickListener(v -> onContinuePlay());
                 card.setOnClickListener(v -> onContinuePlay());
-                card.setVisibility(View.VISIBLE);
+                XcFadeTransition.fadeIn(card);
                 return;
             }
-            card.setVisibility(View.GONE);
+            XcFadeTransition.fadeOutThenGone(card);
         } catch (Throwable t) {
-            card.setVisibility(View.GONE);
+            XcFadeTransition.fadeOutThenGone(card);
         }
     }
 

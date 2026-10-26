@@ -51,6 +51,8 @@ public class SourceScriptsDialog extends Dialog {
         setContentView(R.layout.dialog_source_scripts);
         if (getWindow() != null) {
             getWindow().setStatusBarColor(android.graphics.Color.TRANSPARENT);
+            // 进出统一口径：淡入淡出 200ms（与 BaseAlertDialog 基类同一套 HkDialogFade）
+            getWindow().setWindowAnimations(R.style.HkDialogFade);
         }
         try {
             if (getWindow() != null) {
@@ -200,6 +202,8 @@ public class SourceScriptsDialog extends Dialog {
             dialog.setCancelable(true);
             if (dialog.getWindow() != null) {
                 dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
+                // 进出统一口径：淡入淡出 200ms（与 BaseAlertDialog 基类同一套 HkDialogFade）
+                dialog.getWindow().setWindowAnimations(R.style.HkDialogFade);
                 android.view.WindowManager.LayoutParams lp = dialog.getWindow().getAttributes();
                 lp.width = android.view.WindowManager.LayoutParams.MATCH_PARENT;
                 lp.height = android.view.WindowManager.LayoutParams.WRAP_CONTENT;

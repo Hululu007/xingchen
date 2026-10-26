@@ -16,6 +16,7 @@ import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 
+import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.bean.MusicPlaylist;
 import com.fongmi.android.tv.bean.music.MusicTrack;
 import com.fongmi.android.tv.music.MusicLibrary;
@@ -104,6 +105,8 @@ public final class MusicPlaylistPicker {
             dialog.getWindow().setGravity(Gravity.BOTTOM);
             dialog.getWindow().setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
+            // 进出统一口径：底部面板滑上滑下＋淡入淡出 200ms（XcBottomSheetSlide 同一套）
+            dialog.getWindow().setWindowAnimations(R.style.XcBottomSheetSlide);
         }
 
         MusicLibrary.playlists(new MusicLibrary.DataCallback<List<MusicPlaylist>>() {

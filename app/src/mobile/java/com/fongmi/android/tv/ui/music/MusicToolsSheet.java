@@ -63,19 +63,37 @@ public class MusicToolsSheet {
     private final AppCompatActivity mActivity;
     private final Callback mCallback;
     private final float mDensity;
+    /** 直达歌词样式子面板开场（全屏歌词页的样式键专用）：返回＝关面板、「全屏歌词」入口行不出现。 */
+    private final boolean mStartAtLyricStyle;
     private Dialog mDialog;
     private LinearLayout mPanelBox;
+    private boolean mPanelBuilt;
     private Bitmap mCoverBitmap;
 
     private MusicToolsSheet(AppCompatActivity activity, Callback cb) {
+        this(activity, cb, false);
+    }
+
+    private MusicToolsSheet(AppCompatActivity activity, Callback cb, boolean startAtLyricStyle) {
         mActivity = activity;
         mCallback = cb;
         mDensity = activity.getResources().getDisplayMetrics().density;
+        mStartAtLyricStyle = startAtLyricStyle;
     }
 
     public static void show(AppCompatActivity activity, Callback cb) {
         if (activity == null) return;
         new MusicToolsSheet(activity, cb).open();
+    }
+
+    /** 全屏歌词页「歌词样式」键专用入口：面板直接开在歌词样式子面板（瓜子歌词样式面板本就在歌词页内）。 */
+    public static void showLyricStyleOnly(AppCompatActivity activity, Callback cb) {
+        if (activity == null) return;
+        new MusicToolsSheet(activity, cb, true).open();
+    }
+
+    private void dismiss() {
+        if (mDialog != null) mDialog.dismiss();
     }
 
     private int dp(float v) {
@@ -109,7 +127,8 @@ public class MusicToolsSheet {
             mDialog.getWindow().setWindowAnimations(R.style.XcBottomSheetSlide);
         }
         loadCover();
-        showMain();
+        if (mStartAtLyricStyle) showLyricStyle();
+        else showMain();
         mDialog.show();
     }
 
@@ -130,6 +149,15 @@ public class MusicToolsSheet {
     }
 
     private void clearPanel() {
+        // 子页切换（主页↔主题/睡眠/歌词样式）：整盒淡入新内容 200ms，不再直换硬蹦。
+        // 首建不走（面板自身的窗口滑＋淡已管开场）；同帧内先沉到 0、新内容同步建完后
+        // post 的淡入才起，不闪旧页也不闪空盒。动画被系统关闭时 fadeIn 直达不透明。
+        if (mPanelBuilt) {
+            mPanelBox.animate().cancel();
+            mPanelBox.setAlpha(0f);
+            mPanelBox.post(() -> com.fongmi.android.tv.utils.XcFadeTransition.fadeIn(mPanelBox));
+        }
+        mPanelBuilt = true;
         mPanelBox.removeAllViews();
         // 拖拽把手
         View handle = new View(mActivity);
@@ -998,7 +1026,8 @@ public class MusicToolsSheet {
     // ---------- 封面歌词样式子面板 ----------
     private void showLyricStyle() {
         clearPanel();
-        mPanelBox.addView(subHeader("歌词样式", this::showMain));
+        // 直达开场（从全屏歌词页来）时没有主面板可回，返回＝关面板
+        mPanelBox.addView(subHeader("歌词样式", mStartAtLyricStyle ? this::dismiss : this::showMain));
 
         // 预览卡（当前歌曲真歌词行预览）
         LinearLayout preview = new LinearLayout(mActivity);
@@ -1030,6 +1059,21 @@ public class MusicToolsSheet {
         pv2.setMaxLines(1);
         preview.addView(pv2);
         mPanelBox.addView(preview);
+
+        // 全屏歌词入口（Callback.onOpenLyricPage 的唯一调用点——此前接口定义了却从不调用、
+        // 是死回调；从歌词页直达开场时已在歌词页，不再摆此行）
+        if (!mStartAtLyricStyle) {
+            LinearLayout lyricPageCard = cardBox();
+            LinearLayout.LayoutParams lplp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            lplp.topMargin = dp(14);
+            lyricPageCard.setLayoutParams(lplp);
+            lyricPageCard.addView(settingsRow("全屏歌词", null, () -> {
+                dismiss();
+                if (mCallback != null) mCallback.onOpenLyricPage();
+            }));
+            mPanelBox.addView(lyricPageCard);
+        }
 
         // 字号
         mPanelBox.addView(sectionLabel("字号", 12));

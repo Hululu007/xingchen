@@ -16,6 +16,7 @@ import android.widget.TextView;
 
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.player.mpv.PlaybackRecoveryMonitor;
+import com.fongmi.android.tv.utils.XcFadeTransition;
 import com.fongmi.android.tv.player.mpv.PlaybackRecoveryPolicy;
 
 /** Deliberately not BaseActivity: this process must never load a player or start servers. */
@@ -35,6 +36,9 @@ public final class PlaybackRecoveryActivity extends Activity {
             finishAndRemoveTask();
             return;
         }
+        // 进出与全 App 统一淡入淡出 200ms：只是窗口转场调用，不加载播放器、不起服务，
+        // 不改变本页「最小进程」的定位。
+        XcFadeTransition.applyEnter(this);
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setGravity(Gravity.CENTER);
@@ -169,6 +173,16 @@ public final class PlaybackRecoveryActivity extends Activity {
             startActivity(launch); // Launcher only: never carry the failed media Intent.
         }
         finishAndRemoveTask();
+    }
+
+    @Override public void finish() {
+        super.finish();
+        XcFadeTransition.applyExit(this);
+    }
+
+    @Override public void finishAndRemoveTask() {
+        super.finishAndRemoveTask();
+        XcFadeTransition.applyExit(this);
     }
 
     @Override protected void onDestroy() {

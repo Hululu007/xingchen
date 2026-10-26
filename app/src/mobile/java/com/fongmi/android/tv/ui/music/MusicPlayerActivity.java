@@ -46,6 +46,7 @@ import com.fongmi.android.tv.ui.music.view.InPageLyricsView;
 import com.fongmi.android.tv.ui.music.view.MiniProgressView;
 import com.fongmi.android.tv.ui.music.view.SpringAnimator;
 import com.fongmi.android.tv.utils.ImgUtil;
+import com.fongmi.android.tv.utils.XcFadeTransition;
 
 import java.util.List;
 
@@ -131,6 +132,8 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // 进出与全 App 统一：淡入淡出 200ms（本页直承 AppCompatActivity、不走 BaseActivity，自行补挂）
+        XcFadeTransition.applyEnter(this);
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         getWindow().setStatusBarColor(android.graphics.Color.TRANSPARENT);
         getWindow().setNavigationBarColor(android.graphics.Color.TRANSPARENT);
@@ -322,7 +325,7 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
             }
         });
         installCoverGestures();
-        installPageSwipe();
+        // 左划进歌词页的手势在页级 dispatchTouchEvent 里（trackLyricSwipe），不在此处装配
     }
 
     /** 音质筹（全栈与迷你常驻筹共用）：开音质面板 */
@@ -382,7 +385,10 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
 
     @Override
     public boolean dispatchTouchEvent(MotionEvent e) {
-        if (!mSwipeInjecting && trackPageSwipe(e)) return true;
+        if (!mSwipeInjecting) {
+            if (trackLyricSwipe(e)) return true;
+            if (trackPageSwipe(e)) return true;
+        }
         return super.dispatchTouchEvent(e);
     }
 
@@ -516,37 +522,66 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
         });
     }
 
-    /** 左划进全屏歌词页（歌词页在播放页右侧；他定）。歌词页本体随下一批落地，本批留接口。 */
-    private void installPageSwipe() {
-        final View content = findViewById(R.id.playerContent);
-        final GestureDetector gd = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
-            @Override
-            public boolean onFling(MotionEvent e1, MotionEvent e2, float vx, float vy) {
-                if (e1 == null || e2 == null) return false;
-                float dx = e2.getRawX() - e1.getRawX();
-                float dy = e2.getRawY() - e1.getRawY();
+    // ---------- 左划进全屏歌词页（歌词页在播放页右侧；他亲口纠正过的方向） ----------
+    // 手势挂在页级 dispatchTouchEvent（与竖滑切歌同一层，见 dispatchTouchEvent）：
+    // 旧挂法把 fling 探测挂在 playerContent 的 OnTouchListener 上，封面盒/歌词区都消费
+    // 触摸、父级永远收不到，左划是死路。页级只在抬手时判定横向甩动并消费这一指 UP，
+    // 不接管 MOVE——点按、竖滑切歌、歌词点行照常；起点落在进度条盒（含迷你组）内的
+    // 横拖是拖进度，整段不参与判定。
+    private float mLyricDownX, mLyricDownY;
+    private boolean mLyricFromScrubber;
+    private VelocityTracker mLyricVt;
+
+    private boolean trackLyricSwipe(MotionEvent e) {
+        switch (e.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN: {
+                mLyricDownX = e.getRawX();
+                mLyricDownY = e.getRawY();
+                View box = findViewById(R.id.playerScrubberBox);
+                android.graphics.Rect r = new android.graphics.Rect();
+                mLyricFromScrubber = box != null && box.getGlobalVisibleRect(r)
+                        && r.contains((int) e.getRawX(), (int) e.getRawY());
+                if (mLyricVt != null) mLyricVt.recycle();
+                mLyricVt = VelocityTracker.obtain();
+                mLyricVt.addMovement(e);
+                return false;
+            }
+            case MotionEvent.ACTION_MOVE:
+                if (mLyricVt != null) mLyricVt.addMovement(e);
+                return false;
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL: {
+                float vx = 0;
+                if (mLyricVt != null) {
+                    mLyricVt.addMovement(e);
+                    mLyricVt.computeCurrentVelocity(1000);
+                    vx = mLyricVt.getXVelocity();
+                    mLyricVt.recycle();
+                    mLyricVt = null;
+                }
+                if (e.getActionMasked() != MotionEvent.ACTION_UP || mLyricFromScrubber) return false;
+                float dx = e.getRawX() - mLyricDownX;
+                float dy = e.getRawY() - mLyricDownY;
                 if (dx < -dp(60) && Math.abs(dx) > Math.abs(dy) * 1.5f && vx < -800) {
                     openLyricPage();
                     return true;
                 }
                 return false;
             }
-        });
-        content.setOnTouchListener((v, e) -> {
-            gd.onTouchEvent(e);
-            return false;
-        });
+            default:
+                return false;
+        }
+    }
+
+    @Override
+    public void finish() {
+        super.finish();
+        XcFadeTransition.applyExit(this);
     }
 
     private void openLyricPage() {
-        try {
-            Class<?> cls = Class.forName("com.fongmi.android.tv.ui.music.MusicLyricActivity");
-            java.lang.reflect.Method start = cls.getMethod("start", Activity.class);
-            start.invoke(null, this);
-            overridePendingTransition(R.anim.music_slide_in_right, R.anim.music_slide_out_left);
-        } catch (Throwable ignored) {
-            // 歌词页未落地前左划无动作（不摆假入口、不崩）
-        }
+        MusicLyricActivity.start(this);
+        overridePendingTransition(R.anim.music_slide_in_right, R.anim.music_slide_out_left);
     }
 
     private boolean mScrubberExpanded;
@@ -905,7 +940,9 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
         // 迷你常驻筹同步（与全栈筹同一份口径：音质取不到不显示、本地曲标「本地」不可点）
         if (mMiniChipQuality != null) {
             mMiniChipQuality.setText(local ? "本地" : q);
-            mMiniChipQuality.setVisibility(local || !q.isEmpty() ? View.VISIBLE : View.GONE);
+            // 音质筹显隐走统一淡入淡出 200ms（状态不变时两个调用都是空操作，不重播）
+            if (local || !q.isEmpty()) XcFadeTransition.fadeIn(mMiniChipQuality);
+            else XcFadeTransition.fadeOutThenGone(mMiniChipQuality);
             mMiniChipQuality.setEnabled(!local);
         }
         if (mMiniChipLyric != null) mMiniChipLyric.setText(lyricChipLabel());

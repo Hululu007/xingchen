@@ -280,6 +280,8 @@ public final class RemoteTrustDialog {
         window.clearFlags(WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM);
         window.setAttributes(params);
         window.setLayout(params.width, WindowManager.LayoutParams.WRAP_CONTENT);
+        // 进出统一口径：淡入淡出 200ms（与 BaseAlertDialog 基类同一套 HkDialogFade）
+        window.setWindowAnimations(R.style.HkDialogFade);
     }
 
     private static void configureSmallModalWindow(Context context, AlertDialog dialog) {
@@ -296,6 +298,8 @@ public final class RemoteTrustDialog {
         window.getDecorView().setPadding(0, 0, 0, 0);
         window.setAttributes(params);
         window.setLayout(params.width, WindowManager.LayoutParams.WRAP_CONTENT);
+        // 进出统一口径：淡入淡出 200ms（与 BaseAlertDialog 基类同一套 HkDialogFade）
+        window.setWindowAnimations(R.style.HkDialogFade);
     }
 
     private static AlertDialog showModal(AlertDialog dialog) {
@@ -1252,6 +1256,8 @@ public final class RemoteTrustDialog {
         AlertDialog dialog = new MaterialAlertDialogBuilder(activity, R.style.ThemeOverlay_WebHTV_LightDialog)
                 .setView(root)
                 .create();
+        // 进出统一口径：淡入淡出 200ms（与 BaseAlertDialog 基类同一套 HkDialogFade）
+        if (dialog.getWindow() != null) dialog.getWindow().setWindowAnimations(R.style.HkDialogFade);
         state.dialog = dialog;
         state.render = () -> {
             if (state.adding) renderConfigAddContent(activity, binding, state);

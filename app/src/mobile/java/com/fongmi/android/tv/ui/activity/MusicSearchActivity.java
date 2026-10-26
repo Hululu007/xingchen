@@ -233,12 +233,12 @@ public class MusicSearchActivity extends BaseActivity {
     private void refreshHistory() {
         if (historyBox == null || historyFlow == null) return;
         if (keyword != null && !keyword.isEmpty()) {
-            historyBox.setVisibility(View.GONE);
+            XcFadeTransition.fadeOutThenGone(historyBox);
             return;
         }
         List<String> words = MusicStore.loadRecentSearches();
         if (words == null || words.isEmpty()) {
-            historyBox.setVisibility(View.GONE);
+            XcFadeTransition.fadeOutThenGone(historyBox);
             return;
         }
         historyFlow.removeAllViews();
@@ -262,7 +262,7 @@ public class MusicSearchActivity extends BaseActivity {
             });
             historyFlow.addView(chip);
         }
-        historyBox.setVisibility(View.VISIBLE);
+        XcFadeTransition.fadeIn(historyBox);
     }
 
     /** 切源／旋转／主题重建回来不丢已输入与滚动位置——输入与选择态走字段回填（见 initView），
@@ -324,7 +324,7 @@ public class MusicSearchActivity extends BaseActivity {
         }
         // 搜索历史落记录（存取在 MusicStore 早已备好、此前全树无人调用，历史恒空）
         MusicStore.pushRecentSearch(keyword);
-        if (historyBox != null) historyBox.setVisibility(View.GONE);
+        if (historyBox != null) XcFadeTransition.fadeOutThenGone(historyBox);
         bigTitle = keyword;
         final int seq = ++searchSeq;
         final String kw = keyword;

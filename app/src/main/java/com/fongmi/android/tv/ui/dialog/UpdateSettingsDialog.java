@@ -189,6 +189,8 @@ public final class UpdateSettingsDialog {
         window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
         window.setAttributes(params);
         window.setLayout(params.width, WindowManager.LayoutParams.WRAP_CONTENT);
+        // 进出统一口径：淡入淡出 200ms（与 BaseAlertDialog 基类同一套 HkDialogFade）
+        window.setWindowAnimations(R.style.HkDialogFade);
     }
 
     private static void configureTvFocus(DialogUpdateSettingsBinding binding, State state) {

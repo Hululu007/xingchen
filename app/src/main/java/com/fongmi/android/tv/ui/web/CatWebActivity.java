@@ -25,6 +25,7 @@ import androidx.webkit.WebViewFeature;
 
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.utils.FileChooser;
+import com.fongmi.android.tv.utils.XcFadeTransition;
 import com.github.catvod.crawler.SpiderDebug;
 
 import java.io.File;
@@ -79,6 +80,8 @@ public class CatWebActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // 进出与全 App 统一：淡入淡出 200ms（本页不继承 BaseActivity，照其它自挂页同式补）
+        XcFadeTransition.applyEnter(this);
         setContentView(R.layout.activity_cat_web);
 
         String url = getIntent().getStringExtra(EXTRA_URL);
@@ -300,6 +303,12 @@ public class CatWebActivity extends AppCompatActivity {
     public void onBackPressed() {
         if (webView != null && webView.canGoBack()) webView.goBack();
         else finish();
+    }
+
+    @Override
+    public void finish() {
+        super.finish();
+        XcFadeTransition.applyExit(this);
     }
 
     @Override

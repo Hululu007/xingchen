@@ -75,6 +75,8 @@ public class SourceSelectDialog extends Dialog {
         if (window != null) {
             window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
+            // 进出统一口径：淡入淡出 200ms（与 BaseAlertDialog 基类同一套 HkDialogFade）
+            window.setWindowAnimations(R.style.HkDialogFade);
         }
 
         adapter = new SourceSelectAdapter(filteredSites, currentKey, site -> {
@@ -141,6 +143,8 @@ public class SourceSelectDialog extends Dialog {
             dialog.setCancelable(true);
             if (dialog.getWindow() != null) {
                 dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
+                // 进出统一口径：淡入淡出 200ms（与 BaseAlertDialog 基类同一套 HkDialogFade）
+                dialog.getWindow().setWindowAnimations(R.style.HkDialogFade);
                 android.view.WindowManager.LayoutParams lp = dialog.getWindow().getAttributes();
                 lp.width = android.view.WindowManager.LayoutParams.MATCH_PARENT;
                 lp.height = android.view.WindowManager.LayoutParams.WRAP_CONTENT;

@@ -80,8 +80,11 @@ public final class XcFadeTransition {
         bumpGeneration(v);
         setFadingOut(v, false);
         boolean inFlight = v.getVisibility() == View.VISIBLE && v.getAlpha() > 0f && v.getAlpha() < 1f;
-        if (v.getVisibility() == View.VISIBLE && v.getAlpha() >= 1f) return;
+        // 先 cancel 再判直达：同帧刚起过 fadeOut（alpha 还没来得及降）时若直接 return，
+        // 那条淡出动画会继续把 alpha 压到 0、视图留成「VISIBLE 但全透明」（调用方
+        // 先藏后显的组合必中）。cancel 对无动画在飞的视图是空操作，不影响直达口径。
         v.animate().cancel();
+        if (v.getVisibility() == View.VISIBLE && v.getAlpha() >= 1f) return;
         if (!isAnimEnabled(v.getContext())) {
             v.setAlpha(1f);
             v.setVisibility(View.VISIBLE);

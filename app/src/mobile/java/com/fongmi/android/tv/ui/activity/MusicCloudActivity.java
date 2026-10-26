@@ -121,6 +121,15 @@ public class MusicCloudActivity extends BaseActivity {
     private TextView tvError;
     private TextView tvTail;
     private ListView lvResults;
+    private boolean resultsIntroDone;
+
+    /** 结果列表入场：数据第一次到达时整表淡入 200ms（与其它列表页 fadeListInOnce 同口径），后续批次不重播。 */
+    private void fadeResultsInOnce() {
+        if (resultsIntroDone || lvResults == null) return;
+        resultsIntroDone = true;
+        lvResults.setAlpha(0f);
+        XcFadeTransition.fadeIn(lvResults);
+    }
     private ResultAdapter adapter;
 
     private ViewBinding cloudBinding;
@@ -739,21 +748,20 @@ public class MusicCloudActivity extends BaseActivity {
         tvDriveName.setText(driveName);
         hideCloudStates();
         if (tvTail != null) tvTail.setVisibility(View.GONE);
-        pickerView.setVisibility(View.GONE);
-        searchView.setVisibility(View.VISIBLE);
+        // 选盘↔搜索双视图切换走交叉淡入淡出 200ms（XcFadeTransition.swapViews 统一口径）
+        XcFadeTransition.swapViews(searchView, pickerView);
     }
 
     private void hideCloudStates() {
         if (loadingView != null) XcFadeTransition.fadeOutThenGone(loadingView);
-        if (tvEmptyState != null) tvEmptyState.setVisibility(View.GONE);
-        if (errorView != null) errorView.setVisibility(View.GONE);
+        if (tvEmptyState != null) XcFadeTransition.fadeOutThenGone(tvEmptyState);
+        if (errorView != null) XcFadeTransition.fadeOutThenGone(errorView);
     }
 
     private void showPicker() {
         searchGen++;
         currentDrive = null;
-        searchView.setVisibility(View.GONE);
-        pickerView.setVisibility(View.VISIBLE);
+        XcFadeTransition.swapViews(pickerView, searchView);
         refreshSub();
     }
 
@@ -846,8 +854,8 @@ public class MusicCloudActivity extends BaseActivity {
                     if (gen != searchGen) return;
                     hideCloudStates();
                     if (results.isEmpty()) {
-                        tvEmptyState.setVisibility(View.VISIBLE);
                         tvEmptyState.setText("没找到" + truncSuffix + "\n换个歌名试试");
+                        XcFadeTransition.fadeIn(tvEmptyState);
                         if (tvTail != null) tvTail.setVisibility(View.GONE);
                     } else {
                         // 截断后缀保留在结果尾（ListView 尾行），不在状态行里挤
@@ -864,7 +872,7 @@ public class MusicCloudActivity extends BaseActivity {
                     if (gen != searchGen) return;
                     hideCloudStates();
                     tvError.setText("搜索失败：" + e.getMessage());
-                    errorView.setVisibility(View.VISIBLE);
+                    XcFadeTransition.fadeIn(errorView);
                 });
             }
         }).start();
@@ -876,6 +884,7 @@ public class MusicCloudActivity extends BaseActivity {
             if (gen != searchGen) return;
             results.addAll(copy);
             adapter.notifyDataSetChanged();
+            if (!results.isEmpty()) fadeResultsInOnce();
             if (loadingView != null && loadingView.getVisibility() == View.VISIBLE) {
                 tvLoadingCount.setText("已扫 " + results.size() + " 首");
             }

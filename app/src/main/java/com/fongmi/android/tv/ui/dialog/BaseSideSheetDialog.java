@@ -37,6 +37,9 @@ public abstract class BaseSideSheetDialog extends AppCompatDialogFragment {
         dialog.getBehavior().setDraggable(false);
         Window window = dialog.getWindow();
         if (window == null) return dialog;
+        // 进出统一口径：Material 默认只有右侧滑入滑出、无渐变——换成本 App 的滑＋淡 200ms
+        // （方向与 Material 默认一致，仍自右；只换窗口动画，不动行为与拖拽）。
+        window.setWindowAnimations(com.fongmi.android.tv.R.style.XcSideSheetSlide);
         fullscreen = Util.isFullscreen(getActivity());
         if (fullscreen) {
             window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);

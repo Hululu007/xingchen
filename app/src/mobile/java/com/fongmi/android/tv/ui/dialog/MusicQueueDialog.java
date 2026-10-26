@@ -744,8 +744,14 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
         public void onBindViewHolder(@NonNull Holder h, int position) {
             MusicTrack t = tracks.get(position);
             boolean current = position == MusicController.get().index();
-            // 当前行要有底（GZ sheetListBg）：此前所有行都透明，当前行只靠红字区分
-            h.itemView.setBackgroundResource(current ? R.drawable.bg_music_glass_row_current : 0);
+            // 一行一框：每行玻璃框（frameRow 直换）；当前行只加一层红 tone＋红字（瓜子口径），
+            // 不许再盖粉板（bg_music_glass_row_current 原形就是粉渐变，真机被点名）
+            MusicGlassWire.frameRow(h.itemView);
+            if (h.itemView.getBackground() instanceof MusicGlassDrawable) {
+                MusicGlassDrawable g = (MusicGlassDrawable) h.itemView.getBackground();
+                if (current) g.setToneColor(COLOR_RED, 0.14f);
+                else g.setToneColor(0, 0f);
+            }
             h.index.setText(String.format(java.util.Locale.US, "%02d", position + 1));
             h.index.setTextColor(current ? COLOR_CURRENT_INDEX : COLOR_LOW);
             h.title.setText(t.displayTitle());

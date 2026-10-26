@@ -159,7 +159,11 @@ public class CoverAmbientView extends View {
             } else {
                 mPaint.setAlpha(Math.round(255 * 0.8f));
                 android.graphics.RectF dst = new android.graphics.RectF(0, 0, w, h);
+                canvas.save();
+                canvas.translate(mDriftTx, mDriftTy);
+                canvas.scale(mDriftScale, mDriftScale, w / 2f, h / 2f);
                 canvas.drawBitmap(mBlurBitmap, null, dst, mPaint);
+                canvas.restore();
                 mPaint.setAlpha(255);
             }
         }
@@ -176,6 +180,74 @@ public class CoverAmbientView extends View {
         }
         canvas.drawRect(0, 0, w, h, mShadeWhitePaint);
         canvas.drawRect(0, 0, w, h, mShadeBlackPaint);
+    }
+
+    // ===== 氛围漂移（2026-10-26 他点名：瓜子播放时封面背景下半屏是会动的）=====
+    // 瓜子录屏帧实测：播放中下半屏像素持续缓慢变化、上半屏静止；其 FluidCoverAmbient 的确切变换
+    // 公式未从 jadx 抠到（无着色器、参数藏在 Compose 状态里）——此处按可观察行为落：
+    // 糊层播放中缓慢缩放呼吸＋平移漂移、暂停冻结；只动糊层，不动上面的清晰封面。
+    private boolean mAmbientPlaying;
+    private boolean mDriftRunning;
+    private double mDriftSec;
+    private long mDriftLastNs;
+    private float mDriftScale = 1.07f;
+    private float mDriftTx;
+    private float mDriftTy;
+    private final android.view.Choreographer.FrameCallback mDriftCallback = new android.view.Choreographer.FrameCallback() {
+        @Override
+        public void doFrame(long frameTimeNanos) {
+            if (!mAmbientPlaying || !isAttachedToWindow()) {
+                mDriftRunning = false;
+                mDriftLastNs = 0;
+                return;
+            }
+            if (mDriftLastNs != 0) {
+                mDriftSec += Math.min(0.1, (frameTimeNanos - mDriftLastNs) / 1e9);
+            }
+            mDriftLastNs = frameTimeNanos;
+            double t = mDriftSec;
+            int w = Math.max(1, getWidth()), h = Math.max(1, getHeight());
+            mDriftScale = (float) (1.07 + 0.04 * Math.sin(t * 2 * Math.PI / 26.0));
+            mDriftTx = (float) (0.02 * w * Math.sin(t * 2 * Math.PI / 31.0 + 1.3));
+            mDriftTy = (float) (0.016 * h * Math.cos(t * 2 * Math.PI / 23.0));
+            if (mBlurNode != null) {
+                mBlurNode.setPivotX(w / 2f);
+                mBlurNode.setPivotY(h / 2f);
+                mBlurNode.setScaleX(mDriftScale);
+                mBlurNode.setScaleY(mDriftScale);
+                mBlurNode.setTranslationX(mDriftTx);
+                mBlurNode.setTranslationY(mDriftTy);
+            }
+            invalidate();
+            android.view.Choreographer.getInstance().postFrameCallback(this);
+        }
+    };
+
+    public void setAmbientPlaying(boolean playing) {
+        if (mAmbientPlaying == playing) return;
+        mAmbientPlaying = playing;
+        if (playing && !mDriftRunning && isAttachedToWindow()) {
+            mDriftRunning = true;
+            mDriftLastNs = 0;
+            android.view.Choreographer.getInstance().postFrameCallback(mDriftCallback);
+        }
+    }
+
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        if (mAmbientPlaying && !mDriftRunning) {
+            mDriftRunning = true;
+            mDriftLastNs = 0;
+            android.view.Choreographer.getInstance().postFrameCallback(mDriftCallback);
+        }
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        android.view.Choreographer.getInstance().removeFrameCallback(mDriftCallback);
+        mDriftRunning = false;
+        super.onDetachedFromWindow();
     }
 
     /** 糊封面层：小图铺满录入节点，整层挂 24dp 图形模糊（RenderEffect），alpha 基数 0.8 走节点。 */
@@ -197,6 +269,13 @@ public class CoverAmbientView extends View {
             mBlurNode.setRenderEffect(RenderEffect.createBlurEffect(r, r, Shader.TileMode.CLAMP));
             mBlurNode.setAlpha(0.8f);
         }
+        // 重录会把节点变换清零：每帧按当前漂移相位重贴，保证暂停冻结/切歌后构图不跳
+        mBlurNode.setPivotX(w / 2f);
+        mBlurNode.setPivotY(h / 2f);
+        mBlurNode.setScaleX(mDriftScale);
+        mBlurNode.setScaleY(mDriftScale);
+        mBlurNode.setTranslationX(mDriftTx);
+        mBlurNode.setTranslationY(mDriftTy);
         canvas.drawRenderNode(mBlurNode);
     }
 }

@@ -60,8 +60,6 @@ val Bs4A = CubicBezierEasing(0.2f, 0f, 0f, 1f)
 /** 瓜子缓动 bs4.e：封面切歌转场 400ms 用它。 */
 val Bs4E = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f)
 
-private val SungSoft = Color(0xFFEAEAEA)
-
 /**
  * 经典主题骨架面（默认主题，照案卷一/三节落值；细节按下单再填）：
  * 根＝封面主色 450ms 动画底＋同图派生氛围层（64 缩＋24dp 糊＋明度罩）；
@@ -79,6 +77,7 @@ fun ClassicPlayer(
     onSeek: (Long) -> Unit,
     onOpenQueue: () -> Unit,
     onOpenTools: () -> Unit,
+    onOpenLyricVersions: () -> Unit,
     onCollapse: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -126,10 +125,17 @@ fun ClassicPlayer(
                 onCollapse = onCollapse,
             )
             ArtistRow(state = state)
-            Spacer(modifier = Modifier.weight(1f))
-            LyricWindow(state = state)
+            LyricSlot(
+                state = state,
+                onSeek = onSeek,
+                modifier = Modifier.weight(1f),
+            )
             Spacer(modifier = Modifier.height(6.dp))
-            PlaybackScrubber(state = state, onSeek = onSeek)
+            PlayerProgressSlot(
+                state = state,
+                onSeek = onSeek,
+                onLyricChipClick = onOpenLyricVersions,
+            )
             Spacer(modifier = Modifier.height(45.dp))
         }
     }
@@ -386,78 +392,50 @@ private fun ArtistRow(state: PlayerUiState) {
 }
 
 /**
- * 页内歌词位（骨架：真行数据、真当前行；窗口与逐字动效是引擎单的活，
- * 这里先摆前 1/当前/后 2 共 4 行，色走案卷八节沉浸深色档：
- * 已唱 #FFEAEAEA、当前 白、未唱 白 0.30；纯文本静态白 .85 不滚动）。
+ * 页内歌词位：有词走 AnchoredLyricStage 引擎（一件多处，本页只是喂经典页内口径）；
+ * 找词/无词/未起只留一行提示（原骨架口径）。引擎占满歌名行与进度槽之间的整段。
  */
 @Composable
-private fun LyricWindow(state: PlayerUiState) {
-    val lineHeightSp = (22f * 4f / 3f).sp
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(150.dp),
-        contentAlignment = Alignment.BottomStart,
-    ) {
+private fun LyricSlot(
+    state: PlayerUiState,
+    onSeek: (Long) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(modifier = modifier.fillMaxWidth()) {
         when (val lyrics = state.lyrics) {
             is LyricUiState.Content -> {
                 if (lyrics.lines.isEmpty()) {
-                    LyricHint(text = "暂无歌词")
-                } else if (!lyrics.timed) {
-                    Column {
-                        for (line in lyrics.lines.take(4)) {
-                            Text(
-                                text = line.text,
-                                color = Color.White.copy(alpha = 0.85f),
-                                fontSize = 22.sp,
-                                lineHeight = lineHeightSp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
+                    LyricHint(text = "暂无歌词", modifier = Modifier.align(Alignment.BottomStart))
                 } else {
-                    val cur = state.lyricIndex
-                    val from = maxOf(0, cur - 1)
-                    val to = minOf(lyrics.lines.size, cur + 3)
-                    Column {
-                        for (i in from until to) {
-                            val color = when {
-                                cur < 0 -> Color.White.copy(alpha = 0.30f)
-                                i < cur -> SungSoft
-                                i == cur -> Color.White
-                                else -> Color.White.copy(alpha = 0.30f)
-                            }
-                            val animated by animateColorAsState(
-                                targetValue = color,
-                                animationSpec = tween(300, easing = Bs4A),
-                                label = "lyricLine",
-                            )
-                            Text(
-                                text = lyrics.lines[i].text,
-                                color = animated,
-                                fontSize = 22.sp,
-                                fontWeight = if (i == cur) FontWeight.Bold else FontWeight.Normal,
-                                lineHeight = lineHeightSp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
+                    AnchoredLyricStage(
+                        lines = lyrics.lines,
+                        timed = lyrics.timed,
+                        positionMs = state.positionMs,
+                        isPlaying = state.isPlaying,
+                        onSeekLine = onSeek,
+                        modifier = Modifier.fillMaxSize(),
+                    )
                 }
             }
-            LyricUiState.Searching -> LyricHint(text = "正在找歌词")
-            LyricUiState.None -> LyricHint(text = "暂无歌词")
+            LyricUiState.Searching -> LyricHint(
+                text = "正在找歌词",
+                modifier = Modifier.align(Alignment.BottomStart),
+            )
+            LyricUiState.None -> LyricHint(
+                text = "暂无歌词",
+                modifier = Modifier.align(Alignment.BottomStart),
+            )
             LyricUiState.Idle -> Unit
         }
     }
 }
 
 @Composable
-private fun LyricHint(text: String) {
+private fun LyricHint(text: String, modifier: Modifier = Modifier) {
     Text(
         text = text,
         color = Color.White.copy(alpha = 0.45f),
         fontSize = 14.sp,
+        modifier = modifier,
     )
 }

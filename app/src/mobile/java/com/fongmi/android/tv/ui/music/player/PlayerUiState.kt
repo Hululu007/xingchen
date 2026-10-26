@@ -3,13 +3,23 @@ package com.fongmi.android.tv.ui.music.player
 import android.graphics.Bitmap
 import com.fongmi.android.tv.bean.music.MusicTrack
 
+/** 歌词一字（绝对时刻：行首＋词相对偏移已在状态层算好，引擎直接吃）。 */
+data class LyricUiWord(
+    val startMs: Long,
+    val endMs: Long,
+    val text: String,
+)
+
 /**
- * 歌词一行（页内歌词位与后续歌词引擎共用同一份行模型：时间＋正文）。
- * 逐字信息不在本单展开（引擎单再接 LyricsLine 的 words），这里只记行级。
+ * 歌词一行（引擎与各歌词面共用同一份行模型）：时间＋正文＋逐字＋译/音译整行。
+ * 译/音译由状态层经 RichLyrics.align 按时间最近邻挂上（与通知卡同一对齐口径）。
  */
 data class LyricUiLine(
     val timeMs: Long,
     val text: String,
+    val words: List<LyricUiWord> = emptyList(),
+    val translation: String? = null,
+    val romanization: String? = null,
 )
 
 /** 歌词状态（照瓜子 LyricsState 的密封形态分档：未起／找词中／确无词／有词）。 */

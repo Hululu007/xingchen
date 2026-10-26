@@ -31,7 +31,7 @@ import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
-private enum class SheetKind { QUEUE, TOOLS }
+private enum class SheetKind { QUEUE, TOOLS, LYRIC_VERSIONS }
 
 /**
  * 播放树根（播放页 Activity 内唯一棵树）：订中枢一份快照，向下分发。
@@ -96,6 +96,7 @@ fun PlayerRoot(
                 onSeek = { PlayerStateHolder.seekTo(it) },
                 onOpenQueue = { sheet = SheetKind.QUEUE },
                 onOpenTools = { sheet = SheetKind.TOOLS },
+                onOpenLyricVersions = { sheet = SheetKind.LYRIC_VERSIONS },
                 onCollapse = { collapse() },
             )
         }
@@ -165,6 +166,14 @@ fun PlayerRoot(
             )
             SheetKind.TOOLS -> ToolsSheet(
                 state = state,
+                onDismiss = { sheet = null },
+            )
+            SheetKind.LYRIC_VERSIONS -> LyricVersionSheet(
+                state = state,
+                onPick = { version ->
+                    PlayerStateHolder.applyLyricVersion(version)
+                    sheet = null
+                },
                 onDismiss = { sheet = null },
             )
             null -> Unit

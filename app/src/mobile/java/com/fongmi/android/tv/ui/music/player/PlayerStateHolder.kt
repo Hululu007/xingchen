@@ -7,9 +7,12 @@ import android.os.Handler
 import android.os.Looper
 import com.bumptech.glide.request.target.CustomTarget
 import com.bumptech.glide.request.transition.Transition
+import com.fongmi.android.tv.bean.music.LyricVersion
 import com.fongmi.android.tv.bean.music.MusicTrack
 import com.fongmi.android.tv.music.MusicController
 import com.fongmi.android.tv.music.MusicLyricCache
+import com.fongmi.android.tv.music.MusicRepository
+import com.fongmi.android.tv.music.RichLyrics
 import com.fongmi.android.tv.player.lyrics.LyricsParser
 import com.fongmi.android.tv.utils.CoverColor
 import com.fongmi.android.tv.utils.ImgUtil
@@ -162,6 +165,20 @@ object PlayerStateHolder {
         runCatching { MusicController.get().cycleMode() }
     }
 
+    /**
+     * 版本面板点选生效（照旧面板同链：存手动选择→写歌词缓存→本中枢重读上屏；
+     * 存档由 MusicRepository.saveManualLyricChoice 管，下次同曲自动恢复）。
+     */
+    fun applyLyricVersion(version: LyricVersion) {
+        val track = _state.value.track ?: return
+        runCatching {
+            MusicRepository.saveManualLyricChoice(track, version)
+            MusicLyricCache.put(track, version.lyric)
+            lyricReadyKey = MusicLyricCache.key(track)
+            refreshLyrics()
+        }
+    }
+
     // ---------------- 状态汇聚 ----------------
 
     private fun pushProgress(position: Long, duration: Long) {
@@ -256,7 +273,32 @@ object PlayerStateHolder {
                     val parsed = runCatching {
                         LyricsParser.parseWordLyric(lyric.rawLrc ?: "")
                     }.getOrDefault(emptyList())
-                    val lines = parsed.map { LyricUiLine(it.timeMs, it.text.orEmpty()) }
+                    // 译/音译按时间最近邻对齐挂行（RichLyrics.align，与通知卡同一口径，行数恒等于正文行数）
+                    val trans = lyric.translation?.takeIf { it.isNotEmpty() }?.let {
+                        runCatching { LyricsParser.parseTimed(it) }.getOrNull()
+                    }
+                    val roma = lyric.romanization?.takeIf { it.isNotEmpty() }?.let {
+                        runCatching { LyricsParser.parseTimed(it) }.getOrNull()
+                    }
+                    val aligned = runCatching { RichLyrics.align(parsed, trans, roma) }
+                        .getOrDefault(emptyList())
+                    val lines = aligned.map { rich ->
+                        val m = rich.main
+                        LyricUiLine(
+                            timeMs = m.timeMs,
+                            text = m.text.orEmpty(),
+                            words = m.words.map { w ->
+                                val start = m.timeMs + w.startOffsetMs
+                                LyricUiWord(
+                                    startMs = start,
+                                    endMs = start + w.durationMs,
+                                    text = w.text.orEmpty(),
+                                )
+                            },
+                            translation = rich.translation?.takeIf { it.isNotEmpty() },
+                            romanization = rich.romanization?.takeIf { it.isNotEmpty() },
+                        )
+                    }
                     LyricUiState.Content(
                         lines = lines,
                         timed = lines.any { it.timeMs > 0 },

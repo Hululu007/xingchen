@@ -3,6 +3,7 @@ package com.fongmi.android.tv.ui.music.player
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -50,6 +51,8 @@ fun PlaybackScrubber(
     state: PlayerUiState,
     onSeek: (Long) -> Unit,
     modifier: Modifier = Modifier,
+    onLyricChipClick: (() -> Unit)? = null,
+    onInteract: (() -> Unit)? = null,
 ) {
     val duration = state.durationMs
     var dragging by remember { mutableStateOf(false) }
@@ -85,7 +88,8 @@ fun PlaybackScrubber(
                 Spacer(modifier = Modifier.weight(1f))
                 ScrubberChip(text = MusicStore.qualityName(state.quality))
                 Spacer(modifier = Modifier.width(6.dp))
-                ScrubberChip(text = lyricChipText(state.lyrics))
+                // 歌词筹＝歌词版本面板入口（瓜子口径，他 2026-10-27 点名：不许只做开关翻译）
+                ScrubberChip(text = lyricChipText(state.lyrics), onClick = onLyricChipClick)
                 Spacer(modifier = Modifier.weight(1f))
             }
             Text(
@@ -107,6 +111,7 @@ fun PlaybackScrubber(
                     detectHorizontalDragGestures(
                         onDragStart = { offset ->
                             dragging = true
+                            onInteract?.invoke()
                             dragFraction = (offset.x / size.width).coerceIn(0f, 1f)
                         },
                         onDragEnd = {
@@ -172,13 +177,19 @@ fun PlaybackScrubber(
 }
 
 @Composable
-private fun ScrubberChip(text: String) {
+private fun ScrubberChip(text: String, onClick: (() -> Unit)? = null) {
+    var box = Modifier
+        .clip(RoundedCornerShape(percent = 50))
+        .background(Color.White.copy(alpha = 0.14f))
+        .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(percent = 50))
+    if (onClick != null) {
+        box = box.clickable(
+            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+            indication = null,
+        ) { onClick() }
+    }
     Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(percent = 50))
-            .background(Color.White.copy(alpha = 0.14f))
-            .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(percent = 50))
-            .padding(horizontal = 12.dp, vertical = 5.dp),
+        modifier = box.padding(horizontal = 12.dp, vertical = 5.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(

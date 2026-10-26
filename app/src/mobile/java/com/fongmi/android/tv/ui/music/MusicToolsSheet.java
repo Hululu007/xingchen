@@ -105,6 +105,8 @@ public class MusicToolsSheet {
             mDialog.getWindow().setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             mDialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
             mDialog.getWindow().setDimAmount(0.45f);
+            // 进出统一：滑上滑下＋淡入淡出 200ms（进出双向，不许只进不出）。
+            mDialog.getWindow().setWindowAnimations(R.style.XcBottomSheetSlide);
         }
         loadCover();
         showMain();

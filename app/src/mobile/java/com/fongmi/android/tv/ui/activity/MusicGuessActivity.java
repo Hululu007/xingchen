@@ -1,7 +1,7 @@
 package com.fongmi.android.tv.ui.activity;
 
 import android.app.Activity;
-import android.app.AlertDialog;
+import com.fongmi.android.tv.ui.music.MusicGlassDialogBuilder;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.Color;
@@ -403,7 +403,7 @@ public class MusicGuessActivity extends BaseActivity {
     }
 
     private void confirmDeleteLocal(MusicTrack t) {
-        new AlertDialog.Builder(this)
+        new MusicGlassDialogBuilder(this)
                 .setMessage(R.string.music_download_delete_confirm)
                 .setNegativeButton("取消", null)
                 .setPositiveButton("删除", (d, w) -> MusicDownloadStore.deleteLocal(t, () -> runOnUiThread(this::loadGuess)))
@@ -419,7 +419,7 @@ public class MusicGuessActivity extends BaseActivity {
         EditText input = new EditText(this);
         input.setHint(R.string.music_playlist_name_hint);
         input.setSingleLine(true);
-        new AlertDialog.Builder(this)
+        new MusicGlassDialogBuilder(this)
                 .setTitle(R.string.music_new_playlist)
                 .setView(input)
                 .setNegativeButton("取消", null)

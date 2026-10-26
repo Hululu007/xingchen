@@ -1,7 +1,8 @@
 package com.fongmi.android.tv.ui.activity;
 
 import android.app.Activity;
-import android.app.AlertDialog;
+import androidx.appcompat.app.AlertDialog;
+import com.fongmi.android.tv.ui.music.MusicGlassDialogBuilder;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
@@ -208,7 +209,7 @@ public class MusicCloudActivity extends BaseActivity {
             if (currentDrive == null) return;
             String name = tvDriveName.getText() == null ? "" : tvDriveName.getText().toString();
             String id = currentDrive;
-            new AlertDialog.Builder(this)
+            new MusicGlassDialogBuilder(this)
                     .setTitle(name)
                     .setMessage("退出当前 " + name + " 登录？")
                     .setPositiveButton("退出登录", (d, w) -> {
@@ -510,7 +511,7 @@ public class MusicCloudActivity extends BaseActivity {
     private boolean onDriveLongClick(String driveId, String driveName) {
         boolean loggedIn = isDriveLoggedIn(driveId);
         if (!loggedIn) return false;
-        new AlertDialog.Builder(this)
+        new MusicGlassDialogBuilder(this)
                 .setTitle(driveName)
                 .setMessage("退出当前 " + driveName + " 登录？")
                 .setPositiveButton("退出登录", (d, w) -> {
@@ -528,7 +529,7 @@ public class MusicCloudActivity extends BaseActivity {
     // ================= 登录（复用各家现有登录法，不重造） =================
 
     private void showLoginMethods(String title, String[] methods, OnMethodSelected cb) {
-        new AlertDialog.Builder(this)
+        new MusicGlassDialogBuilder(this)
                 .setTitle(title + "登录方式")
                 .setItems(methods, (d, which) -> cb.onSelect(which))
                 .setNegativeButton("取消", null)
@@ -555,7 +556,7 @@ public class MusicCloudActivity extends BaseActivity {
         layout.setPadding(pad, pad, pad, pad);
         layout.addView(et, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        new AlertDialog.Builder(this)
+        new MusicGlassDialogBuilder(this)
                 .setTitle("导入 " + driveName + " Cookie")
                 .setView(layout)
                 .setPositiveButton("导入", (d, w) -> {
@@ -653,7 +654,7 @@ public class MusicCloudActivity extends BaseActivity {
         layout.addView(tvStatusQr);
 
         final int qrGen = ++qrLoginGen;
-        AlertDialog dialog = new AlertDialog.Builder(this)
+        AlertDialog dialog = new MusicGlassDialogBuilder(this)
                 .setTitle("夸克扫码登录")
                 .setView(layout)
                 .setNegativeButton("取消", null)

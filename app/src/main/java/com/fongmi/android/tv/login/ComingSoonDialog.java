@@ -65,7 +65,7 @@ public class ComingSoonDialog extends DialogFragment {
         LinearLayout root = new LinearLayout(requireContext());
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(20), dp(18), dp(20), dp(18));
-        root.setBackground(round(Color.parseColor("#F226282C"), 20));
+        root.setBackground(new LoginGlassDrawable(requireContext(), 20f));
 
         TextView msg = new TextView(requireContext());
         msg.setText("「" + method.title() + "」正在接入中，\n请先用扫码或 Cookie 导入登录");

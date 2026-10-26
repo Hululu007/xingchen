@@ -128,7 +128,7 @@ public class QrLoginDialog extends DialogFragment {
         LinearLayout root = new LinearLayout(requireContext());
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(20), dp(18), dp(20), dp(18));
-        root.setBackground(round(Color.parseColor("#F226282C"), 24));
+        root.setBackground(new LoginGlassDrawable(requireContext(), 24f));
 
         root.addView(createHeader(), new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(36)));
 

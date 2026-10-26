@@ -65,8 +65,10 @@ import java.util.List;
  */
 public class MusicQueueDialog extends BaseBottomSheetDialog {
 
-    private static final int COLOR_TEXT = 0xFF1C1C1E;
-    private static final int COLOR_LOW = 0xFF9A9AA0;
+    // 面板底已是深色液态玻璃：文字必须走深色面板口径（白系）——此前整套仍是浅底深字，
+    // 黑字压在深玻璃上看不清，是他点名「播放列表也有问题」的一条（2026-10-26）
+    private static final int COLOR_TEXT = 0xFFF2F2F7;
+    private static final int COLOR_LOW = 0x99FFFFFF;
     private static final int COLOR_RED = 0xFFFA243C; // GZ AccentRed（PlayQueueSheetKt:130 实证）
     private static final int COLOR_CURRENT_ARTIST = 0xB8FA243C; // 当前行歌手＝AccentRed × 0.72
     private static final int COLOR_CURRENT_INDEX = 0xB3FA243C; // 当前行序号＝AccentRed × 0.7
@@ -773,7 +775,8 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
         public void onBindViewHolder(@NonNull Holder h, int position) {
             MusicTrack t = tracks.get(position);
             boolean current = position == MusicController.get().index();
-            h.itemView.setBackground(null);
+            // 当前行要有底（GZ sheetListBg）：此前所有行都透明，当前行只靠红字区分
+            h.itemView.setBackgroundResource(current ? R.drawable.bg_music_glass_row_current : 0);
             h.index.setText(String.format(java.util.Locale.US, "%02d", position + 1));
             h.index.setTextColor(current ? COLOR_CURRENT_INDEX : COLOR_LOW);
             h.title.setText(t.displayTitle());

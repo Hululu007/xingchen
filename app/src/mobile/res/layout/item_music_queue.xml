@@ -15,7 +15,7 @@
         android:id="@+id/index"
         android:layout_width="22dp"
         android:layout_height="wrap_content"
-        android:textColor="#9A9AA0"
+        android:textColor="#99FFFFFF"
         android:textSize="11sp"
         android:fontWeight="500" />
 
@@ -39,7 +39,7 @@
             android:ellipsize="end"
             android:lineHeight="16sp"
             android:maxLines="1"
-            android:textColor="#1C1C1E"
+            android:textColor="#F2F2F7"
             android:textSize="13sp"
             android:textStyle="bold" />
 
@@ -51,7 +51,7 @@
             android:ellipsize="end"
             android:lineHeight="14sp"
             android:maxLines="1"
-            android:textColor="#9A9AA0"
+            android:textColor="#99FFFFFF"
             android:textSize="11sp" />
     </LinearLayout>
 

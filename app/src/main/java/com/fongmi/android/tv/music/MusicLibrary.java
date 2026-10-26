@@ -33,6 +33,37 @@ public class MusicLibrary {
         post(() -> Notify.show("曲库写入失败，请重试"));
     }
 
+    /**
+     * 收藏变化订阅（共用层）：setFavorite 写库真落盘后才在主线程广播，
+     * 订阅方据此重拉/重查。各页不许再在 setFavorite 刚发出时就抢跑重拉——
+     * Task 是 5 线程池，写删与重拉读会并行，读赢了就是旧账
+     * （2026-10-26 真机实锤：收藏页取消收藏、吐司报了已取消、歌还赖在列表里）。
+     */
+    public interface FavoritesListener {
+        void onFavoritesChanged();
+    }
+
+    private static final java.util.Set<FavoritesListener> FAVORITES_LISTENERS =
+            java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    public static void addFavoritesListener(FavoritesListener l) {
+        if (l != null) FAVORITES_LISTENERS.add(l);
+    }
+
+    public static void removeFavoritesListener(FavoritesListener l) {
+        if (l != null) FAVORITES_LISTENERS.remove(l);
+    }
+
+    /** 只许在写库成功的主线程回调里调（调用点在 setFavorite 的 post 块内）。 */
+    private static void notifyFavoritesChanged() {
+        for (FavoritesListener l : new java.util.ArrayList<>(FAVORITES_LISTENERS)) {
+            try {
+                l.onFavoritesChanged();
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
     private static MusicTrack toTrack(MusicFavorite f) {
         MusicTrack t = new MusicTrack();
         t.id = f.getTrackId();
@@ -205,6 +236,8 @@ public class MusicLibrary {
                     postWriteError();
                     return;
                 }
+                // 先广播后 done：订阅方（收藏页/播放页爱心）重拉时写已落盘，读到的必是新账
+                notifyFavoritesChanged();
                 if (done != null) done.run();
             });
         });

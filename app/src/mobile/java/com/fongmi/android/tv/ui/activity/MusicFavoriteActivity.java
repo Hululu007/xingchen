@@ -41,8 +41,9 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * 音乐收藏独立页（拆页 p4）：英雄卡（拼贴封面＋大标题＋N 首＋播放全部／随机播放
- * ＋多选＋页内搜索框＋排序＋续播卡＋多选删除）；
+ * 音乐收藏独立页（拆页 p4）：英雄卡（大标题＋N 首＋播放全部／随机播放
+ * ＋多选＋页内搜索框＋排序＋续播卡＋多选删除；页头原拼贴封面块已按潇洒哥令整块移除，
+ * 标题与首数行左对齐顶页边）；
  * 数据源＝MusicLibrary 收藏（favorites），行点击走 MusicController 播放，
  * 队列 route=list、参数 mode=favorite，队列面板来源跳转落回本页。
  * 顶栏只留标题，无返回箭头，走系统返回。
@@ -75,10 +76,6 @@ public class MusicFavoriteActivity extends BaseActivity {
     private TextView btnFavHistClear;
     private EditText etFavHistSearch;
     private ImageView btnFavHistClearSearch;
-    private ImageView ivMosaic0;
-    private ImageView ivMosaic1;
-    private ImageView ivMosaic2;
-    private ImageView ivMosaic3;
     private View favHistResume;
     private TextView tvFavHistResumeTitle;
     private TextView tvFavHistResumeState;
@@ -122,6 +119,11 @@ public class MusicFavoriteActivity extends BaseActivity {
         activity.startActivity(new Intent(activity, MusicFavoriteActivity.class));
     }
 
+    /** 收藏变化订阅：写库落盘后 MusicLibrary 才广播，这里再静默重拉——
+     *  旧 toggleFavorite 在写刚发出时就抢跑 loadFavorites，5 线程池里读赢了删除、
+     *  列表刷成旧账且再无第二次重拉，歌就赖在列表里（2026-10-26 真机截图实锤）。 */
+    private final MusicLibrary.FavoritesListener favoritesListener = () -> loadFavorites(true);
+
     private final MusicController.Listener controllerListener = new MusicController.Listener() {
         @Override
         public void onTrackChanged(MusicTrack track) {
@@ -163,10 +165,6 @@ public class MusicFavoriteActivity extends BaseActivity {
         btnFavHistClear = findViewById(R.id.btnFavHistClear);
         etFavHistSearch = findViewById(R.id.etFavHistSearch);
         btnFavHistClearSearch = findViewById(R.id.btnFavHistClearSearch);
-        ivMosaic0 = findViewById(R.id.ivMosaic0);
-        ivMosaic1 = findViewById(R.id.ivMosaic1);
-        ivMosaic2 = findViewById(R.id.ivMosaic2);
-        ivMosaic3 = findViewById(R.id.ivMosaic3);
         favHistResume = findViewById(R.id.favHistResume);
         tvFavHistResumeTitle = findViewById(R.id.tvFavHistResumeTitle);
         tvFavHistResumeState = findViewById(R.id.tvFavHistResumeState);
@@ -248,6 +246,7 @@ public class MusicFavoriteActivity extends BaseActivity {
             }
         });
         MusicController.get().addListener(controllerListener);
+        MusicLibrary.addFavoritesListener(favoritesListener);
         loadFavorites();
     }
 
@@ -287,6 +286,7 @@ public class MusicFavoriteActivity extends BaseActivity {
 
     @Override
     protected void onDestroy() {
+        MusicLibrary.removeFavoritesListener(favoritesListener);
         MusicController.get().removeListener(controllerListener);
         MusicController.get().unbind();
         super.onDestroy();
@@ -300,7 +300,12 @@ public class MusicFavoriteActivity extends BaseActivity {
     }
 
     private void loadFavorites() {
-        showLoading();
+        loadFavorites(false);
+    }
+
+    /** @param quiet true＝收藏变化广播触发的重拉：不闪「正在加载…」，列表原地换新账 */
+    private void loadFavorites(boolean quiet) {
+        if (!quiet) showLoading();
         MusicLibrary.favorites(list -> {
             favAll.clear();
             if (list != null) favAll.addAll(list);
@@ -318,23 +323,6 @@ public class MusicFavoriteActivity extends BaseActivity {
         btnFavHistClear.setVisibility(View.GONE);
         btnFavHistMulti.setText(favMulti ? "取消多选" : "多选");
         etFavHistSearch.setHint("搜索喜欢的歌曲");
-        // 拼贴：前 4 首的封面（没封面的格子留灰底）
-        ImageView[] cells = {ivMosaic0, ivMosaic1, ivMosaic2, ivMosaic3};
-        for (int i = 0; i < cells.length; i++) {
-            ImageView iv = cells[i];
-            String cover = i < favAll.size() ? favAll.get(i).cover : null;
-            if (cover == null || cover.isEmpty()) {
-                try {
-                    com.bumptech.glide.Glide.with(iv).clear(iv);
-                } catch (Throwable ignored) {
-                }
-                iv.setImageDrawable(null);
-                iv.setBackgroundColor(0xFFE5E5EA);
-            } else {
-                iv.setBackgroundColor(0x00000000);
-                ImgUtil.loadRounded(favAll.get(i).displayTitle(), cover, iv);
-            }
-        }
         // 续播卡：收藏页＝最近播放里第一首在收藏里的（无则不显）
         favResume = null;
         try {
@@ -613,7 +601,7 @@ public class MusicFavoriteActivity extends BaseActivity {
         boolean toFav = label.equals(getString(R.string.music_favorite));
         MusicLibrary.setFavorite(track, toFav, () ->
                 Notify.show(toFav ? R.string.music_favorited : R.string.music_unfavorited));
-        if (!toFav) loadFavorites();
+        // 列表刷新不再在这里抢跑：写落盘后 favoritesListener 收到广播才重拉，读到的必是新账
     }
 
     private void pickPlaylist(MusicTrack track) {

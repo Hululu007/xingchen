@@ -99,6 +99,10 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
     private final java.util.Set<String> mMetaTried = new java.util.HashSet<>();
     private Bitmap mCoverBitmap;
     private boolean mFavorite;
+    /** 收藏变化订阅（MusicLibrary 写落盘后广播，主线程回调）：重查当前曲收藏态刷爱心。 */
+    private final MusicLibrary.FavoritesListener mFavListener = () -> {
+        if (mTrack != null) refreshFavorite(mTrack);
+    };
     private int mFavTriggerCount;
     private Boolean mPlayingUi;
     private int mLastDir = 1;
@@ -200,6 +204,8 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
 
         MusicController.get().bind(this);
         MusicController.get().addListener(this);
+        // 收藏变化广播：别处（队列面板/列表页）改了当前曲收藏时爱心跟着变，不等切歌才对账
+        MusicLibrary.addFavoritesListener(mFavListener);
         MusicTrack current = MusicController.get().current();
         if (current != null) bindTrack(current, 1);
         updatePlayUi(MusicController.get().isPlaying());
@@ -232,6 +238,7 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
         mFavBackSpring.cancel();
         if (mLyricDimAnim != null) mLyricDimAnim.cancel();
         if (mTitleSizeAnim != null) mTitleSizeAnim.cancel();
+        MusicLibrary.removeFavoritesListener(mFavListener);
         MusicController.get().removeListener(this);
         super.onDestroy();
     }

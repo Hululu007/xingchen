@@ -18,9 +18,15 @@ public class PanAuth {
     private static final String PREFS = "xingchen";
     private static final String KEY_115_COOKIE = "pan115_cookie";
     private static final String KEY_115_VIP = "pan115_vip";
+    private static final String KEY_115_SPACE = "pan115_space";
+    private static final String KEY_115_INFO_TS = "pan115_info_ts";
     private static final String KEY_QUARK_COOKIE = "panquark_cookie";
     private static final String KEY_QUARK_VIP = "panquark_vip";
+    private static final String KEY_QUARK_SPACE = "panquark_space";
+    private static final String KEY_QUARK_INFO_TS = "panquark_info_ts";
     private static final String KEY_PIKPAK_VIP = "panpikpak_vip";
+    private static final String KEY_PIKPAK_SPACE = "panpikpak_space";
+    private static final String KEY_PIKPAK_INFO_TS = "panpikpak_info_ts";
 
     private static SharedPreferences prefs() {
         Context ctx = App.get();
@@ -134,11 +140,14 @@ public class PanAuth {
 
     public static void put115Cookie(String cookie) {
         securePutCookie("115", KEY_115_COOKIE, cookie);
+        // 登录写 cookie 是账号信息的失效点：时间戳清零，下次进登录页必重拉
+        prefs().edit().putLong(KEY_115_INFO_TS, 0).apply();
     }
 
     public static void clear115() {
         secureClearCookie("115");
-        prefs().edit().remove(KEY_115_COOKIE).remove(KEY_115_VIP).apply();
+        prefs().edit().remove(KEY_115_COOKIE).remove(KEY_115_VIP)
+                .remove(KEY_115_SPACE).remove(KEY_115_INFO_TS).apply();
     }
 
     public static boolean is115LoggedIn() {
@@ -163,17 +172,38 @@ public class PanAuth {
         prefs().edit().putString(KEY_115_VIP, vip == null ? "" : vip).apply();
     }
 
+    /** 115 容量摘要（如「已用 12GB / 共 2TB」），由账号信息抓取写入 */
+    public static String get115Space() {
+        return prefs().getString(KEY_115_SPACE, "");
+    }
+
+    public static void put115Space(String space) {
+        prefs().edit().putString(KEY_115_SPACE, space == null ? "" : space).apply();
+    }
+
+    /** 115 账号信息上次抓取尝试时刻（0=从未/已失效，须重拉） */
+    public static long get115InfoTs() {
+        return prefs().getLong(KEY_115_INFO_TS, 0);
+    }
+
+    public static void mark115InfoTs(long ts) {
+        prefs().edit().putLong(KEY_115_INFO_TS, ts).apply();
+    }
+
     public static String getQuarkCookie() {
         return secureGetCookie("quark", KEY_QUARK_COOKIE);
     }
 
     public static void putQuarkCookie(String cookie) {
         securePutCookie("quark", KEY_QUARK_COOKIE, cookie);
+        // 同 115：登录写 cookie 即账号信息失效点
+        prefs().edit().putLong(KEY_QUARK_INFO_TS, 0).apply();
     }
 
     public static void clearQuark() {
         secureClearCookie("quark");
-        prefs().edit().remove(KEY_QUARK_COOKIE).remove(KEY_QUARK_VIP).apply();
+        prefs().edit().remove(KEY_QUARK_COOKIE).remove(KEY_QUARK_VIP)
+                .remove(KEY_QUARK_SPACE).remove(KEY_QUARK_INFO_TS).apply();
     }
 
     public static boolean isQuarkLoggedIn() {
@@ -186,6 +216,24 @@ public class PanAuth {
 
     public static void putQuarkVip(String vip) {
         prefs().edit().putString(KEY_QUARK_VIP, vip == null ? "" : vip).apply();
+    }
+
+    /** 夸克容量摘要（如「已用 12GB / 共 6TB」），由账号信息抓取写入 */
+    public static String getQuarkSpace() {
+        return prefs().getString(KEY_QUARK_SPACE, "");
+    }
+
+    public static void putQuarkSpace(String space) {
+        prefs().edit().putString(KEY_QUARK_SPACE, space == null ? "" : space).apply();
+    }
+
+    /** 夸克账号信息上次抓取尝试时刻（0=从未/已失效，须重拉） */
+    public static long getQuarkInfoTs() {
+        return prefs().getLong(KEY_QUARK_INFO_TS, 0);
+    }
+
+    public static void markQuarkInfoTs(long ts) {
+        prefs().edit().putLong(KEY_QUARK_INFO_TS, ts).apply();
     }
 
     public static String loginSummary() {
@@ -244,6 +292,8 @@ public class PanAuth {
     public static void invalidatePikPakCache() {
         sPikPakLoggedIn = null;
         sPikPakUserName = null;
+        // 登录/退出都是账号信息失效点：时间戳清零，下次进登录页必重拉
+        prefs().edit().putLong(KEY_PIKPAK_INFO_TS, 0).apply();
     }
 
     public static void clearPikPak() {
@@ -251,7 +301,8 @@ public class PanAuth {
             new com.fongmi.android.tv.cloud.drivepikpak.DrivePikPak(App.get()).logout();
         } catch (Throwable ignored) {
         }
-        prefs().edit().remove(KEY_PIKPAK_VIP).apply();
+        prefs().edit().remove(KEY_PIKPAK_VIP)
+                .remove(KEY_PIKPAK_SPACE).remove(KEY_PIKPAK_INFO_TS).apply();
         invalidatePikPakCache();
     }
 
@@ -261,6 +312,24 @@ public class PanAuth {
 
     public static void putPikPakVip(String vip) {
         prefs().edit().putString(KEY_PIKPAK_VIP, vip == null ? "" : vip).apply();
+    }
+
+    /** PikPak 容量摘要（如「已用 12GB / 共 10TB」），由账号信息抓取写入 */
+    public static String getPikPakSpace() {
+        return prefs().getString(KEY_PIKPAK_SPACE, "");
+    }
+
+    public static void putPikPakSpace(String space) {
+        prefs().edit().putString(KEY_PIKPAK_SPACE, space == null ? "" : space).apply();
+    }
+
+    /** PikPak 账号信息上次抓取尝试时刻（0=从未/已失效，须重拉） */
+    public static long getPikPakInfoTs() {
+        return prefs().getLong(KEY_PIKPAK_INFO_TS, 0);
+    }
+
+    public static void markPikPakInfoTs(long ts) {
+        prefs().edit().putLong(KEY_PIKPAK_INFO_TS, ts).apply();
     }
 
     private static String readAll(File f) throws Exception {

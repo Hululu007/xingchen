@@ -314,29 +314,9 @@ public class PlayerSetting {
         return BackgroundPlaybackPolicy.isEnabled(getBackground());
     }
 
-    /**
-     * 音乐自己的后台播放（与视频分家，2026-10-23 定案）：独立键 "music_background"，
-     * 同口径走 BackgroundPlaybackPolicy 归一；从没存过＝默认开（音乐常驻）。
-     * 不读视频的 bg_pip_mode/background 老值，两份互不串味，视频侧行为一字不变。
-     */
-    public static int getMusicBackground() {
-        int stored = Prefers.getInt("music_background", BackgroundPlaybackPolicy.ON);
-        int normalized = BackgroundPlaybackPolicy.normalize(stored);
-        if (stored != normalized) Prefers.put("music_background", normalized);
-        return normalized;
-    }
-
-    public static void putMusicBackground(int background) {
-        Prefers.put("music_background", BackgroundPlaybackPolicy.normalize(background));
-    }
-
-    public static boolean isMusicBackgroundOn() {
-        return BackgroundPlaybackPolicy.isEnabled(getMusicBackground());
-    }
-
-    public static boolean isMusicBackgroundOff() {
-        return !isMusicBackgroundOn();
-    }
+    // 音乐后台播放开关（键 "music_background" 与其四个读写方法）已于 2026-10-26 按
+    // 用户令整组摘除：设置页开关写了而 MusicPlaybackService 从没读过、是假开关；
+    // 摘后音乐后台常驻维持默认口径。视频侧 background/bg_pip_mode 一字未动。
 
     public static float getSpeed() {
         return Math.min(Math.max(Prefers.getFloat("speed", 3), 2), 5);

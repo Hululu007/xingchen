@@ -919,6 +919,79 @@ public class DrivePikPak implements CloudDrive {
         return files;
     }
 
+    /** 搜索专用的 page_token 链（按关键词分链，与文件列表的目录链分开，互不串扰）。 */
+    private final java.util.Map<String, List<String>> searchTokensByKw = new java.util.HashMap<>();
+
+    /**
+     * 全盘搜索（来源：pikpak-sdk/files.go Search，本类列表/离线同源 SDK）：
+     * GET /drive/v1/files，不带 parent_id（全盘），filters＝{"name":{"prefix":关键词},"trashed":{"eq":false}}。
+     * 注意这是官方口径的「名字前缀」匹配：关键词须是文件名的开头，搜中间词搜不到，与 115／夸克的包含搜索不同。
+     * 分页走 page_token 链（offset/limit 兑页号，口径同 listDir，链未起/已翻完返回空表不冒充第一页）。
+     * 响应字段未经真机对死，条数打调试日志（tag pansrc），真机一跑即可对字段。
+     */
+    @Override
+    public List<CloudFile> searchFiles(String keyword, int offset, int limit) throws Exception {
+        int pageSize = limit > 0 ? limit : 100;
+        String kw = keyword == null ? "" : keyword.trim();
+        int pageIndex = Math.max(0, offset) / pageSize;
+        String pageToken;
+        synchronized (searchTokensByKw) {
+            if (pageIndex == 0) {
+                List<String> chain = new ArrayList<>();
+                chain.add("");
+                searchTokensByKw.put(kw, chain);
+                pageToken = "";
+            } else {
+                List<String> chain = searchTokensByKw.get(kw);
+                if (chain == null || pageIndex >= chain.size()) return new ArrayList<>();
+                pageToken = chain.get(pageIndex);
+            }
+        }
+        JSONObject query = new JSONObject()
+                .put("limit", String.valueOf(pageSize))
+                .put("page_token", pageToken)
+                .put("thumbnail_size", "SIZE_LARGE")
+                .put("with_audit", "true")
+                .put("filters", new JSONObject()
+                        .put("name", new JSONObject().put("prefix", kw))
+                        .put("trashed", new JSONObject().put("eq", false))
+                        .toString());
+        JSONObject d = api("GET", "/drive/v1/files", query, null, true);
+        String nextToken = d.optString("next_page_token", "");
+        if (!TextUtils.isEmpty(nextToken)) {
+            synchronized (searchTokensByKw) {
+                List<String> chain = searchTokensByKw.get(kw);
+                if (chain != null && chain.size() == pageIndex + 1) chain.add(nextToken);
+            }
+        }
+        List<CloudFile> files = new ArrayList<>();
+        JSONArray arr = d.optJSONArray("files");
+        try {
+            com.github.catvod.crawler.SpiderDebug.log("pansrc",
+                    "pikpak kw=%s got=%s next=%s",
+                    kw, arr == null ? "null" : String.valueOf(arr.length()),
+                    TextUtils.isEmpty(nextToken) ? "0" : "1");
+        } catch (Throwable ignored) {
+        }
+        if (arr == null) return files;
+        for (int i = 0; i < arr.length(); i++) {
+            JSONObject o = arr.optJSONObject(i);
+            if (o == null) continue;
+            CloudFile f = new CloudFile();
+            boolean isDir = "drive#folder".equals(o.optString("kind"));
+            f.setDir(isDir);
+            f.setId(o.optString("id"));
+            f.setName(o.optString("name"));
+            f.setSize(o.optLong("size", 0));
+            f.setSha1(o.optString("hash"));
+            f.setParentCid(o.optString("parent_id", ""));
+            f.setThumbUrl(o.optString("thumbnail_link", ""));
+            f.setPickCode(o.optString("mime_type"));
+            files.add(f);
+        }
+        return files;
+    }
+
     @Override
     public int getTotal(String cid) throws Exception {
         return -1;  // PikPak 分页用 page_token，不返回总数

@@ -59,14 +59,20 @@ public class MusicQueue {
     /** 入队时写来源／route：来源行读这里，不再开面板时反查（B7）。 */
     /**
      * 队列移除契约（另一工并行调用口径，方法名定死）：按 key 删，不按序号、不按 id。
-     * key＝platform|id；id 为空时退化为 platform|title|artist（与自定义封面键同一口径）。
-     * 删的是当前歌时沿用 removeAt 的落点口径（非末首顶上下一首、末首播新的队尾见 removeAt）。
-     * 返回删掉的序号，找不到返回 -1。
+     * key＝MusicIdentity 身份键 platform|插件|id（扫描 M1：旧 platform|id 不含插件段，
+     * FreeJS 各插件统一 platform=freejs、id 是插件内编号，跨插件同 id 会撞键串歌——
+     * 失败计数/黑名单/预取槽/断点校验全中）；id 为空时退化为 platform|title|artist
+     * （与自定义封面键同一口径）。删的是当前歌时沿用 removeAt 的落点口径
+     * （非末首顶上下一首、末首播新的队尾见 removeAt）。返回删掉的序号，找不到返回 -1。
+     * 注意：本键会落盘（断点 key、手动选版表），改格式后旧存档键自然失配回落，无数据损坏。
      */
     public static String trackKey(MusicTrack t) {
         if (t == null) return "|";
+        if (t.id != null && !t.id.isEmpty()) {
+            String key = MusicIdentity.keyOf(t);
+            if (key != null) return key;
+        }
         String platform = t.platform == null ? "" : t.platform;
-        if (t.id != null && !t.id.isEmpty()) return platform + "|" + t.id;
         String title = t.title == null ? "" : t.title;
         String artist = t.artist == null ? "" : t.artist;
         return platform + "|" + title + "|" + artist;
@@ -314,7 +320,7 @@ public class MusicQueue {
         MusicTrack cur = current();
         MusicTrack t = tracks.remove(from);
         tracks.add(to, t);
-        // Q8：不许用 indexOf（MusicTrack.equals 只比 id，同 ID 重复歌会跳到第一个）；
+        // Q8：不许用 indexOf（同身份的重复歌在队里是不同条目，equals 命中会跳到第一个）；
         // 当前歌按对象引用 == 找回，找不到才钳住序号。
         if (cur != null) {
             for (int i = 0; i < tracks.size(); i++) {

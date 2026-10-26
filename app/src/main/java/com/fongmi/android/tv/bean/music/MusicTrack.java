@@ -56,16 +56,22 @@ public class MusicTrack {
         return com.fongmi.android.tv.utils.LocalTrackMeta.cleanDisplayTitle(title, platform);
     }
 
+    // 身份契约（扫描 M2）：相等只认 MusicIdentity 身份键（platform|插件|id）。
+    // 旧实现只比裸 id，跨源同 id 被 contains/indexOf/remove/HashSet 误判成同一首；
+    // 无身份（id 为空、keyOf 返回 null）的曲目只与自身相等。
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
         if (!(o instanceof MusicTrack)) return false;
         MusicTrack t = (MusicTrack) o;
-        return id != null && id.equals(t.id);
+        String a = com.fongmi.android.tv.music.MusicIdentity.keyOf(this);
+        String b = com.fongmi.android.tv.music.MusicIdentity.keyOf(t);
+        return a != null && a.equals(b);
     }
 
     @Override
     public int hashCode() {
-        return id == null ? 0 : id.hashCode();
+        String key = com.fongmi.android.tv.music.MusicIdentity.keyOf(this);
+        return key == null ? 0 : key.hashCode();
     }
 }

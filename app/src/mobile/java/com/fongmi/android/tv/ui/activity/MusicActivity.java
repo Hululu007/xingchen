@@ -745,22 +745,17 @@ public class MusicActivity extends BaseActivity {
         for (int i = 0; i < moodPills.size(); i++) {
             TextView pill = moodPills.get(i);
             MusicHomeMood.Mood m = MusicHomeMood.at(i);
-            GradientDrawable pb = new GradientDrawable();
-            pb.setCornerRadius(dp(999));
-            if (i == idx) {
-                // 选中片＝带色玻璃（他的样张口径：选中态是一颗带颜色的玻璃）＋白字
-                pb.setColor(MusicHomeMood.alphaColor(m.tone, 0.45f));
-                pb.setStroke(dp(1), MusicHomeMood.alphaColor(m.tone, 0.65f));
-                pill.setTextColor(0xFFFFFFFF);
-                pill.getPaint().setFakeBoldText(true);
-            } else {
-                // 未选片同走玻璃：白半透＋亮边＋白字（此前是实灰片＋黑字，整片不是玻璃）
-                pb.setColor(0x29FFFFFF);
-                pb.setStroke(dp(1), 0x40FFFFFF);
-                pill.setTextColor(0xD9FFFFFF);
-                pill.getPaint().setFakeBoldText(false);
+            boolean sel = i == idx;
+            // 片本体换同源玻璃：原写法是平铺半透＋描边，注释自称玻璃、材料四项不齐（2026-10-26 全扫）。
+            // 首过换玻璃、之后只切 tone：选中＝带色玻璃（样张口径），未选清 tone 回中性玻璃。
+            MusicGlassWire.glassifyView(pill, 999f);
+            if (pill.getBackground() instanceof MusicGlassDrawable) {
+                MusicGlassDrawable g = (MusicGlassDrawable) pill.getBackground();
+                if (sel) g.setToneColor(m.tone, 0.45f);
+                else g.setToneColor(0);
             }
-            pill.setBackground(pb);
+            pill.setTextColor(sel ? 0xFFFFFFFF : 0xD9FFFFFF);
+            pill.getPaint().setFakeBoldText(sel);
         }
         refreshMoodState();
     }

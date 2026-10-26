@@ -84,3 +84,134 @@ if grep -rn "dist/geciwang/index\.js\|dist/geciqianxun/index\.js\|qwerwhr/musicf
 fi
 grep -q "public static List<MusicSite> builtinSites()" "$MSM" || fail "删完后 builtinSites 方法不见了"
 echo "朋友版：音乐预置播种已删除（builtinSites 返回空表）"
+
+# ---- 第二段：QQ 音乐登录整套剥掉（2026-10-26 他亲定：只进正式版，他留着自测）----
+# 剥的只有 QQ 专属件：QQLoginProvider（统一登录的 QQ 提供方）、QqVkeyFetcher
+# （带登录态调官方 vkey 取链＋未登录节流弹窗）、它在 LoginManager 里的注册行／
+# loginQQ 入口／三个 QQ 静态桥／requestLogin 的 QQ 分发支、LxMusicSource 里 tx
+# 脚本全灭后回落 QqVkeyFetcher 的兜底段，以及只测这两件的 QQLoginProviderTest。
+# 不许误伤的共用框架：LoginManager 本体（注册表、通用 getCookie/isLoggedIn/logout、
+# requestLogin 通用分发与谷歌/快手/115 三支）、LoginProvider 接口、PanLoginDialog
+# 统一弹窗、CloudAccountStore 托管存储、网盘四路登录（扫码/账密/Cookie/网页）、
+# AccountPlaylistFetcher 的 fetchQq（歌单登录导入的平台取数，Cookie 由导入弹窗
+# 自有 WebView 流程给，与本段无关，只 scrub 它注释里提到的 QqVkeyFetcher 类名）。
+# 剥后口径：落雪 tx 脚本路照常（脚本取链不依赖 QQ 登录）；脚本全灭时兜底段消失、
+# playUrl 如实返回 null 走既有失败路；getCookie("qq")/isLoggedIn("qq") 因未注册
+# 由框架空安全回 ""/false，requestLogin("qq") 回 false——不崩、不假装能取。
+QQPROV=app/src/main/java/com/fongmi/android/tv/login/QQLoginProvider.java
+QQVKEY=app/src/main/java/com/fongmi/android/tv/api/music/QqVkeyFetcher.java
+QQTEST=app/src/test/java/com/fongmi/android/tv/login/QQLoginProviderTest.java
+LM=app/src/main/java/com/fongmi/android/tv/login/LoginManager.java
+LXMS=app/src/main/java/com/fongmi/android/tv/api/music/LxMusicSource.java
+APF=app/src/main/java/com/fongmi/android/tv/api/music/AccountPlaylistFetcher.java
+for f in "$QQPROV" "$QQVKEY" "$QQTEST" "$LM" "$LXMS" "$APF"; do
+  [ -f "$f" ] || fail "QQ 剥离目标文件找不到：$f"
+done
+grep -qF "register(new QQLoginProvider());" "$LM" || fail "LoginManager 的 QQ 注册行对不上"
+grep -qF "public void loginQQ(FragmentActivity activity, LoginCallback callback)" "$LM" || fail "LoginManager 的 loginQQ 入口对不上"
+grep -qF "public static boolean loginQQDelivered()" "$LM" || fail "LoginManager 的 loginQQDelivered 对不上"
+grep -qF "public static boolean isQQLoggedIn()" "$LM" || fail "LoginManager 的 isQQLoggedIn 对不上"
+grep -qF "QqVkeyFetcher.playUrl(" "$LXMS" || fail "LxMusicSource 的 tx 兜底段对不上"
+grep -qF "QqVkeyFetcher.maybePromptLogin()" "$LXMS" || fail "LxMusicSource 的弹窗兜底对不上"
+
+python3 - "$LM" "$LXMS" "$APF" <<'PYEOF'
+import sys
+
+def load(path):
+    with open(path, encoding="utf-8") as fh:
+        return fh.read()
+
+def save(path, text):
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(text)
+
+def cut_exact(text, block, what):
+    if text.count(block) != 1:
+        sys.exit("python: QQ 剥离锚点对不上（%s，命中 %d 处）" % (what, text.count(block)))
+    return text.replace(block, "")
+
+def swap_exact(text, old, new, what):
+    if text.count(old) != 1:
+        sys.exit("python: QQ 剥离锚点对不上（%s，命中 %d 处）" % (what, text.count(old)))
+    return text.replace(old, new)
+
+def find_line(lines, needle, what):
+    hits = [i for i, ln in enumerate(lines) if needle in ln]
+    if len(hits) != 1:
+        sys.exit("python: QQ 剥离定位对不上（%s，命中 %d 处）" % (what, len(hits)))
+    return hits[0]
+
+lm_path, lx_path, apf_path = sys.argv[1], sys.argv[2], sys.argv[3]
+
+# ---- LoginManager：注册行 + requestLogin QQ 支（整块删） ----
+lm = load(lm_path)
+lm = cut_exact(lm, "        register(new QQLoginProvider());\n", "QQ 注册行")
+lm = cut_exact(lm, """        if (QQLoginProvider.ID.equals(providerId)) {
+            // 按投递结果落节流戳的调用方（QqVkeyFetcher）据此不落戳
+            return loginQQDelivered();
+        }
+""", "requestLogin 的 QQ 分发支")
+lines = lm.split("\n")
+
+# ---- LoginManager：loginQQ 实例方法（含 javadoc）整段删 ----
+i = find_line(lines, "弹 QQ 音乐网页登录框：走壳子统一弹窗", "loginQQ javadoc")
+j = find_line(lines, "    private void openMethod", "openMethod")
+if not (i < j and lines[i - 1].strip() == "/**"):
+    sys.exit("python: loginQQ 段落形状对不上")
+lines = lines[:i - 1] + lines[j:]
+
+# ---- LoginManager：loginQQ/loginQQDelivered 静态桥整段删（单行 javadoc，起始行即注释行本身） ----
+i = find_line(lines, "弹壳子统一的 QQ 音乐网页登录框（异步）", "loginQQ 静态桥 javadoc")
+j = find_line(lines, "    // 扫描 O13：", "O13 注释")
+if not (i < j and lines[i].strip().startswith("/**")):
+    sys.exit("python: loginQQ 静态桥段落形状对不上")
+lines = lines[:i] + lines[j:]
+
+# ---- LoginManager：isQQLoggedIn/getQQCookie/logoutQQ 三个静态口整段删（同为单行 javadoc 起头） ----
+# 结束锚点是 requestLogin 的 javadoc 正文行，它上一行就是该 javadoc 的 /** 起始行——
+# 删到起始行之前为止，不许把人家的注释头吃掉。
+i = find_line(lines, "QQ 是否已登录（托管 Cookie 含账号标识＋音乐钥匙）", "isQQLoggedIn 注释")
+j = find_line(lines, "     * 通用：按提供方 id 请壳子弹统一登录框", "requestLogin javadoc")
+if not (i < j - 1 and lines[i].strip().startswith("/**") and lines[j - 1].strip() == "/**"):
+    sys.exit("python: QQ 静态桥段落形状对不上")
+lines = lines[:i] + lines[j - 1:]
+lm = "\n".join(lines)
+save(lm_path, lm)
+
+# ---- LxMusicSource：删 tx 官方兜底整段 + 两处注释里的类名 ----
+lx = load(lx_path)
+lx = cut_exact(lx, """        if (LxPlatformSearch.QQ.equals(p.platform)) {
+            // tx 官方兜底（通用层一处，搜索/榜单/歌单导入的 tx 歌都经此）：脚本全灭、
+            // 回空、回幻影链、乃至一个脚本都没装时，已存 QQ 登录态就改走官方 vkey
+            // 带态取链；未登录按 10 分钟节流弹统一登录（探链不弹），本次照常失败返回。
+            String fallback = QqVkeyFetcher.playUrl(
+                    optStr(musicInfo, "songmid"), optStr(musicInfo, "strMediaMid"), want);
+            if (!TextUtils.isEmpty(fallback)) return fallback;
+            if (!probe) QqVkeyFetcher.maybePromptLogin();
+        }
+""", "LxMusicSource tx 兜底段")
+lx = swap_exact(lx, "兜底段（官方 vkey＋登录弹窗）永远轮", "后面的脚本永远轮", "probeUrlDead 注释一")
+lx = swap_exact(lx, "（与 QqVkeyFetcher 同出口，吃代理/DoH/节点定向）", "（吃代理/DoH/节点定向）", "probeUrlDead 注释二")
+save(lx_path, lx)
+
+# ---- AccountPlaylistFetcher：注释里的类名 scrub（本体是平台通用件，不动） ----
+apf = load(apf_path)
+apf = swap_exact(apf, "取号三级回落与 QqVkeyFetcher.uinOf 同口径（扫描 M17）", "取号三级回落与取链侧同口径（扫描 M17）", "歌单导入注释")
+save(apf_path, apf)
+PYEOF
+
+rm "$QQPROV" "$QQVKEY" "$QQTEST"
+
+# 复查一：QQ 音乐登录标识全树零残留（QQ 作为音乐平台的搜索/榜单/歌单导入不在此列，
+# 只认登录专属标识：两个类名＋LoginManager 的六个 QQ 入口名）
+if grep -rn "QQLoginProvider\|QqVkeyFetcher\|loginQQ\|getQQCookie\|isQQLoggedIn\|logoutQQ" app/src --include=*.java; then
+  fail "删完后仍有 QQ 音乐登录残留"
+fi
+# 复查二：共用框架必须完好——三家注册行、通用口、requestLogin 通用分发都还在
+grep -qF "register(new Qr115Provider());" "$LM" || fail "剥完后 115 提供方注册不见了"
+grep -qF "register(new KuaishouLoginProvider());" "$LM" || fail "剥完后快手提供方注册不见了"
+grep -qF "register(new GoogleLoginProvider());" "$LM" || fail "剥完后谷歌提供方注册不见了"
+grep -qF "public static boolean requestLogin(String providerId)" "$LM" || fail "剥完后 requestLogin 通用分发不见了"
+grep -qF "public static String getCookie(String providerId)" "$LM" || fail "剥完后 getCookie 通用口不见了"
+grep -qF "LxPlatformSearch.QQ" "$LXMS" || fail "剥完后 LxMusicSource 的 QQ 平台逻辑被误伤"
+echo "朋友版：QQ 音乐登录已删除（提供方＋vkey 取链＋统一登录入口，框架本体保留）"

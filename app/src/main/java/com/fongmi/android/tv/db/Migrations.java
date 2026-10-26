@@ -126,4 +126,19 @@ public class Migrations {
             database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_MusicPlaylistItem_playlistId_trackId_platform` ON `MusicPlaylistItem` (`playlistId`, `trackId`, `platform`)");
         }
     };
+
+    public static final Migration MIGRATION_42_43 = new Migration(42, 43) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase database) {
+            // 音乐身份修复续（扫描 M3）：收藏唯一键再扩一段插件来源——FreeJS 各插件
+            // platform 同为 freejs、trackId 是插件内编号，只到 (trackId, platform) 时
+            // 跨插件同 id 收藏仍互相顶掉：后收藏的那首被 IGNORE 静默吞掉还报成功。
+            // 新列 plugin 存 rawJson 的 _plugin 戳；存量行留 null（SQLite 唯一索引里
+            // null 互不相等、不会误冲突），读路径按 rawJson 戳比对老行并回填本列。
+            // 旧表 (trackId, platform) 本就唯一，三段键必然不冲突，存量行一行不丢。
+            database.execSQL("ALTER TABLE MusicFavorite ADD COLUMN plugin TEXT");
+            database.execSQL("DROP INDEX IF EXISTS `index_MusicFavorite_trackId_platform`");
+            database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_MusicFavorite_trackId_platform_plugin` ON `MusicFavorite` (`trackId`, `platform`, `plugin`)");
+        }
+    };
 }

@@ -105,18 +105,47 @@ public class MusicLibrary {
         return platform == null ? "" : platform;
     }
 
+    /** 插件段归一：无戳存空串，与落列口径一致 */
+    private static String normPlugin(String plugin) {
+        return plugin == null ? "" : plugin;
+    }
+
+    /** 某行与给定插件戳是否同一来源：行 plugin 列有值认列、没值（43 版前存量行）认 rawJson 戳 */
+    private static boolean samePlugin(MusicFavorite row, String plugin) {
+        String rowPlugin = row.getPlugin();
+        if (rowPlugin == null) rowPlugin = MusicIdentity.pluginOf(row.getRawJson());
+        return normPlugin(rowPlugin).equals(normPlugin(plugin));
+    }
+
     /**
-     * 按复合身份找收藏行：先 (trackId, platform) 精确找；找不到再按裸 id 找一行、
-     * 仅当其 platform 与给定值归一后相等才认（同 id 异来源的那行是另一首歌，不许认错）。
+     * 按三段身份找收藏行（扫描 M3）：先 (trackId, platform, plugin) 精确找；再退
+     * (trackId, platform)／裸 id 找候选行，但必须 platform 归一相等且插件戳同源才认
+     * （同 id 异插件的那行是另一首歌，不许认错）；认到的存量行顺手回填 plugin 列。
      */
-    private static MusicFavorite findFavoriteRow(String trackId, String platform) {
+    private static MusicFavorite findFavoriteRow(String trackId, String platform, String rawJson) {
         if (trackId == null) return null;
+        String plugin = MusicIdentity.pluginOf(rawJson);
         com.fongmi.android.tv.db.dao.MusicFavoriteDao dao = AppDatabase.get().getMusicFavoriteDao();
-        MusicFavorite row = dao.find(trackId, platform);
-        if (row != null) return row;
+        if (platform != null) {
+            MusicFavorite row = dao.find(trackId, platform, normPlugin(plugin));
+            if (row != null) return row;
+            MusicFavorite byPlatform = dao.find(trackId, platform);
+            if (byPlatform != null && samePlugin(byPlatform, plugin)) return backfillPlugin(dao, byPlatform, plugin);
+        }
         MusicFavorite any = dao.find(trackId);
-        if (any != null && normPlatform(any.getPlatform()).equals(normPlatform(platform))) return any;
+        if (any != null && normPlatform(any.getPlatform()).equals(normPlatform(platform)) && samePlugin(any, plugin)) return backfillPlugin(dao, any, plugin);
         return null;
+    }
+
+    private static MusicFavorite backfillPlugin(com.fongmi.android.tv.db.dao.MusicFavoriteDao dao, MusicFavorite row, String plugin) {
+        if (row.getPlugin() == null) {
+            try {
+                row.setPlugin(normPlugin(plugin));
+                dao.update(row);
+            } catch (Throwable ignored) {
+            }
+        }
+        return row;
     }
 
     /** 复合身份版：调用方手里有整首歌时用它，裸 id 版会把同 id 异来源的歌误判已收藏 */
@@ -124,7 +153,7 @@ public class MusicLibrary {
         Task.execute(() -> {
             boolean fav = false;
             try {
-                fav = track != null && findFavoriteRow(track.id, track.platform) != null;
+                fav = track != null && findFavoriteRow(track.id, track.platform, track.rawJson) != null;
             } catch (Throwable ignored) {
             }
             boolean f = fav;
@@ -134,27 +163,36 @@ public class MusicLibrary {
 
     public static void setFavorite(MusicTrack track, boolean fav, Runnable done) {
         Task.execute(() -> {
-            boolean ok = true;
+            // 扫描 M9：track 为空/id 为空时旧实现什么都没写却报成功、界面照弹「已收藏」；
+            // 无身份可写即失败，失败走 postWriteError，不许假成功。
+            boolean ok = track != null && track.id != null;
             try {
-                if (track != null && track.id != null) {
+                if (ok) {
                     if (fav) {
-                        MusicFavorite f = new MusicFavorite();
-                        f.setTrackId(track.id);
-                        f.setTitle(track.title);
-                        f.setArtist(track.artist);
-                        f.setAlbum(track.album);
-                        f.setDuration(track.duration);
-                        f.setCover(track.cover);
-                        f.setPlatform(track.platform);
-                        f.setRawJson(track.rawJson);
-                        // 已下载歌必须落 localPath，回读时 LocalMusicSource 只认它取链
-                        f.setLocalPath(track.localPath);
-                        f.setCreateTime(System.currentTimeMillis());
-                        AppDatabase.get().getMusicFavoriteDao().insert(f);
+                        // 已收藏同首（三段身份命中）是幂等成功，不重复插；
+                        // 真插时 plugin 必须落列，且 insert 被唯一键 IGNORE（返回 -1）＝没存上、报失败
+                        // （扫描 M3：旧实现不看返回值，跨插件同 id 的收藏被吞还报成功）
+                        if (findFavoriteRow(track.id, track.platform, track.rawJson) == null) {
+                            MusicFavorite f = new MusicFavorite();
+                            f.setTrackId(track.id);
+                            f.setTitle(track.title);
+                            f.setArtist(track.artist);
+                            f.setAlbum(track.album);
+                            f.setDuration(track.duration);
+                            f.setCover(track.cover);
+                            f.setPlatform(track.platform);
+                            f.setPlugin(normPlugin(MusicIdentity.pluginOf(track.rawJson)));
+                            f.setRawJson(track.rawJson);
+                            // 已下载歌必须落 localPath，回读时 LocalMusicSource 只认它取链
+                            f.setLocalPath(track.localPath);
+                            f.setCreateTime(System.currentTimeMillis());
+                            Long rowId = AppDatabase.get().getMusicFavoriteDao().insert(f);
+                            if (rowId == null || rowId == -1L) ok = false;
+                        }
                     } else {
-                        // 复合身份删：先按 (trackId, platform) 找到本人的那一行、按主键删；
+                        // 三段身份删：先找到本人的那一行、按主键删；
                         // 裸 id 删会连坐同 id 的别家歌，按主键删也不会被 NULL platform 卡住
-                        MusicFavorite row = findFavoriteRow(track.id, track.platform);
+                        MusicFavorite row = findFavoriteRow(track.id, track.platform, track.rawJson);
                         if (row != null) AppDatabase.get().getMusicFavoriteDao().deleteById(row.getId());
                     }
                 }

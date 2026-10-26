@@ -20,6 +20,10 @@ public abstract class MusicFavoriteDao extends BaseDao<MusicFavorite> {
     @Query("SELECT * FROM MusicFavorite WHERE trackId = :trackId AND platform = :platform LIMIT 1")
     public abstract MusicFavorite find(String trackId, String platform);
 
+    /** 三段身份查找（扫描 M3）：FreeJS 各插件 platform 同为 freejs，必须再带插件段 */
+    @Query("SELECT * FROM MusicFavorite WHERE trackId = :trackId AND platform = :platform AND plugin = :plugin LIMIT 1")
+    public abstract MusicFavorite find(String trackId, String platform, String plugin);
+
     @Query("DELETE FROM MusicFavorite WHERE trackId = :trackId")
     public abstract void delete(String trackId);
 

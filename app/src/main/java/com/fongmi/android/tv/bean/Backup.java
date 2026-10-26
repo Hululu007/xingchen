@@ -239,6 +239,13 @@ public class Backup {
     // 分配并建源 id→本地 id 映射，条目的 playlistId 走映射改写；收藏/下载按自然键
     // trackId 找本地行，命中就保留本地 id 原地更新、没有才置零插入。全程逐行 try 兜住
     // 并记日志，单行失败不许打断其后的 history/prefers。
+    /** 收藏行插件戳比对：行 plugin 列有值认列、没值（43 版前存量行）认 rawJson 戳 */
+    private static boolean samePluginOf(MusicFavorite row, String plugin) {
+        String rowPlugin = row.getPlugin();
+        if (rowPlugin == null) rowPlugin = com.fongmi.android.tv.music.MusicIdentity.pluginOf(row.getRawJson());
+        return (rowPlugin == null ? "" : rowPlugin).equals(plugin == null ? "" : plugin);
+    }
+
     private void restoreMusicSync() {
         Map<Long, Long> playlistIds = new HashMap<>();
         if (musicPlaylist != null) {
@@ -289,11 +296,21 @@ public class Backup {
         if (musicFavorite != null) {
             for (MusicFavorite item : getMusicFavorite()) {
                 try {
-                    // 复合身份找行（同歌单条目口径）：裸 trackId 找行会覆盖同 id 异来源的收藏
-                    MusicFavorite current = AppDatabase.get().getMusicFavoriteDao().find(item.getTrackId(), item.getPlatform());
+                    // 三段身份找行（扫描 M3，同歌单条目口径）：先 (trackId, platform, plugin)
+                    // 精确找，插件段取备份行自带值、旧备份没这列时从 rawJson 戳推导并回填；
+                    // 再退复合/裸 id，但 platform 与插件戳都对上才认，防覆盖同 id 异插件的收藏
+                    String plugin = item.getPlugin();
+                    if (plugin == null) plugin = com.fongmi.android.tv.music.MusicIdentity.pluginOf(item.getRawJson());
+                    item.setPlugin(plugin == null ? "" : plugin);
+                    MusicFavorite current = item.getPlatform() == null ? null
+                            : AppDatabase.get().getMusicFavoriteDao().find(item.getTrackId(), item.getPlatform(), item.getPlugin());
+                    if (current == null) {
+                        MusicFavorite byPlatform = AppDatabase.get().getMusicFavoriteDao().find(item.getTrackId(), item.getPlatform());
+                        if (byPlatform != null && samePluginOf(byPlatform, item.getPlugin())) current = byPlatform;
+                    }
                     if (current == null) {
                         MusicFavorite any = AppDatabase.get().getMusicFavoriteDao().find(item.getTrackId());
-                        if (any != null && (any.getPlatform() == null ? "" : any.getPlatform()).equals(item.getPlatform() == null ? "" : item.getPlatform())) current = any;
+                        if (any != null && (any.getPlatform() == null ? "" : any.getPlatform()).equals(item.getPlatform() == null ? "" : item.getPlatform()) && samePluginOf(any, item.getPlugin())) current = any;
                     }
                     if (current == null) {
                         item.setId(0);

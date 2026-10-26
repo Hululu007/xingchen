@@ -171,16 +171,13 @@ public class LxKeyIssueDialog extends BaseBottomSheetDialog {
         b.setTextSize(15);
         b.setGravity(android.view.Gravity.CENTER);
         b.setPadding(0, dp(12), 0, dp(12));
-        GradientDrawable d = new GradientDrawable();
-        d.setCornerRadius(dp(12));
-        if (primary) {
-            d.setColor(0xFF1C1C1E);
-            b.setTextColor(0xFFFFFFFF);
-        } else {
-            d.setColor(0xFFF2F2F7);
-            b.setTextColor(0xFF1C1C1E);
+        b.setTextColor(0xFFFFFFFF);
+        // 两钮同换同源玻璃（原主钮深实底、次钮近白实底摆在玻璃根上成白板，2026-10-26 全扫）；
+        // 主钮加 tone 与次钮拉开主次（选中青同族的深色调）
+        MusicGlassWire.glassifyView(b, 12f);
+        if (primary && b.getBackground() instanceof MusicGlassDrawable) {
+            ((MusicGlassDrawable) b.getBackground()).setToneColor(0xFF1C1C1E, 0.45f);
         }
-        b.setBackground(d);
         return b;
     }
 

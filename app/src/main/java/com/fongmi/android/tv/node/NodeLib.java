@@ -47,7 +47,15 @@ public final class NodeLib {
 
     public static boolean installed(Context context) {
         File file = file(context);
-        return file.exists() && file.length() > 0 && marker(context).exists();
+        if (!file.exists() || file.length() <= 0) return false;
+        // 扫描 O7：已装判定必须读回标记内容比对（writeMarker 写的是 VERSION:abi）——
+        // 此前只看标记存在，版本/架构变了永不重下、坏文件也一直判已装，无自愈。
+        try {
+            byte[] b = java.nio.file.Files.readAllBytes(marker(context).toPath());
+            return (VERSION + ":" + abi()).equals(new String(b).trim());
+        } catch (Throwable e) {
+            return false;
+        }
     }
 
     private static File marker(Context context) {
@@ -79,7 +87,14 @@ public final class NodeLib {
                 if (error != null) return error;
             }
             if (NodeBridge.isLoaded()) return null;
-            return NodeBridge.load(file(context));
+            String loadError = NodeBridge.load(file(context));
+            if (loadError != null) {
+                // 扫描 O7 自愈：加载失败多半是文件损坏/架构不对，清掉标记，
+                // 下次 ensure 重新走 fetch，而不是永远跳过下载、只能清应用数据。
+                try { marker(context).delete(); } catch (Throwable ignored) {
+                }
+            }
+            return loadError;
         } catch (Throwable e) {
             SpiderDebug.log("node", e);
             return e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();

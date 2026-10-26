@@ -24,7 +24,8 @@ import java.util.regex.Pattern;
 import okhttp3.Response;
 
 /**
- * 导入各大平台公开歌单（免登录）：粘贴分享文案 → 抠链接/ID → 平台公开接口拉全量 →
+ * 导入各大平台公开歌单（免登录）：粘贴分享文案 → 抠链接/ID（抠不到链接且整段是
+ * 纯数字时按歌单 ID 逐家认领）→ 平台公开接口拉全量 →
  * 拼成与壳内搜索同形态的落雪 Track（platform="lx"、id="lx:{平台}:{原生id}"、
  * rawJson={_platform,_item}），播放/歌词/下载直接走现成链。
  * 接口口径全部来自 2026-10-20 本机探活实证（music-playlist-import-plan.md），参数不许自由发挥。
@@ -89,7 +90,13 @@ public class PlaylistImporter {
     /** 从整段分享文案导入。阻塞，子线程调 */
     public static Result importFromText(String text) throws ImportException {
         Target target = extract(text);
-        if (target == null) throw new ImportException(Fail.UNRECOGNIZED);
+        if (target == null) {
+            // 兜底（方案文档 music-playlist-import-plan.md §三原口径，此前代码缺这条）：
+            // 整段文本抠不到 URL、且本身就是一串纯数字时，按各平台歌单 ID 逐家试认领。
+            String numericId = pureNumericId(text);
+            if (numericId != null) return importFromNumericId(numericId);
+            throw new ImportException(Fail.UNRECOGNIZED);
+        }
         try {
             switch (target.platformKey) {
                 case LxPlatformSearch.WY:
@@ -197,6 +204,50 @@ public class PlaylistImporter {
     private static String firstGroup(Pattern p, String text) {
         Matcher m = p.matcher(text);
         return m.find() ? m.group(1) : null;
+    }
+
+    /** 纯数字 ID 形态：整段（去首尾空白）全是数字且不少于 4 位。四家歌单 ID 的
+     * 主形态都是纯数字（wy 歌单号／QQ disstid／酷狗 special 号／酷我 pid）；
+     * 酷狗 songlist 的 ID 是字母数字令牌，不在此列——纯数字只走 special 抓法。 */
+    private static final Pattern PURE_NUMERIC_ID = Pattern.compile("^\\d{4,}$");
+
+    private static String pureNumericId(String text) {
+        if (TextUtils.isEmpty(text)) return null;
+        String t = text.trim();
+        return PURE_NUMERIC_ID.matcher(t).matches() ? t : null;
+    }
+
+    /** 纯数字 ID 逐家认领：按 wy → tx → kg(special) → kw 顺序试，第一家真拉到
+     * 歌单的认作归属（同号跨家撞车时先到先得，与 ID 主流分布一致）。
+     * 单家报 NOT_FOUND／EMPTY／NETWORK 都不挡下一家；全灭时失败口径取：
+     * 有一家明确报 EMPTY（歌单在但没歌）报 EMPTY，其次有 NOT_FOUND 报
+     * NOT_FOUND，全是网络问题才报 NETWORK。 */
+    private static Result importFromNumericId(String id) throws ImportException {
+        boolean sawEmpty = false;
+        boolean sawNotFound = false;
+        String[] order = {LxPlatformSearch.WY, LxPlatformSearch.QQ, LxPlatformSearch.KG, LxPlatformSearch.KW};
+        for (String key : order) {
+            try {
+                switch (key) {
+                    case LxPlatformSearch.WY:
+                        return fetchWy(id);
+                    case LxPlatformSearch.QQ:
+                        return fetchQq(id);
+                    case LxPlatformSearch.KG:
+                        return fetchKgSpecial(id);
+                    default:
+                        return fetchKw(id);
+                }
+            } catch (ImportException e) {
+                if (e.fail == Fail.EMPTY) sawEmpty = true;
+                else if (e.fail == Fail.NOT_FOUND) sawNotFound = true;
+            } catch (Exception e) {
+                // 当作这家网络不通，继续试下一家
+            }
+        }
+        if (sawEmpty) throw new ImportException(Fail.EMPTY);
+        if (sawNotFound) throw new ImportException(Fail.NOT_FOUND);
+        throw new ImportException(Fail.NETWORK);
     }
 
     private static String resolveFinalUrl(String url) throws Exception {

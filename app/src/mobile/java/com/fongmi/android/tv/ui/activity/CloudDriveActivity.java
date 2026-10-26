@@ -93,6 +93,8 @@ public class CloudDriveActivity extends BaseActivity {
     /** 分页状态：hasMore 按“本页是否取满 PAGE_LIMIT”判定（115／PikPak 的 getTotal 返回 -1，不可用）。 */
     private boolean loadingMore;
     private boolean hasMore = true;
+    /** 已取的原始条数：展示列表过滤掉非视频文件后 files.size() 不再等于服务端偏移，分页 offset 按这个走。 */
+    private int fetchedCount;
     private int fetchGen;
     /** onResume 刷新守门：initView 成功走完才置真；紧跟 initView 的首个 onResume 跳过，避免同一次进页重复拉取。 */
     private boolean viewReady;
@@ -298,6 +300,13 @@ public class CloudDriveActivity extends BaseActivity {
                     st.hasMore = false;
                 }
                 adapter.notifyDataSetChanged();
+                if (st.results.isEmpty() && st.hasMore) {
+                    // 这一页全被过滤掉（非视频文件），列表还空着滑不动，自动续拉下一页，别误报没找到
+                    status.setVisibility(View.VISIBLE);
+                    status.setText("正在搜索…");
+                    fetchSearchPage(st, adapter, status, dialog);
+                    return;
+                }
                 if (st.results.isEmpty()) {
                     status.setVisibility(View.VISIBLE);
                     status.setText("没找到「" + kw + "」");
@@ -479,13 +488,14 @@ public class CloudDriveActivity extends BaseActivity {
         fetchGen++;
         hasMore = true;
         loadingMore = false;
+        fetchedCount = 0;
         fetchPage(0, false, fetchGen);
     }
 
     private void loadMore() {
         if (loadingMore || !hasMore) return;
         loadingMore = true;
-        fetchPage(files.size(), true, fetchGen);
+        fetchPage(fetchedCount, true, fetchGen);
     }
 
     /** 分页续取：offset 翻页；PikPak 的 listDir 内部用 page_token 兑 offset（见 DrivePikPak）。 */
@@ -500,11 +510,23 @@ public class CloudDriveActivity extends BaseActivity {
                     if (!append) setLoading(false);
                     loadingMore = false;
                     if (!append) files.clear();
-                    if (result != null) files.addAll(result);
+                    int added = 0;
+                    if (result != null) {
+                        fetchedCount = append ? fetchedCount + result.size() : result.size();
+                        // 展示口径（他定的）：只显文件夹＋视频，非视频的普通文件不进展示列表。
+                        // 过滤只在组装展示处做，不动各 Drive 的 listDir；分页 offset 与 hasMore 都按原始条数算，
+                        // 免得一页全是非视频文件时被误判成到底、把后面的视频漏掉。
+                        for (CloudFile f : result) if (f.isDir() || f.isVideo()) {
+                            files.add(f);
+                            added++;
+                        }
+                    }
                     // 取满一页＝可能还有下一页；不满一页＝已到头。恰好整 100 倍数时多取一页空页收尾，不丢文件。
                     hasMore = result != null && result.size() >= PAGE_LIMIT;
                     adapter.notifyDataSetChanged();
                     if (!append) renderBreadcrumb();
+                    // 整页都被过滤掉时展示列表不增长、滚动再也触发不了续拉，自动往下续一页，别把后面的视频堵死
+                    if (append && added == 0 && hasMore) loadMore();
                 });
             } catch (Exception e) {
                 runOnUiThread(() -> {

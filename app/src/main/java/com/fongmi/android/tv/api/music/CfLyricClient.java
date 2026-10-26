@@ -23,10 +23,17 @@ import java.util.Map;
  * 传输走 catvod OkHttp（与全 App 取数同待遇：DoH／代理选择器／拦截器）——
  * 此前是全 App 唯一裸 HttpURLConnection 的取数口，代理与分应用 VPN 场景下
  * 直连 workers.dev 慢/超时，面板阶段一长期回空（1.4.44 真机实证）。
+ * 端点已迁移：主端点是他的 Pages（xingchen-dl.pages.dev/lyric，同一份聚合
+ * 逻辑以 Pages Function 形态托管，部署在本机 cf-lyric-worker/deploy_pages.py）；
+ * workers.dev 在他的网络下连接超时 12 次零成功（真机日志实锤），老地址降为
+ * 备用——主端点传输失败时单发一次兜底，pages.dev 有他真机刷新脚本的成功实证。
  */
 public class CfLyricClient {
 
-    public static final String DEFAULT_BASE_URL = "https://xc-lyric.1372659842.workers.dev/lyric";
+    public static final String DEFAULT_BASE_URL = "https://xingchen-dl.pages.dev/lyric";
+
+    /** 备用端点：原 workers.dev 上的 xc-lyric（主端点传输失败时单发兜底） */
+    public static final String FALLBACK_BASE_URL = "https://xc-lyric.1372659842.workers.dev/lyric";
 
     /** 取数结局分类（诊断用）：拿到 JSON 应答 */
     public static final String NOTE_OK = "ok";
@@ -54,6 +61,36 @@ public class CfLyricClient {
     }
 
     public CfResponse fetch(String title, String artist, int durationSec) {
+        CfResponse response = fetchPrimary(title, artist, durationSec);
+        if (NOTE_TRANSPORT.equals(response.fetchNote)) {
+            CfResponse fallback = fetchFallbackOnce(title, artist, durationSec);
+            if (fallback != null) return fallback;
+        }
+        return response;
+    }
+
+    /** 备用端点单发兜底：只在主端点传输失败（超时/连不上）时走，一发定生死、
+     * 不重试、不碰熔断（熔断只管主端点，键仍是 baseUrl）；拿到像样应答才算数，
+     * 否则回 null 让调用方用主端点的结局分类。 */
+    private CfResponse fetchFallbackOnce(String title, String artist, int durationSec) {
+        if (FALLBACK_BASE_URL.equals(baseUrl)) return null;
+        String query;
+        try {
+            query = "title=" + URLEncoder.encode(title == null ? "" : title.trim(), "UTF-8")
+                    + "&artist=" + URLEncoder.encode(artist == null ? "" : artist.trim(), "UTF-8")
+                    + "&duration=" + Math.max(0, durationSec);
+        } catch (Throwable ignored) {
+            return null;
+        }
+        String body = fetchOnce(FALLBACK_BASE_URL + "?" + query);
+        if (body == null) return null;
+        CfResponse parsed = parse(body);
+        parsed.fetchNote = NOTE_OK;
+        SpiderDebug.log("music", "cf lyric fallback ok title=%s", title);
+        return parsed;
+    }
+
+    private CfResponse fetchPrimary(String title, String artist, int durationSec) {
         CfResponse response = new CfResponse();
         if (title == null || title.trim().isEmpty()) return response;
         String query;

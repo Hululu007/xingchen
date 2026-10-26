@@ -31,7 +31,6 @@ import com.fongmi.android.tv.music.MusicStore;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.ui.dialog.MusicOptionsDialog;
 import com.fongmi.android.tv.ui.music.MusicGlassWire;
-import com.fongmi.android.tv.ui.music.MusicPlayerActivity;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.XcFadeTransition;
@@ -280,13 +279,11 @@ public class MusicTracksActivity extends BaseActivity {
         MusicController.get().setMode(MusicQueue.MODE_SHUFFLE);
         // 入队时写队列级来源＝本页标题、route＝list（参数可重建本页，落点＝本列表页）
         MusicController.get().play(shuffled, 0, bigTitle, "list", listRouteParams());
-        MusicPlayerActivity.start(this);
     }
 
     private void playTrack(int position) {
         // 入队时写队列级来源＝本页标题、route＝list（参数可重建本页，落点＝本列表页）
         MusicController.get().play(new ArrayList<>(tracks), position, bigTitle, "list", listRouteParams());
-        MusicPlayerActivity.start(this);
     }
 
     /** list 路由参数——与本页进页读的 intent extras 同名同值，可重建本页（mode 透传进页原值） */

@@ -9,8 +9,6 @@ import com.fongmi.android.tv.bean.music.MusicTrack;
 import com.fongmi.android.tv.music.HkMusicSource;
 import com.fongmi.android.tv.music.MusicController;
 import com.fongmi.android.tv.music.PyMusicSource;
-import com.fongmi.android.tv.ui.music.MusicPlayerActivity;
-
 import java.util.ArrayList;
 import java.util.List;
 
@@ -89,7 +87,6 @@ public class MusicVodRouter {
             } else {
                 MusicController.get().playListSession(queue, index, site.getName(), "list", null, session);
             }
-            MusicPlayerActivity.start(activity);
             return true;
         } catch (Throwable t) {
             return false;
@@ -148,7 +145,6 @@ public class MusicVodRouter {
             if (queue.size() > 1) {
                 int start = hkStartIndex(queue, ruleTitle, episodeUrl, selIdx);
                 MusicController.get().play(queue, start, ruleTitle, "list", null);
-                MusicPlayerActivity.start(activity);
                 return true;
             }
             if (queue.size() == 1) return play(activity, queue.get(0));
@@ -182,7 +178,6 @@ public class MusicVodRouter {
             }
             if (queue.isEmpty()) return false;
             MusicController.get().play(queue, 0, ruleTitle, "list", null);
-            MusicPlayerActivity.start(activity);
             return true;
         } catch (Throwable t) {
             return false;
@@ -260,7 +255,6 @@ public class MusicVodRouter {
         List<MusicTrack> queue = new ArrayList<>();
         queue.add(track);
         MusicController.get().play(queue, 0);
-        MusicPlayerActivity.start(activity);
         return true;
     }
 }

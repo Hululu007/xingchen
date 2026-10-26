@@ -42,7 +42,6 @@ import com.fongmi.android.tv.music.CloudMusicSource;
 import com.fongmi.android.tv.music.MusicController;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.ui.music.MusicGlassWire;
-import com.fongmi.android.tv.ui.music.MusicPlayerActivity;
 import com.fongmi.android.tv.ui.dialog.PanLoginDialog;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
@@ -929,7 +928,6 @@ public class MusicCloudActivity extends BaseActivity {
             queue.add(t);
         }
         MusicController.get().play(queue, position);
-        MusicPlayerActivity.start(this);
     }
 
     private void hideKeyboard() {

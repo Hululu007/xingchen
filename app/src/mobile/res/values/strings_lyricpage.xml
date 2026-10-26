@@ -1,5 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- 全屏歌词页新增串：只放本批新增文案，不改共享 strings.xml。 -->
-<resources>
-    <string name="player_lyric_style">歌词样式</string>
-</resources>

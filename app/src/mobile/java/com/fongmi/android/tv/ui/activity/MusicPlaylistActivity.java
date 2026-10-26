@@ -30,7 +30,6 @@ import com.fongmi.android.tv.music.MusicStore;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.ui.dialog.MusicOptionsDialog;
 import com.fongmi.android.tv.ui.music.MusicGlassWire;
-import com.fongmi.android.tv.ui.music.MusicPlayerActivity;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.Task;
@@ -454,7 +453,6 @@ public class MusicPlaylistActivity extends BaseActivity {
 
     private void playTrack(int position) {
         MusicController.get().play(new ArrayList<>(tracks), position, bigTitle, "list", listRouteParams());
-        MusicPlayerActivity.start(this);
     }
 
     private void shufflePlay() {
@@ -466,7 +464,6 @@ public class MusicPlaylistActivity extends BaseActivity {
         Collections.shuffle(shuffled);
         MusicController.get().setMode(MusicQueue.MODE_SHUFFLE);
         MusicController.get().play(shuffled, 0, bigTitle, "list", listRouteParams());
-        MusicPlayerActivity.start(this);
     }
 
     /** 通用“播放全部”——顺序入队从头播（与“随机播放”分开） */

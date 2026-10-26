@@ -24,7 +24,6 @@ import com.fongmi.android.tv.music.MusicController;
 import com.fongmi.android.tv.music.MusicRepository;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.ui.music.MusicGlassWire;
-import com.fongmi.android.tv.ui.music.MusicPlayerActivity;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.Task;
@@ -311,7 +310,6 @@ public class MusicChartDetailActivity extends BaseActivity {
 
     private void playTrack(int position) {
         MusicController.get().play(new ArrayList<>(tracks), position, bigTitle, "list", listRouteParams());
-        MusicPlayerActivity.start(this);
     }
 
     /** 切歌只刷旧在播行＋新在播行，不全量重绑。 */

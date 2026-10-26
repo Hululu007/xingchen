@@ -30,7 +30,6 @@ import com.fongmi.android.tv.music.MusicStore;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.ui.dialog.MusicOptionsDialog;
 import com.fongmi.android.tv.ui.music.MusicGlassWire;
-import com.fongmi.android.tv.ui.music.MusicPlayerActivity;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.Task;
@@ -660,7 +659,6 @@ public class MusicDownloadActivity extends BaseActivity {
     private void playTrack(int position) {
         // 入队时写队列级来源＝本页标题、route＝list（参数可重建本页，落点＝本页）
         MusicController.get().play(new ArrayList<>(tracks), position, bigTitle, "list", listRouteParams());
-        MusicPlayerActivity.start(this);
     }
 
     /** 通用“播放全部”——顺序入队从头播（与“随机播放”分开）。 */
@@ -681,7 +679,6 @@ public class MusicDownloadActivity extends BaseActivity {
         Collections.shuffle(shuffled);
         MusicController.get().setMode(MusicQueue.MODE_SHUFFLE);
         MusicController.get().play(shuffled, 0, bigTitle, "list", listRouteParams());
-        MusicPlayerActivity.start(this);
     }
 
     /** 切歌只刷旧在播行＋新在播行，不全量重绑（全量重绑整列表闪一下、封面重载）。 */

@@ -43,7 +43,6 @@ import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.ui.minibar.ListenMiniBar;
 import com.fongmi.android.tv.ui.music.MusicGlassDrawable;
 import com.fongmi.android.tv.ui.music.MusicGlassWire;
-import com.fongmi.android.tv.ui.music.MusicPlayerActivity;
 import com.fongmi.android.tv.ui.view.MoodWaveView;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
@@ -357,7 +356,6 @@ public class MusicActivity extends BaseActivity {
 
     private void openPlayer() {
         try {
-            MusicPlayerActivity.start(this);
         } catch (Throwable ignored) {
         }
     }

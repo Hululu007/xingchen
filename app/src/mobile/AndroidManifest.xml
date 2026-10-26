@@ -133,22 +133,6 @@
             android:screenOrientation="fullUser"
             android:theme="@style/Theme.XingChen.Music" />
 
-        <!-- documentLaunchMode=never（2026-10-26 任务卡补漏）：与 HomeActivity 同口径——
-             播放页不许成为任何文档式（NEW_DOCUMENT）投递的落点、另根一张任务卡；这类投递
-             一律按普通意图投进既有 affinity 任务。taskAffinity 与 launchMode 不写＝维持
-             应用默认 affinity＋standard，与全部音乐页同一任务归属，不许改成独立值。 -->
-        <activity
-            android:name=".ui.music.MusicPlayerActivity"
-            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout"
-            android:documentLaunchMode="never"
-            android:screenOrientation="fullUser"
-            android:theme="@style/Theme.XingChen.MusicPlayer" />
-
-        <activity
-            android:name=".ui.music.MusicLyricActivity"
-            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout"
-            android:screenOrientation="fullUser"
-            android:theme="@style/Theme.XingChen.MusicPlayer" />
 
         <activity
             android:name=".ui.activity.MusicPluginsActivity"

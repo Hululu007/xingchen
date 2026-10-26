@@ -34,7 +34,6 @@ import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.ui.dialog.MusicOptionsDialog;
 import com.fongmi.android.tv.ui.music.MusicGlassDrawable;
 import com.fongmi.android.tv.ui.music.MusicGlassWire;
-import com.fongmi.android.tv.ui.music.MusicPlayerActivity;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.SpiderDebug;
 import com.fongmi.android.tv.utils.XcFadeTransition;
@@ -902,7 +901,6 @@ public class MusicSearchActivity extends BaseActivity {
 
     private void playTrack(int position) {
         MusicController.get().play(new ArrayList<>(tracks), position, bigTitle, "list", listRouteParams());
-        MusicPlayerActivity.start(this);
     }
 
     /** list 路由参数照旧 search 取值（mode=search＋keyword＋sitePlatform 空＋playlistId=-1＋title=bigTitle，可重建本页） */

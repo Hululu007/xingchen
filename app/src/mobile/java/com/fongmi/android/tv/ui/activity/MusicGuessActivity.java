@@ -28,7 +28,6 @@ import com.fongmi.android.tv.music.MusicStore;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.ui.dialog.MusicOptionsDialog;
 import com.fongmi.android.tv.ui.music.MusicGlassWire;
-import com.fongmi.android.tv.ui.music.MusicPlayerActivity;
 import com.fongmi.android.tv.utils.CoverTextDrawable;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
@@ -260,7 +259,6 @@ public class MusicGuessActivity extends BaseActivity {
         if (trackIndex < 0 || trackIndex >= tracks.size()) return;
         try {
             MusicController.get().play(new ArrayList<>(tracks), trackIndex, bigTitle, "list", listRouteParams());
-            MusicPlayerActivity.start(this);
         } catch (Throwable ignored) {
         }
     }
@@ -277,7 +275,6 @@ public class MusicGuessActivity extends BaseActivity {
         try {
             MusicController.get().setMode(MusicQueue.MODE_SHUFFLE);
             MusicController.get().play(copy, 0, bigTitle, "list", listRouteParams());
-            MusicPlayerActivity.start(this);
         } catch (Throwable ignored) {
         }
     }

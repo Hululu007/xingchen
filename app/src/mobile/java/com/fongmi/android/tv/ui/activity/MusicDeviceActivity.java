@@ -33,7 +33,6 @@ import com.fongmi.android.tv.music.MusicStore;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.ui.dialog.MusicOptionsDialog;
 import com.fongmi.android.tv.ui.music.MusicGlassWire;
-import com.fongmi.android.tv.ui.music.MusicPlayerActivity;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.Task;
@@ -578,7 +577,6 @@ public class MusicDeviceActivity extends BaseActivity {
 
     private void playTrack(int position) {
         MusicController.get().play(new ArrayList<>(tracks), position, bigTitle, "list", listRouteParams());
-        MusicPlayerActivity.start(this);
     }
 
     private void playAllSequential() {
@@ -598,7 +596,6 @@ public class MusicDeviceActivity extends BaseActivity {
         Collections.shuffle(shuffled);
         MusicController.get().setMode(MusicQueue.MODE_SHUFFLE);
         MusicController.get().play(shuffled, 0, bigTitle, "list", listRouteParams());
-        MusicPlayerActivity.start(this);
     }
 
     private void refreshCurrentRow() {

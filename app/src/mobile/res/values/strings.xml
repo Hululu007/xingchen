@@ -309,7 +309,6 @@
     <string name="music_lyric_searching">正在搜索歌词…</string>
     <string name="music_lyric_found">歌词找到了</string>
     <string name="music_lyric_not_found">没找到歌词</string>
-    <string name="music_no_lyric">暂无歌词</string>
     <string name="music_word_by_word">逐字</string>
     <string name="music_set_clear_cache">清除音乐缓存</string>
     <string name="music_mobile_play_blocked">移动网络播放已关闭</string>
@@ -403,9 +402,7 @@
     <string name="home_square_sub">发现好歌单</string>
     <string name="home_continue">继续播放</string>
     <string name="music_search_cancel">取消</string>
-    <string name="music_lyric_chip_word">逐字</string>
     <string name="music_lyric_chip_amll">AMLL</string>
-    <string name="music_lyric_chip_line">逐行</string>
     <string name="music_lyric_chip_plain">纯文本</string>
     <string name="music_lyric_chip_none">无词</string>
     <string name="home_guess_sub">每日精选</string>

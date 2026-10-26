@@ -35,7 +35,7 @@ import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.ui.dialog.MusicOptionsDialog;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.Task;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.fongmi.android.tv.ui.music.MusicGlassDialogBuilder;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
@@ -314,7 +314,7 @@ public class MusicPluginsActivity extends BaseActivity {
             Notify.show("已重新加载");
         });
         box.addView(reload);
-        new MaterialAlertDialogBuilder(this)
+        new MusicGlassDialogBuilder(this)
                 .setTitle("插件运行状态")
                 .setView(box)
                 .setPositiveButton("知道了", null)
@@ -635,7 +635,7 @@ public class MusicPluginsActivity extends BaseActivity {
         lyricLine.setTextSize(14);
         lyricLine.setTextColor(lyricColor);
         box.addView(lyricLine);
-        new MaterialAlertDialogBuilder(this)
+        new MusicGlassDialogBuilder(this)
                 .setTitle(site.name == null ? "" : site.name)
                 .setView(box)
                 .setPositiveButton("知道了", null)
@@ -771,7 +771,7 @@ public class MusicPluginsActivity extends BaseActivity {
                         sw.setOnCheckedChangeListener((v, c) -> {
                         });
                         int n = MusicSourceManager.get().testedPluginCount();
-                        new MaterialAlertDialogBuilder(MusicPluginsActivity.this)
+                        new MusicGlassDialogBuilder(MusicPluginsActivity.this)
                                 .setTitle("暂时无法开启")
                                 .setMessage("多插件智能切换需要至少 2 个音源插件完成过「检测」（且至少一个平台可用）。当前已检测 "
                                         + n + " 个，请先在插件上执行「检测」后再开启。")
@@ -976,7 +976,7 @@ public class MusicPluginsActivity extends BaseActivity {
             }
             if (checked < 0) curMissing = true;
         }
-        MaterialAlertDialogBuilder builder = new MaterialAlertDialogBuilder(this)
+        MusicGlassDialogBuilder builder = new MusicGlassDialogBuilder(this)
                 .setTitle(LxPlatformSearch.platformName(platform) + " · 取链插件")
                 .setSingleChoiceItems(opts.toArray(new String[0]), checked, (d, which) -> {
                     if (which == 0) MusicStore.setPlatformPlugin(platform, null);
@@ -1045,7 +1045,7 @@ public class MusicPluginsActivity extends BaseActivity {
                             return;
                         }
                         // 瓜子更新弹窗：标题「音源插件发现新版本」＋「立即更新」／「忽略」＋副文
-                        new MaterialAlertDialogBuilder(MusicPluginsActivity.this)
+                        new MusicGlassDialogBuilder(MusicPluginsActivity.this)
                                 .setTitle("音源插件发现新版本")
                                 .setMessage((site.name == null ? "" : site.name) + "：" + v
                                         + "\n\n" + getString(R.string.music_plugin_update_desc))
@@ -1077,7 +1077,7 @@ public class MusicPluginsActivity extends BaseActivity {
     /** 删除插件确认（瓜子移除弹窗，仅本机文案；云端备份选项属排除项，不出）。
      * ⋮ 菜单删除与行内删除钮共用这一份（removeSite 连本地文件一起删）。 */
     private void confirmDeletePlugin(MusicSite site) {
-        new MaterialAlertDialogBuilder(this)
+        new MusicGlassDialogBuilder(this)
                 .setTitle("移除「" + (site.name == null ? "" : site.name) + "」")
                 .setMessage("该插件只存在于本机，移除后需要重新导入脚本才能恢复。")
                 .setPositiveButton("移除", (d, w) -> Task.execute(() -> {
@@ -1176,7 +1176,7 @@ public class MusicPluginsActivity extends BaseActivity {
         });
         autoRow.addView(sw);
         root.addView(autoRow);
-        new MaterialAlertDialogBuilder(this).setView(root)
+        new MusicGlassDialogBuilder(this).setView(root)
                 .setPositiveButton("完成", null)
                 .show();
     }
@@ -1207,7 +1207,7 @@ public class MusicPluginsActivity extends BaseActivity {
         retry.setPadding(0, dp(12), 0, 0);
         retry.setVisibility(View.GONE);
         box.addView(retry);
-        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
+        AlertDialog dialog = new MusicGlassDialogBuilder(this)
                 .setTitle("导入插件")
                 .setView(box)
                 .setPositiveButton("关闭", null)
@@ -1260,7 +1260,7 @@ public class MusicPluginsActivity extends BaseActivity {
                 + "2. 脚本会在本应用内执行代码，并可发起网络请求，请仅导入你信任的来源；\n"
                 + "3. 星辰不发布、不内置、不推荐任何第三方插件，在线播放与歌词由用户自行导入的脚本提供。\n"
                 + "4. 安装前会先试运行一次，确认能正常提供音源才会保留。";
-        new MaterialAlertDialogBuilder(this)
+        new MusicGlassDialogBuilder(this)
                 .setTitle("第三方插件导入确认")
                 .setMessage(msg)
                 .setPositiveButton("同意并导入", (d, w) -> onAgree.run())
@@ -1288,7 +1288,7 @@ public class MusicPluginsActivity extends BaseActivity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         etLp.topMargin = pad / 2;
         box.addView(et, etLp);
-        new MaterialAlertDialogBuilder(this)
+        new MusicGlassDialogBuilder(this)
                 .setTitle(R.string.music_plugin_import_url)
                 .setView(box)
                 .setPositiveButton(android.R.string.ok, (d, w) -> {

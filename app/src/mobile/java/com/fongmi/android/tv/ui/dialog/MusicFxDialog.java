@@ -153,6 +153,7 @@ public class MusicFxDialog extends BaseBottomSheetDialog {
         for (int i = 0; i < presets.size(); i++) {
             TextView chip = chip(presets.get(i), i == s.preset);
             final int idx = i;
+            chip.setEnabled(s.enabled); // 关态禁用态（E-P10；服务层另有不回存防线）
             chip.setOnClickListener(v -> {
                 if (!s.enabled) return;
                 MusicController.get().setFxPreset(idx);

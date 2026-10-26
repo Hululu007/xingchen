@@ -1633,6 +1633,9 @@ public class MusicPlaybackService extends MediaSessionService {
     }
 
     public void setFxPreset(int preset) {
+        // 关态防线（体检 E-P10）：总开关关时不写存档、不碰 audiofx，
+        // 不许关态下拉预设把存档改掉（听感不变、存档会变，下次开开关就生效误改值）
+        if (!MusicStore.isFxEnabled()) return;
         MusicStore.setFxPreset(preset);
         ensureFx();
         if (fxEqualizer == null) return;
@@ -1671,6 +1674,7 @@ public class MusicPlaybackService extends MediaSessionService {
     }
 
     public void setFxBandLevel(int band, int millibel) {
+        if (!MusicStore.isFxEnabled()) return; // 关态防线（E-P10）：不调 audiofx、不回存 preset/bands
         ensureFx();
         if (fxEqualizer == null) return;
         try {
@@ -1689,6 +1693,7 @@ public class MusicPlaybackService extends MediaSessionService {
     }
 
     public void setFxBass(int strength) {
+        if (!MusicStore.isFxEnabled()) return; // 关态防线（E-P10）：不写存档、不调 audiofx
         MusicStore.setFxBass(strength);
         ensureFx();
         if (fxBassBoost == null) return;
@@ -1700,6 +1705,7 @@ public class MusicPlaybackService extends MediaSessionService {
     }
 
     public void setFxVirtualizer(int strength) {
+        if (!MusicStore.isFxEnabled()) return; // 关态防线（E-P10）：不写存档、不调 audiofx
         MusicStore.setFxVirtualizer(strength);
         ensureFx();
         if (fxVirtualizer == null) return;

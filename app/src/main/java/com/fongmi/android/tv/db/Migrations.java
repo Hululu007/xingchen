@@ -127,6 +127,21 @@ public class Migrations {
         }
     };
 
+    public static final Migration MIGRATION_43_44 = new Migration(43, 44) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase database) {
+            // 歌单条目身份补插件段（与收藏 42→43 同型）：歌单唯一键此前只到
+            // (playlistId, trackId, platform)，FreeJS 各插件 platform 同为 freejs、
+            // trackId 是插件内编号，同 id 同 platform 异插件的另一首会被判「已在歌单」
+            // 拒入或互相顶掉。新列 plugin 存 rawJson 的 _plugin 戳；存量行留 null
+            // （SQLite 唯一索引里 null 互不相等、不会误冲突），读路径按 rawJson 戳比对。
+            // 旧表三段键本就唯一，四段键必然不冲突，存量行一行不丢。
+            database.execSQL("ALTER TABLE MusicPlaylistItem ADD COLUMN plugin TEXT");
+            database.execSQL("DROP INDEX IF EXISTS `index_MusicPlaylistItem_playlistId_trackId_platform`");
+            database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_MusicPlaylistItem_playlistId_trackId_platform_plugin` ON `MusicPlaylistItem` (`playlistId`, `trackId`, `platform`, `plugin`)");
+        }
+    };
+
     public static final Migration MIGRATION_42_43 = new Migration(42, 43) {
         @Override
         public void migrate(@NonNull SupportSQLiteDatabase database) {

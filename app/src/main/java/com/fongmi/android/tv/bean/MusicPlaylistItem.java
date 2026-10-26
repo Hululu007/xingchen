@@ -5,7 +5,7 @@ import androidx.room.Index;
 import androidx.room.PrimaryKey;
 
 /** 歌单里的歌 */
-@Entity(indices = {@Index("playlistId"), @Index(value = {"playlistId", "trackId", "platform"}, unique = true)})
+@Entity(indices = {@Index("playlistId"), @Index(value = {"playlistId", "trackId", "platform", "plugin"}, unique = true)})
 public class MusicPlaylistItem {
 
     @PrimaryKey(autoGenerate = true)
@@ -18,6 +18,11 @@ public class MusicPlaylistItem {
     private long duration;
     private String cover;
     private String platform;
+    /** 插件来源（rawJson 的 _plugin 戳落列，与收藏 MusicFavorite.plugin 同口径）：
+     *  FreeJS 各插件 platform 同为 freejs、trackId 是插件内编号，唯一键不带插件段时
+     *  同 id 同 platform 异插件的另一首会被判「已在歌单」拒入／互相顶掉。
+     *  无戳的源存空串；44 版前存量行为 null，读路径按 rawJson 戳比对（sameItemIdentity）。 */
+    private String plugin;
     private String rawJson;
     /** 本地文件路径（已下载歌的取链只认它，缺了就是死条目）；在线歌为空 */
     private String localPath;
@@ -94,6 +99,14 @@ public class MusicPlaylistItem {
 
     public void setPlatform(String platform) {
         this.platform = platform;
+    }
+
+    public String getPlugin() {
+        return plugin;
+    }
+
+    public void setPlugin(String plugin) {
+        this.plugin = plugin;
     }
 
     public String getRawJson() {

@@ -1268,27 +1268,29 @@ public class MusicRepository {
     }
 
     /**
-     * Worker 聚合全量接线缝（版本聚合用，与 cfLyricWord 同一映射要求）。
-     * 全量收：正文非空的版本都交 addVersion，由它本地解析正文定逐字签、
-     * 按 rawLrc 去重、跳过空版（酷我／咪咕／AMLL 空版到不了面板，不出空行）；
-     * 快路径与此不同：快路径只收本地解析带词时间的首个版本。
-     * 因此 Worker 行级版（如现阶段 QQ 行级）在这里只签逐行，不冒充逐字；
-     * QQ 逐字（QRC）目前拿不到，不写成已通。
+     * Worker 版本全量收集合并（版本聚合用）：逐个版本经 toMusicLyric 映射后走带候选
+     * 元数据的 addVersion——候选歌名／歌手／时长／源内 id 都是 Worker 回包原料
+     * （durationSec／songId，2026-10-26 Worker 补字段下发），瓜子定级与时长偏差照
+     * 瓜子口径在本地当场算（GzLyricMatch＋与跨源步同一偏差公式），不取 Worker 自带
+     * 的 match 当显示分（那是它内部排序分，与瓜子分档映射不是一回事）。
+     * 逐字签仍由 addVersion 本地解析正文判定，不认回包 kind 宣称；去重口径不变。
+     * B8：Worker 失败不许在本层吞掉——异常直接抛给调用方 catch 记不完整；空回包
+     * （response＝null）不是失败，聚合仍完整。
      */
-    /**
-     * B8：Worker 失败不许在本层吞掉——异常直接抛给 lyricRichAll 第 4 步的 catch，
-     * 由它记不完整（旧口径这里 catch 后返回部分列表，恢复判失效会误报）；空回包
-     * （response＝null）不是失败，返回空列表、聚合仍完整。
-     */
-    private static List<MusicLyric> cfLyricWordAll(MusicTrack track) {
-        List<MusicLyric> out = new ArrayList<>();
+    private static void cfLyricVersionsAll(MusicTrack track, List<LyricVersion> out, Set<String> seen) {
         CfLyricClient.CfResponse response = new CfLyricClient().fetch(track);
-        if (response == null) return out;
+        if (response == null) return;
         for (CfLyricClient.CfVersion version : response.versions) {
-            MusicLyric lyric = toMusicLyric(version);
-            if (lyric != null && hasRaw(lyric)) out.add(lyric);
+            MusicLyric lyric = normalizeRich(toMusicLyric(version));
+            if (lyric == null || !lyric.hasLyric()) continue;
+            double gzLevel = GzLyricMatch.level(track.title, track.artist, track.duration,
+                    version.songTitle, version.songArtist,
+                    version.durationSec > 0 ? version.durationSec * 1000L : 0, version.songId);
+            int deltaSec = track.duration > 0 && version.durationSec > 0
+                    ? (int) Math.round(Math.abs(version.durationSec * 1000L - track.duration) / 1000.0) : 0;
+            addVersion(out, seen, lyric, MATCH_CONTAINS, gzLevel,
+                    version.songTitle, version.songArtist, deltaSec);
         }
-        return out;
     }
 
     /** Worker 版本 → MusicLyric：只搬字段，不搬 kind 宣称的档位（档位一律由解析定）。 */
@@ -1699,11 +1701,12 @@ public class MusicRepository {
         Set<String> seen = new HashSet<>();
         if (track == null) return out;
         try {
-            for (MusicLyric l : cfLyricWordAll(track)) {
-                addVersion(out, seen, normalizeRich(l));
-            }
+            cfLyricVersionsAll(track, out, seen);
         } catch (Throwable ignored) {
         }
+        // 阶段一列表按定级降序（稳定排序，与面板头「按匹配度排列」同口径）
+        java.util.Collections.sort(out, (a, b) ->
+                LyricVersionOrdering.compare(a, b, MusicStore.LYRIC_PRIORITY_FOLLOW_SOURCE));
         return out;
     }
 
@@ -1825,12 +1828,10 @@ public class MusicRepository {
                 SpiderDebug.log("music", "lyricRichAll plugin search error %s", t.getMessage());
             }
         }
-        // 4. Worker 聚合（主来源，已接线）：cfLyricWordAll 全量交 addVersion，
-        // 逐字签仍由 addVersion 本地解析正文判定，不认回包 kind 宣称。
+        // 4. Worker 聚合（主来源，已接线）：cfLyricVersionsAll 带候选元数据合并，
+        // 瓜子定级与时长偏差本地算；逐字签仍由 addVersion 本地解析正文判定，不认回包 kind 宣称。
         try {
-            for (MusicLyric l : cfLyricWordAll(track)) {
-                addVersion(out, seen, normalizeRich(l));
-            }
+            cfLyricVersionsAll(track, out, seen);
         } catch (Throwable t) {
             complete = false;
             SpiderDebug.log("music", "lyricRichAll cf word error %s", t.getMessage());
@@ -1882,6 +1883,14 @@ public class MusicRepository {
             else if (v.isLineTimed()) line.add(v);
             else plain.add(v);
         }
+        // 分区内按定级降序（稳定排序）：分区序仍归优先级设置管，区内对齐面板头
+        // 「按匹配度排列」——旧口径区内是收集序，有定级的版本也不按分排。
+        java.util.Comparator<LyricVersion> byLevel = (a, b) ->
+                LyricVersionOrdering.compare(a, b, MusicStore.LYRIC_PRIORITY_FOLLOW_SOURCE);
+        java.util.Collections.sort(amll, byLevel);
+        java.util.Collections.sort(word, byLevel);
+        java.util.Collections.sort(line, byLevel);
+        java.util.Collections.sort(plain, byLevel);
         out.clear();
         if (MusicStore.LYRIC_PRIORITY_AMLL_FIRST.equals(priority)) out.addAll(amll);
         if (MusicStore.LYRIC_PRIORITY_LINE_BY_LINE.equals(priority)) {

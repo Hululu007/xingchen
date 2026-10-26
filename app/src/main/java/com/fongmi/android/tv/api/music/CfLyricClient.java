@@ -108,6 +108,8 @@ public class CfLyricClient {
                     version.kind = item.optString("kind");
                     version.lineCount = item.optInt("lineCount");
                     version.match = item.optInt("match");
+                    version.durationSec = item.optInt("durationSec");
+                    version.songId = item.optString("songId");
                     version.lyric = item.optString("lyric");
                     version.translation = item.optString("translation");
                     version.romanization = item.optString("romanization");
@@ -143,6 +145,10 @@ public class CfLyricClient {
         public String kind;
         public int lineCount;
         public int match;
+        /** 候选歌自身时长（秒，平台搜索元数据）：App 本地算偏差与瓜子定级的原料；0＝未知 */
+        public int durationSec;
+        /** 候选歌源内 id（瓜子定级门要用；空＝无 id，定级按瓜子口径淘汰） */
+        public String songId;
         public String lyric;
         public String translation;
         public String romanization;

@@ -205,7 +205,8 @@ public class PlayUrlBuilder115 {
      * 组装播放清单（潇洒哥定案口径）：总共只出两条——
      * 原画（/files/video 的 origin_file_url 优先，chrome/downurl 兜底，排第一）
      * ＋转码一条（接口多档里最高的那一档，其余档不列）。
-     * 默认起播＝转码条（原画不作默认，流量与起播速度考虑）；只有原画时默认原画。
+     * 默认起播＝原画（2026-10-26 潇洒哥点定，推翻先前自定的默认转码）；
+     * 没有原画条时回落转码条起播，不许一上来就报取址失败。
      * 什么都拿不到（无原画、无转码）走播放失败的既有报错路，不再回退「自动单条」。
      * m3u8 仅作 build() 内部取链手段保留，不以任何名字进本清单。
      */
@@ -232,9 +233,11 @@ public class PlayUrlBuilder115 {
                 Log.d(TAG, "原画取链失败: " + e.getMessage());
             }
         }
+        int originIndex = -1;
         if (!TextUtils.isEmpty(origin)) {
             originUrl = origin;
             raw.add(new RawEntry("原画", origin, false));
+            originIndex = raw.size() - 1;
         }
 
         // 转码只出一条：接口多档里最高的那一档（同址即原画的那档跳过；
@@ -254,11 +257,9 @@ public class PlayUrlBuilder115 {
                 bestName = tName;
             }
         }
-        int transIndex = -1;
         if (!TextUtils.isEmpty(bestUrl)) {
             String label = TextUtils.isEmpty(bestName) ? "转码" : ("转码 " + bestName);
             raw.add(new RawEntry(label, bestUrl, bestUrl.toLowerCase().contains(".m3u8")));
-            transIndex = raw.size() - 1;
         }
 
         if (raw.isEmpty()) {
@@ -267,13 +268,15 @@ public class PlayUrlBuilder115 {
         }
 
         java.util.List<PlayEntry> entries = new java.util.ArrayList<>();
+        // 默认起播＝原画条；没有原画条时 originIndex＝-1、谁都不命中，defaultIndex 留 0，
+        // 而此时清单里只有转码一条，0 正是转码条——回落口径由此成立，不必另设分支。
         int defaultIndex = 0;
         for (int i = 0; i < raw.size(); i++) {
             RawEntry re = raw.get(i);
             String proxyUrl = viaProxy(re.url, pc, re.isM3u8);
             if (TextUtils.isEmpty(proxyUrl)) throw new Exception("代理启动失败");
             entries.add(new PlayEntry(re.label, proxyUrl, re.isM3u8));
-            if (i == transIndex) defaultIndex = entries.size() - 1;
+            if (i == originIndex) defaultIndex = entries.size() - 1;
         }
         Log.d(TAG, "播放清单已组装: " + entries.size() + " 档, 默认第 " + (defaultIndex + 1) + " 档");
         return new PlayList(entries, defaultIndex);

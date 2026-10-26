@@ -662,7 +662,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     /**
      * 115 网盘文件直达播放：不走 SiteApi 的推送详情合成，播放会话归网盘自己。
      * episodesJson 形态与 startLocal 同一套（flags 自带线路名）：单线路「115网盘」，
-     * 选集即画质档（原画/转码多档/自动画质），每集 url 是已包本机代理的地址；
+     * 选集即画质档（原画/转码两条，默认起播原画），每集 url 是已包本机代理的地址；
      * url 参数＝默认起播档的地址（与 episodesJson 中 selIdx 那集一致），
      * 点播走 playerContent(PUSH) 裸地址分支由 Source.fetch 直通
      * （代理地址的 m3u8 标记在 Source.fetch 里按 Proxy115 登记判定）。

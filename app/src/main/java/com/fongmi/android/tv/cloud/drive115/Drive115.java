@@ -717,7 +717,7 @@ public class Drive115 implements CloudDrive {
     }
 
     /**
-     * 播放清单（原画 + 转码多档 + 自动画质，地址已包本机代理）：
+     * 播放清单（共两条：原画＋转码最高档一条，地址已包本机代理，默认起播原画）：
      * 供网盘文件点击走自己的播放会话（选集即画质档）。
      */
     public PlayUrlBuilder115.PlayList playList(CloudFile file) throws Exception {

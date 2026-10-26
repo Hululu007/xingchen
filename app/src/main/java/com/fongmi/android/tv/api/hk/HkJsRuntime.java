@@ -560,9 +560,15 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             // W6：8.83 每次求值全新 scope，Module._cache 天然全新。我方共享 scope 的
             // Module._cache 会跨求值泄漏（同规则内页间/懒加载求值间），求值完即重置，
             // 与原版"每求值 fresh"对齐。runScript 那条路本就全新 scope，不受影响。
+            // 重置的抓手：Module 是 Hikerurl.js 里 $require IIFE 的闭包私有函数，从不挂上
+            // 共享 scope——旧片段在共享 scope 上求值，typeof Module 恒为 'undefined'，
+            // 重置从未执行（空转）。官方资产把缓存 Map 本体挂在 require 上对外可见
+            // （Hikerurl.js: require.cache = Module._cache），经 $.require.cache.clear()
+            // 清空的正是加载器读的那只 Map。回归：hk-w6-regression/W6Test 三模式对照
+            // （死重置＝旧态串扰＋undefined.map 复现；真重置与 8.83 fresh 逐项同果）。
             try {
                 rhinoCx.evaluateString(scope,
-                        "try{ if (typeof Module!=='undefined' && Module._cache) Module._cache = new Map(); }catch(e){}",
+                        "try{ if (typeof $!=='undefined' && $.require && $.require.cache) $.require.cache.clear(); }catch(e){}",
                         "hk-modcache-reset", 1, null);
             } catch (Throwable ignored) {
             }

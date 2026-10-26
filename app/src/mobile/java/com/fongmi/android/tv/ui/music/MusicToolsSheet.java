@@ -663,29 +663,22 @@ public class MusicToolsSheet {
         return "经典";
     }
 
+    /** 已真正落地的主题才进面板（他的「不摆即将上线占位」令）：其余主题没做完之前不许摆名占位，
+     *  2026-10-26 他点名时面板里 7 张卡只有经典是真的、流光 CD 预览还是一块白。做完一个加回一个。 */
+    private static final String[] BUILT_THEME_IDS = {MusicPlayerSettings.THEME_CLASSIC};
+
     private void showTheme() {
         clearPanel();
         mPanelBox.addView(subHeader("播放页主题", this::showMain));
-        TextView desc = new TextView(mActivity);
-        desc.setText("选择播放详情页的整体布局，新增主题会自动出现在这里。");
-        desc.setTextColor(TEXT_LOW);
-        desc.setTextSize(11);
-        desc.setLineSpacing(0, 16f / 11f);
-        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        dlp.leftMargin = dp(4);
-        dlp.topMargin = dp(6);
-        dlp.bottomMargin = dp(10);
-        desc.setLayoutParams(dlp);
-        mPanelBox.addView(desc);
+        // 瓜子原面板有一行说明字，他忌介绍文字，不摆（同加歌单面板口径）
 
         android.widget.HorizontalScrollView hs = new android.widget.HorizontalScrollView(mActivity);
         hs.setHorizontalScrollBarEnabled(false);
         LinearLayout row = new LinearLayout(mActivity);
         row.setOrientation(LinearLayout.HORIZONTAL);
         String cur = MusicPlayerSettings.getTheme();
-        for (int i = 0; i < THEME_IDS.length; i++) {
-            final String id = THEME_IDS[i];
+        for (int i = 0; i < BUILT_THEME_IDS.length; i++) {
+            final String id = BUILT_THEME_IDS[i];
             LinearLayout card = new LinearLayout(mActivity);
             card.setOrientation(LinearLayout.VERTICAL);
             LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(dp(112), ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -715,7 +708,7 @@ public class MusicToolsSheet {
             }
             card.addView(previewBox);
             TextView nm = new TextView(mActivity);
-            nm.setText(THEME_NAMES[i]);
+            nm.setText(themeName(id));
             nm.setTextColor(TEXT_HIGH);
             nm.setTextSize(12);
             nm.setGravity(Gravity.CENTER);

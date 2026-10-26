@@ -150,7 +150,7 @@ public class MusicNotificationProvider implements MediaNotification.Provider {
                 } catch (Throwable ignored) {
                     continue;
                 }
-                if (!button.slots.isEmpty()) {
+                if (button.slots != null && button.slots.size() > 0) {
                     if (button.slots.get(0) == androidx.media3.session.CommandButton.SLOT_BACK && back < 0) back = index;
                     else if (button.slots.get(0) == androidx.media3.session.CommandButton.SLOT_CENTRAL && central < 0) central = index;
                     else if (button.slots.get(0) == androidx.media3.session.CommandButton.SLOT_FORWARD && forward < 0) forward = index;

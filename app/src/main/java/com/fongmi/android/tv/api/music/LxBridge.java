@@ -38,7 +38,11 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.PriorityBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -61,7 +65,36 @@ public class LxBridge {
     /** 宿主能力版本（脚本按它分支选 utils 语义，如 bufToString） */
     public static final String LX_VERSION = "1.0.0";
 
-    private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    /**
+     * 桥内单线程（QuickJS 上下文只能串行）改优先队列：取链（musicUrl）优先于
+     * 取词（lyric）/取图（pic）——与 FreeJsBridge 同口径：点歌受理那一刻服务侧
+     * 取词同刻进同一座桥排队，取链排在慢取词后面就白等几秒，重启首播最明显。
+     * 只调排队顺序，不抢占正在跑的那条（JS 不可抢占，单线程桥的固有限制）。
+     */
+    private static final int PRIO_NORMAL = 0;
+    private static final int PRIO_HIGH = 1;
+    private static final AtomicLong TASK_SEQ = new AtomicLong();
+
+    private static final class PrioTask<T> extends FutureTask<T> implements Comparable<PrioTask<?>> {
+        private final int prio;
+        private final long seq;
+
+        PrioTask(Callable<T> callable, int prio, long seq) {
+            super(callable);
+            this.prio = prio;
+            this.seq = seq;
+        }
+
+        @Override
+        public int compareTo(PrioTask<?> other) {
+            int byPrio = Integer.compare(other.prio, prio);
+            return byPrio != 0 ? byPrio : Long.compare(seq, other.seq);
+        }
+    }
+
+    private final ExecutorService executor = new ThreadPoolExecutor(1, 1,
+            0L, TimeUnit.MILLISECONDS, new PriorityBlockingQueue<>(),
+            Executors.defaultThreadFactory());
     private final MusicSite site;
     private final String scriptJs;
 
@@ -102,7 +135,18 @@ public class LxBridge {
     }
 
     private <T> Future<T> submit(Callable<T> callable) {
-        return executor.submit(callable);
+        return submitPrio(callable, PRIO_NORMAL);
+    }
+
+    /** 取链（musicUrl）/拆桥专用高优先提交：排在已排队的取词/取图前面 */
+    private <T> Future<T> submitHigh(Callable<T> callable) {
+        return submitPrio(callable, PRIO_HIGH);
+    }
+
+    private <T> Future<T> submitPrio(Callable<T> callable, int prio) {
+        PrioTask<T> task = new PrioTask<>(callable, prio, TASK_SEQ.incrementAndGet());
+        executor.execute(task);
+        return task;
     }
 
     /* ---------------- 初始化 ---------------- */
@@ -280,7 +324,8 @@ public class LxBridge {
     public String request(String source, String action, JsonObject musicInfo, String quality) throws Exception {
         java.util.concurrent.Future<String> bridgeFuture = null;
         try {
-            bridgeFuture = submit(() -> {
+            // 取链走高优先、取词/取图维持原序（见 executor 注释）
+            java.util.concurrent.Callable<String> bridgeCall = () -> {
                 if (requestHandler == null) throw new IllegalStateException("脚本没有注册解析入口");
                 JsonObject info = new JsonObject();
                 info.add("musicInfo", musicInfo);
@@ -293,7 +338,8 @@ public class LxBridge {
                 Object argObj = ctx.parse(arg.toString());
                 Object result = requestHandler.call(argObj);
                 return awaitPromise(result);
-            });
+            };
+            bridgeFuture = "musicUrl".equals(action) ? submitHigh(bridgeCall) : submit(bridgeCall);
             // P3：40 秒内层上限到点必须取消桥任务，不只放弃等待——否则桥单线程一直被
             // 挂死的脚本占着，后续同插件请求全排队（取消发中断信号，脚本内网络等待会响应中断；
             // 脚本本身死循环则仍占桥线程至其返回，这是单线程桥的固有限制，见交卷清单）
@@ -417,7 +463,8 @@ public class LxBridge {
 
     public void destroy() {
         try {
-            submit(() -> {
+            // 拆桥走高优先：别在排队的取词后面干等（后面还有 5 秒兜底与 shutdownNow）
+            submitHigh(() -> {
                 if (requestHandler != null) {
                     try {
                         requestHandler.release();

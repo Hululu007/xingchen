@@ -137,6 +137,10 @@ public class CloudDriveActivity extends BaseActivity {
         binding.recycler.setLayoutManager(new LinearLayoutManager(this));
         adapter = new FileAdapter();
         binding.recycler.setAdapter(adapter);
+        // 流畅度 D8：行高恒定（行布局 minHeight 68dp＋两行单行文字、名称再长也单行省略），
+        // 固定尺寸免逐行重测；默认动画器在整表刷新下只记账、无实际动画收益，摘掉
+        binding.recycler.setHasFixedSize(true);
+        binding.recycler.setItemAnimator(null);
         binding.recycler.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override
             public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {

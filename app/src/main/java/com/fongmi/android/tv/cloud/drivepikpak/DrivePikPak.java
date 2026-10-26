@@ -882,7 +882,7 @@ public class DrivePikPak implements CloudDrive {
                 .put("parent_id", cid == null ? "" : cid)
                 .put("limit", String.valueOf(pageSize))
                 .put("page_token", pageToken)
-                .put("thumbnail_size", "SIZE_LARGE")
+                .put("thumbnail_size", "SIZE_SMALL")
                 .put("with_audit", "true")
                 .put("filters", new JSONObject()
                         .put("phase", new JSONObject().put("eq", "PHASE_TYPE_COMPLETE"))
@@ -950,7 +950,7 @@ public class DrivePikPak implements CloudDrive {
         JSONObject query = new JSONObject()
                 .put("limit", String.valueOf(pageSize))
                 .put("page_token", pageToken)
-                .put("thumbnail_size", "SIZE_LARGE")
+                .put("thumbnail_size", "SIZE_SMALL")
                 .put("with_audit", "true")
                 .put("filters", new JSONObject()
                         .put("name", new JSONObject().put("prefix", kw))
@@ -1127,7 +1127,7 @@ public class DrivePikPak implements CloudDrive {
         JSONObject query = new JSONObject()
                 .put("_magic", "2021")
                 .put("usage", "FETCH")
-                .put("thumbnail_size", "SIZE_LARGE");
+                .put("thumbnail_size", "SIZE_SMALL");
         JSONObject d = api("GET", "/drive/v1/files/" + file.getId(), query, null, true);
         // 优先原画媒体流
         JSONArray medias = d.optJSONArray("medias");

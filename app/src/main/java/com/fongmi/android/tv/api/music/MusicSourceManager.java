@@ -756,6 +756,19 @@ public class MusicSourceManager {
     }
 
     /**
+     * 只读已建桥的落雪声明（不建桥、不查隔离／屏蔽）：枚举搜索排专用。
+     * 声明是元数据，隔离／屏蔽管的是执行（建桥／取链）；旧枚举走 lxBridgeOf，
+     * 检查在查缓存之前先抛错，一个插件进隔离／被屏蔽就把他声明的全部平台
+     * 从搜索排里整批吞掉（壳子平台搜索本身根本不经插件）。没建过桥返回 null，
+     * 调用方再走 lxBridgeOf 建桥读声明（建桥该过检查照旧过）。
+     */
+    public java.util.Map<String, LxBridge.LxSource> lxSourcesCached(MusicSite site) {
+        if (site == null || TextUtils.isEmpty(site.srcUrl) || !isLx(site)) return null;
+        LxBridge b = lxBridges.get(site.srcUrl);
+        return b == null ? null : b.sources();
+    }
+
+    /**
      * 按 track.rawJson 里的 _plugin 找桥（FreeJS 曲目专用）。
      * 归属不明就是不明：宁可返回 null 让上层按失败收口并留日志，
      * 绝不默默换别的插件取址——换源取址是串源，比播不了更坏。

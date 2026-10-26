@@ -68,9 +68,17 @@ public class LxMusicSource implements MusicSource {
         // 全部插件都屏蔽了该平台还摆出来，点进去搜得到却永远取不了链（摆设第二张脸）
         for (MusicSite plugin : sites()) {
             try {
-                LxBridge b = MusicSourceManager.get().lxBridgeOf(plugin);
-                if (b == null) continue;
-                for (Map.Entry<String, LxBridge.LxSource> e : b.sources().entrySet()) {
+                // 声明先读已建桥的缓存（不经隔离／屏蔽检查，见 lxSourcesCached）：
+                // 一个插件被屏蔽不许把他声明的平台从搜索排整批带走；
+                // 没建过桥才走 lxBridgeOf 建桥读（建桥该过的检查照旧）。
+                java.util.Map<String, LxBridge.LxSource> decls =
+                        MusicSourceManager.get().lxSourcesCached(plugin);
+                if (decls == null) {
+                    LxBridge b = MusicSourceManager.get().lxBridgeOf(plugin);
+                    if (b == null) continue;
+                    decls = b.sources();
+                }
+                for (Map.Entry<String, LxBridge.LxSource> e : decls.entrySet()) {
                     String key = e.getKey();
                     if (!LxPlatformSearch.supported(key)) continue;
                     if (!e.getValue().actions.contains("musicUrl")) continue;

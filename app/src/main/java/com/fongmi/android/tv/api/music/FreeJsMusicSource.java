@@ -125,8 +125,82 @@ public class FreeJsMusicSource implements MusicSource {
             }
             tracks = kept;
         }
+        if (tracks != null && !tracks.isEmpty()) backfillFromShellTwin(site, keyword, page, tracks);
         boolean end = r == null || r.isEnd() || tracks == null || tracks.isEmpty();
         return new com.fongmi.android.tv.music.MusicSearchPage(tracks, end);
+    }
+
+    /**
+     * 壳子同平台后补：插件回包缺时长／封面时，拿壳子直连同平台同词同页的结果按歌对齐回填。
+     * 定案背景：预置酷我（元力KW）的 formatMusicItem 根本不回 duration 字段、artwork 短路径
+     * 为空时回 undefined——搜索行时长恒 --:--、部分行无封面，是插件不给、不是壳子解析漏。
+     * 只认规范身份恰为五平台的插件（siteIdentityOf 的 lxplat: 前缀且本站不是 lx:// 合成项）；
+     * 对齐键＝歌名＋第一位歌手（各家歌手分隔符不一，先切第一位再比）；只填空缺、不覆盖插件
+     * 已给的值；后补失败只记日志，绝不拖垮插件本身的搜索结果。
+     */
+    private void backfillFromShellTwin(MusicSite site, String keyword, int page,
+                                       List<MusicTrack> tracks) {
+        String identity = com.fongmi.android.tv.music.MusicRepository.siteIdentityOf(site);
+        if (identity == null || !identity.startsWith("lxplat:")) return;
+        if (site.srcUrl != null && site.srcUrl.startsWith("lx://")) return;
+        String key = identity.substring("lxplat:".length());
+        if (!LxPlatformSearch.supported(key) || LxPlatformSearch.YT.equals(key)) return;
+        boolean need = false;
+        for (MusicTrack t : tracks) {
+            if (t != null && (t.duration <= 0 || t.cover == null || t.cover.isEmpty())) {
+                need = true;
+                break;
+            }
+        }
+        if (!need) return;
+        try {
+            List<MusicTrack> twins = LxPlatformSearch.search(key, keyword, Math.max(1, page));
+            if (twins == null || twins.isEmpty()) return;
+            java.util.Map<String, MusicTrack> bySong = new java.util.HashMap<>();
+            for (MusicTrack w : twins) {
+                if (w != null) bySong.putIfAbsent(songKey(w), w);
+            }
+            int filledDur = 0, filledCover = 0;
+            for (MusicTrack t : tracks) {
+                if (t == null) continue;
+                MusicTrack w = bySong.get(songKey(t));
+                if (w == null) continue;
+                if (t.duration <= 0 && w.duration > 0) {
+                    t.duration = w.duration;
+                    filledDur++;
+                }
+                if ((t.cover == null || t.cover.isEmpty())
+                        && w.cover != null && !w.cover.isEmpty()) {
+                    t.cover = w.cover;
+                    filledCover++;
+                }
+                if ((t.album == null || t.album.isEmpty())
+                        && w.album != null && !w.album.isEmpty()) {
+                    t.album = w.album;
+                }
+            }
+            if (filledDur > 0 || filledCover > 0) {
+                SpiderDebug.log("music", "freejs twin backfill site=%s plat=%s dur=%d cover=%d",
+                        site.name, key, filledDur, filledCover);
+            }
+        } catch (Throwable t) {
+            SpiderDebug.log("music", "freejs twin backfill fail site=%s %s",
+                    site.name, t.getMessage());
+        }
+    }
+
+    /** 后补对齐键：歌名（去空白小写）＋第一位歌手（按各家常见分隔符切第一位） */
+    private static String songKey(MusicTrack t) {
+        String title = t.title == null ? "" : t.title.trim().toLowerCase(java.util.Locale.ROOT);
+        String artist = t.artist == null ? "" : t.artist.trim().toLowerCase(java.util.Locale.ROOT);
+        for (String sep : new String[]{"/", "&", ",", "、", "·"}) {
+            int i = artist.indexOf(sep);
+            if (i > 0) {
+                artist = artist.substring(0, i).trim();
+                break;
+            }
+        }
+        return title + "|" + artist;
     }
 
     @Override

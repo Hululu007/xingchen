@@ -21,6 +21,16 @@ public class MiniBarPolicy {
     /** 会话标识（听书：audiobook / tts；以后音乐：music）。 */
     public interface Session {
         String id();
+
+        /**
+         * 本会话是否吃「暂停超 10 秒自动关闭」。默认吃（听书口径：消失＝关闭）；
+         * 音乐会话覆写为 false——音乐迷你条是首页常驻条，有当前曲/队列时必须在，
+         * 暂停自动关会在用户已回首页后才到期开火、把刚补注册回来的条连根摘除，
+         * 且摘除后停住的播放器不再发任何事件、没有同步能把它带回来（1.4.45 真机实证）。
+         */
+        default boolean autoCloseOnPause() {
+            return true;
+        }
     }
 
     /** 策略触发的副作用，由宿主实现。 */
@@ -152,6 +162,7 @@ public class MiniBarPolicy {
     private synchronized void onTimerFire(String id) {
         State st = sessions.get(id);
         if (st == null) return;
+        if (!st.session.autoCloseOnPause()) return;
         if (st.playing || st.pageForeground || st.pauseStartMs < 0) return;
         if (clock.now() - st.pauseStartMs < AUTO_CLOSE_MS) {
             // 被中途打断又重计时过，补剩余时间（防御）
@@ -166,6 +177,7 @@ public class MiniBarPolicy {
     /** 按「暂停起始时刻」起 10 秒计时；只在「别处暂停」时跑。 */
     private void armPauseTimerLocked(State st) {
         timer.cancel();
+        if (!st.session.autoCloseOnPause()) return;
         if (st.playing || st.pageForeground || st.pauseStartMs < 0) return;
         long elapsed = clock.now() - st.pauseStartMs;
         long remain = AUTO_CLOSE_MS - elapsed;

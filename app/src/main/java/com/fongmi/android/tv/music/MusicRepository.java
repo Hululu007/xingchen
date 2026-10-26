@@ -1285,6 +1285,10 @@ public class MusicRepository {
         try {
             CfLyricClient.CfResponse response = new CfLyricClient().fetch(track);
             if (response == null) return null;
+            // 回包顺手种版本缓存阶段一快照＋记结局（与 cfLyricVersionsAll 同口径）：
+            // 版本面板首开免再发一趟阶段一请求，空态真因也不必等面板自己取过才有
+            sLastCfNote = response.fetchNote;
+            seedVersionsFromBundle(track, response);
             for (CfLyricClient.CfVersion version : response.versions) {
                 MusicLyric lyric = toMusicLyric(version);
                 if (hasWordLyric(lyric)) {
@@ -1355,6 +1359,16 @@ public class MusicRepository {
         if (response == null) return;
         sLastCfNote = response.fetchNote;
         int before = out.size();
+        collectCfVersions(track, response, out, seen);
+        // 诊断（版本面板空态定案用）：回包版本数与实际并入数分开记——回包非空却并入 0
+        // 与回包为空是两种病，不许再混成一句「没回来」。
+        SpiderDebug.log("music", "cf versions parsed=%d added=%d note=%s",
+                response.versions.size(), out.size() - before, String.valueOf(response.fetchNote));
+    }
+
+    /** Worker 回包 → 版本列表合并（fetch 与收集拆开：起播预取已拿到回包时直接收集种缓存，不再多发一趟） */
+    private static void collectCfVersions(MusicTrack track, CfLyricClient.CfResponse response,
+                                          List<LyricVersion> out, Set<String> seen) {
         for (CfLyricClient.CfVersion version : response.versions) {
             MusicLyric lyric = normalizeRich(toMusicLyric(version));
             if (lyric == null || !lyric.hasLyric()) continue;
@@ -1366,10 +1380,6 @@ public class MusicRepository {
             addVersion(out, seen, lyric, MATCH_CONTAINS, gzLevel,
                     version.songTitle, version.songArtist, deltaSec);
         }
-        // 诊断（版本面板空态定案用）：回包版本数与实际并入数分开记——回包非空却并入 0
-        // 与回包为空是两种病，不许再混成一句「没回来」。
-        SpiderDebug.log("music", "cf versions parsed=%d added=%d note=%s",
-                response.versions.size(), out.size() - before, String.valueOf(response.fetchNote));
     }
 
     /** 最近一次 Worker 取词的结局分类（CfLyricClient.NOTE_*）：版本面板空态显真因用 */
@@ -1845,9 +1855,56 @@ public class MusicRepository {
             SpiderDebug.log("music", "lyricWorkerAll error %s", t.getMessage());
         }
         // 阶段一列表按定级降序（稳定排序，与面板头「按匹配度排列」同口径）
+        sortWorkerVersions(out);
+        return out;
+    }
+
+    /** 阶段一（Worker）版本列表定级降序：lyricWorkerAll 与起播种子同一口径 */
+    private static void sortWorkerVersions(List<LyricVersion> out) {
         java.util.Collections.sort(out, (a, b) ->
                 LyricVersionOrdering.compare(a, b, MusicStore.LYRIC_PRIORITY_FOLLOW_SOURCE));
-        return out;
+    }
+
+    /**
+     * 版本面板取数（共用层）：进程内缓存＋在飞合并＋全量总时限收口在 LyricVersionsCache，
+     * 这里只提供身份键与两阶段链。面板打开先上缓存、缺失/过期才后台补搜——治「每次打开
+     * 都从头全量重搜、搜索态收不住」。force＝手动重搜口径：先作废旧账再取。
+     * 回调在后台线程触发（缓存命中在调用线程、在飞结算在加载线程），消费方自行切主线程。
+     */
+    public static void lyricVersions(final MusicTrack track, boolean force, LyricVersionsCache.Callback callback) {
+        if (track == null || callback == null) return;
+        String key = MusicLyricCache.key(track);
+        if (force) LyricVersionsCache.invalidate(key);
+        LyricVersionsCache.request(key, new LyricVersionsCache.LoadChain() {
+            @Override
+            public List<LyricVersion> loadWorker() {
+                return lyricWorkerAll(track);
+            }
+
+            @Override
+            public LyricVersionsCache.FullResult loadFull() {
+                LyricRichAllResult r = lyricRichAllDetailed(track, false);
+                return new LyricVersionsCache.FullResult(r.versions, r.complete);
+            }
+        }, callback);
+    }
+
+    /**
+     * 起播取词已拿到 Worker 回包时，把版本列表顺手种进版本缓存当阶段一快照：
+     * 回包版本此前取回即弃（快路径只挑一份逐字词），面板首开只能从头发一整轮；
+     * 种下后首开即有阶段一、只剩全量在后台跑。
+     */
+    private static void seedVersionsFromBundle(MusicTrack track, CfLyricClient.CfResponse response) {
+        try {
+            if (track == null || response == null || response.versions == null || response.versions.isEmpty()) return;
+            List<LyricVersion> seed = new ArrayList<>();
+            Set<String> seen = new HashSet<>();
+            collectCfVersions(track, response, seed, seen);
+            if (seed.isEmpty()) return;
+            sortWorkerVersions(seed);
+            LyricVersionsCache.seedWorker(MusicLyricCache.key(track), seed);
+        } catch (Throwable ignored) {
+        }
     }
 
     /**

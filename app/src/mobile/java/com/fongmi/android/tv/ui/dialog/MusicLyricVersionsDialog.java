@@ -19,6 +19,7 @@ import com.fongmi.android.tv.bean.music.LyricVersion;
 import com.fongmi.android.tv.bean.music.MusicLyric;
 import com.fongmi.android.tv.bean.music.MusicTrack;
 import com.fongmi.android.tv.music.GzLyricMatch;
+import com.fongmi.android.tv.music.LyricVersionsCache;
 import com.fongmi.android.tv.music.MusicRepository;
 import com.fongmi.android.tv.player.lyrics.LyricsParser;
 import com.fongmi.android.tv.ui.music.MusicGlassDrawable;
@@ -32,8 +33,9 @@ import java.util.List;
 /**
  * 歌词版本面板（瓜子 PlayerVersionSheet 构成）：头「歌词版本」＋关闭、歌行（封面/歌名/歌手/
  * 「N 个版本 · 按匹配度排列」）、筛选签（全部/逐字/逐行/翻译/音译/文本）、版本卡（来源＋行数、
- * 候选歌名·歌手、逐字/翻译/音译标签、匹配度）。数据走 MusicRepository.lyricRichAll 全量聚合，
- * 点选即生效并存手动选择（saveManualLyricChoice，下次同曲恢复）。底走自家液态玻璃（不用白底）。
+ * 候选歌名·歌手、逐字/翻译/音译标签、匹配度）。数据走 MusicRepository.lyricVersions
+ * （共用层 LyricVersionsCache：同歌缓存＋在飞合并＋全量总时限收口，底层仍是阶段一 Worker
+ * ＋阶段二 lyricRichAll 全量聚合），点选即生效并存手动选择（saveManualLyricChoice，下次同曲恢复）。底走自家液态玻璃（不用白底）。
  * 当前版判定：正文与在播歌词正文一致（同文版本聚合时已去重，只留首个）。
  */
 public class MusicLyricVersionsDialog extends BaseBottomSheetDialog {
@@ -169,28 +171,33 @@ public class MusicLyricVersionsDialog extends BaseBottomSheetDialog {
         }
     }
 
+    /** 本次打开已见的阶段一最佳列表（全量比它还少时不回退丢版本，与旧两阶段口径一致） */
+    private volatile List<LyricVersion> partialBest;
+
     private void loadVersions() {
         final MusicTrack t = track;
-        Task.execute(() -> {
-            // 阶段一：先只问主来源 Worker，回来就上桌——不等全链（跨源逐家搜＋平台直连＋AMLL
-            // 串行收尾，真机上要等很久，面板看着就是摆设，他点名）。
-            List<LyricVersion> first = null;
-            try {
-                first = MusicRepository.lyricWorkerAll(t);
-            } catch (Throwable ignored) {
+        // 取数走仓库共用层（LyricVersionsCache）：同歌已结算直接回账、在飞只登记等结算、
+        // 阶段二有总时限收口——不再每次打开都从头发一整轮全量聚合（他点名「总是重复加载」）。
+        // 阶段一/结算的发布口径不变：阶段一回来先上桌，全量收完替换为全量结果。
+        Task.execute(() -> MusicRepository.lyricVersions(t, false, new LyricVersionsCache.Callback() {
+            @Override
+            public void onPartial(List<LyricVersion> vs) {
+                if (vs != null && !vs.isEmpty()) {
+                    partialBest = vs;
+                    publishVersions(t, vs, false);
+                } else {
+                    publishStageFallback(t);
+                }
             }
-            if (first != null && !first.isEmpty()) publishVersions(t, first, false);
-            else publishStageFallback(t);
-            // 阶段二：全量聚合（与自动恢复同一条链，口径不动），收完替换为全量结果。
-            List<LyricVersion> full = null;
-            try {
-                full = MusicRepository.lyricRichAll(t, false);
-            } catch (Throwable ignored) {
+
+            @Override
+            public void onSettled(List<LyricVersion> vs, boolean complete) {
+                List<LyricVersion> use = vs == null ? new ArrayList<>() : vs;
+                List<LyricVersion> first = partialBest;
+                if (first != null && use.size() < first.size()) use = first;
+                publishVersions(t, use, true);
             }
-            List<LyricVersion> vs = full == null ? new ArrayList<>() : full;
-            if (first != null && vs.size() < first.size()) vs = first;
-            publishVersions(t, vs, true);
-        });
+        }));
     }
 
     /** 阶段一（主来源 Worker）没回来时的中间态：把状态说清，别与「还在搜」同形无信息，

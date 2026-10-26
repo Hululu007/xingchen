@@ -146,6 +146,9 @@ public class CloudDriveActivity extends BaseActivity {
             finish();
             return;
         }
+        // PikPak 预热 captcha_token：与首屏列表并行取，列表那一发不必串行等 init
+        // （token 按动作缓存、开文件夹共用，预热后正常浏览节奏下一直是热的）。
+        if (drive instanceof DrivePikPak) ((DrivePikPak) drive).warmUpCaptcha();
         rootCid = Drive115.ID.equals(drive.getId()) ? "0" : "";
         binding.toolbar.setTitle(drive.getName());
         // 顶栏只留标题，不放自带返回箭头（布局里 navigationIcon 已删）。

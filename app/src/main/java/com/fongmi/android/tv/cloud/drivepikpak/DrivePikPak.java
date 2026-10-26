@@ -275,14 +275,26 @@ public class DrivePikPak implements CloudDrive {
 
     // ---------- 底层请求 ----------
 
-    /** 限流：控制接口 5rps */
-    private synchronized void rateLimit() {
-        long now = System.currentTimeMillis();
-        long wait = MIN_INTERVAL_MS - (now - lastReqTime);
+    private final Object rateLock = new Object();
+
+    /**
+     * 限流：控制接口 5rps。旧实现是 synchronized 方法、还在锁里 sleep 满间隔：
+     * 一个线程等间隔时，其它线程连排队都排不上（refresh() 用同一把实例锁、
+     * 且在锁里走网络），页面刚进入时列表线程与账号信息线程的 4 发请求被叠成
+     * 串行楼梯，列表那一发排到第 2–4 位才起跑。现改为锁内只领一个起跑时刻、
+     * 锁外睡到点：相邻请求起跑间隔 ≥220ms 的口径不变，等待不再互堵。
+     */
+    private void rateLimit() {
+        long start;
+        synchronized (rateLock) {
+            long now = System.currentTimeMillis();
+            start = Math.max(now, lastReqTime + MIN_INTERVAL_MS);
+            lastReqTime = start;
+        }
+        long wait = start - System.currentTimeMillis();
         if (wait > 0) {
             try { Thread.sleep(wait); } catch (InterruptedException ignored) {}
         }
-        lastReqTime = System.currentTimeMillis();
     }
 
     // 401 刷新后重试上限：对齐网盘同类口径——Proxy115 的 MAX_RETRY_403＝3、
@@ -356,25 +368,111 @@ public class DrivePikPak implements CloudDrive {
         }
     }
 
-    /** 取本动作的 captcha_token：缓存未过期直接用，过期/没有现取；取失败回空串（照常发请求，服务端判 9 时再走重试）。 */
+    /**
+     * captcha_token 可用宽限：服务端 token 有效期约 300 秒、本地缓存 240 秒，
+     * 缓存过期后 55 秒内 token 的实际年龄仍不到 300 秒、照常可用——这段里先用
+     * 旧的并后台换新，不让开文件夹那一下干等一发 init。真被判失效
+     * （error_code=9）有 api() 里的清缓存＋重取＋重试一次兜底，机制没弱化。
+     */
+    private static final long CAPTCHA_GRACE_MS = 55_000L;
+    /** 缓存剩不到这么久就提前后台换新，正常浏览节奏下不必再同步等 init。 */
+    private static final long CAPTCHA_REFRESH_AHEAD_MS = 45_000L;
+    /** 后台换新失败后的退避，免得网络坏时每发请求都白打一发 init。 */
+    private static final long CAPTCHA_REFRESH_BACKOFF_MS = 30_000L;
+
+    private final java.util.Map<String, java.util.concurrent.FutureTask<String>> captchaInFlight = new java.util.HashMap<>();
+    private final java.util.Map<String, Long> captchaRefreshFailAt = new java.util.HashMap<>();
+
+    /**
+     * 取本动作的 captcha_token：新鲜缓存直接用；临期/宽限内先用旧的并后台
+     * 换新；完全没有才同步取（同动作并发只取一发，其余等那一发的结果）；
+     * 取失败回空串（照常发请求，服务端判 9 时再走重试）。
+     */
     private String cachedCaptchaToken(String action) {
+        CaptchaEntry e;
         synchronized (captchaCache) {
-            CaptchaEntry e = captchaCache.get(action);
-            if (e != null && System.currentTimeMillis() < e.expiresAt) return e.token;
+            e = captchaCache.get(action);
         }
-        String token;
-        try {
-            token = fetchCaptchaToken(action);
-        } catch (Exception ex) {
-            android.util.Log.w("DrivePikPak", "captcha_token fetch failed action=" + action, ex);
-            return "";
+        long now = System.currentTimeMillis();
+        if (e != null && now < e.expiresAt + CAPTCHA_GRACE_MS) {
+            if (now > e.expiresAt - CAPTCHA_REFRESH_AHEAD_MS) refreshCaptchaAsync(action);
+            return e.token;
         }
-        if (!TextUtils.isEmpty(token)) {
-            synchronized (captchaCache) {
-                captchaCache.put(action, new CaptchaEntry(token, System.currentTimeMillis() + CAPTCHA_TTL_MS));
+        return fetchCaptchaSingleFlight(action);
+    }
+
+    /** 同步取 token 的单飞口：同动作只允许一发在飞，其余调用等它完成再读结果。 */
+    private String fetchCaptchaSingleFlight(String action) {
+        java.util.concurrent.FutureTask<String> task;
+        boolean owner;
+        synchronized (captchaCache) {
+            java.util.concurrent.FutureTask<String> existing = captchaInFlight.get(action);
+            if (existing != null) {
+                task = existing;
+                owner = false;
+            } else {
+                task = new java.util.concurrent.FutureTask<>(() -> doFetchCaptcha(action));
+                captchaInFlight.put(action, task);
+                owner = true;
             }
         }
-        return token == null ? "" : token;
+        if (owner) task.run();
+        try {
+            String token = task.get();
+            return token == null ? "" : token;
+        } catch (Exception ex) {
+            return "";
+        } finally {
+            if (owner) {
+                synchronized (captchaCache) {
+                    captchaInFlight.remove(action);
+                }
+            }
+        }
+    }
+
+    /** 真正打 shield/captcha/init 的一发：成功落缓存并回 token，失败回空串并记退避时刻。 */
+    private String doFetchCaptcha(String action) {
+        try {
+            String token = fetchCaptchaToken(action);
+            if (!TextUtils.isEmpty(token)) {
+                synchronized (captchaCache) {
+                    captchaCache.put(action, new CaptchaEntry(token, System.currentTimeMillis() + CAPTCHA_TTL_MS));
+                    captchaRefreshFailAt.remove(action);
+                }
+                return token;
+            }
+        } catch (Exception ex) {
+            android.util.Log.w("DrivePikPak", "captcha_token fetch failed action=" + action, ex);
+        }
+        synchronized (captchaCache) {
+            captchaRefreshFailAt.put(action, System.currentTimeMillis());
+        }
+        return "";
+    }
+
+    /** 后台换新：缓存还新鲜、已有在飞的、或刚失败还在退避内的不重复打；只在后台线程跑，不堵调用方。 */
+    private void refreshCaptchaAsync(String action) {
+        synchronized (captchaCache) {
+            CaptchaEntry e = captchaCache.get(action);
+            if (e != null && System.currentTimeMillis() < e.expiresAt - CAPTCHA_REFRESH_AHEAD_MS) return;
+            if (captchaInFlight.containsKey(action)) return;
+            Long failAt = captchaRefreshFailAt.get(action);
+            if (failAt != null && System.currentTimeMillis() - failAt < CAPTCHA_REFRESH_BACKOFF_MS) return;
+        }
+        new Thread(() -> fetchCaptchaSingleFlight(action), "pikpak-captcha").start();
+    }
+
+    /**
+     * 页面打开时预热热动作的 captcha_token（与首屏列表请求并行跑），让列表
+     * 那一发不必先串行等 init。token 机制本身（按「METHOD:路径」现取、缓存
+     * 240 秒、判 9 清缓存重取重试）一字未动，只是把「现取」提前到点开
+     * 文件夹之前——action 键仍是路径级，同一路径的所有文件夹共用一枚，
+     * 不存在每层一发的浪费。
+     */
+    public void warmUpCaptcha() {
+        refreshCaptchaAsync("GET:/drive/v1/files");
+        refreshCaptchaAsync("GET:/drive/v1/about");
     }
 
     private void invalidateCaptcha(String action) {

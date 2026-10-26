@@ -53,9 +53,11 @@ public class InPageLyricsView extends View {
 
     private static final PathInterpolator BS4_A = new PathInterpolator(0.2f, 0f, 0f, 1f);
     private static final int COLOR_SUNG = 0xFFEAEAEA;
-    // 当前行未唱＝瓜子实色 #3C3C43（LyricsViewKt ColorActiveUnsung）：旧版拿白字 42% 透明当未唱，
-    // 与已唱 #EAEAEA 对比不够，整行看着全亮、扫唱看不出是逐字（他点名）——改实色深灰、不用透明度。
-    private static final int COLOR_UNSUNG = 0xFF3C3C43;
+    // 当前行未唱＝白色 × 0.42（瓜子 LyricsViewKt.activeUnsungColor 的深色沉浸分支：
+    // PlayerScreenKt 在经典范围给 LocalPlayerImmersiveDark=TRUE，无调色板时走 g91.c(0.42, 白)；
+    // 常量 ColorActiveUnsung #3C3C43 是非沉浸浅底分支的回落值，深底用它就是黑字（2026-10-26 他截图点名），不适用。
+    private static final int COLOR_UNSUNG = 0xFFFFFFFF;
+    private static final float ALPHA_UNSUNG = 0.42f;
     private static final float ALPHA_NONCUR = 0.30f;
     private static final float ALPHA_SUB = 0.55f;
     private static final float SKEW = -0.12f;
@@ -685,9 +687,9 @@ public class InPageLyricsView extends View {
                 canvas.scale(scale, scale);
                 canvas.translate(-(x + ww / 2f), -baseline);
             }
-            // 未唱底（瓜子实色深灰，与已唱拉开对比，扫唱才看得出）
+            // 未唱底（瓜子深色沉浸分支：白色 × 0.42，与已唱 #EAEAEA 拉开明暗，扫唱看得出）
             mMainPaint.setColor(COLOR_UNSUNG);
-            mMainPaint.setAlpha(Math.round(255 * fade));
+            mMainPaint.setAlpha(Math.round(255 * ALPHA_UNSUNG * fade));
             mMainPaint.setShadowLayer(0, 0, 0, 0);
             canvas.drawText(wt, x, baseline + lift + floatY, mMainPaint);
             // 长音光晕：字形边缘光晕位图垫在已唱字之下（瓜子 createGlyphEdgeGlow＋emphasizeGlow）

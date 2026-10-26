@@ -154,6 +154,17 @@ public class MusicSourceManager {
         return BUILTIN_LYRIC_GECIWANG.equals(srcUrl) || BUILTIN_LYRIC_GECIQIANXUN.equals(srcUrl);
     }
 
+    /** 预置油管音乐地址（自有站托管）：接入定案就是「必须走壳子代理」——它的接口域名
+     *  直连在他网络下挂死（2026-10-26 真机日志 gate direct reason=no-mark 定罪），
+     *  名字里的「需代理」只是展示，真正的路由靠策略表镜像（见 mirrorProxyDesignations）。 */
+    private static final String BUILTIN_YTMUSIC =
+            "https://xingchen-dl.pages.dev/music-sources/ytmusic.js";
+
+    /** 是否「需代理」指定源（按播种地址认身份，与 isBuiltinKuwo 同口径，不看名字） */
+    public static boolean isProxyDesignated(String srcUrl) {
+        return BUILTIN_YTMUSIC.equals(srcUrl);
+    }
+
     public static List<MusicSite> builtinSites() {
         List<MusicSite> list = new ArrayList<>();
         list.add(new MusicSite(FreeJsMusicSource.PLATFORM, "歌词网", "",
@@ -166,7 +177,7 @@ public class MusicSourceManager {
            坏了只改托管脚本不动壳子；朋友版播种整套摘除的口径同上三件。
            后加预置：打 lateBuiltin 标记，老用户存量靠 listSites 补播种（见 BuiltinReseed） */
         MusicSite ytMusic = new MusicSite(FreeJsMusicSource.PLATFORM, "油管音乐（需代理）", "",
-                "https://xingchen-dl.pages.dev/music-sources/ytmusic.js");
+                BUILTIN_YTMUSIC);
         ytMusic.lateBuiltin = true;
         list.add(ytMusic);
         for (MusicSite s : list) s.format = FORMAT_FREEJS;
@@ -593,6 +604,31 @@ public class MusicSourceManager {
         String js = OkHttp.string(srcUrl, 20000);
         if (TextUtils.isEmpty(js)) throw new IllegalStateException("插件下载失败：" + srcUrl);
         return js;
+    }
+
+    private static final java.util.concurrent.atomic.AtomicBoolean bridgesPrewarmed =
+            new java.util.concurrent.atomic.AtomicBoolean();
+
+    /**
+     * 桥预热（音乐服务创建后调）：启用插件的桥在后台逐个建好——建桥是懒加载，
+     * 不预热时重启后第一次点歌要现付读脚本＋建 QuickJS 上下文＋整脚本求值＋
+     * 初始化握手全程（落雪桥还要轮询等脚本上报 inited），是点下去空等好几秒的
+     * 主段之一。只在此进程内跑一次；逐个建、单个失败不影响其它（失败口径与
+     * 取桥时一致，照样记启动失败名表）；走大池、不占音乐池，不挡首屏与首播——
+     * 预热在飞时真点歌来取桥，会在桥表的同步块上等同一次建桥建完，不会重复建。
+     */
+    public void prewarmBridges() {
+        if (!bridgesPrewarmed.compareAndSet(false, true)) return;
+        Task.largeExecutor().execute(() -> {
+            for (MusicSite site : listSites()) {
+                if (site == null || !site.enabled) continue;
+                try {
+                    if (isLx(site)) lxBridgeOf(site);
+                    else bridgeOf(site);
+                } catch (Throwable ignored) {
+                }
+            }
+        });
     }
 
     /** 取某 FreeJS 插件的桥（懒加载，阻塞，请在子线程调）；落雪插件返回 null，别串桥。

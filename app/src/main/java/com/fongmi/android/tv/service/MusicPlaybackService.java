@@ -372,6 +372,13 @@ public class MusicPlaybackService extends MediaSessionService {
         restoreBreakpoint();
         startTicker();
         SpiderDebug.log("music", "service onCreate");
+        // 冷启首播提速：服务建好即在后台把启用插件的桥逐个预热（建桥懒加载，
+        // 不预热第一次点歌要现付建桥全程、空等好几秒）；异步进行，
+        // 不挡 onCreate、首屏与本次绑定。
+        try {
+            MusicSourceManager.get().prewarmBridges();
+        } catch (Throwable ignored) {
+        }
     }
 
     private PendingIntent buildPlayerIntent() {

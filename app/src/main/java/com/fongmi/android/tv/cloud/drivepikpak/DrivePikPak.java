@@ -4,16 +4,22 @@ import android.content.Context;
 import android.os.Environment;
 import android.text.TextUtils;
 
+import com.fongmi.android.tv.clash.ClashSettings;
+import com.fongmi.android.tv.clash.MihomoManager;
+import com.fongmi.android.tv.clash.SourceProxyPolicy;
 import com.fongmi.android.tv.cloud.CloudAccountStore;
 import com.fongmi.android.tv.cloud.CloudDrive;
 import com.fongmi.android.tv.cloud.CloudFile;
 import com.fongmi.android.tv.cloud.CloudTask;
+import com.github.catvod.net.GlobalProxy;
+import com.github.catvod.net.SourceGate;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.File;
 import java.io.FileWriter;
+import java.net.ProxySelector;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -141,9 +147,59 @@ public class DrivePikPak implements CloudDrive {
                 .connectTimeout(15, TimeUnit.SECONDS)
                 .readTimeout(30, TimeUnit.SECONDS)
                 .writeTimeout(15, TimeUnit.SECONDS)
+                // 节点门控接线：自有 OkHttp 也挂壳子的 SourceGate 选择器（与 EmbyApi/HkHttp
+                // 同款两层包装），请求线程有 pikpak 打点时按策略表走本地混合口、否则直连。
+                // 仅挂选择器不够：决策靠线程打点，见 beginMark()。
+                .proxySelector(SourceGate.wrapSelector(GlobalProxy.wrapSelector(ProxySelector.getDefault())))
                 .cookieJar(new WebViewCookieJar())
                 .build();
         loadSession();
+    }
+
+    // ---------- 节点门控打点 ----------
+
+    private static final long NODE_START_RETRY_MS = 60_000L;
+    private static volatile long nodeStartFailedAt = 0L;
+
+    /**
+     * PikPak 在策略表里开了「走节点」、而内核没在跑时，发请求前同步把内核拉起来
+     * （EmbyApi.ensureNodeForServer／FreeJsBridge.ensureNodeForMusic 同款口径：
+     * 单源开了即生效，不要求总开关先开）。拉起失败不堵请求：照常发（门控会判直连），
+     * 但留一条 clash 日志说明本次为什么没走成节点，60 秒内不重复尝试。
+     * 本类调用方都在后台线程，ensureRunning 的同步阻塞可接受。
+     */
+    private void ensureNodeForPikPak() {
+        try {
+            if (!SourceProxyPolicy.isEnabled(context, SourceProxyPolicy.KIND_PIKPAK, ID)) return;
+            if (MihomoManager.get().isRunning()) return;
+            long now = System.currentTimeMillis();
+            if (now - nodeStartFailedAt < NODE_START_RETRY_MS) return;
+            if (!MihomoManager.get().ensureRunning(context)) {
+                nodeStartFailedAt = now;
+                try {
+                    com.github.catvod.crawler.SpiderDebug.log("clash",
+                            "gate pikpak node-start-failed id=%s （内核没拉起来，本次请求直连）", ID);
+                } catch (Throwable ignored) {
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * 走节点打点（EmbyApi.beginMark 同口径）：全部走节点开（总开关开且全局模式）→
+     * 不打点，走选择器的无归属全局路径；否则按 pikpak 单源开关打点。
+     * 打点前先按需拉起内核。返回打点前的旧归属，调用方在 finally 里
+     * SourceGate.pop(prev) 恢复（与 EmbyApi 调用点同款）。
+     */
+    private SourceGate.Mark beginMark() {
+        try {
+            ensureNodeForPikPak();
+            boolean global = ClashSettings.isGlobalMode(context) && ClashSettings.isEnabled(context);
+            if (!global) return SourceGate.push(SourceProxyPolicy.KIND_PIKPAK, ID);
+        } catch (Throwable ignored) {
+        }
+        return null;
     }
 
     /**
@@ -276,6 +332,7 @@ public class DrivePikPak implements CloudDrive {
         } else {
             rb.get();
         }
+        SourceGate.Mark prev = beginMark();
         try (Response resp = client.newCall(rb.build()).execute()) {
             String txt = resp.body() != null ? resp.body().string() : "";
             if (resp.code() == 401 && auth && authRetry < MAX_AUTH_RETRY) {
@@ -294,6 +351,8 @@ public class DrivePikPak implements CloudDrive {
                 throw new Exception("PikPak 接口错误 " + resp.code() + "：" + errorDetail(resp.code(), txt));
             }
             return new JSONObject(txt.isEmpty() ? "{}" : txt);
+        } finally {
+            SourceGate.pop(prev);
         }
     }
 
@@ -394,6 +453,7 @@ public class DrivePikPak implements CloudDrive {
         }
         String json = body != null ? body.toString() : "{}";
         rb.post(RequestBody.create(json, JSON));
+        SourceGate.Mark prev = beginMark();
         try (Response resp = client.newCall(rb.build()).execute()) {
             String txt = resp.body() != null ? resp.body().string() : "";
             JSONObject d = new JSONObject(txt.isEmpty() ? "{}" : txt);
@@ -408,6 +468,8 @@ public class DrivePikPak implements CloudDrive {
                 throw new Exception("登录失败：" + d.optString("error_description", d.optString("error", txt)));
             }
             return d;
+        } finally {
+            SourceGate.pop(prev);
         }
     }
 
@@ -567,6 +629,7 @@ public class DrivePikPak implements CloudDrive {
                 .header("X-Device-ID", deviceId)
                 .post(RequestBody.create(body.toString(), JSON))
                 .build();
+        SourceGate.Mark prev = beginMark();
         try (Response resp = client.newCall(req).execute()) {
             String txt = resp.body() != null ? resp.body().string() : "";
             JSONObject d = new JSONObject(txt.isEmpty() ? "{}" : txt);
@@ -575,6 +638,8 @@ public class DrivePikPak implements CloudDrive {
                 throw new Exception("取 captcha_token 失败：" + txt);
             }
             return token;
+        } finally {
+            SourceGate.pop(prev);
         }
     }
 
@@ -596,6 +661,7 @@ public class DrivePikPak implements CloudDrive {
                 .header("X-Device-ID", deviceId)
                 .post(RequestBody.create(body.toString(), JSON))
                 .build();
+        SourceGate.Mark prev = beginMark();
         try (Response resp = client.newCall(req).execute()) {
             String txt = resp.body() != null ? resp.body().string() : "";
             JSONObject d = new JSONObject(txt.isEmpty() ? "{}" : txt);
@@ -615,6 +681,8 @@ public class DrivePikPak implements CloudDrive {
             long expiresIn = d.optLong("expires_in", 7200);
             expiresAt = System.currentTimeMillis() + (expiresIn - 300) * 1000;
             saveSession();
+        } finally {
+            SourceGate.pop(prev);
         }
     }
 
@@ -677,6 +745,7 @@ public class DrivePikPak implements CloudDrive {
         rb.header("X-Device-ID", deviceId);
         rb.header("Authorization", "Bearer " + accessToken);
         rb.get();
+        SourceGate.Mark prev = beginMark();
         try (Response resp = client.newCall(rb.build()).execute()) {
             String txt = resp.body() != null ? resp.body().string() : "";
             if (resp.code() == 401 && authRetry < 1) {
@@ -687,6 +756,8 @@ public class DrivePikPak implements CloudDrive {
                 throw new Exception("PikPak 用户接口错误 " + resp.code() + "：" + errorDetail(resp.code(), txt));
             }
             return new JSONObject(txt.isEmpty() ? "{}" : txt);
+        } finally {
+            SourceGate.pop(prev);
         }
     }
 

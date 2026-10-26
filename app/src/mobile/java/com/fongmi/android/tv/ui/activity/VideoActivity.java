@@ -6447,7 +6447,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
                 if (isFinishing() || isDestroyed()) return;
                 if (!isCurrentArtworkRequest(requestUrl, requestOwner)) return;
                 mBinding.exo.setDefaultArtwork(resource);
-                mBinding.audioCover.setImageDrawable(resource);
+                ImgUtil.setWithTransition(mBinding.audioCover, resource, transition);
                 updateAudioArtworkColor(resource);
             }
 
@@ -6503,7 +6503,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
                 if (!Objects.equals(mContextWallUrl, wall)) return;
                 resetContextWallAlpha();
                 mBinding.contextWall.setBackgroundColor(0x00000000);
-                mBinding.contextWall.setImageDrawable(resource);
+                ImgUtil.setWithTransition(mBinding.contextWall, resource, transition);
                 mBinding.contextWall.setVisibility(View.VISIBLE);
             }
 

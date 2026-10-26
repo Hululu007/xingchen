@@ -375,7 +375,7 @@ public class MusicToolsSheet {
         cb.setColor(0x1F8E8E93);
         cb.setCornerRadius(dp(12));
         cover.setBackground(cb);
-        if (t != null && !TextUtils.isEmpty(t.cover)) ImgUtil.load(t.displayTitle(), t.cover, cover);
+        if (t != null && !TextUtils.isEmpty(t.cover)) ImgUtil.loadFade(t.displayTitle(), t.cover, cover);
         hero.addView(cover, new LinearLayout.LayoutParams(dp(48), dp(48)));
         LinearLayout heroText = new LinearLayout(mActivity);
         heroText.setOrientation(LinearLayout.VERTICAL);
@@ -1207,7 +1207,7 @@ public class MusicToolsSheet {
         hero.setLayoutParams(hlp);
         ImageView cover = new ImageView(mActivity);
         cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        if (t != null && !TextUtils.isEmpty(t.cover)) ImgUtil.load(t.displayTitle(), t.cover, cover);
+        if (t != null && !TextUtils.isEmpty(t.cover)) ImgUtil.loadFade(t.displayTitle(), t.cover, cover);
         hero.addView(cover, new LinearLayout.LayoutParams(dp(80), dp(80)));
         LinearLayout texts = new LinearLayout(mActivity);
         texts.setOrientation(LinearLayout.VERTICAL);

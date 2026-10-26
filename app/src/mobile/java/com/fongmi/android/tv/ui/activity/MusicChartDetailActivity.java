@@ -513,7 +513,7 @@ public class MusicChartDetailActivity extends BaseActivity {
                 h.cover.setBackgroundColor(0xFFE5E5EA);
             } else {
                 h.cover.setBackgroundColor(0x00000000);
-                ImgUtil.loadRounded16(bigTitle, chartCover, h.cover);
+                ImgUtil.loadRounded16Fade(bigTitle, chartCover, h.cover);
             }
             if (h.btnPlayAll != null) {
                 h.btnPlayAll.setOnClickListener(v -> {

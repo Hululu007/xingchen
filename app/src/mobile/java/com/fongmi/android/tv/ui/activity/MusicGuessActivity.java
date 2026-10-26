@@ -609,7 +609,7 @@ public class MusicGuessActivity extends BaseActivity {
             return;
         }
         iv.setVisibility(View.VISIBLE);
-        ImgUtil.loadRounded16(t.displayTitle(), t.cover, iv);
+        ImgUtil.loadRounded16Fade(t.displayTitle(), t.cover, iv);
     }
 
     private void bindGuessSection(SectionHolder h) {

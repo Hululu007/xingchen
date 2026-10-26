@@ -26,6 +26,7 @@ import com.bumptech.glide.load.model.LazyHeaders;
 import com.bumptech.glide.load.resource.bitmap.CenterCrop;
 import com.bumptech.glide.load.resource.bitmap.GranularRoundedCorners;
 import com.bumptech.glide.load.resource.bitmap.RoundedCorners;
+import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions;
 import com.bumptech.glide.request.RequestListener;
 import com.bumptech.glide.request.target.Target;
 import com.fongmi.android.tv.App;
@@ -70,7 +71,9 @@ public class ImgUtil {
 
     public static void load(Context context, String url, CustomTarget<Drawable> target) {
         try {
-            Glide.with(context).load(getUrl(url)).override(ResUtil.getScreenWidth(), ResUtil.getScreenHeight()).error(R.drawable.artwork).into(target);
+            // 大图面目标路：把 200ms crossfade 过渡交给目标，目标经 setWithTransition 落图才渐显；
+            // 忽略过渡的目标行为不变。
+            Glide.with(context).load(getUrl(url)).override(ResUtil.getScreenWidth(), ResUtil.getScreenHeight()).error(R.drawable.artwork).transition(DrawableTransitionOptions.withCrossFade(200)).into(target);
         } catch (Throwable e) {
             e.printStackTrace();
         }
@@ -78,10 +81,35 @@ public class ImgUtil {
 
     public static void load(Context context, String url, int width, int height, CustomTarget<Drawable> target) {
         try {
-            Glide.with(context).load(getUrl(url)).override(width, height).error(R.drawable.artwork).into(target);
+            Glide.with(context).load(getUrl(url)).override(width, height).error(R.drawable.artwork).transition(DrawableTransitionOptions.withCrossFade(200)).into(target);
         } catch (Throwable e) {
             e.printStackTrace();
         }
+    }
+
+    /** 目标路落图：有过渡时按 Glide 过渡把新图渐显进 ImageView（与旧图交叉淡化），否则直接贴。 */
+    public static void setWithTransition(ImageView view, Drawable resource, com.bumptech.glide.request.transition.Transition<? super Drawable> transition) {
+        if (view == null) return;
+        if (resource == null || transition == null) {
+            view.setImageDrawable(resource);
+            return;
+        }
+        transition.transition(resource, new com.bumptech.glide.request.transition.Transition.ViewAdapter<Drawable>() {
+            @Override
+            public View getView() {
+                return view;
+            }
+
+            @Override
+            public Drawable getCurrentDrawable() {
+                return view.getDrawable();
+            }
+
+            @Override
+            public void setDrawable(Drawable drawable) {
+                view.setImageDrawable(drawable);
+            }
+        });
     }
 
     public static void preload(Context context, String url) {
@@ -128,14 +156,25 @@ public class ImgUtil {
         load(text, url, view, vod, width, height, ruleUrl, null);
     }
 
+    /** 大图面渐显版（与三参 load 同路组装）：图到时 200ms crossfade 渐显。
+     *  只许非回收的大图面调用（详情/面板大图等）；列表回收行走普通 load 即贴，不许走这条（回收重绑渐显会闪）。 */
+    public static void loadFade(String text, String url, ImageView view) {
+        load(text, url, view, true, 0, 0, null, null, true);
+    }
+
     /** 在 {@link #load(String, String, ImageView, boolean, int, int, String)} 基础上补会话请求头（漫画阅读器用）。 */
     public static void load(String text, String url, ImageView view, boolean vod, int width, int height, String ruleUrl, Map<String, String> fillHeaders) {
+        load(text, url, view, vod, width, height, ruleUrl, fillHeaders, false);
+    }
+
+    private static void load(String text, String url, ImageView view, boolean vod, int width, int height, String ruleUrl, Map<String, String> fillHeaders, boolean fade) {
         view.setScaleType(vod ? CENTER_CROP : FIT_CENTER);
         if (!vod) view.setVisibility(TextUtils.isEmpty(url) ? View.GONE : View.VISIBLE);
         if (TextUtils.isEmpty(url)) showEmptyCover(view, text, false, 0);
         else try {
             RequestBuilder<Drawable> builder = Glide.with(view).load(getUrl(url, ruleUrl, fillHeaders)).listener(getListener(text, url, view, vod));
             if (width > 0 && height > 0) builder.override(width, height);
+            if (fade) builder.transition(DrawableTransitionOptions.withCrossFade(200));
             builder.placeholder(getTextDrawable(text, vod));
             // D4：海阔列表分支（ruleUrl 非空）与 8.83 ArticleListRuleAdapter 对齐，
             // 用 DiskCacheStrategy.ALL；点播/主 App（ruleUrl 为空）保持默认 AUTOMATIC 不动。
@@ -217,6 +256,22 @@ public class ImgUtil {
             int r = ResUtil.dp2px(16);
             RequestBuilder<Drawable> builder = Glide.with(view).load(getUrl(url)).listener(getListener(text, url, view, true));
             builder.placeholder(getTextDrawable(text, true));
+            builder.transform(new CenterCrop(), new RoundedCorners(r));
+            builder.into(view);
+        } catch (Throwable e) {
+            e.printStackTrace();
+        }
+    }
+
+    /** 大图面渐显版 loadRounded16：只许非回收的大图面调用（榜单详情页头图/猜你喜欢大卡）；回收行走 loadRounded16 即贴。 */
+    public static void loadRounded16Fade(String text, String url, ImageView view) {
+        view.setScaleType(CENTER_CROP);
+        if (TextUtils.isEmpty(url)) showEmptyCover(view, text, false, ResUtil.dp2px(16));
+        else try {
+            int r = ResUtil.dp2px(16);
+            RequestBuilder<Drawable> builder = Glide.with(view).load(getUrl(url)).listener(getListener(text, url, view, true));
+            builder.placeholder(getTextDrawable(text, true));
+            builder.transition(DrawableTransitionOptions.withCrossFade(200));
             builder.transform(new CenterCrop(), new RoundedCorners(r));
             builder.into(view);
         } catch (Throwable e) {

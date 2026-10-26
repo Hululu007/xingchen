@@ -270,10 +270,15 @@ public class MusicChartsActivity extends BaseActivity {
 
     // ================= 取色与封面 =================
 
-    /** 榜单卡玻璃色调（跟随封面取色：主色向白混 85% 成淡染底；取色失败保持默认白卡） */
+    /** 榜单卡玻璃色调（跟随封面取色：主色向白混 85% 成淡染，走玻璃 tone 不换底；
+     *  原写法取色回来整卡 setBackground 成浅色实底，把 Holder 已接的玻璃盖掉了（2026-10-26 全扫漏网） */
     private void tintChartCard(View cardRoot, MusicChart chart, int cornerDp) {
         String key = chart.platform + ":" + chart.id;
         cardRoot.setTag(key);
+        // 复用行先清上一张的 tone，无封面/取色失败就保持中性玻璃
+        if (cardRoot.getBackground() instanceof com.fongmi.android.tv.ui.music.MusicGlassDrawable) {
+            ((com.fongmi.android.tv.ui.music.MusicGlassDrawable) cardRoot.getBackground()).setToneColor(0);
+        }
         if (chart.cover == null || chart.cover.isEmpty()) return;
         ImgUtil.load(chart.cover, new com.fongmi.android.tv.impl.CustomTarget<android.graphics.Bitmap>() {
             @Override
@@ -288,6 +293,12 @@ public class MusicChartsActivity extends BaseActivity {
                     int tinted = android.graphics.Color.rgb(r, g, b);
                     runOnUiThread(() -> {
                         if (!key.equals(cardRoot.getTag())) return;
+                        if (cardRoot.getBackground() instanceof com.fongmi.android.tv.ui.music.MusicGlassDrawable) {
+                            // 玻璃在位：淡染只作 tone 平铺，不许再整卡盖成实底
+                            ((com.fongmi.android.tv.ui.music.MusicGlassDrawable) cardRoot.getBackground())
+                                    .setToneColor(tinted, 0.45f);
+                            return;
+                        }
                         android.graphics.drawable.GradientDrawable d = new android.graphics.drawable.GradientDrawable();
                         d.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
                         d.setColor(tinted);

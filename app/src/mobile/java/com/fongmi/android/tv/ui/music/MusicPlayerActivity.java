@@ -718,7 +718,6 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
         }
 
         bindCover(track, dir);
-        mAmbient.setCover(track.cover);
         refreshFavorite(track);
         refreshChips();
         mScrubber.resetForTrack();
@@ -765,7 +764,6 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
                 }
                 if (fc) {
                     bindCover(mTrack, 0);
-                    mAmbient.setCover(mTrack.cover);
                 }
                 refreshFavorite(mTrack);
             });
@@ -778,6 +776,7 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
             mCoverOut.setVisibility(View.GONE);
             ImgUtil.load(track.displayTitle(), "", mCover);
             mCoverBitmap = null;
+            mAmbient.setCoverBitmap(null, url);
             if (mSwipeHandoff) {
                 mSwipeHandoff = false;
                 settleSwipeBox();
@@ -789,6 +788,8 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
             @Override
             public void onResourceReady(@NonNull Bitmap resource, @Nullable Transition<? super Bitmap> transition) {
                 if (mTrack == null || !want.equals(mTrack.cover)) return;
+                // 氛围底同点派生：同一张封面位图当场缩糊＋取色，与锐封面同源同裁切、同刻换帧
+                mAmbient.setCoverBitmap(resource, want);
                 Bitmap old = mCoverBitmap;
                 mCoverBitmap = resource;
                 if (old == null || old == resource) {
@@ -843,6 +844,7 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
                 if (mTrack != null && want.equals(mTrack.cover)) {
                     mCover.setImageDrawable(null);
                     mCoverBitmap = null;
+                    mAmbient.setCoverBitmap(null, want);
                 }
             }
 
@@ -1076,10 +1078,10 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
 
     @Override
     public void onCoverChanged(MusicTrack track) {
-        // 115 内嵌封面点播兜底后到：仍是当前曲就重绑封面与氛围底（服务侧元数据已先换）
+        // 115 内嵌封面点播兜底后到：仍是当前曲就重绑封面（氛围底由 bindCover 在
+        // 封面到位回调里同点派生，服务侧元数据已先换）
         if (track != null && track == mTrack) {
             bindCover(mTrack, 0);
-            mAmbient.setCover(mTrack.cover);
         }
     }
 

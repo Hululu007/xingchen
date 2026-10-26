@@ -18,13 +18,9 @@ import android.util.AttributeSet;
 import android.view.View;
 import android.view.animation.PathInterpolator;
 
-import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import com.fongmi.android.tv.impl.CustomTarget;
 import com.fongmi.android.tv.ui.music.MusicPlayerSettings;
 import com.fongmi.android.tv.utils.CoverColor;
-import com.fongmi.android.tv.utils.ImgUtil;
-import com.bumptech.glide.request.transition.Transition;
 
 /**
  * 播放页外壳氛围层（瓜子 CoverAmbientKt 口径，2026-10-26 逐项亲验）：
@@ -41,6 +37,8 @@ import com.bumptech.glide.request.transition.Transition;
  * 流速系数×（节拍脉冲×0.3×节拍响应倍率＋1.0），节拍帧来自 MusicBeatState
  * （服务侧 MusicBeatAnalyzer 发布）；「音乐律动」关时倍率回 1.0、分析门同步关。
  * 模糊走 RenderNode＋RenderEffect（API 31+），与瓜子 BlurSupport 预检同门槛。
+ * 底图来源（2026-10-27 改根）：本层不再独立取图——宿主把封面位图在到位回调里
+ * 同点交入 setCoverBitmap，糊底与取色当场从同一张图派生（同源同裁切同点换帧）。
  */
 public class CoverAmbientView extends View {
 
@@ -52,7 +50,8 @@ public class CoverAmbientView extends View {
     private final Paint mPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
     private final Paint mBlobPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private Bitmap mBlurBitmap;
-    private String mBoundUrl;
+    private String mBoundKey = "";
+    private Bitmap mDerivedFrom;
     private int mBaseColor = FALLBACK;
     private int mFromColor = FALLBACK;
     private int mToColor = FALLBACK;
@@ -94,62 +93,56 @@ public class CoverAmbientView extends View {
         }
     }
 
-    /** 切歌换封面：取小图作糊底，同时算基色（wk1.a）与团色（d(o())），基色 450ms 渐变过去。url 空＝回落纯色。 */
-    public void setCover(String url) {
-        if (url == null) url = "";
-        if (url.equals(mBoundUrl)) return;
-        mBoundUrl = url;
-        if (url.isEmpty()) {
+    /**
+     * 封面本体派生（2026-10-27 改根，他令「封面背景一体盯死」）：氛围不再自带取图——
+     * 宿主把锐封面那张位图在到位回调里同点交进来，糊底与取色全部从它当场派生：
+     * 糊底＝同图居中裁方缩到 64×64（瓜子 64×64 取图同口径，裁的是与封面 centerCrop
+     * 同一块中心方），取色源图＝同图缩 128×128 走 mk1 链（基色 wk1.a）与 o()+d() 链
+     * （团色），基色 450ms 渐变过去。与封面同源、同裁切、同点换帧，不再有第二条
+     * 加载抢先或迟到把两层撕开。cover 为 null＝本曲无封面或封面取图失败：清糊底、
+     * 回落深底 FALLBACK（无封面口径不变）。key＝封面地址，只作同一性守卫：同 key
+     * 且同一位图实例重入不重派生；同 key 换新实例（失败后重试成功）照常派生。
+     */
+    public void setCoverBitmap(@Nullable Bitmap cover, @Nullable String key) {
+        String k = key == null ? "" : key;
+        if (cover == null || cover.isRecycled()) {
+            if (mBlurBitmap == null && mDerivedFrom == null && k.equals(mBoundKey)) return;
+            mBoundKey = k;
+            mDerivedFrom = null;
             mBlurBitmap = null;
             mHasTone = false;
             animateBaseTo(FALLBACK);
             invalidate();
             return;
         }
-        final String want = url;
-        ImgUtil.load(url, 160, new CustomTarget<Bitmap>() {
-            @Override
-            public void onResourceReady(@NonNull Bitmap resource, @Nullable Transition<? super Bitmap> transition) {
-                if (!want.equals(mBoundUrl)) return;
-                try {
-                    mBlurBitmap = centerCropSquare64(resource);
-                } catch (Throwable ignored) {
-                    mBlurBitmap = null;
-                }
-                mBlurNodeBitmap = null;
-                try {
-                    // 取色源图 128×128（瓜子 c() 加载器同尺寸）：基色走 mk1 链、团色走 o()+d() 链
-                    Bitmap src128 = resource.getWidth() == 128 && resource.getHeight() == 128
-                            ? resource : Bitmap.createScaledBitmap(resource, 128, 128, true);
-                    COLOR_EXEC.execute(() -> {
-                        int target = CoverColor.shellBaseColor(src128);
-                        int tone = CoverColor.toneAdjust(CoverColor.cdToneColor(src128));
-                        post(() -> {
-                            if (!want.equals(mBoundUrl)) return;
-                            mToneColor = tone;
-                            mHasTone = true;
-                            animateBaseTo(target);
-                            invalidate();
-                        });
-                    });
-                } catch (Throwable ignored) {
-                }
-                invalidate();
-            }
-
-            @Override
-            public void onLoadFailed(@Nullable android.graphics.drawable.Drawable errorDrawable) {
-                if (!want.equals(mBoundUrl)) return;
-                mBlurBitmap = null;
-                mHasTone = false;
-                animateBaseTo(FALLBACK);
-                invalidate();
-            }
-
-            @Override
-            public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {
-            }
-        });
+        if (k.equals(mBoundKey) && cover == mDerivedFrom) return;
+        mBoundKey = k;
+        mDerivedFrom = cover;
+        try {
+            mBlurBitmap = centerCropSquare64(cover);
+        } catch (Throwable ignored) {
+            mBlurBitmap = null;
+        }
+        mBlurNodeBitmap = null;
+        try {
+            // 取色源图 128×128（瓜子 c() 加载器同尺寸）：基色走 mk1 链、团色走 o()+d() 链
+            Bitmap src128 = cover.getWidth() == 128 && cover.getHeight() == 128
+                    ? cover : Bitmap.createScaledBitmap(cover, 128, 128, true);
+            final String want = k;
+            COLOR_EXEC.execute(() -> {
+                int target = CoverColor.shellBaseColor(src128);
+                int tone = CoverColor.toneAdjust(CoverColor.cdToneColor(src128));
+                post(() -> {
+                    if (!want.equals(mBoundKey)) return;
+                    mToneColor = tone;
+                    mHasTone = true;
+                    animateBaseTo(target);
+                    invalidate();
+                });
+            });
+        } catch (Throwable ignored) {
+        }
+        invalidate();
     }
 
     /** 64×64 居中裁切（瓜子 Coil size(64,64)＋Fill 的等价位图）：等比放大到盖住 64×64 再裁中心。 */

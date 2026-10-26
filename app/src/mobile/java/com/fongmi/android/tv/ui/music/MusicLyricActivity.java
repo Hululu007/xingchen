@@ -3,6 +3,8 @@ package com.fongmi.android.tv.ui.music;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -12,14 +14,18 @@ import android.view.WindowManager;
 import android.widget.ImageView;
 import android.widget.TextView;
 
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 
+import com.bumptech.glide.request.transition.Transition;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.bean.music.MusicLyric;
 import com.fongmi.android.tv.bean.music.MusicTrack;
+import com.fongmi.android.tv.impl.CustomTarget;
 import com.fongmi.android.tv.music.MusicController;
 import com.fongmi.android.tv.music.MusicLibrary;
 import com.fongmi.android.tv.music.MusicLyricCache;
@@ -32,6 +38,7 @@ import com.fongmi.android.tv.ui.dialog.MusicQueueDialog;
 import com.fongmi.android.tv.ui.music.view.ClassicScrubberView;
 import com.fongmi.android.tv.ui.music.view.CoverAmbientView;
 import com.fongmi.android.tv.ui.music.view.MusicLyricStageView;
+import com.fongmi.android.tv.utils.ImgUtil;
 
 import java.util.List;
 
@@ -309,7 +316,7 @@ public class MusicLyricActivity extends AppCompatActivity implements MusicContro
             mAlbum.setVisibility(View.VISIBLE);
             mAlbum.setText(track.displayAlbum());
         }
-        mAmbient.setCover(track.cover);
+        loadAmbientCover(track);
         refreshFavorite(track);
         refreshChips();
         mScrubber.resetForTrack();
@@ -317,6 +324,35 @@ public class MusicLyricActivity extends AppCompatActivity implements MusicContro
         mLyrics.setLines(null);
         tryLoadLyric(track);
         updatePlayUi(MusicController.get().isPlaying());
+    }
+
+    /**
+     * 氛围底封面派生（与播放页同口径）：本页没有锐封面层，封面位图按播放页同尺寸
+     * （512）取到后交氛围层当场派生糊底与取色——同源同裁切，氛围层不再独立取图。
+     */
+    private void loadAmbientCover(final MusicTrack track) {
+        String url = track.cover;
+        if (TextUtils.isEmpty(url)) {
+            mAmbient.setCoverBitmap(null, url);
+            return;
+        }
+        final String want = url;
+        ImgUtil.load(url, 512, new CustomTarget<Bitmap>() {
+            @Override
+            public void onResourceReady(@NonNull Bitmap resource, @Nullable Transition<? super Bitmap> transition) {
+                if (mTrack != track || !want.equals(mTrack.cover)) return;
+                mAmbient.setCoverBitmap(resource, want);
+            }
+
+            @Override
+            public void onLoadFailed(@Nullable Drawable errorDrawable) {
+                if (mTrack == track && want.equals(mTrack.cover)) mAmbient.setCoverBitmap(null, want);
+            }
+
+            @Override
+            public void onLoadCleared(@Nullable Drawable placeholder) {
+            }
+        });
     }
 
     private void refreshFavorite(MusicTrack track) {
@@ -436,8 +472,8 @@ public class MusicLyricActivity extends AppCompatActivity implements MusicContro
 
     @Override
     public void onCoverChanged(MusicTrack track) {
-        // 同播放页：115 内嵌封面后到时只换氛围底封面，不重走整页 bindTrack
-        if (track != null && track == mTrack && mAmbient != null) mAmbient.setCover(track.cover);
+        // 同播放页：115 内嵌封面后到时只重派氛围底，不重走整页 bindTrack
+        if (track != null && track == mTrack && mAmbient != null) loadAmbientCover(track);
     }
 
     @Override

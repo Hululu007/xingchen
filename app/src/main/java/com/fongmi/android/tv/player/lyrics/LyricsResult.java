@@ -15,6 +15,9 @@ public class LyricsResult {
     private String artistName;
     private String albumName;
     private String lyrics;
+    /** 翻译逐行 LRC（与 lyrics 同为歌曲绝对时间）：TTML 的 x-translation 边轨等来源在此汇合，
+     * 音乐侧 AMLL 包装层据此填 MusicLyric.translation；为空即无翻译，不留占位。 */
+    private String translation;
     private long durationMs;
     private boolean synced;
     private int score;
@@ -53,6 +56,14 @@ public class LyricsResult {
 
     public String getLyrics() {
         return lyrics;
+    }
+
+    public String getTranslation() {
+        return translation;
+    }
+
+    public void setTranslation(String translation) {
+        this.translation = translation;
     }
 
     public long getDurationMs() {

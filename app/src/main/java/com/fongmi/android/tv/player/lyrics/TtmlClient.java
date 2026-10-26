@@ -56,7 +56,12 @@ public class TtmlClient {
         String ttml = ttml(best.id);
         String text = toEnhancedLrc(ttml);
         if (!LyricsParser.hasTimedLine(text)) return null;
-        return new LyricsResult("AMLL TTML", best.name, best.artist, best.album, text, best.durationSec * 1000L, true, best.score + 4);
+        LyricsResult result = new LyricsResult("AMLL TTML", best.name, best.artist, best.album, text, best.durationSec * 1000L, true, best.score + 4);
+        // 翻译边轨随结果带出：正词转换按既有口径跳过 x-translation span，翻译若不在此
+        // 单独收轨，AMLL 条目自带的译文就整份丢失（音乐侧实测无翻译行）。
+        String translation = toTranslationLrc(ttml);
+        if (!TextUtils.isEmpty(translation)) result.setTranslation(translation);
+        return result;
     }
 
     private List<Entry> search(LyricsRequest request) {
@@ -200,6 +205,64 @@ public class TtmlClient {
         } catch (Exception e) {
             if (SpiderDebug.isEnabled()) SpiderDebug.log(TAG, "ttml parse failed error=%s", e.getMessage());
             return "";
+        }
+    }
+
+    /** TTML 翻译边轨 → 逐行 LRC：逐段取 x-translation span 文本，挂段落行首时间
+     * （与正词同一套 begin 回退与全局 offset 口径），供播放侧按时间戳最近邻配对到正词行。
+     * 无翻译 span 返回空串，不留空行。 */
+    public static String toTranslationLrc(String ttml) {
+        if (TextUtils.isEmpty(ttml)) return "";
+        try {
+            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+            factory.setNamespaceAware(true);
+            setFeature(factory, "http://apache.org/xml/features/disallow-doctype-decl", true);
+            setFeature(factory, "http://xml.org/sax/features/external-general-entities", false);
+            setFeature(factory, "http://xml.org/sax/features/external-parameter-entities", false);
+            setFeature(factory, "http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
+            try {
+                factory.setXIncludeAware(false);
+                factory.setExpandEntityReferences(false);
+            } catch (Exception ignored) {
+            }
+            Document document = factory.newDocumentBuilder().parse(new InputSource(new StringReader(ttml)));
+            NodeList paragraphs = document.getElementsByTagNameNS("*", "p");
+            long globalOffset = readGlobalOffset(document);
+            StringBuilder builder = new StringBuilder();
+            for (int i = 0; i < paragraphs.getLength(); i++) {
+                Node node = paragraphs.item(i);
+                if (!(node instanceof Element)) continue;
+                Element p = (Element) node;
+                long lineStart = parseTime(timingAttribute(p, "begin"));
+                if (lineStart < 0) lineStart = firstSpanBegin(p);
+                if (lineStart < 0) continue;
+                lineStart = Math.max(0, lineStart + globalOffset);
+                StringBuilder text = new StringBuilder();
+                collectTranslation(p, text);
+                String line = text.toString().trim();
+                if (!line.isEmpty()) builder.append(formatTime(lineStart)).append(line).append('\n');
+            }
+            return builder.toString();
+        } catch (Exception e) {
+            if (SpiderDebug.isEnabled()) SpiderDebug.log(TAG, "ttml translation parse failed error=%s", e.getMessage());
+            return "";
+        }
+    }
+
+    /** 递归收 x-translation span 的整段文本（命中即不再下钻，避免嵌套 span 重复计入）；
+     * x-roman 与正词 span 不收。 */
+    private static void collectTranslation(Element parent, StringBuilder out) {
+        NodeList children = parent.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            Node child = children.item(i);
+            if (!(child instanceof Element)) continue;
+            Element element = (Element) child;
+            if ("x-translation".equals(attribute(element, "role"))) {
+                String text = element.getTextContent();
+                if (!TextUtils.isEmpty(text)) out.append(text.trim());
+                continue;
+            }
+            if (hasElementChild(element)) collectTranslation(element, out);
         }
     }
 

@@ -44,6 +44,8 @@ public class AmllMusicLyricSource {
             MusicLyric lyric = new MusicLyric(r.getLyrics());
             lyric.format = "AMLL";
             lyric.sourceName = "AMLL";
+            // TTML 自带翻译边轨（TtmlClient.find 已收进结果）：不搬运则 AMLL 版永远无翻译行
+            if (r.getTranslation() != null && !r.getTranslation().trim().isEmpty()) lyric.translation = r.getTranslation();
             return lyric;
         } catch (Throwable ignored) {
             return null;

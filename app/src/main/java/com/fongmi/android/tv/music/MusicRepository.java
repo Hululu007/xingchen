@@ -1287,7 +1287,21 @@ public class MusicRepository {
             if (response == null) return null;
             for (CfLyricClient.CfVersion version : response.versions) {
                 MusicLyric lyric = toMusicLyric(version);
-                if (hasWordLyric(lyric)) return lyric;
+                if (hasWordLyric(lyric)) {
+                    // 整包消费（照瓜子 bundle 模型）：选中的逐字版自身没译文时，用回包
+                    // bundle 的 tlyric 补齐——译文常落在另一版本身上（如主词走酷狗逐字、
+                    // 译文只在网易版），不补则播放页永远无翻译行。配对在显示侧按时间戳
+                    // 最近邻完成（RichLyrics.align 容差内），时间对不上的行自动不挂。
+                    if ((lyric.translation == null || lyric.translation.trim().isEmpty())
+                            && response.bundleTlyric != null && !response.bundleTlyric.trim().isEmpty()) {
+                        lyric.translation = response.bundleTlyric;
+                    }
+                    if ((lyric.romanization == null || lyric.romanization.trim().isEmpty())
+                            && response.bundleRomalrc != null && !response.bundleRomalrc.trim().isEmpty()) {
+                        lyric.romanization = response.bundleRomalrc;
+                    }
+                    return lyric;
+                }
             }
         } catch (Throwable t) {
             SpiderDebug.log("music", "lyricRich cf word error %s", t.getMessage());

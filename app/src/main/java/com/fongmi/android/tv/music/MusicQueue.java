@@ -40,6 +40,15 @@ public class MusicQueue {
     private final List<Integer> shuffleOrder = new ArrayList<>();
 
     /**
+     * 下一轮随机顺序的预告缓存（扫描 M8）：本轮播到末位时 nextIndex 只是查询，
+     * 旧实现却在查询里 rebuildShuffleOrder——canNext/queueNextIndex 被迷你条每次
+     * 刷新都调一遍，每查一次就重洗一遍、预告的下一首反复变，真按下一首又再洗。
+     * 改为：预告时生成一次并缓存，查询只读缓存；真切到预告那首（moveTo 命中）
+     * 才把缓存转正为本轮顺序，其余任何队列/游标变动都作废缓存。
+     */
+    private List<Integer> nextRoundOrder;
+
+    /**
      * 队列级来源（B7，入队时随队列写入）：展示用来源名，如榜单名、歌单标题、随心听。
      * 空＝未知来源（老断点恢复的队列无此信息，面板回落旧反查口径）。
      */
@@ -114,6 +123,7 @@ public class MusicQueue {
                                        String source, String route, java.util.Map<String, String> routeParams) {
         shuffleHistory.clear();
         shuffleOrder.clear();
+        nextRoundOrder = null;
         tracks.clear();
         if (list != null) tracks.addAll(list);
         index = tracks.isEmpty() ? -1 : Math.max(0, Math.min(startIndex, tracks.size() - 1));
@@ -173,18 +183,27 @@ public class MusicQueue {
             if (changed) rebuildShuffleOrder();
         } else {
             shuffleOrder.clear();
+            nextRoundOrder = null;
         }
     }
 
     /** D12：切随机时的重排——全部序号洗牌后把当前歌移到首位（本轮从当前歌起播，不立即重播它）。 */
     private void rebuildShuffleOrder() {
+        nextRoundOrder = null;
         shuffleOrder.clear();
-        for (int i = 0; i < tracks.size(); i++) shuffleOrder.add(i);
-        Collections.shuffle(shuffleOrder, random);
+        shuffleOrder.addAll(buildRoundOrder());
+    }
+
+    /** 生成一轮新顺序（不触碰现行 shuffleOrder）：全部序号洗牌、当前歌移到首位 */
+    private List<Integer> buildRoundOrder() {
+        List<Integer> order = new ArrayList<>();
+        for (int i = 0; i < tracks.size(); i++) order.add(i);
+        Collections.shuffle(order, random);
         if (index >= 0 && index < tracks.size()) {
-            shuffleOrder.remove(Integer.valueOf(index));
-            shuffleOrder.add(0, index);
+            order.remove(Integer.valueOf(index));
+            order.add(0, index);
         }
+        return order;
     }
 
     /** 随机顺序有效性：大小与队长一致、序号全在队内且不重复、当前歌在内；失效才重建（中途重建会丢本轮进度）。 */
@@ -228,9 +247,11 @@ public class MusicQueue {
                 ensureShuffleOrder();
                 int pos = shuffleOrder.indexOf(index);
                 if (pos >= 0 && pos + 1 < shuffleOrder.size()) return shuffleOrder.get(pos + 1);
-                // 播完一轮：按当前歌重排，新一轮的下一首是重排后的第 2 位（首位是刚播完的本首，不立即重播）。
-                rebuildShuffleOrder();
-                return shuffleOrder.size() > 1 ? shuffleOrder.get(1) : index;
+                // 播完一轮：下一首是下一轮顺序的第 2 位（首位是刚播完的本首，不立即重播）。
+                // 本方法是纯查询（canNext/预告都走它）：下一轮只生成一次并缓存（M8），
+                // 反复查询返回同一首；真切过去时由 moveTo 把缓存转正。
+                if (nextRoundOrder == null) nextRoundOrder = buildRoundOrder();
+                return nextRoundOrder.size() > 1 ? nextRoundOrder.get(1) : index;
             default:
                 int n = index + 1;
                 if (n < tracks.size()) return n;
@@ -256,6 +277,14 @@ public class MusicQueue {
 
     public synchronized boolean moveTo(int i) {
         if (i < 0 || i >= tracks.size()) return false;
+        if (nextRoundOrder != null) {
+            // 切到的正是预告的下一首：下一轮缓存转正为本轮顺序；切到别处则缓存作废（M8）
+            if (nextRoundOrder.size() > 1 && i == nextRoundOrder.get(1)) {
+                shuffleOrder.clear();
+                shuffleOrder.addAll(nextRoundOrder);
+            }
+            nextRoundOrder = null;
+        }
         index = i;
         return true;
     }
@@ -269,6 +298,7 @@ public class MusicQueue {
      */
     public synchronized void removeAt(int i) {
         if (i < 0 || i >= tracks.size()) return;
+        nextRoundOrder = null;
         boolean wasCurrent = (i == index);
         MusicTrack shuffleNext = null;
         if (wasCurrent && mode == MODE_SHUFFLE && tracks.size() > 1) {
@@ -305,6 +335,7 @@ public class MusicQueue {
 
     public synchronized void move(int from, int to) {
         if (from < 0 || from >= tracks.size() || to < 0 || to >= tracks.size() || from == to) return;
+        nextRoundOrder = null;
         if (mode == MODE_SHUFFLE) {
             // D12：随机模式拖动只动 shuffleOrder，不动原队列。from／to 仍是面板拖动口径
             // （原队列序号，队列面板按原队列展示）：把被拖曲目的随机位置移到目标曲目的随机位置，
@@ -336,6 +367,7 @@ public class MusicQueue {
     /** 插到下一首播 */
     public synchronized void insertNext(MusicTrack track) {
         if (track == null) return;
+        nextRoundOrder = null;
         int at = index + 1;
         if (at < 0) at = 0;
         if (at > tracks.size()) at = tracks.size();
@@ -354,6 +386,7 @@ public class MusicQueue {
     /** 加到队尾 */
     public synchronized void append(MusicTrack track) {
         if (track == null) return;
+        nextRoundOrder = null;
         boolean shuffleValid = mode == MODE_SHUFFLE && shuffleOrder.size() == tracks.size();
         tracks.add(track);
         if (shuffleValid) shuffleOrder.add(tracks.size() - 1);
@@ -363,6 +396,7 @@ public class MusicQueue {
     public synchronized void clear() {
         shuffleHistory.clear();
         shuffleOrder.clear();
+        nextRoundOrder = null;
         tracks.clear();
         index = -1;
         source = null;

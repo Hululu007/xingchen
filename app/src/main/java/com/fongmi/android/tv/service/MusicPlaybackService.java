@@ -659,7 +659,11 @@ public class MusicPlaybackService extends MediaSessionService {
         // 没准备过（断点恢复态）则先准备，进度走断点（R12 失败态的 0 进度由
         // stopAtFailed 显式存盘，不在这里改口径，否则断点续播会被误写成 0）
         if (player.getPlaybackState() == Player.STATE_IDLE) {
-            prepareTrack(queue.getIndex(), MusicStore.loadPosition(), true);
+            // 扫描 M7：自动推进失败停机态（failedStopNoBreakpoint）下 loadPosition 还是
+            // 此前好歌的断点，套到当前失败歌头上会从旧歌秒数起播（短歌直接顶到结尾）；
+            // 该态按 M4 口径从失败歌 0 秒重取。真断点恢复态（没失败过）仍走断点。
+            long pos = failedStopNoBreakpoint ? 0 : MusicStore.loadPosition();
+            prepareTrack(queue.getIndex(), pos, true);
             return;
         }
         // 续播同 prepareTrack：被降过前台就先补回前台再播

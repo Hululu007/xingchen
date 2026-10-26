@@ -57,6 +57,7 @@ public final class MusicGlassWire {
             R.drawable.home_bg_search,
             R.drawable.bg_search_capsule,
             R.drawable.bg_pill_overview,
+            R.drawable.bg_music_continue_play, // 继续播放卡圆播放键：原是纯色深墨圆盘，他点名不是玻璃（2026-10-26）
             R.drawable.home_bg_card_pink,
             R.drawable.home_bg_card_teal,
             R.drawable.home_bg_card_lime,
@@ -82,6 +83,7 @@ public final class MusicGlassWire {
             24f,   // home_bg_search
             999f,  // bg_search_capsule（胶囊全圆）
             12f,   // bg_pill_overview
+            999f,  // bg_music_continue_play（圆键全圆）
             20f,   // home_bg_card_pink（三彩卡·猜你喜欢，与原 shape 圆角一致；不带 tone——他 10-25 23:02 令颜色不必留、跟其它卡一套玻璃）
             20f,   // home_bg_card_teal（三彩卡·排行榜）
             20f,   // home_bg_card_lime（三彩卡·随心听）

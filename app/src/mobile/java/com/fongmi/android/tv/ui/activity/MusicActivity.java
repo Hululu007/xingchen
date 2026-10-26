@@ -732,11 +732,14 @@ public class MusicActivity extends BaseActivity {
         homeMoodWave.setWaveColor(mood.tone);
         // 卡面不再平铺心情色（2026-10-26 他发截图点名）：tone 0.16 压在深区取样上把整卡染成
         // 墨绿实底、看不出玻璃——卡面保持纯玻璃，心情色只活在选中片/波形/播放钮上。
-        // 播放钮：tone→向白混 0.22 的圆形渐变（点缀钮，心情色）
-        GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
-                new int[]{mood.tone, MusicHomeMood.mixWhite(mood.tone, 0.22f)});
-        bg.setShape(GradientDrawable.OVAL);
-        homeMoodPlay.setBackground(bg);
+        // 播放钮：玻璃圆钮＋心情色 tone（与继续播放卡圆键同口径——他连着点名实色圆盘不是玻璃）；
+        // 此前是 tone 实色渐变盘，整颗不透。
+        if (!(homeMoodPlay.getBackground() instanceof MusicGlassDrawable)) {
+            MusicGlassWire.glassifyView(homeMoodPlay, 999f);
+        }
+        if (homeMoodPlay.getBackground() instanceof MusicGlassDrawable) {
+            ((MusicGlassDrawable) homeMoodPlay.getBackground()).setToneColor(mood.tone, 0.5f);
+        }
         for (int i = 0; i < moodPills.size(); i++) {
             TextView pill = moodPills.get(i);
             MusicHomeMood.Mood m = MusicHomeMood.at(i);

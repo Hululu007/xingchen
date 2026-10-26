@@ -62,7 +62,7 @@ public class MusicNotificationProvider implements MediaNotification.Provider {
 
     private volatile MediaSession lastSession;
     private volatile Callback lastCallback;
-    private volatile ActionFactory lastFactory;
+    private volatile MediaNotification.ActionFactory lastFactory;
     private volatile ImmutableList<androidx.media3.session.CommandButton> lastButtons = ImmutableList.of();
 
     public MusicNotificationProvider(Context context, int notificationId, PendingIntent contentIntent) {
@@ -78,7 +78,7 @@ public class MusicNotificationProvider implements MediaNotification.Provider {
     }
 
     @Override
-    public MediaNotification createNotification(MediaSession mediaSession, ImmutableList<androidx.media3.session.CommandButton> mediaButtonPreferences, ActionFactory actionFactory, Callback onNotificationChangedCallback) {
+    public MediaNotification createNotification(MediaSession mediaSession, ImmutableList<androidx.media3.session.CommandButton> mediaButtonPreferences, MediaNotification.ActionFactory actionFactory, Callback onNotificationChangedCallback) {
         lastSession = mediaSession;
         lastCallback = onNotificationChangedCallback;
         lastFactory = actionFactory;

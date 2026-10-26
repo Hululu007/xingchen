@@ -70,6 +70,8 @@ public class CloudDriveActivity extends BaseActivity {
     private static final String EXTRA_OPEN_NAME = "open_name";
     private static final int PAGE_LIMIT = 100;
     private static final int SEARCH_LIMIT = 50;
+    /** 整页被过滤光时自动续拉的连拉上限（防跑飞）：连拉 10 页仍无可见行就停，到顶仍空才是真空（下拉刷新会重置）。 */
+    private static final int AUTO_CHAIN_MAX = 10;
     /** 「保存到」上次所选文件夹的偏好键（按网盘分开记，拼 drive.getId()）：cid 与显示名各一份。 */
     private static final String PREF_SAVE_CID = "drive_save_cid_";
     private static final String PREF_SAVE_NAME = "drive_save_name_";
@@ -103,6 +105,8 @@ public class CloudDriveActivity extends BaseActivity {
     /** 已取的原始条数：展示列表过滤掉非视频文件后 files.size() 不再等于服务端偏移，分页 offset 按这个走。 */
     private int fetchedCount;
     private int fetchGen;
+    /** 已连续自动续拉的页数（整页过滤光时触发），拉出可见行或重新 fetchFiles 时归零。 */
+    private int autoChain;
     /** onResume 刷新守门：initView 成功走完才置真；紧跟 initView 的首个 onResume 跳过，避免同一次进页重复拉取。 */
     private boolean viewReady;
     private boolean firstResume = true;
@@ -584,6 +588,7 @@ public class CloudDriveActivity extends BaseActivity {
         hasMore = true;
         loadingMore = false;
         fetchedCount = 0;
+        autoChain = 0;
         fetchPage(0, false, fetchGen);
     }
 
@@ -627,8 +632,14 @@ public class CloudDriveActivity extends BaseActivity {
                     } else if (added > 0) {
                         adapter.notifyItemRangeInserted(insertStart, added);
                     }
-                    // 整页都被过滤掉时展示列表不增长、滚动再也触发不了续拉，自动往下续一页，别把后面的视频堵死
-                    if (append && added == 0 && hasMore) loadMore();
+                    // 流畅度 D4：整页被过滤光时展示列表不增长、滚动触发不了续拉——首屏同样自动续拉
+                    // （此前只写在续拉路，首屏全过滤就是假空、出不来也滑不动）；拉出可见行即停链，
+                    // 连拉到上限仍空才是真空。fetchedCount/hasMore 已在本回调前段更新完，续拉不会重复拉同一页
+                    if (added > 0) autoChain = 0;
+                    if (added == 0 && hasMore && autoChain < AUTO_CHAIN_MAX) {
+                        autoChain++;
+                        loadMore();
+                    }
                 });
             } catch (Exception e) {
                 runOnUiThread(() -> {

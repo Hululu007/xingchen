@@ -732,14 +732,10 @@ public class MusicStore {
         }
     }
 
-    // ===== 播放页主题与歌词样式（工具面板/全屏歌词页共用，2026-10-21） =====
-
-    /** 播放页主题 id（与 GZ PlayerTheme 清单同名） */
-    public static final String THEME_CLASSIC = "classic";
-    public static final String THEME_APPLE_MUSIC = "apple_music";
-    public static final String THEME_COVER_IMMERSIVE = "cover_immersive";
-    public static final String THEME_LUMINOUS_CD = "luminous_cd";
-    public static final String THEME_RECORD_SHELF = "record_shelf";
+    // ===== 歌词样式（工具面板/全屏歌词页共用，2026-10-21） =====
+    // 播放页主题不在本类：真读口只有 MusicPlayerSettings.getTheme/setTheme
+    // （同键 music_player_theme、只认经典）。本类旧 get/setPlayerTheme 死 API
+    // （全树零调用、仍认五主题）已删（体检 E-P2），不许再在本类加主题读口。
 
     /** 歌词粗细：标准 */
     public static final int LYRIC_WEIGHT_NORMAL = 0;
@@ -762,7 +758,6 @@ public class MusicStore {
     /** 主歌词：音译 */
     public static final int LYRIC_PRIMARY_ROMANIZATION = 2;
 
-    private static final String K_PLAYER_THEME = "music_player_theme";
     private static final String K_LYRIC_FONT_SIZE = "music_lyric_font_size";
     private static final String K_LYRIC_WEIGHT = "music_lyric_weight";
     private static final String K_LYRIC_ALIGN = "music_lyric_align";
@@ -771,32 +766,6 @@ public class MusicStore {
     private static final String K_SHOW_ROMANIZATION = "music_show_romanization";
     private static final String K_ADVANCED_FX = "music_advanced_fx";
     private static final String K_PLAYER_KEEP_SCREEN_ON = "music_player_keep_screen_on";
-
-    /** 播放页主题 id（默认经典 classic＝瓜子原值，2026-10-25 用户纠正：瓜子
-     * PlayerViewModel.java:1018 存档回落 "classic"；已存的合法用户值一律不动。
-     * 无存档／非法值读侧回落经典——与 MusicPlayerSettings.getTheme 同口径。
-     * 1.4.27 的「回落封面卡片防无声落经典」理由随本次纠正作废。） */
-    public static String getPlayerTheme() {
-        String theme = Prefers.getString(K_PLAYER_THEME, THEME_CLASSIC);
-        if (theme == null || theme.isEmpty()) return THEME_CLASSIC;
-        if (THEME_CLASSIC.equals(theme) || THEME_APPLE_MUSIC.equals(theme)
-                || THEME_COVER_IMMERSIVE.equals(theme) || THEME_LUMINOUS_CD.equals(theme)
-                || THEME_RECORD_SHELF.equals(theme)) {
-            return theme;
-        }
-        return THEME_CLASSIC;
-    }
-
-    public static void setPlayerTheme(String theme) {
-        // 只存 5 个合法 id；非法（含空）写默认经典（2026-10-25 纠正，与 getPlayerTheme 同口径）。
-        if (THEME_CLASSIC.equals(theme) || THEME_APPLE_MUSIC.equals(theme)
-                || THEME_COVER_IMMERSIVE.equals(theme) || THEME_LUMINOUS_CD.equals(theme)
-                || THEME_RECORD_SHELF.equals(theme)) {
-            Prefers.put(K_PLAYER_THEME, theme);
-        } else {
-            Prefers.put(K_PLAYER_THEME, THEME_CLASSIC);
-        }
-    }
 
     /** 歌词字号单键收口（2026-10-26 审计 #20 修复）：正本只留封面键
      * music_lyric_font_size_cover——渲染器 InPageLyricsView 真读的键（播放页页内与

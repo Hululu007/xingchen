@@ -105,7 +105,15 @@ public class DesktopLyricsWindow {
         ensureAttached();
         if (!attached || view == null) return;
         boolean firstAttach = controller == null;
-        if (firstAttach) controller = new LyricsController(view);
+        if (firstAttach) {
+            controller = new LyricsController(view);
+            // 偏移消费面补齐（F2 审计）：本窗只喂音频/类音乐内容，此前只吃视频侧
+            // PlayerSetting 歌词偏移、音乐设置里的 music_lyric_offset_ms 在这里不生效；
+            // 把音乐偏移作为额外偏移挂到本窗自己的 controller 实例上（叠加口径，
+            // 视频侧其它 controller 不受影响），与页内歌词/舞台视图读同一把键。
+            controller.setExtraOffsetSupplier(
+                    () -> com.fongmi.android.tv.music.MusicStore.getLyricOffsetMs());
+        }
         if (lyricsResult != null && !lyricsLines.isEmpty()) {
             if (firstAttach || appliedLyricsVersion != lyricsVersion) {
                 controller.applySnapshot(lyricsResult, lyricsLines, player);

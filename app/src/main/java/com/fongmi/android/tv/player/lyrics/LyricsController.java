@@ -38,6 +38,11 @@ public class LyricsController {
     private int durationWaitAttempts;
     private Runnable durationWaitRunnable;
     private int sequence;
+    /** 额外偏移供给（实例级，默认无）：桌面歌词窗给音乐内容挂 MusicStore 的
+     * music_lyric_offset_ms——该窗只在音频/类音乐内容时显示（见 DesktopLyricsWindow），
+     * 挂在它自己的 controller 实例上，不影响视频侧其它 controller 对
+     * PlayerSetting 歌词偏移的原口径（F2 审计·偏移消费面）。 */
+    private java.util.function.LongSupplier extraOffsetSupplier;
 
     public interface Callback {
         void onResult(LyricsResult result);
@@ -57,6 +62,11 @@ public class LyricsController {
 
     public void setSecondaryView(LyricsOverlayView view) {
         this.secondaryView = view;
+    }
+
+    /** 挂额外偏移（如音乐的 music_lyric_offset_ms）：与视频侧歌词偏移叠加生效，仅本实例 */
+    public void setExtraOffsetSupplier(java.util.function.LongSupplier supplier) {
+        this.extraOffsetSupplier = supplier;
     }
 
     public void setListener(Listener listener) {
@@ -436,7 +446,14 @@ public class LyricsController {
         return false;
     }
 
-    private static long adjust(long positionMs) {
-        return Math.max(0, positionMs + PlayerSetting.getLyricsTimeOffsetMs());
+    private long adjust(long positionMs) {
+        long extra = 0;
+        if (extraOffsetSupplier != null) {
+            try {
+                extra = extraOffsetSupplier.getAsLong();
+            } catch (Throwable ignored) {
+            }
+        }
+        return Math.max(0, positionMs + PlayerSetting.getLyricsTimeOffsetMs() + extra);
     }
 }

@@ -32,7 +32,7 @@ import java.util.List;
 
 /**
  * 歌词版本面板（瓜子 PlayerVersionSheet 构成）：头「歌词版本」＋关闭、歌行（封面/歌名/歌手/
- * 「N 个版本 · 按匹配度排列」）、筛选签（全部/逐字/逐行/翻译/音译/文本）、版本卡（来源＋行数、
+ * 「N 个版本 · M 个有匹配度」）、筛选签（全部/逐字/逐行/翻译/音译/文本）、版本卡（来源＋行数、
  * 候选歌名·歌手、逐字/翻译/音译标签、匹配度）。数据走 MusicRepository.lyricVersions
  * （共用层 LyricVersionsCache：同歌缓存＋在飞合并＋全量总时限收口，底层仍是阶段一 Worker
  * ＋阶段二 lyricRichAll 全量聚合），点选即生效并存手动选择（saveManualLyricChoice，下次同曲恢复）。底走自家液态玻璃（不用白底）。
@@ -249,9 +249,16 @@ public class MusicLyricVersionsDialog extends BaseBottomSheetDialog {
             lineCounts = counts;
             loaded = true;
             loadDone = done;
-            if (subView != null) subView.setText(done
-                    ? merged.size() + " 个版本 · 按匹配度排列"
-                    : "已找到 " + merged.size() + " 个版本 · 继续搜索中");
+            if (subView != null) {
+                // 头文案如实（F2 审计）：近半版本未定级（无候选元数据过不了瓜子尺）时
+                // 不许笼统写「按匹配度排列」冒充全员有分——已定级个数明写出来，
+                // 未定级的行本就不显百分比（bindRow hasGzScore 门），两处口径一致。
+                int graded = 0;
+                for (LyricVersion v : merged) if (v.hasGzScore()) graded++;
+                subView.setText(done
+                        ? merged.size() + " 个版本" + (graded > 0 ? " · " + graded + " 个有匹配度" : " · 暂无匹配度")
+                        : "已找到 " + merged.size() + " 个版本 · 继续搜索中");
+            }
             renderRows();
         });
     }

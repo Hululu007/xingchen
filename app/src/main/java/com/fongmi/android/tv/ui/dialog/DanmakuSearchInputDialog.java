@@ -154,7 +154,7 @@ public final class DanmakuSearchInputDialog extends DialogFragment implements Ca
     private void onItemClick(Danmaku item) {
         selected = true;
         if (SpiderDebug.isEnabled()) SpiderDebug.log("danmaku", "search dialog item click selected=%s name=%s url=%s", item.isSelected(), item.getName(), item.getUrl());
-        player.setDanmaku(item.isSelected() ? Danmaku.empty() : item);
+        if (player != null) player.setDanmaku(item.isSelected() ? Danmaku.empty() : item);
         dismiss();
     }
 

@@ -68,7 +68,7 @@ public class PlayUrlBuilder115 {
      * 构造播放地址（对照 PY _player_content）
      *
      * @param file 视频文件
-     * @param mode "org"=原画优先, "trans"=转码优先, 其他=自动（转码优先，起播快）
+     * @param mode "org"=原画优先, 其他=自动（原画优先，与 buildPlayList 定案口径一致，原画取不到回落转码）
      * @return PlayRequest，proxyUrl 给播放器
      */
     public PlayRequest build(CloudFile file, String mode) throws Exception {
@@ -92,23 +92,27 @@ public class PlayUrlBuilder115 {
                 isM3u8 = true;
             }
         } else {
-            // 默认/自动：m3u8 优先（起播快、省带宽）；m3u8 失败时兜底原画直链（对照 PY 候选链 m3u8 → 原画）
+            // 默认/自动：原画优先（2026-10-26 定案，与 buildPlayList 口径一致——清单默认起播原画）；
+            // 原画取不到（空/异常）才回落转码 m3u8（探活通过才用），不再 m3u8 抢先起播。
             url = null;
             isM3u8 = false;
-            String m3u8 = null;
             try {
-                m3u8 = drive.m3u8Url(pc);
+                url = getDownUrlCached(pc, forceRefresh);
             } catch (Exception e) {
-                Log.d(TAG, "m3u8 地址构造失败: " + e.getMessage());
-            }
-            if (!TextUtils.isEmpty(m3u8) && probeM3u8(m3u8)) {
-                url = m3u8;
-                isM3u8 = true;
+                Log.d(TAG, "原画取链失败: " + e.getMessage());
             }
             if (TextUtils.isEmpty(url)) {
-                Log.d(TAG, "m3u8 不可用，兜底原画直链");
-                url = getDownUrlCached(pc, forceRefresh);
-                isM3u8 = false;
+                Log.d(TAG, "原画不可用，回落转码 m3u8");
+                String m3u8 = null;
+                try {
+                    m3u8 = drive.m3u8Url(pc);
+                } catch (Exception e) {
+                    Log.d(TAG, "m3u8 地址构造失败: " + e.getMessage());
+                }
+                if (!TextUtils.isEmpty(m3u8) && probeM3u8(m3u8)) {
+                    url = m3u8;
+                    isM3u8 = true;
+                }
             }
         }
 

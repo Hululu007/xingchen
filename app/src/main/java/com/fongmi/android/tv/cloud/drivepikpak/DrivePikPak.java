@@ -1136,8 +1136,10 @@ public class DrivePikPak implements CloudDrive {
         JSONObject task = d.optJSONObject("task");
         String taskId = task != null ? task.optString("id") : d.optString("task_id");
         if (TextUtils.isEmpty(taskId)) {
-            // 有些返回直接是文件（秒传），也算成功
-            if (!TextUtils.isEmpty(d.optJSONObject("file").optString("id"))) return true;
+            // 有些返回直接是文件（秒传），也算成功；file 缺失时 optJSONObject 回 null，
+            // 直取 optString 必 NPE，先判空再取 id，缺失走下方既有失败口径。
+            JSONObject file = d.optJSONObject("file");
+            if (file != null && !TextUtils.isEmpty(file.optString("id"))) return true;
             throw new Exception("离线任务创建失败（可能是接口变更）");
         }
         return true;

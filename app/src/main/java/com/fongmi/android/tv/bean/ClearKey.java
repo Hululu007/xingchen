@@ -40,6 +40,8 @@ public class ClearKey {
         int flags = Base64.URL_SAFE | Base64.NO_PADDING | Base64.NO_WRAP;
         for (String s : line.split(",")) {
             String[] a = s.split(":");
+            // 无冒号的段没有 a[1]，直取必越界；这类畸形行跳过，其余段照常入表。
+            if (a.length < 2) continue;
             String kid = Util.base64(Util.hex2byte(a[0].trim()), flags).replace("=", "");
             String k = Util.base64(Util.hex2byte(a[1].trim()), flags).replace("=", "");
             keys.add(new Keys(kid, k));

@@ -252,8 +252,41 @@ public final class NodeStore {
             in.close();
             List<Node> list = GSON.fromJson(new String(buf, 0, off, "UTF-8"), LIST_TYPE);
             if (list != null) nodes = list;
+            // Gson 把 Map<String,Object> 里的数字一律读成 Double，重载后 port 会变 443.0，
+            // MiniYaml.dump 照 Number.toString 输出 "443.0"，mihomo 配置非法。
+            // 落盘前的内存形态（MiniYaml.parseScalar/LinkParser）整数都是 Integer/Long，
+            // 故读盘后在此把整数值 Double 归一回去（嵌套 Map/List 递归）。
+            for (Node n : nodes) {
+                if (n != null && n.config != null) n.config = normalizeMap(n.config);
+            }
         } catch (Exception ignored) {
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> normalizeMap(Map<String, Object> map) {
+        // 建新表回填，不原地改 Gson 的 LinkedTreeMap 条目（其 Entry.setValue 行为不作依赖）。
+        Map<String, Object> out = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> e : map.entrySet()) out.put(e.getKey(), normalizeValue(e.getValue()));
+        return out;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Object normalizeValue(Object v) {
+        if (v instanceof Map) return normalizeMap((Map<String, Object>) v);
+        if (v instanceof List) {
+            List<Object> list = (List<Object>) v;
+            for (int i = 0; i < list.size(); i++) list.set(i, normalizeValue(list.get(i)));
+            return list;
+        }
+        if (v instanceof Double) {
+            double d = (Double) v;
+            if (Double.isFinite(d) && d == Math.floor(d)) {
+                if (d >= Integer.MIN_VALUE && d <= Integer.MAX_VALUE) return (int) d;
+                return (long) d;
+            }
+        }
+        return v;
     }
 
     private void save() {

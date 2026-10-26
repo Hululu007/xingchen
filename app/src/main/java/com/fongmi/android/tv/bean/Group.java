@@ -152,7 +152,14 @@ public class Group {
     }
 
     public Channel current() {
-        return getChannel().get(getPosition()).group(this);
+        // position 缺省 -1、列表可空，直取 get(position) 必越界。调用方（LiveActivity 共 6 处）
+        // 拿到结果立刻解引用、无一判空，回 null 只是把崩移到调用方，故按 Channel.getIndex
+        // 的既有口径在出口钳位：非空时钳到 [0, size-1]，空时回一个绑本组的新 Channel
+        // （其 getCurrent/getData 对空表均有守卫、回空值不崩）。
+        List<Channel> channels = getChannel();
+        if (channels.isEmpty()) return new Channel().group(this);
+        int position = Math.min(Math.max(getPosition(), 0), channels.size() - 1);
+        return channels.get(position).group(this);
     }
 
     public Group trans() {

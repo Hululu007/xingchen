@@ -58,13 +58,23 @@ public class Decoder {
 
     private static String cbc(String data) throws Exception {
         String decode = new String(Util.hex2byte(data)).toLowerCase();
-        String key = padEnd(decode.substring(decode.indexOf("$#") + 2, decode.indexOf("#$")));
+        // 标记缺失/倒序/长度不够时任何一处 substring 都会越界；先全校验，
+        // 不满足按解密失败抛 Exception（verify/getJson 既有的 throws 口径，调用方按配置加载失败处理）。
+        int keyStart = decode.indexOf("$#");
+        int keyEnd = decode.indexOf("#$");
+        if (keyStart == -1 || keyEnd == -1 || keyEnd < keyStart + 2) throw new Exception();
+        String rawKey = decode.substring(keyStart + 2, keyEnd);
+        if (rawKey.length() > 16) throw new Exception();
+        if (decode.length() < 13) throw new Exception();
+        String key = padEnd(rawKey);
         String iv = padEnd(decode.substring(decode.length() - 13));
         SecretKeySpec keySpec = new SecretKeySpec(key.getBytes(), "AES");
         IvParameterSpec ivSpec = new IvParameterSpec(iv.getBytes());
         Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
         cipher.init(Cipher.DECRYPT_MODE, keySpec, ivSpec);
-        data = data.substring(data.indexOf("2324") + 4, data.length() - 26);
+        int dataStart = data.indexOf("2324");
+        if (dataStart == -1 || data.length() - 26 < dataStart + 4) throw new Exception();
+        data = data.substring(dataStart + 4, data.length() - 26);
         byte[] decryptData = cipher.doFinal(Util.hex2byte(data));
         return new String(decryptData, StandardCharsets.UTF_8);
     }

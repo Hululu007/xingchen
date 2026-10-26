@@ -193,8 +193,10 @@ public class DLNARendererService extends AndroidUpnpServiceImpl implements Servi
         playbackService = ((PlaybackService.LocalBinder) binder).getService();
         playbackService.addPlayerCallback(playerCallback);
         player = playbackService.player();
+        if (player == null || player.isReleased()) return;
         avTransportImpl.setPlayerManager(player);
         currentListenerPlayer = player.getPlayer();
+        if (currentListenerPlayer == null) return;
         currentListenerPlayer.addListener(listener);
         App.post(positionUpdater, 1000);
     }
@@ -206,7 +208,7 @@ public class DLNARendererService extends AndroidUpnpServiceImpl implements Servi
     }
 
     private void notifyState() {
-        if (avTransportImpl == null || player == null || !isDlnaActive) return;
+        if (avTransportImpl == null || player == null || player.isReleased() || !isDlnaActive) return;
         int state = player.getPlaybackState();
         if (state == Player.STATE_IDLE) return;
         long duration = player.getDuration();
@@ -223,8 +225,8 @@ public class DLNARendererService extends AndroidUpnpServiceImpl implements Servi
     private final Runnable positionUpdater = new Runnable() {
         @Override
         public void run() {
-            if (player != null && avTransportImpl != null && player.isPlaying()) avTransportImpl.updatePositionCache(player.getPosition(), player.getDuration());
-            if (player != null) App.post(this, 1000);
+            if (player != null && !player.isReleased() && avTransportImpl != null && player.isPlaying()) avTransportImpl.updatePositionCache(player.getPosition(), player.getDuration());
+            if (player != null && !player.isReleased()) App.post(this, 1000);
         }
     };
 

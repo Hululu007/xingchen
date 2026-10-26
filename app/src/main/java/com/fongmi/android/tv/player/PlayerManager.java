@@ -492,7 +492,7 @@ public class PlayerManager implements ParseCallback {
     }
 
     public MediaItem getCurrentMediaItem() {
-        return player.getCurrentMediaItem();
+        return isReleased() ? null : player.getCurrentMediaItem();
     }
 
     public String getPlaybackTraceId() {
@@ -521,11 +521,11 @@ public class PlayerManager implements ParseCallback {
     }
 
     public int getPlaybackState() {
-        return player.getPlaybackState();
+        return isReleased() ? Player.STATE_IDLE : player.getPlaybackState();
     }
 
     public boolean isPlaying() {
-        return player.isPlaying();
+        return !isReleased() && player.isPlaying();
     }
 
     public boolean isReleased() {
@@ -656,7 +656,7 @@ public class PlayerManager implements ParseCallback {
     }
 
     public long getPosition() {
-        return player.getCurrentPosition();
+        return isReleased() ? 0 : player.getCurrentPosition();
     }
 
     public long getBufferedDuration() {
@@ -892,7 +892,7 @@ public class PlayerManager implements ParseCallback {
     }
 
     public long getDuration() {
-        return player.getDuration();
+        return isReleased() ? 0 : player.getDuration();
     }
 
     public String getDurationTime() {
@@ -1347,6 +1347,7 @@ public class PlayerManager implements ParseCallback {
     }
 
     public void clearMediaItems() {
+        if (isReleased()) return;
         stopNativeAudioSession();
         clearDanmaku("clear_media_items");
         mpvAutoGpuPinnedForSession = false;

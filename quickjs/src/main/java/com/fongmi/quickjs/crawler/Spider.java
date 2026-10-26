@@ -156,6 +156,9 @@ public class Spider extends com.github.catvod.crawler.Spider {
 
     @Override
     public String detailContent(List<String> ids) throws Exception {
+        // ids 为 null/空时裸 get(0) 必崩；按基类 Spider.detailContent 的缺省口径返回空串，
+        // 不拿空 id 去调 JS（与 CatSpider 空时以 "" 处理同口径）。
+        if (ids == null || ids.isEmpty()) return "";
         return asString(call("detail", ids.get(0)));
     }
 

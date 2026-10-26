@@ -257,7 +257,17 @@ public class MediaSourceFactory implements MediaSource.Factory {
                 .setLoadOnlySelectedTracks(PlaybackPerformanceSetting.isLoadOnlySelectedTracksEnabled());
         for (String split : url.split(CONCAT_SOURCE_SEPARATOR_REGEX)) {
             String[] info = split.split(CONCAT_DURATION_SEPARATOR_REGEX);
-            if (info.length >= 2) builder.add(sourceFactory.createMediaSource(mediaItem.buildUpon().setUri(UrlUtil.uri(info[0])).build()), Long.parseLong(info[1]));
+            if (info.length >= 2) {
+                long duration;
+                try {
+                    duration = Long.parseLong(info[1].trim());
+                } catch (NumberFormatException e) {
+                    // 时长段畸形（非数字/溢出）与无时长段（info.length < 2）同口径：整段跳过，
+                    // 不许 NumberFormatException 打穿 createMediaSource。
+                    continue;
+                }
+                builder.add(sourceFactory.createMediaSource(mediaItem.buildUpon().setUri(UrlUtil.uri(info[0])).build()), duration);
+            }
         }
         return builder.build();
     }

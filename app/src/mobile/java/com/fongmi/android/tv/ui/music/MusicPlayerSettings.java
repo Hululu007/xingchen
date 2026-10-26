@@ -9,8 +9,8 @@ import com.github.catvod.utils.Prefers;
  * 分工：主题／高级动效／流体速度是本类自有键（直接 Prefers 读写；流体开关写在本类、
  * 读委托总仓单一事实源）；其余歌词样式项是委托键，getter 直接转调 MusicStore 同名方法
  * （同键、同钳制、同迁移口径都在总仓里），本类不另存一份。
- * 默认值出处：瓜子施工图 §0（PlayerViewModel 初始值）；有意偏离一行见方法注
- * （流体默认关——星辰定案）。主题默认 2026-10-25 经用户纠正改回瓜子原值 classic
+ * 默认值出处：瓜子施工图 §0（PlayerViewModel 初始值）。流体背景默认开
+ * （瓜子默认 TRUE，读口委托 MusicStore 单一事实源；旧注「默认关」已纠正，体检 E-P9）。主题默认 2026-10-25 经用户纠正改回瓜子原值 classic
  * （瓜子 PlayerViewModel.java:1018 存档回落 "classic" 亲核；此前误设封面卡片已废）。
  */
 public class MusicPlayerSettings {
@@ -142,7 +142,7 @@ public class MusicPlayerSettings {
         return Prefers.getBoolean(K_ADVANCED_FX, true);
     }
 
-    // ===== #12 流体背景开关（读委托总仓单一事实源、默认关＝星辰定案；写在本类直写同键） =====
+    // ===== #12 流体背景开关（读委托总仓单一事实源、默认开；写在本类直写同键） =====
 
     public static boolean isFluidBg() {
         return MusicStore.isFluidBg();

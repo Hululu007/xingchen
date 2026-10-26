@@ -753,7 +753,9 @@ public class MusicHistoryActivity extends BaseActivity {
                 h.badge.setVisibility(View.VISIBLE);
                 h.badge.setText(R.string.wave2_cached);
                 h.badge.setTextSize(11);
-                h.badge.setTextColor(0xFF8E8E93);
+                // 白字口径：旧实现 frameRow 翻字后又把标签改回 #8E8E93 中灰压深玻璃，
+                // 对比低于同页副字白 .60；改与翻字主字同色 #F1F4F5，不再压灰
+                h.badge.setTextColor(0xFFF1F4F5);
                 int p7 = dp(7);
                 int p3 = dp(3);
                 h.badge.setPadding(p7, p3, p7, p3);

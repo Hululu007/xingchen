@@ -11,7 +11,8 @@
      批 6（2026-10-24）：背景收口全域玻璃（MusicGlassBackgroundView＋bg_music_glass_card）；
      摘除两行假开关——「左手布局」（music_left_hand_landscape 全树无读取方）与「过滤词曲信息」
      （music_filter_lyric_meta 全树无读取方，解析链是无条件过滤、开关改不了行为）；
-     两键存量值原样保留在 prefs 里未删，待协调者定接线或正式废弃。 -->
+     两键读写方法已清（体检 E-P3），存量值留在 prefs 里无读口、无害。
+     本页无主题行、无主题分区：主题行已随 2026-10-26 摘除令摘除（体检 E-P9 纠正旧头注）。 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -48,6 +49,7 @@
         </FrameLayout>
 
         <ScrollView
+            android:id="@+id/settingsScroll"
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1"

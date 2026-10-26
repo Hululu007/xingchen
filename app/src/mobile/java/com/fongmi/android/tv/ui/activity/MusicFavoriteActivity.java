@@ -423,17 +423,34 @@ public class MusicFavoriteActivity extends BaseActivity {
             setFavoriteMulti(false);
             return;
         }
+        // 选中集是复合身份键（keyOf），收集也按同键——不许再按裸 id 连坐同 id 异源行
         List<MusicTrack> sel = new ArrayList<>();
-        for (MusicTrack t : favAll) if (t.id != null && favSelected.contains(t.id)) sel.add(t);
-        final int[] left = {sel.size()};
-        for (MusicTrack t : sel) {
-            MusicLibrary.setFavorite(t, false, () -> {
-                if (--left[0] <= 0) {
-                    setFavoriteMulti(false);
-                    loadFavorites();
-                }
-            });
+        for (MusicTrack t : favAll) {
+            String key = com.fongmi.android.tv.music.MusicIdentity.keyOf(t);
+            if (key != null && favSelected.contains(key)) sel.add(t);
         }
+        if (sel.isEmpty()) {
+            setFavoriteMulti(false);
+            return;
+        }
+        // 完成追踪走共用层批量口径：全部跑完才回一次、失败有计数——旧实现靠每首
+        // setFavorite 的 done 回调递减，失败分支不跑 done，任一首失败计数永不归零、
+        // 多选态退不出、列表不重拉
+        MusicLibrary.setFavoriteBatch(sel, false, new MusicLibrary.DataCallback<MusicLibrary.BatchResult>() {
+            @Override
+            public void onResult(MusicLibrary.BatchResult r) {
+                setFavoriteMulti(false);
+                loadFavorites();
+                if (r.failed > 0) Notify.show("有 " + r.failed + " 首没删掉，请重试");
+            }
+
+            @Override
+            public void onError(Throwable t) {
+                setFavoriteMulti(false);
+                loadFavorites();
+                Notify.show("删除失败，请重试");
+            }
+        });
     }
 
     // ================= 播放 =================
@@ -795,7 +812,10 @@ public class MusicFavoriteActivity extends BaseActivity {
             }
             if (favMulti) {
                 // 收藏多选态（行点按变勾选；行尾 24dp 选中圆圈，选中红底、未选灰框）
-                boolean sel = t.id != null && favSelected.contains(t.id);
+                // 选中集存复合身份键 keyOf（platform|插件|id，与历史页同口径）：旧实现只存
+                // 裸 id，同 id 异源两行同显已选、删除连坐（收藏唯一键是三段身份）
+                String selKey = com.fongmi.android.tv.music.MusicIdentity.keyOf(t);
+                boolean sel = selKey != null && favSelected.contains(selKey);
                 android.graphics.drawable.GradientDrawable circle = new android.graphics.drawable.GradientDrawable();
                 circle.setShape(android.graphics.drawable.GradientDrawable.OVAL);
                 int s24 = dp(24);
@@ -806,9 +826,10 @@ public class MusicFavoriteActivity extends BaseActivity {
                 int p10 = dp(10);
                 h.more.setPadding(p10, p10, p10, p10);
                 android.view.View.OnClickListener toggle = v -> {
-                    if (t.id != null) {
-                        if (favSelected.contains(t.id)) favSelected.remove(t.id);
-                        else favSelected.add(t.id);
+                    String key = com.fongmi.android.tv.music.MusicIdentity.keyOf(t);
+                    if (key != null) {
+                        if (favSelected.contains(key)) favSelected.remove(key);
+                        else favSelected.add(key);
                     }
                     refreshFavoriteMultiText();
                     if (adapter != null) adapter.notifyDataSetChanged();

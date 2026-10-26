@@ -97,11 +97,6 @@ public class MusicTracksActivity extends BaseActivity {
     private String lastCurrentId;
     private android.os.Parcelable pendingListState;
 
-    /** 通用排序第二段升降序弹层的 post（页销毁取消，见 onDestroy） */
-    private final android.os.Handler sortDialogHandler =
-            new android.os.Handler(android.os.Looper.getMainLooper());
-    private Runnable sortDirRunnable;
-
     /** 静态入口：extras 契约与旧壳 initView 实际读取逐字同（mode/keyword/sitePlatform/title）。 */
     public static void start(Activity activity, String keyword, String sitePlatform, String title) {
         Intent i = new Intent(activity, MusicTracksActivity.class);
@@ -224,8 +219,8 @@ public class MusicTracksActivity extends BaseActivity {
     protected void onDestroy() {
         MusicController.get().removeListener(controllerListener);
         MusicController.get().unbind();
-        // 复核必-10：第二段升降序弹层的 post 必须随页销毁取消，不许页死后还弹。
-        if (sortDialogHandler != null) sortDialogHandler.removeCallbacksAndMessages(null);
+        // 原 sortDialogHandler/sortDirRunnable 死接线已摘除（2026-10-26 体检 C 片）：
+        // 两字段全树无任何 post/赋值点（grep 复核），只有此处一句清理引用。
         super.onDestroy();
     }
 

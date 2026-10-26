@@ -894,7 +894,7 @@ public class MusicStore {
 
     // ===== 面板＋设置面（redo3 round4） =====
 
-    /** 动态流体背景（A4；默认关） */
+    /** 动态流体背景（A4；默认开，见 isFluidBg） */
     private static final String K_FLUID_BG = "music_fluid_bg";
     /** 插件检测结果表（C4；srcUrl → MusicPluginTest 的 JSON） */
     private static final String K_PLUGIN_TESTS = "music_plugin_tests";
@@ -904,7 +904,7 @@ public class MusicStore {
     private static final String K_SMART_SWITCH = "music_plugin_smart_switch";
     /** 自动屏蔽无效平台（C4；默认关） */
     private static final String K_AUTO_BLOCK = "music_plugin_auto_block";
-    /** 歌词时间偏移（U-05；毫秒整数，默认 0；范围钳制 ±5000ms 为星辰侧自定，非瓜子值） */
+    /** 歌词时间偏移（U-05；毫秒整数，默认 0；范围钳制 ±3000ms，瓜子真值见 LYRIC_OFFSET_MAX_MS） */
     private static final String K_LYRIC_OFFSET_MS = "music_lyric_offset_ms";
     /** 第三波 L1：老值符号翻转迁移标志（旧口径播放位置 − offset，新口径 ＋ offset；只翻一次）。 */
     private static final String K_LYRIC_OFFSET_MIGRATED = "music_lyric_offset_migrated";
@@ -1066,7 +1066,7 @@ public class MusicStore {
                 || LYRIC_PRIORITY_LINE_BY_LINE.equals(v) || LYRIC_PRIORITY_AMLL_FIRST.equals(v);
     }
 
-    /** 歌词时间偏移 ms（默认 0；读写都钳制 ±5000ms，钳制为星辰侧自定，非瓜子值）。
+    /** 歌词时间偏移 ms（默认 0；读写都钳制 ±3000ms＝LYRIC_OFFSET_MAX_MS，瓜子真值）。
      * 第三波 L1：符号与瓜子一致（＋＝提前）；已存老值首次读取时翻转符号迁移一次（选了迁移，不弹提示）。 */
     public static int getLyricOffsetMs() {
         if (!Prefers.getBoolean(K_LYRIC_OFFSET_MIGRATED, false)) {

@@ -1,12 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 音乐首页（第十稿定稿构成，从零重写）：独立页、自有背景铺满整屏——
-     根 FrameLayout＝MusicGlassBackgroundView 一份（全域统一背景）＋滚动层并列；
+     根 FrameLayout＝MusicHomeBackgroundView 一份（2026-10-27 他发海水照片亲定本页底图，
+     全屏居中裁切；原全域固定暖渐变只在本页摘，其它页照旧）＋滚动层并列；
      边距只打滚动层（左右 16dp、底 16dp、顶＝状态栏高＋12dp 由代码补），背景层不吃边距。
      自上而下：渐变标题＋金星＋黑胶斜探 → 通知权限提示条（不可用才显） → 搜索胶囊＋⋮ →
-     五快捷独立玻璃片一行（本地音乐居中第三） → 继续播放卡（有断点才显） →
+     五快捷独立磨砂片一行（本地音乐居中第三） → 继续播放卡（有断点才显） →
      三彩卡横排（卡面本体＝各自渐变，光晕只作卡内淡水印） → 心情电台卡（末卡） →
      122dp 留白（给悬浮迷你条让位，迷你条只在首页显示）。
-     玻璃件一律先挂 bg_music_glass_* XML 件作可见下限，运行时 MusicGlassWire 升级同源液态玻璃。
+     磨砂件一律先挂 bg_home_frost_* XML 件作可见下限（钉死深灰，首帧即暗面），
+     运行时 MusicFrostWire 升级同源暗磨砂 MusicFrostDrawable（糊底＝身后照片缓冲）。
      顶栏只有左对齐标题、无返回箭头（铁律）；界面只放名字和状态，无介绍文字。 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/musicRoot"
@@ -14,8 +16,8 @@
     android:layout_height="match_parent"
     android:background="@drawable/home_bg_page">
 
-    <com.fongmi.android.tv.ui.music.MusicGlassBackgroundView
-        android:id="@+id/homeGlassBg"
+    <com.fongmi.android.tv.ui.music.MusicHomeBackgroundView
+        android:id="@+id/homePhotoBg"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
@@ -85,7 +87,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:background="@drawable/home_bg_notif_strip"
+                android:background="@drawable/bg_home_frost_12"
                 android:gravity="center_vertical"
                 android:orientation="horizontal"
                 android:paddingStart="12dp"
@@ -131,7 +133,7 @@
                     android:layout_width="0dp"
                     android:layout_height="48dp"
                     android:layout_weight="1"
-                    android:background="@drawable/bg_music_glass_search"
+                    android:background="@drawable/bg_home_frost_24"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
                     android:paddingStart="16dp"
@@ -158,13 +160,13 @@
                     android:layout_width="40dp"
                     android:layout_height="40dp"
                     android:layout_marginStart="4dp"
-                    android:background="@drawable/bg_music_glass_circle"
+                    android:background="@drawable/bg_home_frost_circle"
                     android:contentDescription="@string/home_more"
                     android:padding="9dp"
                     android:src="@drawable/ic_music_more" />
             </LinearLayout>
 
-            <!-- 五快捷：五片独立玻璃片一行（片间 6dp），彩色图标＋名字＋计数，本地音乐居中第三 -->
+            <!-- 五快捷：五片独立磨砂片一行（片间 6dp），彩色图标＋名字＋计数，本地音乐居中第三 -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -176,7 +178,7 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:background="@drawable/bg_music_glass_quick"
+                    android:background="@drawable/bg_home_frost_16"
                     android:elevation="2dp"
                     android:gravity="center_horizontal"
                     android:orientation="vertical"
@@ -215,7 +217,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginStart="6dp"
                     android:layout_weight="1"
-                    android:background="@drawable/bg_music_glass_quick"
+                    android:background="@drawable/bg_home_frost_16"
                     android:elevation="2dp"
                     android:gravity="center_horizontal"
                     android:orientation="vertical"
@@ -254,7 +256,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginStart="6dp"
                     android:layout_weight="1"
-                    android:background="@drawable/bg_music_glass_quick"
+                    android:background="@drawable/bg_home_frost_16"
                     android:elevation="2dp"
                     android:gravity="center_horizontal"
                     android:orientation="vertical"
@@ -293,7 +295,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginStart="6dp"
                     android:layout_weight="1"
-                    android:background="@drawable/bg_music_glass_quick"
+                    android:background="@drawable/bg_home_frost_16"
                     android:elevation="2dp"
                     android:gravity="center_horizontal"
                     android:orientation="vertical"
@@ -332,7 +334,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginStart="6dp"
                     android:layout_weight="1"
-                    android:background="@drawable/bg_music_glass_quick"
+                    android:background="@drawable/bg_home_frost_16"
                     android:elevation="2dp"
                     android:gravity="center_horizontal"
                     android:orientation="vertical"
@@ -372,7 +374,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
-                android:background="@drawable/bg_music_glass_white_card"
+                android:background="@drawable/bg_home_frost_20"
                 android:elevation="3dp"
                 android:orientation="vertical"
                 android:paddingStart="12dp"
@@ -410,7 +412,7 @@
                         android:id="@+id/homeContinuePlay"
                         android:layout_width="44dp"
                         android:layout_height="44dp"
-                        android:background="@drawable/bg_music_continue_play"
+                        android:background="@drawable/bg_home_frost_circle"
                         android:contentDescription="@string/home_play"
                         android:padding="12dp"
                         android:src="@drawable/ic_music_play" />
@@ -469,7 +471,7 @@
                     android:progressDrawable="@drawable/bg_music_continue_progress" />
             </LinearLayout>
 
-            <!-- 三彩卡横排垫底：XML 渐变只是可见下限，运行时由 MusicGlassWire 换液态玻璃（圆角 20、不带 tone——他 10-25 23:02 令）；光晕只作卡内淡水印（代码装环，压在内容下层） -->
+            <!-- 三彩卡横排垫底：卡面与全页统一暗磨砂（圆角 20，他已放开三彩卡颜色）；光晕只作卡内淡水印（代码装环，压在内容下层） -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -481,7 +483,7 @@
                     android:layout_width="0dp"
                     android:layout_height="118dp"
                     android:layout_weight="1"
-                    android:background="@drawable/home_bg_card_pink"
+                    android:background="@drawable/bg_home_frost_20"
                     android:clipChildren="true">
 
                     <View
@@ -556,7 +558,7 @@
                     android:layout_height="118dp"
                     android:layout_marginStart="10dp"
                     android:layout_weight="1"
-                    android:background="@drawable/home_bg_card_teal"
+                    android:background="@drawable/bg_home_frost_20"
                     android:clipChildren="true">
 
                     <View
@@ -630,7 +632,7 @@
                     android:layout_height="118dp"
                     android:layout_marginStart="10dp"
                     android:layout_weight="1"
-                    android:background="@drawable/home_bg_card_lime"
+                    android:background="@drawable/bg_home_frost_20"
                     android:clipChildren="true">
 
                     <View
@@ -693,13 +695,13 @@
                 </FrameLayout>
             </LinearLayout>
 
-            <!-- 心情电台卡（三彩卡下面）：卡底真玻璃，心情色走选中片／播放钮／波形；12 心情两行片＋波形＋播放钮 -->
+            <!-- 心情电台卡（三彩卡下面）：卡底暗磨砂，心情色走选中片／播放钮；12 心情两行片＋波形＋播放钮 -->
             <LinearLayout
                 android:id="@+id/homeMoodCard"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="20dp"
-                android:background="@drawable/bg_music_glass_entry"
+                android:background="@drawable/bg_home_frost_20"
                 android:orientation="vertical"
                 android:paddingStart="16dp"
                 android:paddingTop="16dp"

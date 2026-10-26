@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 音乐迷你条（只在音乐首页显示，白名单在 ListenMiniBar）：浅色圆角胶囊——
+<!-- 音乐迷你条（只在音乐首页显示，白名单在 ListenMiniBar）：暗磨砂圆角胶囊（2026-10-27 试点）——
      左 56dp 方框（进度环满框＋45dp 圆形封面居中，播放转圈）＋歌名＋下一首＋右侧 56dp 大圆播放键。
-     条底先挂 home_bg_minibar 作 XML 可见下限，运行时由 ListenMiniBar 换同源 MusicGlassDrawable(999)；
-     播放键先挂 bg_music_glass_circle 作下限，运行时同换 MusicGlassDrawable(999)（单层轻接触影）。 -->
+     条底先挂 home_bg_minibar 作 XML 可见下限，运行时由 ListenMiniBar 换同源 MusicFrostDrawable(999)；
+     播放键先挂 bg_home_frost_circle 作下限，运行时同换 MusicFrostDrawable(999)。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
@@ -58,7 +58,7 @@
         android:layout_width="56dp"
         android:layout_height="56dp"
         android:layout_marginStart="4dp"
-        android:background="@drawable/bg_music_glass_circle"
+        android:background="@drawable/bg_home_frost_circle"
         android:contentDescription="@string/home_play"
         android:elevation="4dp"
         android:padding="19dp"

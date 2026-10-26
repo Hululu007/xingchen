@@ -41,8 +41,8 @@ import com.fongmi.android.tv.music.MusicStore;
 import com.fongmi.android.tv.music.DeviceMusicStore;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.ui.minibar.ListenMiniBar;
-import com.fongmi.android.tv.ui.music.MusicGlassDrawable;
-import com.fongmi.android.tv.ui.music.MusicGlassWire;
+import com.fongmi.android.tv.ui.music.MusicFrostDrawable;
+import com.fongmi.android.tv.ui.music.MusicFrostWire;
 import com.fongmi.android.tv.ui.view.MoodWaveView;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
@@ -57,12 +57,13 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 音乐首页（第十稿定稿构成，从零重写，独立页：自有布局、自有玻璃背景铺满整屏）。
+ * 音乐首页（第十稿定稿构成，从零重写，独立页：自有布局、自有背景铺满整屏）。
  * 自上而下：渐变标题＋金星＋黑胶斜探 → 通知提示条（不可用才显） → 搜索胶囊＋⋮ 两项菜单 →
- * 五快捷独立玻璃片一行 → 继续播放卡（有断点才显） → 三彩卡（渐变卡面本体＋光晕淡水印） →
+ * 五快捷独立磨砂片一行 → 继续播放卡（有断点才显） → 三彩卡（暗磨砂卡面＋光晕淡水印） →
  * 心情电台卡（末卡）。榜单管线（拉取＋快照缓存，状态在 MusicHomeChartStore）只喂三彩卡前三行与猜你喜欢封面堆。
- * 玻璃件：布局先挂 bg_music_glass_* XML 件作可见下限，initView 走 MusicGlassWire 升级同源液态玻璃；
- * 三彩卡是渐变设计件、不入玻璃识别表，卡面本体就是各自渐变（回归清单第 2 条）。
+ * 2026-10-27 试点：本页底图换他发的海水照片（MusicHomeBackgroundView），件面液态玻璃撤下、
+ * 换暗磨砂——布局先挂 bg_home_frost_* XML 件作可见下限，initView 走 MusicFrostWire 升级
+ * 同源暗磨砂（钉死深灰 #333333@.72、不从背景取色，糊底＝身后照片缓冲）；其它音乐页照旧。
  * 迷你条只在首页显示：白名单在 ListenMiniBar，本页只负责回页补注册（refreshMiniBar）。
  */
 public class MusicActivity extends BaseActivity {
@@ -163,12 +164,23 @@ public class MusicActivity extends BaseActivity {
 
     @Override
     protected void initView(Bundle savedInstanceState) {
-        // 玻璃升级：XML 半透件是可见下限，这里走树换同源液态玻璃（取样失效也有下限成形）
-        MusicGlassWire.glassifyTree(rootView);
-        // 心情电台卡保底（2026-10-26 他点名这张不是玻璃）：走树没换上就按卡圆角 20 直换，不许留实底
+        // 磨砂升级：XML 暗面件是可见下限，这里走树换同源暗磨砂（取样失效也有下限成形）
+        MusicFrostWire.frostifyTree(rootView);
+        // 心情电台卡保底：走树没换上就按卡圆角 20 直换，不许留实底
         View moodCard = rootView.findViewById(R.id.homeMoodCard);
-        if (moodCard != null && !(moodCard.getBackground() instanceof com.fongmi.android.tv.ui.music.MusicGlassDrawable)) {
-            MusicGlassWire.glassifyView(moodCard, 20f);
+        if (moodCard != null && !(moodCard.getBackground() instanceof MusicFrostDrawable)) {
+            MusicFrostWire.frostifyView(moodCard, 20f);
+        }
+        // 搜索/⋮ 图标钉白系（矢量自带 #9AA7B8 浅蓝灰，在深灰磨砂面上发闷，钉成与件内字同系的白）
+        View searchBar = rootView.findViewById(R.id.homeSearchBar);
+        if (searchBar instanceof ViewGroup && ((ViewGroup) searchBar).getChildCount() > 0
+                && ((ViewGroup) searchBar).getChildAt(0) instanceof ImageView) {
+            ((ImageView) ((ViewGroup) searchBar).getChildAt(0))
+                    .setImageTintList(ColorStateList.valueOf(0xFFF1F3F5));
+        }
+        View moreBtn = rootView.findViewById(R.id.homeMoreBtn);
+        if (moreBtn instanceof ImageView) {
+            ((ImageView) moreBtn).setImageTintList(ColorStateList.valueOf(0xFFF1F3F5));
         }
         MusicRepository.ensureDebugFake();
         MusicController.get().bind(this);
@@ -323,7 +335,7 @@ public class MusicActivity extends BaseActivity {
         halo.setBackground(new LayerDrawable(new android.graphics.drawable.Drawable[]{fill, ring}));
     }
 
-    /** 按压反馈：微缩 0.98（宿主变换，与玻璃件的按压发亮不叠加冲突）。 */
+    /** 按压反馈：微缩 0.98（宿主变换，与磨砂件自身的按压态不叠加冲突）。 */
     private void pressScale(View v) {
         v.setOnTouchListener((view, event) -> {
             if (event.getAction() == MotionEvent.ACTION_DOWN) view.animate().scaleX(0.98f).scaleY(0.98f).setDuration(90).start();
@@ -367,8 +379,8 @@ public class MusicActivity extends BaseActivity {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(6), dp(6), dp(6), dp(6));
-        card.setBackground(new MusicGlassDrawable(this, 16));
-        MusicGlassWire.applyFloatShadow(card, 16f); // 玻璃框要浮起来：柔影＋圆角描边轮廓（他点名没玻璃框）
+        card.setBackground(new MusicFrostDrawable(this, 16));
+        MusicFrostWire.applyFloatShadow(card, 16f); // 磨砂框要浮起来：柔影＋圆角描边轮廓
 
         int sites = 0;
         try {
@@ -479,15 +491,14 @@ public class MusicActivity extends BaseActivity {
         return row;
     }
 
-    /** 菜单行图标框：32dp、圆角 9dp；底改同源玻璃片＋图标色 tone 留身份（原是图标色 12% 平铺糖果片，
-     *  与设置页图标片已改玻璃的先例对齐，2026-10-26 全扫），图标本身的同色 tint 不动。 */
+    /** 菜单行图标框：32dp、圆角 9dp；底改同源磨砂片＋图标色 tone 留身份，图标本身的同色 tint 不动。 */
     private final class FrameLayoutBox extends LinearLayout {
         FrameLayoutBox(Activity activity, int iconRes, int iconColor) {
             super(activity);
             setLayoutParams(new LinearLayout.LayoutParams(dp(32), dp(32)));
-            MusicGlassWire.glassifyView(this, 9f);
-            if (getBackground() instanceof MusicGlassDrawable) {
-                ((MusicGlassDrawable) getBackground()).setToneColor(iconColor, 0.25f);
+            MusicFrostWire.frostifyView(this, 9f);
+            if (getBackground() instanceof MusicFrostDrawable) {
+                ((MusicFrostDrawable) getBackground()).setToneColor(iconColor, 0.25f);
             }
             setGravity(Gravity.CENTER);
             ImageView iv = new ImageView(activity);
@@ -757,28 +768,24 @@ public class MusicActivity extends BaseActivity {
         MusicHomeMood.Mood mood = MusicHomeMood.at(idx);
         homeMoodName.setText(mood.name);
         homeMoodDesc.setText(mood.desc);
-        // 波浪只换颜色不换形（2026-10-26 他改口径）：固定白色半透、跟玻璃卡白字同系，
+        // 波浪只换颜色不换形（2026-10-26 他改口径）：固定白色半透、跟磨砂卡白字同系，
         // 不再喂心情 tone 满色（扎眼）；心情色只活在选中片/播放钮上。
         homeMoodWave.setWaveColor(MoodWaveView.WAVE_COLOR);
-        // 卡面不再平铺心情色（2026-10-26 他发截图点名）：tone 0.16 压在深区取样上把整卡染成
-        // 墨绿实底、看不出玻璃——卡面保持纯玻璃。
-        // 播放钮：玻璃圆钮＋心情色 tone（与继续播放卡圆键同口径——他连着点名实色圆盘不是玻璃）；
-        // 此前是 tone 实色渐变盘，整颗不透。
-        if (!(homeMoodPlay.getBackground() instanceof MusicGlassDrawable)) {
-            MusicGlassWire.glassifyView(homeMoodPlay, 999f);
+        // 卡面保持纯磨砂（卡面平铺心情色的旧法早已摘除）；播放钮：磨砂圆钮＋心情色 tone。
+        if (!(homeMoodPlay.getBackground() instanceof MusicFrostDrawable)) {
+            MusicFrostWire.frostifyView(homeMoodPlay, 999f);
         }
-        if (homeMoodPlay.getBackground() instanceof MusicGlassDrawable) {
-            ((MusicGlassDrawable) homeMoodPlay.getBackground()).setToneColor(mood.tone, 0.5f);
+        if (homeMoodPlay.getBackground() instanceof MusicFrostDrawable) {
+            ((MusicFrostDrawable) homeMoodPlay.getBackground()).setToneColor(mood.tone, 0.5f);
         }
         for (int i = 0; i < moodPills.size(); i++) {
             TextView pill = moodPills.get(i);
             MusicHomeMood.Mood m = MusicHomeMood.at(i);
             boolean sel = i == idx;
-            // 片本体换同源玻璃：原写法是平铺半透＋描边，注释自称玻璃、材料四项不齐（2026-10-26 全扫）。
-            // 首过换玻璃、之后只切 tone：选中＝带色玻璃（样张口径），未选清 tone 回中性玻璃。
-            MusicGlassWire.glassifyView(pill, 999f);
-            if (pill.getBackground() instanceof MusicGlassDrawable) {
-                MusicGlassDrawable g = (MusicGlassDrawable) pill.getBackground();
+            // 片本体换同源暗磨砂：首过换磨砂、之后只切 tone——选中＝磨砂上带心情色，未选清 tone 回中性磨砂。
+            MusicFrostWire.frostifyView(pill, 999f);
+            if (pill.getBackground() instanceof MusicFrostDrawable) {
+                MusicFrostDrawable g = (MusicFrostDrawable) pill.getBackground();
                 if (sel) g.setToneColor(m.tone, 0.45f);
                 else g.setToneColor(0);
             }

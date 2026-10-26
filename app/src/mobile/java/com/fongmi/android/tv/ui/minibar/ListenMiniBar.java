@@ -9,7 +9,6 @@ import android.content.Intent;
 import android.content.ServiceConnection;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
-import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
@@ -31,7 +30,7 @@ import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.minibar.MiniBarPolicy;
 import com.fongmi.android.tv.service.PlaybackService;
 import com.fongmi.android.tv.ui.activity.ReadingSkin;
-import com.fongmi.android.tv.ui.music.MusicGlassDrawable;
+import com.fongmi.android.tv.ui.music.MusicFrostDrawable;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.github.catvod.crawler.SpiderDebug;
 
@@ -90,9 +89,6 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
     private TextView btnNext;
     private TextView btnPrev;
     private WeakReference<Activity> hostRef;
-    /** 音乐条实时背板当初录的是哪个宿主的页面根：宿主换人（Activity 重建）后旧背板录的
-     * 是已死页面的根，必须强制重建条换新根，不许继续放旧背板。 */
-    private WeakReference<Activity> liveGlassHostRef;
     private String lastVisible;
 
     // ================= 音乐会话（独立音乐播放器，id="music"） =================
@@ -373,18 +369,10 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
         if (!music && s == null) return;
         Activity old = hostRef == null ? null : hostRef.get();
         if (old != host) detachBar();
-        // 实时背板录的根属于旧宿主时条必须重建（旧根已随旧页销毁，继续用就是定格旧画面）
-        Activity liveHost = liveGlassHostRef == null ? null : liveGlassHostRef.get();
-        boolean liveStale = music && barView != null && liveHost != null && liveHost != host;
-        if (barView == null || barMusicMode != music || liveStale) {
+        if (barView == null || barMusicMode != music) {
             detachBar();
-            if (liveStale) {
-                barView = null;
-                liveGlassHostRef = null;
-            }
             barMusicMode = music;
-            // 建条前先把宿主立进 hostRef：tryWrapLiveGlass 靠它读 musicRoot 录背板；
-            // 此前建条必经 detachBar 把 hostRef 置 null，真背板恒接不通、永远走静态回落
+            // 建条前先把宿主立进 hostRef（条的宿主口径与挂条决策同源）
             hostRef = new WeakReference<>(host);
             if (music) buildMusicBar();
             else buildBar();
@@ -737,15 +725,15 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
         homeHandler.post(homeProgressTick);
     }
 
-    // ================= 音乐条：浅色胶囊（圆封面旋转＋外圈进度环＋歌名＋下一首＋大圆播放键） =================
+    // ================= 音乐条：暗磨砂胶囊（圆封面旋转＋外圈进度环＋歌名＋下一首＋大圆播放键） =================
 
     /**
      * 音乐条建条（从零重写，spec §5.4/§5.5；定案形态 2026-10-21）：充气 home_minibar_music——
      * 56dp 方框（进度环满框＋45dp 圆封面居中）＋歌名＋下一首 44dp＋大圆播放键 56dp。
-     * 条底两段式：布局先挂 home_bg_minibar 作 XML 可见下限，这里换同源 MusicGlassDrawable(999) 真玻璃；
-     * 播放键同法（布局 bg_music_glass_circle 下限＋这里 MusicGlassDrawable(999)）——圆角 999 在
-     * MusicGlassDrawable 内走小圆键口径：只留一层轻接触影、不叠底部内软影（回归清单第 5 条，
-     * 装配后自查：本段没有第二处阴影参数，布局 elevation 是宿主层浮起、不进 drawable）。
+     * 条底两段式：布局先挂 home_bg_minibar 作 XML 可见下限（暗磨砂同色），这里换同源
+     * MusicFrostDrawable(999) 暗磨砂（2026-10-27 试点：液态玻璃/QmDeve 实时背板整段撤下，
+     * 钉死深灰＋身后照片糊底，形态与浮起 elevation 不动）；播放键同法（布局 bg_home_frost_circle
+     * 下限＋这里 MusicFrostDrawable(999)），refreshPlayIcon 只换 src、不碰底。
      * 条上没有关闭钮（spec §5.5）；点条身进播放页。本方法只被 attachBar 的音乐分支调用，
      * 听书条走 buildBar()，互不影响。
      */
@@ -753,11 +741,7 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
         stopHomeSpin();
         Context c = app;
         View bar = LayoutInflater.from(c).inflate(R.layout.home_minibar_music, null, false);
-        // 真液态玻璃（QmDeve 开源，vendored）：安卓 13+ 且能拿到音乐页根时，条底改走实时背板——
-        // 每帧录制身后真实内容（暖底＋滚动层）再模糊＋折射＋色散，滑动时身后变它就变、不定格；
-        // 拿不到根／低版本回落原 MusicGlassDrawable 静态采样，不留空白。
-        View liveBar = tryWrapLiveGlass(bar);
-        if (liveBar == null) bar.setBackground(new MusicGlassDrawable(bar.getContext(), 999));
+        bar.setBackground(new MusicFrostDrawable(bar.getContext(), 999));
         ivVinyl = bar.findViewById(R.id.homeCover);
         // 条重建＝封面视图是新的：已绑地址记账清掉，bindMusicSession 会在新视图上重新加载
         musicBoundCover = null;
@@ -780,9 +764,8 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
         btnPrev = null;
         btnPlay = bar.findViewById(R.id.homePlay);
         if (btnPlay != null) {
-            // 大圆播放键＝液态玻璃（用户 2026-10-25 点名「别忘了，这个也是液态玻璃」）：
-            // 与条底同源 MusicGlassDrawable(999)；refreshPlayIcon 只换 src、不碰底
-            btnPlay.setBackground(new MusicGlassDrawable(bar.getContext(), 999));
+            // 大圆播放键与条底同源暗磨砂 MusicFrostDrawable(999)；refreshPlayIcon 只换 src、不碰底
+            btnPlay.setBackground(new MusicFrostDrawable(bar.getContext(), 999));
             btnPlay.setImageTintList(ColorStateList.valueOf(0xFFFFFFFF));
             btnPlay.setOnClickListener(v -> {
                 try {
@@ -794,61 +777,8 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
         }
         // 条身（非按钮区，含封面）点按进播放页
         bar.setOnClickListener(v -> openMusicPlayer());
-        barView = liveBar != null ? liveBar : bar;
+        barView = bar;
         startHomeProgress();
-    }
-
-    /**
-     * 把迷你条包进 QmDeve LiquidGlass 实时背板：包装层＝[玻璃层（录制 musicRoot 真实内容作背板）＋条本体（透底)]。
-     * 玻璃层与条同尺寸，条挂到 decor 后玻璃录的是页面根（条不在根内，无自录递归）。
-     * 条件不满足（低版本／宿主不是音乐页／拿不到根）返回 null，调用方走原静态玻璃。
-     */
-    private View tryWrapLiveGlass(View bar) {
-        try {
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return null;
-            Activity host = hostRef == null ? null : hostRef.get();
-            if (host == null) return null;
-            View root = host.findViewById(R.id.musicRoot);
-            if (!(root instanceof ViewGroup)) return null;
-            float density = bar.getResources().getDisplayMetrics().density;
-            com.qmdeve.liquidglass.Config cfg = new com.qmdeve.liquidglass.Config();
-            cfg.CORNER_RADIUS_PX = 34f * density;
-            cfg.ECCENTRIC_FACTOR = 1.0f;
-            cfg.REFRACTION_HEIGHT = 20f * density;
-            cfg.REFRACTION_OFFSET = -70f * density;
-            cfg.BLUR_RADIUS = 24f;
-            cfg.DISPERSION = 0.5f;
-            cfg.DEPTH_EFFECT = 0.3f;
-            cfg.CONTRAST = 0f;
-            cfg.WHITE_POINT = 0f;
-            cfg.CHROMA_MULTIPLIER = 1f;
-            // 暖烟熏 tint（统一暖底口径：带一点暖棕的透玻璃＋白字），压在实时背板上显形
-            cfg.TINT_COLOR_RED = 0.10f;
-            cfg.TINT_COLOR_GREEN = 0.06f;
-            cfg.TINT_COLOR_BLUE = 0.03f;
-            cfg.TINT_ALPHA = 0.30f;
-            com.qmdeve.liquidglass.LiquidGlass glass = new com.qmdeve.liquidglass.LiquidGlass(bar.getContext(), cfg);
-            FrameLayout wrap = new FrameLayout(bar.getContext());
-            wrap.addView(glass, new FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-            wrap.addView(bar, new FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT));
-            wrap.setElevation(12f * density);
-            glass.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
-                int w = r - l, h = b - t;
-                if (w > 0 && h > 0 && (cfg.WIDTH != w || cfg.HEIGHT != h)) {
-                    cfg.WIDTH = w;
-                    cfg.HEIGHT = h;
-                    glass.updateParameters();
-                }
-            });
-            bar.setBackground(null);
-            glass.init((ViewGroup) root);
-            liveGlassHostRef = new WeakReference<>(host);
-            return wrap;
-        } catch (Throwable ignored) {
-            return null;
-        }
     }
 
     /**

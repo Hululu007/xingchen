@@ -52,6 +52,7 @@ public final class PlayerOsdDialog extends DialogFragment {
     public Dialog onCreateDialog(@Nullable Bundle savedInstanceState) {
         binding = DialogPlayerOsdBinding.inflate(LayoutInflater.from(requireContext()));
         Dialog dialog = new Dialog(requireContext());
+        if (dialog.getWindow() != null) dialog.getWindow().setWindowAnimations(R.style.HkDialogFade); // 统一淡入淡出 200ms
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         dialog.setContentView(binding.getRoot());
         dialog.setCanceledOnTouchOutside(true);

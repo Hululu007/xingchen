@@ -83,7 +83,9 @@ public class MpvCustomButtonDialog extends DialogFragment {
         scroll.addView(list, new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         root.addView(scroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
         refresh();
-        return new MaterialAlertDialogBuilder(requireContext(), R.style.ThemeOverlay_WebHTV_LightDialog).setView(root).create();
+        Dialog dialog = new MaterialAlertDialogBuilder(requireContext(), R.style.ThemeOverlay_WebHTV_LightDialog).setView(root).create();
+        if (dialog.getWindow() != null) dialog.getWindow().setWindowAnimations(R.style.HkDialogFade); // 统一淡入淡出 200ms
+        return dialog;
     }
 
     private void refresh() {
@@ -157,7 +159,7 @@ public class MpvCustomButtonDialog extends DialogFragment {
     }
 
     private void confirmDelete(MpvConfigStore.CustomButton button) {
-        new MaterialAlertDialogBuilder(requireContext())
+        androidx.appcompat.app.AlertDialog shown = new MaterialAlertDialogBuilder(requireContext())
                 .setTitle(R.string.mpv_config_custom_button_delete)
                 .setMessage(getString(R.string.mpv_config_custom_button_delete_message, button.title))
                 .setNegativeButton(android.R.string.cancel, null)
@@ -170,6 +172,7 @@ public class MpvCustomButtonDialog extends DialogFragment {
                         Notify.show(message(error));
                     }
                 }).show();
+        if (shown.getWindow() != null) shown.getWindow().setWindowAnimations(R.style.HkDialogFade); // 统一淡入淡出 200ms
     }
 
     private void importButtons(@Nullable Uri uri) {

@@ -126,6 +126,7 @@ public final class DanmakuSearchDialog extends DialogFragment implements Callbac
     public Dialog onCreateDialog(@Nullable Bundle savedInstanceState) {
         keywordView = createKeywordView();
         Dialog dialog = new Dialog(requireContext());
+        if (dialog.getWindow() != null) dialog.getWindow().setWindowAnimations(R.style.HkDialogFade); // 统一淡入淡出 200ms
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         dialog.setContentView(createContentView());
         dialog.setCanceledOnTouchOutside(true);

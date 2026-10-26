@@ -103,6 +103,7 @@ public final class SubtitleSearchDialog extends DialogFragment {
     public Dialog onCreateDialog(@Nullable Bundle savedInstanceState) {
         keywordView = createKeywordView();
         Dialog dialog = new Dialog(requireContext());
+        if (dialog.getWindow() != null) dialog.getWindow().setWindowAnimations(R.style.HkDialogFade); // 统一淡入淡出 200ms
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         dialog.setContentView(createContentView());
         dialog.setCanceledOnTouchOutside(true);
@@ -384,6 +385,7 @@ public final class SubtitleSearchDialog extends DialogFragment {
         dialog.show();
         Window window = dialog.getWindow();
         if (window != null) {
+            window.setWindowAnimations(R.style.HkDialogFade); // 统一淡入淡出 200ms
             window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
             WindowManager.LayoutParams params = window.getAttributes();
             params.width = (int) (getResources().getDisplayMetrics().widthPixels * 0.88f);
@@ -409,6 +411,7 @@ public final class SubtitleSearchDialog extends DialogFragment {
         dialog.show();
         Window window = dialog.getWindow();
         if (window != null) {
+            window.setWindowAnimations(R.style.HkDialogFade); // 统一淡入淡出 200ms
             window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
             WindowManager.LayoutParams params = window.getAttributes();
             params.width = (int) (getResources().getDisplayMetrics().widthPixels * 0.88f);

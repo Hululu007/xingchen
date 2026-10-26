@@ -108,6 +108,7 @@ public final class DanmakuSearchInputDialog extends DialogFragment implements Ca
     public Dialog onCreateDialog(@Nullable android.os.Bundle savedInstanceState) {
         input = createInput();
         Dialog dialog = new Dialog(requireContext());
+        if (dialog.getWindow() != null) dialog.getWindow().setWindowAnimations(R.style.HkDialogFade); // 统一淡入淡出 200ms
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         dialog.setContentView(createContentView());
         dialog.setCanceledOnTouchOutside(true);

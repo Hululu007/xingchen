@@ -78,10 +78,7 @@ public class PlayUrlBuilder115 {
         String pc = file.getPickCode();
 
         // 90秒内重复点同一文件 → 强制刷新（对照 PY _play_last）
-        boolean forceRefresh = pc.equals(lastPc)
-                && (System.currentTimeMillis() - lastPlayTime) < REPEAT_FORCE_MS;
-        lastPc = pc;
-        lastPlayTime = System.currentTimeMillis();
+        boolean forceRefresh = markPlay(pc);
 
         String url;
         boolean isM3u8;
@@ -127,6 +124,132 @@ public class PlayUrlBuilder115 {
 
         Log.d(TAG, "播放地址已包代理: " + (isM3u8 ? "m3u8" : "原画"));
         return new PlayRequest(proxyUrl, url, isM3u8);
+    }
+
+    /** 播放记账：90 秒内重复点同一文件返回 true（强制刷新），对照 PY _play_last */
+    private boolean markPlay(String pc) {
+        boolean force = pc.equals(lastPc)
+                && (System.currentTimeMillis() - lastPlayTime) < REPEAT_FORCE_MS;
+        lastPc = pc;
+        lastPlayTime = System.currentTimeMillis();
+        return force;
+    }
+
+    /** 播放清单一条：画质档名 + 已包代理的播放地址 */
+    public static class PlayEntry {
+        public final String label;
+        public final String proxyUrl;
+        public final boolean isM3u8;
+
+        PlayEntry(String label, String proxyUrl, boolean isM3u8) {
+            this.label = label;
+            this.proxyUrl = proxyUrl;
+            this.isM3u8 = isM3u8;
+        }
+    }
+
+    /** 播放清单：entries 是选集（画质档），defaultIndex 是默认起播档 */
+    public static class PlayList {
+        public final java.util.List<PlayEntry> entries;
+        public final int defaultIndex;
+
+        PlayList(java.util.List<PlayEntry> entries, int defaultIndex) {
+            this.entries = entries;
+            this.defaultIndex = defaultIndex;
+        }
+    }
+
+    private static class RawEntry {
+        final String label;
+        final String url;
+        final boolean isM3u8;
+
+        RawEntry(String label, String url, boolean isM3u8) {
+            this.label = label;
+            this.url = url;
+            this.isM3u8 = isM3u8;
+        }
+    }
+
+    /**
+     * 组装播放清单（对照 PY _file_detail 的选集构成）：
+     * 原画（/files/video 的 origin_file_url 优先，chrome/downurl 兜底）
+     * → 转码多档（最多 6 档）→ 网盘自动画质（m3u8 探活才入列）。
+     * 默认起播档＝自动画质（起播快、与既有 auto 口径一致），没有则第一档。
+     * 全部候选都拿不到时降级走 build(auto) 单条，与旧 getPlayUrl 同口径。
+     */
+    public PlayList buildPlayList(CloudFile file) throws Exception {
+        if (file == null || TextUtils.isEmpty(file.getPickCode())) {
+            throw new Exception("文件 pick_code 为空");
+        }
+        String pc = file.getPickCode();
+        boolean forceRefresh = markPlay(pc);
+
+        java.util.List<RawEntry> raw = new java.util.ArrayList<>();
+        java.util.Set<String> seenUrl = new java.util.HashSet<>();
+        java.util.Set<String> seenLabel = new java.util.HashSet<>();
+
+        // 原画：origin_file_url 现拿优先，downurl 老链兜底
+        String origin = "";
+        try {
+            origin = drive.videoOriginUrl(pc);
+        } catch (Exception ignored) {
+        }
+        if (TextUtils.isEmpty(origin)) {
+            try {
+                origin = getDownUrlCached(pc, forceRefresh);
+            } catch (Exception e) {
+                Log.d(TAG, "原画取链失败: " + e.getMessage());
+            }
+        }
+        if (!TextUtils.isEmpty(origin) && seenUrl.add(origin)) {
+            raw.add(new RawEntry("原画", origin, false));
+            seenLabel.add("原画");
+        }
+
+        // 转码多档（对照 PY _file_detail：最多 6 档，同名跳过）
+        java.util.List<java.util.Map<String, String>> tiers = drive.videoTiers(pc);
+        for (int i = 0; i < tiers.size() && i < 6; i++) {
+            String tUrl = tiers.get(i).get("url");
+            String tName = tiers.get(i).get("name");
+            if (TextUtils.isEmpty(tUrl) || !seenUrl.add(tUrl)) continue;
+            String label = TextUtils.isEmpty(tName) ? ("转码 " + (i + 1)) : ("转码 " + tName);
+            if (!seenLabel.add(label)) continue;
+            raw.add(new RawEntry(label, tUrl, tUrl.toLowerCase().contains(".m3u8")));
+        }
+
+        // 网盘自动画质（HLS）：探活通过才入列（对照 PY m3u8 候选）
+        int autoIndex = -1;
+        try {
+            String m3u8 = drive.m3u8Url(pc);
+            if (!TextUtils.isEmpty(m3u8) && !seenUrl.contains(m3u8) && probeM3u8(m3u8)) {
+                raw.add(new RawEntry("自动画质", m3u8, true));
+                seenUrl.add(m3u8);
+                autoIndex = raw.size() - 1;
+            }
+        } catch (Exception e) {
+            Log.d(TAG, "自动画质探查失败: " + e.getMessage());
+        }
+
+        if (raw.isEmpty()) {
+            // 候选全灭：降级旧 auto 单条（m3u8 探活→原画直链的既有链）
+            PlayRequest r = build(file, "auto");
+            java.util.List<PlayEntry> single = new java.util.ArrayList<>();
+            single.add(new PlayEntry("自动画质", r.proxyUrl, r.isM3u8));
+            return new PlayList(single, 0);
+        }
+
+        java.util.List<PlayEntry> entries = new java.util.ArrayList<>();
+        int defaultIndex = 0;
+        for (int i = 0; i < raw.size(); i++) {
+            RawEntry re = raw.get(i);
+            String proxyUrl = viaProxy(re.url, pc, re.isM3u8);
+            if (TextUtils.isEmpty(proxyUrl)) throw new Exception("代理启动失败");
+            entries.add(new PlayEntry(re.label, proxyUrl, re.isM3u8));
+            if (i == autoIndex) defaultIndex = entries.size() - 1;
+        }
+        Log.d(TAG, "播放清单已组装: " + entries.size() + " 档, 默认第 " + (defaultIndex + 1) + " 档");
+        return new PlayList(entries, defaultIndex);
     }
 
     /**

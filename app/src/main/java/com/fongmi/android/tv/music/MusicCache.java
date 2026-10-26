@@ -50,6 +50,9 @@ public class MusicCache {
     /** B/MB 友好显示 */
     public static String formatSize(long bytes) {
         if (bytes <= 0) return "0 B";
+        // 扫描 T6：小于 1KB 显示字节数——此前整数除法把 1–1023 字节一律算成「0 KB」，
+        // 歌词缓存几百字节时设置页显示得像没缓存
+        if (bytes < 1024L) return bytes + " B";
         if (bytes < 1024L * 1024L) return (bytes / 1024L) + " KB";
         double mb = bytes / (1024.0 * 1024.0);
         return mb >= 100 ? String.format("%.0f MB", mb) : String.format("%.1f MB", mb);

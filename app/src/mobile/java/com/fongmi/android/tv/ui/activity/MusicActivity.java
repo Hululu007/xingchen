@@ -346,6 +346,7 @@ public class MusicActivity extends BaseActivity {
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(6), dp(6), dp(6), dp(6));
         card.setBackground(new MusicGlassDrawable(this, 16));
+        MusicGlassWire.applyFloatShadow(card, 16f); // 玻璃框要浮起来：柔影＋圆角描边轮廓（他点名没玻璃框）
 
         int sites = 0;
         try {
@@ -358,7 +359,7 @@ public class MusicActivity extends BaseActivity {
         LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1);
         dlp.setMarginStart(dp(62));
         divider.setLayoutParams(dlp);
-        divider.setBackgroundColor(0x14000000);
+        divider.setBackgroundColor(0x1FFFFFFF);
         card.addView(divider);
         card.addView(menuRow(R.drawable.ic_nav_setting, 0xFFFF2D55, "设置",
                 "", v -> MusicSettingsActivity.start(this)));
@@ -439,7 +440,7 @@ public class MusicActivity extends BaseActivity {
         row.addView(box);
         TextView tv = new TextView(this);
         tv.setText(title);
-        tv.setTextColor(0xFF1A1A1A);
+        tv.setTextColor(0xFFF1F4F5);
         tv.setTextSize(16);
         tv.getPaint().setFakeBoldText(true);
         LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
@@ -448,7 +449,7 @@ public class MusicActivity extends BaseActivity {
         row.addView(tv);
         TextView rv = new TextView(this);
         rv.setText(right);
-        rv.setTextColor(0xFF9A9AA0);
+        rv.setTextColor(0x99FFFFFF);
         rv.setTextSize(12);
         row.addView(rv);
         return row;

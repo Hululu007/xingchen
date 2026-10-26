@@ -1,5 +1,8 @@
 plugins {
     alias libs.plugins.android.application
+    // 播放页新一套（瓜子渲染组织法）地基：Kotlin 走 AGP 9.2.1 内建线（2.2.10，见其 POM），
+    // 不另装 kotlin-android 插件；Compose 编译器插件与内建 Kotlin 同号。
+    alias libs.plugins.kotlin.compose
 }
 
 def localProps = new Properties()
@@ -95,6 +98,7 @@ android {
     buildFeatures {
         buildConfig = true
         viewBinding = true
+        compose = true
     }
 
     testOptions {
@@ -188,6 +192,13 @@ dependencies {
     implementation project(':nodejs')
     implementation libs.rhino
     implementation libs.appcompat
+    // 播放页新一套地基（Compose）：版本配对见 ~/workspace/gz-render-tree-map.md 第三节
+    implementation platform(libs.compose.bom)
+    implementation libs.compose.ui
+    implementation libs.compose.foundation
+    implementation libs.compose.material3
+    implementation libs.activity.compose
+    implementation libs.kotlin.stdlib
     implementation libs.lifecycle.service
     implementation libs.media
     implementation libs.bundles.media3

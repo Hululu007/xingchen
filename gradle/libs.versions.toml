@@ -1,6 +1,9 @@
 [versions]
 agp = "9.2.1"
 python = "17.0.0"
+kotlin = "2.2.10"
+composeBom = "2025.09.01"
+activityCompose = "1.11.0"
 minSdk = "24"
 targetSdk = "28"
 compileSdk = "37"
@@ -83,6 +86,12 @@ startup = { group = "androidx.startup", name = "startup-runtime", version.ref = 
 swiperefreshlayout = { group = "androidx.swiperefreshlayout", name = "swiperefreshlayout", version.ref = "swiperefreshlayout" }
 viewpager2 = { group = "androidx.viewpager2", name = "viewpager2", version.ref = "viewpager2" }
 webkit = { group = "androidx.webkit", name = "webkit", version.ref = "webkit" }
+activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
+compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
+compose-ui = { group = "androidx.compose.ui", name = "ui" }
+compose-foundation = { group = "androidx.compose.foundation", name = "foundation" }
+compose-material3 = { group = "androidx.compose.material3", name = "material3" }
+kotlin-stdlib = { group = "org.jetbrains.kotlin", name = "kotlin-stdlib", version.ref = "kotlin" }
 
 android-gif-drawable = { group = "pl.droidsonroids.gif", name = "android-gif-drawable", version.ref = "androidGifDrawable" }
 androidautosize = { group = "com.github.JessYanCoding", name = "AndroidAutoSize", version.ref = "androidautosize" }
@@ -156,6 +165,7 @@ zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxingCo
 android-application = { id = "com.android.application", version.ref = "agp" }
 android-library = { id = "com.android.library", version.ref = "agp" }
 chaquo-python = { id = "com.chaquo.python", version.ref = "python" }
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 
 [bundles]
 glide = ["glide", "glide-annotations", "glide-avif-integration", "glide-okhttp3-integration"]

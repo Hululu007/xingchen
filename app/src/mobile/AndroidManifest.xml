@@ -133,6 +133,15 @@
             android:screenOrientation="fullUser"
             android:theme="@style/Theme.XingChen.Music" />
 
+        <!-- 播放页新一套（Compose 空壳，地基）：与旧 Java 件同名，迷你条/通知的反射 Intent 零改动复活。
+             documentLaunchMode=never 与旧条目及 HomeActivity 同口径，不许改 taskAffinity/launchMode。 -->
+        <activity
+            android:name=".ui.music.MusicPlayerActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout"
+            android:documentLaunchMode="never"
+            android:screenOrientation="fullUser"
+            android:theme="@style/Theme.XingChen.Music" />
+
 
         <activity
             android:name=".ui.activity.MusicPluginsActivity"

@@ -266,23 +266,19 @@ public class MusicStore {
         }
     }
 
-    /** 列表排序：0 默认 1 标题 2 歌手 3 时长；第三波 R4：升降方向（默认升序） */
+    /** 列表排序读口：0 默认 1 标题 2 歌手 3 时长；升降方向（默认升序）。
+     * 写口已清（体检 E-P1）：排序入口已按用户令摘除，setListSort/setListSortDesc
+     * 全树零调用属死写口，留着是假能力，故删除，不许再加回排序入口。
+     * 读口保留：下载/歌单/站点/列表 4 页 sortTracks 仍在读；无写口时恒默认
+     * （sort=0 不排序、desc=false 不反转）＝保持原序，无害；存量值若有仍被尊重。 */
     private static final String K_LIST_SORT_DIR = "music_list_sort_dir";
 
     public static boolean isListSortDesc() {
         return Prefers.getBoolean(K_LIST_SORT_DIR, false);
     }
 
-    public static void setListSortDesc(boolean desc) {
-        Prefers.put(K_LIST_SORT_DIR, desc);
-    }
-
     public static int getListSort() {
         return Prefers.getInt(K_SORT_LIST, 0);
-    }
-
-    public static void setListSort(int sort) {
-        Prefers.put(K_SORT_LIST, sort);
     }
 
     /** 断点：存队列＋序号＋进度 */

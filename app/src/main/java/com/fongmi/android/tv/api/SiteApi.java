@@ -400,6 +400,23 @@ public class SiteApi {
         return false;
     }
 
+    /**
+     * 等蜘蛛就绪：loader 给空蜘蛛（SpiderNull）＝蜘蛛没就绪——创建被顶替/取消
+     * 打断，或创建失败。被打断的创建不记失败账，静默重试（spiderQuiet）能把
+     * 蜘蛛真正建起来；真失败的创建第一发已记账＋退避，静默重试会被退避挡下、
+     * 不重复弹提示。重试前吃掉残留中断旗（那是冲着上一发等待去的，不许毒到
+     * 重试的等待）。
+     * @return 真蜘蛛；两发静默重试后仍没就绪返回 null，调用方按空出门且不写缓存。
+     */
+    private static Spider awaitReadySpider(Site site, Spider spider) {
+        Spider ready = spider;
+        for (int i = 0; i < 2 && ready instanceof com.github.catvod.crawler.SpiderNull; i++) {
+            Thread.interrupted();
+            ready = site.recent().spiderQuiet();
+        }
+        return ready instanceof com.github.catvod.crawler.SpiderNull ? null : ready;
+    }
+
     @NonNull
     public static Result homeContent(@NonNull Site site, boolean forceRefresh) throws Exception {
         // 第二层拦截（与 SiteViewModel.execute 的空 key 拦截互为表里）：直接调 SiteApi 的
@@ -413,7 +430,7 @@ public class SiteApi {
         // 冷热判定必须在 site.recent().spider() 创建蜘蛛之前：创建成功即算已热。
         boolean coldPy = isColdPyHomeLoad(site);
         if (isSpider(site.getKey(), site)) {
-            Spider spider = site.recent().spider();
+            Spider rawSpider = site.recent().spider();
             // py 首页短时缓存：命中直接返回，不跑 Python。
             boolean useHomeCache = isPySpiderSite(site);
             String homeCacheKey = null;
@@ -423,6 +440,20 @@ public class SiteApi {
                     HomeCacheEntry cached = homeCache.get(homeCacheKey);
                     if (cached != null && cached.fresh()) return Result.fromJson(cached.json);
                 }
+            }
+            // 蜘蛛没就绪（创建被顶替/取消打断、或创建失败）时 loader 给的是空蜘蛛：
+            // 它两路都只回空串，不是源真没数据。此前这里照常往下跑，把空当正常
+            // 结果递给界面，还写进首页缓存——第一次打开最容易撞上创建被打断
+            // （插件点开的双发互顶、启动自动加载被手点顶替；创建越慢、窗口越宽，
+            // 首次打开恰恰最慢），于是「第一次打开必空、刷新（绕缓存强拉）才有」；
+            // 被顶替那一发的结果即使被代次丢弃，毒缓存也已写下，后面的非强制
+            // 打开在 TTL 内继续吃空。口径：没就绪就等就绪再取，不许拿空当结果、
+            // 更不许把空缓存住（见 awaitReadySpider）。放在缓存命中返回之后：
+            // 缓存里有现成真数据时不被蜘蛛没就绪连累。
+            Spider spider = awaitReadySpider(site, rawSpider);
+            if (spider == null) {
+                SpiderDebug.log("home", "spider not ready, empty result NOT cached key=%s", site.getKey());
+                return Result.empty();
             }
             // 批次号按到达顺序先领（只领号、零副作用，不掐不推）：顶替关系按领号
             // 顺序定。一发若卡在下面的预热接上等待里、后到的新加载先开跑，新发号

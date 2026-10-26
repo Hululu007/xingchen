@@ -21,10 +21,9 @@ import java.util.List;
  * <li>{@link #KIND_MUSIC}：音乐源（FreeJS 插件），按 srcUrl（音乐源的唯一身份，与桥的 key 同口径）；
  *     插件接口请求与脚本下载经桥/源管理打点后走本表决策。语义同 Emby：单源开了即生效、
  *     不要求总开关先开（「需代理」是这类源的接入定案，见 MusicSourceManager 的指定源镜像）。
- * <li>{@link #KIND_PIKPAK}：PikPak 网盘（单一账号、单一条目），id 固定为 DrivePikPak.ID（"pikpak"）；
- *     DrivePikPak 自有 OkHttp 在请求收口处打点后走本表决策。语义同 Emby/音乐：
- *     单源开了即生效、不要求总开关先开（PikPak 大陆 IP 直连受限，用户在按源定向页
- *     单独开这一项即应生效）。
+ * <li>{@link #KIND_PIKPAK}：PikPak 网盘，id 固定为 DrivePikPak.ID（"pikpak"），仅作打点归属；
+ *     不设单源开关、不查本表——默认带上：节点总开关开着、内核在跑就走节点
+ *     （用户 2026-10-26 口径「直接给他带上就行了，还单独搞个开关？」）。
  * </ul>
  * 决策统一走 {@link #shouldProxy}：总开关（ClashSettings）关 → 一律直连；
  * 总开关开 → 查本表。
@@ -40,7 +39,7 @@ public final class SourceProxyPolicy {
     public static final String KIND_BOOK = "book";
     /** 音乐源（FreeJS 插件）：id=srcUrl，与桥 key()、源管理身份同口径。 */
     public static final String KIND_MUSIC = "music";
-    /** PikPak 网盘：id 固定为 DrivePikPak.ID（"pikpak"，单一账号单一条目）。 */
+    /** PikPak 网盘：id 固定为 DrivePikPak.ID（"pikpak"），仅作打点归属，不设单源开关。 */
     public static final String KIND_PIKPAK = "pikpak";
 
     private static final String PREFS = "clash_source_policy";
@@ -73,12 +72,14 @@ public final class SourceProxyPolicy {
 
     /**
      * 壳子网络层决策入口：这个来源的请求要不要走本地节点口。
-     * Emby／音乐／PikPak：单源开了走节点即生效，不再要求节点总开关先开（用户口径：开了就生效；
+     * Emby／音乐：单源开了走节点即生效，不再要求节点总开关先开（用户口径：开了就生效；
      * 音乐侧「需代理」指定源由源管理把定案镜像进本表，见 MusicSourceManager）。
+     * PikPak：默认带上，不设单源开关、不查本表，只看节点总开关（总开关开即走节点）。
      * 其它源：维持原语义，总开关关 → 一律直连。
      */
     public static boolean shouldProxy(Context context, String kind, String id) {
-        if (KIND_EMBY.equals(kind) || KIND_MUSIC.equals(kind) || KIND_PIKPAK.equals(kind)) return isEnabled(context, kind, id);
+        if (KIND_EMBY.equals(kind) || KIND_MUSIC.equals(kind)) return isEnabled(context, kind, id);
+        if (KIND_PIKPAK.equals(kind)) return ClashSettings.isEnabled(context);
         if (!ClashSettings.isEnabled(context)) return false;
         return isEnabled(context, kind, id);
     }

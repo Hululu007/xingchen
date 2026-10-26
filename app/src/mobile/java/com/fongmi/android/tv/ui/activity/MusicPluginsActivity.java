@@ -36,6 +36,7 @@ import com.fongmi.android.tv.ui.dialog.MusicOptionsDialog;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.Task;
 import com.fongmi.android.tv.ui.music.MusicGlassDialogBuilder;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
@@ -976,7 +977,7 @@ public class MusicPluginsActivity extends BaseActivity {
             }
             if (checked < 0) curMissing = true;
         }
-        MusicGlassDialogBuilder builder = new MusicGlassDialogBuilder(this)
+        MaterialAlertDialogBuilder builder = new MusicGlassDialogBuilder(this)
                 .setTitle(LxPlatformSearch.platformName(platform) + " · 取链插件")
                 .setSingleChoiceItems(opts.toArray(new String[0]), checked, (d, which) -> {
                     if (which == 0) MusicStore.setPlatformPlugin(platform, null);

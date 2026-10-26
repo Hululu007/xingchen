@@ -242,7 +242,9 @@ public class CloudDriveActivity extends BaseActivity {
         int padH = (int) (16 * density);
         int padV = (int) (8 * density);
         status.setPadding(padH, padV, padH, 0);
-        status.setVisibility(View.GONE);
+        // 占位不撤位：状态行显隐只换 INVISIBLE/VISIBLE，内容高度恒定——
+        // 用 GONE 的话每次搜索状态变化都改一次框高、居中窗口跟着重排（他点名的「乱动」之一）
+        status.setVisibility(View.INVISIBLE);
         layout.addView(status);
         ListView list = new ListView(this);
         SearchAdapter adapter = new SearchAdapter(st);
@@ -257,15 +259,6 @@ public class CloudDriveActivity extends BaseActivity {
                 .setPositiveButton("搜索", null)
                 .setNegativeButton("关闭", null)
                 .create();
-        // 覆盖「搜索」的默认点击（默认会关弹窗）：改成不关弹窗、就地在弹窗里出结果
-        dialog.setOnShowListener(d -> {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE)
-                    .setOnClickListener(v -> runSearch(st, input, adapter, status));
-            if (dialog.getWindow() != null) {
-                dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE);
-            }
-            input.requestFocus();
-        });
         input.setOnEditorActionListener((v, actionId, event) -> {
             if (actionId == EditorInfo.IME_ACTION_SEARCH) {
                 runSearch(st, input, adapter, status);
@@ -301,7 +294,8 @@ public class CloudDriveActivity extends BaseActivity {
                 InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
                 if (imm != null) imm.hideSoftInputFromWindow(input.getWindowToken(), 0);
                 if (dialog.getWindow() != null) {
-                    dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN);
+                    dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN
+                            | WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING);
                 }
                 playFile(file);
             } else {
@@ -310,8 +304,26 @@ public class CloudDriveActivity extends BaseActivity {
             }
         });
         MusicGlassDialogs.attach(dialog);
+        // 本站自带 OnShowListener 必须设在 attach 之后：Dialog 只有一个监听槽，后设的顶掉先设的——
+        // 旧写法设在 attach 之前，被 attach 的监听顶掉后，「搜索」钮的 runSearch 覆盖从没装上：
+        // 点「搜索」只剩系统默认行为（关弹窗、不搜），自动弹键盘与抢焦点也一并没了，他真机就是
+        // 「点了无事发生」。照 MusicPlaylistsActivity 的既有接法：监听在 attach 后设、首行手动补 apply。
+        dialog.setOnShowListener(d -> {
+            MusicGlassDialogs.apply(dialog);
+            // 覆盖「搜索」的默认点击（默认会关弹窗）：改成不关弹窗、就地在弹窗里出结果
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                    .setOnClickListener(v -> runSearch(st, input, adapter, status));
+            if (dialog.getWindow() != null) {
+                // 键盘只许盖住框底，不许 ADJUST_RESIZE 把居中弹窗顶着重排来回跳
+                // （输入框在框顶，输词走键盘上的搜索键提交）
+                dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE
+                        | WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING);
+            }
+            // 尺寸在显示这一拍同步定版，不走 post 延后拽尺寸（开框乱动的共用病根，见 sizeDialogNow）
+            sizeDialogNow(dialog, 0.7f);
+            input.requestFocus();
+        });
         dialog.show();
-        shrinkSearchDialog(dialog);
     }
 
     private void runSearch(SearchState st, EditText input, SearchAdapter adapter, TextView status) {
@@ -401,7 +413,7 @@ public class CloudDriveActivity extends BaseActivity {
                 status.setVisibility(View.VISIBLE);
                 status.setText(humanSearchError(err));
             } else {
-                status.setVisibility(View.GONE);
+                status.setVisibility(View.INVISIBLE);
                 Notify.show("加载更多失败，请稍后再试");
             }
             return;
@@ -449,7 +461,7 @@ public class CloudDriveActivity extends BaseActivity {
             if (lv != null && firstPos > 0) lv.setSelectionFromTop(firstPos, topOff);
         }
         if (!st.results.isEmpty()) {
-            status.setVisibility(View.GONE);
+            status.setVisibility(View.INVISIBLE);
             return;
         }
         if (st.endReached || st.failed) {
@@ -656,20 +668,40 @@ public class CloudDriveActivity extends BaseActivity {
         }
     }
 
-    /** 搜索弹窗尺寸（他定的口径）：不大不小——宽度两侧留边，高度封顶在屏幕约七成，结果在框内滚动。 */
-    private void shrinkSearchDialog(AlertDialog dialog) {
+    /**
+     * 弹窗尺寸在显示这一拍同步定版（搜索/离线任务/文件夹选择器共用，他定的「不大不小」口径）：
+     * 宽度两侧各留 24dp，高度＝内容自然高与封顶（屏高 fraction）取小，结果在框内滚动。
+     * 病根（他点名「115 里面的弹窗都乱动」）：旧法在 show() 之后用 decor.post 排一拍再 setLayout
+     * 拽尺寸——框先按系统自然尺寸上屏、下一拍被拽到目标尺寸，开框必跳一跳；冷路径下那一拍
+     * 拖得更晚、跳得更明显（与本日队列面板「定位抢跑」同病）。登录链的弹窗（PanLoginDialog、
+     * 登录四弹窗）都是在 onStart 里同步 setLayout 定版、没这毛病——照它们的口径收：
+     * 在 OnShowListener 里当场对 decor 做一次 AT_MOST 测量取自然高，同一拍 setLayout 定死。
+     */
+    private void sizeDialogNow(AlertDialog dialog, float maxHeightFraction) {
         Window window = dialog.getWindow();
         if (window == null) return;
         View decor = window.getDecorView();
         if (decor == null) return;
-        decor.post(() -> {
-            if (!dialog.isShowing()) return;
-            android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
-            int width = dm.widthPixels - (int) (48 * dm.density);
-            int maxHeight = (int) (dm.heightPixels * 0.7f);
-            int height = Math.min(decor.getHeight(), maxHeight);
-            if (width > 0 && height > 0) window.setLayout(width, height);
-        });
+        android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+        int width = dm.widthPixels - (int) (48 * dm.density);
+        int maxHeight = (int) (dm.heightPixels * maxHeightFraction);
+        if (width <= 0 || maxHeight <= 0) return;
+        decor.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(maxHeight, View.MeasureSpec.AT_MOST));
+        int height = Math.min(decor.getMeasuredHeight(), maxHeight);
+        if (height > 0) window.setLayout(width, height);
+    }
+
+    /**
+     * 带输入框的小弹窗（离线下载/转存/新建文件夹共用）：键盘只许盖住框底，
+     * 不许走默认 ADJUST_RESIZE——居中弹窗在键盘弹起时会按缩小后的可视区重排重居中，
+     * 收起又弹回来，就是「点输入框框就来回跳」。这几个弹窗的输入框都在框体上部，
+     * 键盘盖不到，改 ADJUST_NOTHING 后框纹丝不动、输入照常。
+     */
+    private void keepDialogStill(AlertDialog dialog) {
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING);
+        }
     }
 
     @Override
@@ -1085,8 +1117,12 @@ public class CloudDriveActivity extends BaseActivity {
         if (st.hasMore) builder.setNeutralButton("加载更多", null);
         AlertDialog dialog = builder.create();
         MusicGlassDialogs.attach(dialog);
+        // 同搜索弹窗的接法：自带监听在 attach 后设、首行补 apply；尺寸同步定版（封顶六成），不走 post 拽尺寸
+        dialog.setOnShowListener(d -> {
+            MusicGlassDialogs.apply(dialog);
+            sizeDialogNow(dialog, 0.6f);
+        });
         dialog.show();
-        shrinkTaskDialog(dialog);
         if (st.hasMore) {
             // 覆盖按钮的默认点击（默认会关弹窗）：改成不关弹窗、就地续拉下一页往后拼接。
             dialog.getButton(AlertDialog.BUTTON_NEUTRAL)
@@ -1133,25 +1169,6 @@ public class CloudDriveActivity extends BaseActivity {
         if (btn == null) return;
         btn.setText("没有更多了");
         btn.setEnabled(false);
-    }
-
-    /**
-     * 离线任务弹窗压小（他亲口点的口径）：不要近全屏——宽度两侧留边，高度封顶在
-     * 屏幕约六成，任务列表在框内滚动。只动窗口尺寸，数据与按钮行为不变。
-     */
-    private void shrinkTaskDialog(AlertDialog dialog) {
-        Window window = dialog.getWindow();
-        if (window == null) return;
-        View decor = window.getDecorView();
-        if (decor == null) return;
-        decor.post(() -> {
-            if (!dialog.isShowing()) return;
-            android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
-            int width = dm.widthPixels - (int) (48 * dm.density);
-            int maxHeight = (int) (dm.heightPixels * 0.6f);
-            int height = Math.min(decor.getHeight(), maxHeight);
-            if (width > 0 && height > 0) window.setLayout(width, height);
-        });
     }
 
     /**
@@ -1433,8 +1450,12 @@ public class CloudDriveActivity extends BaseActivity {
             fetchPickerDirs(st, adapter, tvPath);
         });
         MusicGlassDialogs.attach(dialog);
+        // 同搜索弹窗的接法：自带监听在 attach 后设、首行补 apply；尺寸同步定版（封顶六成），不走 post 拽尺寸
+        dialog.setOnShowListener(d -> {
+            MusicGlassDialogs.apply(dialog);
+            sizeDialogNow(dialog, 0.6f);
+        });
         dialog.show();
-        shrinkTaskDialog(dialog);
         fetchPickerDirs(st, adapter, tvPath);
     }
 
@@ -1584,6 +1605,7 @@ public class CloudDriveActivity extends BaseActivity {
                 .setNegativeButton("取消", null)
                 .create();
         MusicGlassDialogs.attach(dialog);
+        keepDialogStill(dialog);
         dialog.show();
         // 默认目标来自记忆且不是当前目录时，验一下它还在不在（删了就静默回退当前目录）
         if (!target.cid.equals(currentCid())) verifyTargetFolder(target, targetRow, dialog);
@@ -1629,6 +1651,7 @@ public class CloudDriveActivity extends BaseActivity {
                 .setNegativeButton("取消", null)
                 .create();
         MusicGlassDialogs.attach(dialog);
+        keepDialogStill(dialog);
         dialog.show();
         if (!target.cid.equals(currentCid())) verifyTargetFolder(target, targetRow, dialog);
     }
@@ -1664,6 +1687,7 @@ public class CloudDriveActivity extends BaseActivity {
                 .setNegativeButton("取消", null)
                 .create();
         MusicGlassDialogs.attach(dialog);
+        keepDialogStill(dialog);
         dialog.show();
     }
 

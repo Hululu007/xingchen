@@ -84,17 +84,23 @@ public final class QqVkeyFetcher {
         }
     }
 
-    /** 档位 → filename 前缀/扩展名候选（母带两前缀先后试：AI00 现行母带、RS01 高清备选）。 */
+    /**
+     * 档位 → filename 前缀/扩展名候选：所选档在前、逐档降级兜底（2026-10-26 他报「登录了也听不了」
+     * 的结构断点：QQ 的链是按歌＋按账号权益发档的——母带/无损文件多数歌根本没有、没绿钻时
+     * F000/M800 也回空 purl；此前只试所选一档，该档回空就整首死，与油管当年同形）。
+     * 降级链：母带 AI00→RS01→F000→M800→M500；无损 F000→M800→M500；320 M800→M500；128 M500。
+     */
     private static String[][] filenameAttempts(String lxQuality) {
         switch (lxQuality == null ? "" : lxQuality) {
             case "128k":
                 return new String[][]{{"M500", ".mp3"}};
             case "flac":
-                return new String[][]{{"F000", ".flac"}};
+                return new String[][]{{"F000", ".flac"}, {"M800", ".mp3"}, {"M500", ".mp3"}};
             case "flac24bit":
-                return new String[][]{{"AI00", ".flac"}, {"RS01", ".flac"}};
+                return new String[][]{{"AI00", ".flac"}, {"RS01", ".flac"}, {"F000", ".flac"},
+                        {"M800", ".mp3"}, {"M500", ".mp3"}};
             default:
-                return new String[][]{{"M800", ".mp3"}};
+                return new String[][]{{"M800", ".mp3"}, {"M500", ".mp3"}};
         }
     }
 
@@ -109,6 +115,7 @@ public final class QqVkeyFetcher {
         comm.addProperty("notice", 0);
         comm.addProperty("platform", "yqq.json");
         comm.addProperty("needNewCode", 1);
+        comm.addProperty("tmeAppID", "qqmusic"); // 官方网页端现行 comm 字段（本类契约口径自称对齐网页端，补齐）
         comm.addProperty("uin", parseLong(uin));
         body.add("comm", comm);
         JsonObject req0 = new JsonObject();
@@ -133,15 +140,26 @@ public final class QqVkeyFetcher {
 
         String text = httpPostJson("https://u.y.qq.com/cgi-bin/musicu.fcg", body.toString(), cookie);
         JsonObject root = JsonParser.parseString(text).getAsJsonObject();
-        if (optLong(root, "code") != 0) return null;
+        if (optLong(root, "code") != 0) {
+            SpiderDebug.log("music", "qq vkey root code=%s file=%s", optStr(root, "code"), filename);
+            return null;
+        }
         JsonObject r0 = root.has("req_0") && root.get("req_0").isJsonObject() ? root.getAsJsonObject("req_0") : null;
-        if (r0 == null || optLong(r0, "code") != 0) return null;
+        if (r0 == null || optLong(r0, "code") != 0) {
+            SpiderDebug.log("music", "qq vkey req code=%s file=%s",
+                    r0 == null ? "none" : optStr(r0, "code"), filename);
+            return null;
+        }
         JsonObject data = r0.has("data") && r0.get("data").isJsonObject() ? r0.getAsJsonObject("data") : null;
         if (data == null) return null;
         JsonArray infos = data.has("midurlinfo") && data.get("midurlinfo").isJsonArray() ? data.getAsJsonArray("midurlinfo") : null;
         if (infos == null || infos.size() == 0 || !infos.get(0).isJsonObject()) return null;
         String purl = optStr(infos.get(0).getAsJsonObject(), "purl");
-        if (purl.isEmpty()) return null;
+        if (purl.isEmpty()) {
+            // 空链取证（不记任何 Cookie 值）：区分「该档没发链」与请求被拒靠 code 字段，上方两档已记
+            SpiderDebug.log("music", "qq vkey empty purl file=%s", filename);
+            return null;
+        }
         if (purl.startsWith("http")) return purl;
         String sip = pickSip(data);
         return sip.isEmpty() ? null : sip + purl;

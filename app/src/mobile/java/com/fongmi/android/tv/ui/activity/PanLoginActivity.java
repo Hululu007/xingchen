@@ -31,6 +31,7 @@ import com.fongmi.android.tv.cloud.drivequark.DriveQuark;
 import com.fongmi.android.tv.databinding.ActivityPanLoginBinding;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.ui.dialog.PanLoginDialog;
+import com.fongmi.android.tv.ui.music.MusicGlassDialogs;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.PanAuth;
 import com.fongmi.android.tv.utils.QRCode;
@@ -112,7 +113,7 @@ public class PanLoginActivity extends BaseActivity {
 
     private boolean on115LongClick() {
         if (!PanAuth.is115LoggedIn()) return false;
-        new AlertDialog.Builder(this)
+        AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("115")
                 .setMessage("退出当前 115 登录？")
                 .setPositiveButton("退出登录", (d, w) -> {
@@ -121,7 +122,9 @@ public class PanLoginActivity extends BaseActivity {
                     Notify.show("已退出 115 登录");
                 })
                 .setNegativeButton("取消", null)
-                .show();
+                .create();
+        MusicGlassDialogs.attach(dialog);
+        dialog.show();
         return true;
     }
 
@@ -176,7 +179,7 @@ public class PanLoginActivity extends BaseActivity {
 
     private boolean onQuarkLongClick() {
         if (!PanAuth.isQuarkLoggedIn()) return false;
-        new AlertDialog.Builder(this)
+        AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("夸克")
                 .setMessage("退出当前夸克登录？")
                 .setPositiveButton("退出登录", (d, w) -> {
@@ -185,7 +188,9 @@ public class PanLoginActivity extends BaseActivity {
                     Notify.show("已退出夸克登录");
                 })
                 .setNegativeButton("取消", null)
-                .show();
+                .create();
+        MusicGlassDialogs.attach(dialog);
+        dialog.show();
         return true;
     }
 
@@ -231,6 +236,7 @@ public class PanLoginActivity extends BaseActivity {
                 .setNegativeButton("取消", null)
                 .setCancelable(true)
                 .create();
+        MusicGlassDialogs.attach(dialog);
         dialog.setOnDismissListener(d -> {
             if (qrGen == qrLoginGen) qrLoginGen++;
             handler.removeCallbacksAndMessages(null);
@@ -333,7 +339,7 @@ public class PanLoginActivity extends BaseActivity {
 
     private boolean onPikPakLongClick() {
         if (!PanAuth.isPikPakLoggedIn()) return false;
-        new AlertDialog.Builder(this)
+        AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("PikPak")
                 .setMessage("退出当前 PikPak 登录？")
                 .setPositiveButton("退出登录", (d, w) -> {
@@ -342,7 +348,9 @@ public class PanLoginActivity extends BaseActivity {
                     Notify.show("已退出 PikPak 登录");
                 })
                 .setNegativeButton("取消", null)
-                .show();
+                .create();
+        MusicGlassDialogs.attach(dialog);
+        dialog.show();
         return true;
     }
 
@@ -370,7 +378,7 @@ public class PanLoginActivity extends BaseActivity {
         tvTip.setLayoutParams(lp);
         layout.addView(tvTip);
 
-        new AlertDialog.Builder(this)
+        AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("PikPak 登录")
                 .setView(layout)
                 .setPositiveButton("登录", (d, w) -> {
@@ -383,7 +391,9 @@ public class PanLoginActivity extends BaseActivity {
                     doPikPakLogin(u, p, "");
                 })
                 .setNegativeButton("取消", null)
-                .show();
+                .create();
+        MusicGlassDialogs.attach(dialog);
+        dialog.show();
     }
 
     /** PikPak 账号密码登录（后台线程；captchaToken 为空表示首次尝试） */
@@ -519,6 +529,7 @@ public class PanLoginActivity extends BaseActivity {
                 .setPositiveButton("已完成验证，继续登录", null)
                 .setNegativeButton("取消", null)
                 .create();
+        MusicGlassDialogs.attach(dlg);
         dlg.setOnDismissListener(d -> web.destroy());
         dlg.show();
         dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
@@ -594,11 +605,13 @@ public class PanLoginActivity extends BaseActivity {
     }
 
     private void showLoginMethods(String title, String[] methods, OnMethodSelected cb) {
-        new AlertDialog.Builder(this)
+        AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle(title + "登录方式")
                 .setItems(methods, (d, which) -> cb.onSelect(which))
                 .setNegativeButton("取消", null)
-                .show();
+                .create();
+        MusicGlassDialogs.attach(dialog);
+        dialog.show();
     }
 
     /** Cookie 导入（Alist 风格：直接粘贴 Cookie 字符串） */
@@ -613,7 +626,7 @@ public class PanLoginActivity extends BaseActivity {
         layout.addView(et, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
-        new AlertDialog.Builder(this)
+        AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("导入 " + title + " Cookie")
                 .setView(layout)
                 .setPositiveButton("导入", (d, w) -> {
@@ -635,6 +648,8 @@ public class PanLoginActivity extends BaseActivity {
                     Notify.show(title + " Cookie 已导入");
                 })
                 .setNegativeButton("取消", null)
-                .show();
+                .create();
+        MusicGlassDialogs.attach(dialog);
+        dialog.show();
     }
 }

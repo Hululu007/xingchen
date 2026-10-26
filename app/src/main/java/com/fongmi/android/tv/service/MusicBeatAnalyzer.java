@@ -53,7 +53,10 @@ public final class MusicBeatAnalyzer implements AudioProcessor {
 
     @Override
     public boolean isActive() {
-        return formatOk && MusicBeatState.requestEnabled;
+        // 只认格式：处理器常驻链上透传，分析与否由 queueInput 里的 requestEnabled 实时门控。
+        // 旧口径把开关也算进 isActive——链在 configure 时按当时开关组装，面板中途开开关
+        // 要等下一首重配链才生效，开关看着就是死的（体检「音乐律动」假开关的另一半根）。
+        return formatOk;
     }
 
     @Override

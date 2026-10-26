@@ -37,7 +37,9 @@ import com.bumptech.glide.request.transition.Transition;
  * · 流体关：BlurredCoverAmbient——64×64 糊封面（模糊 24dp、alpha 0.4、静止）
  *   ＋渐变罩四档（alpha .76/.82/.80/.86，模糊不可用时 +0.2 且糊层不画）。
  * s(Δ)＝HSL 明度移位（钳 [0.1,0.68]），与瓜子 CoverAmbientKt.s 同口径。
- * 流体量（节拍）星辰无输入路，恒 0（接口已定：相位推进倍率 1.0、团参数取无节拍项）。
+ * 流体量（节拍）已接通（2026-10-26 体检高危「假开关」修）：相位推进倍率＝
+ * 流速系数×（节拍脉冲×0.3×节拍响应倍率＋1.0），节拍帧来自 MusicBeatState
+ * （服务侧 MusicBeatAnalyzer 发布）；「音乐律动」关时倍率回 1.0、分析门同步关。
  * 模糊走 RenderNode＋RenderEffect（API 31+），与瓜子 BlurSupport 预检同门槛。
  */
 public class CoverAmbientView extends View {
@@ -81,6 +83,9 @@ public class CoverAmbientView extends View {
     public void refreshSettings() {
         boolean fluid = MusicPlayerSettings.isFluidBg();
         mSpeedFactor = MusicPlayerSettings.fluidSpeedFactor();
+        // 律动门同步（假开关接通的 UI 侧落点）：开关一变分析门即变，当前曲立即生效
+        com.fongmi.android.tv.service.MusicBeatState.requestEnabled =
+                fluid && MusicPlayerSettings.isFluidBeat();
         if (fluid != mFluidMode) {
             mFluidMode = fluid;
             mBlurNodeBitmap = null; // 糊层节点按新模式的模糊半径/alpha 重录
@@ -338,7 +343,12 @@ public class CoverAmbientView extends View {
             double dt = 0;
             if (mDriftLastNs != 0) dt = Math.min(0.1, (frameTimeNanos - mDriftLastNs) / 1e9);
             mDriftLastNs = frameTimeNanos;
-            double rate = mSpeedFactor * dt;
+            // 速率＝流速系数×（节拍量×0.3＋流体量×0.65＋1.0）：流体量星辰无独立输入取 0；
+            // 节拍量＝分析器发布的 beatPulse（律动关/无帧时 0，倍率回 1.0 与旧行为一致）
+            double beat = MusicPlayerSettings.isFluidBeat()
+                    ? com.fongmi.android.tv.service.MusicBeatState.beatPulse
+                    * MusicPlayerSettings.fluidBeatFactor() : 0.0;
+            double rate = mSpeedFactor * (beat * 0.3 + 1.0) * dt;
             mPh1 += rate * 2 * Math.PI / 19.0;
             mPh2 += rate * 2 * Math.PI / 27.0;
             mPh3 += rate * 2 * Math.PI / 34.0;

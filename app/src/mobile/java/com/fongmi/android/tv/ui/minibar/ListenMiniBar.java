@@ -33,6 +33,7 @@ import com.fongmi.android.tv.service.PlaybackService;
 import com.fongmi.android.tv.ui.activity.ReadingSkin;
 import com.fongmi.android.tv.ui.music.MusicGlassDrawable;
 import com.fongmi.android.tv.utils.ImgUtil;
+import com.github.catvod.crawler.SpiderDebug;
 
 import java.lang.ref.WeakReference;
 import java.util.LinkedHashMap;
@@ -79,6 +80,10 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
     };
 
     private View barView;
+    /** 挂载代次：attach/detach 各进一步。hideBar 的淡出收尾动画即使被 cancel、
+     * 它的 withEndAction 仍可能跑——收尾只认发起隐藏时那一代，代次变了（条已被
+     * 重新挂上或摘下）就什么都不做，防「状态说在、条被旧收尾摘掉、再无事件能救」。 */
+    private int barGen;
     private ImageView ivCover;
     private TextView tvTitle;
     private ImageView btnPlay;
@@ -98,6 +103,12 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
         @Override
         public String id() {
             return "music";
+        }
+
+        /** 音乐条不吃暂停自动关：它是首页常驻条，有队列时必须在（策略层注释有实证）。 */
+        @Override
+        public boolean autoCloseOnPause() {
+            return false;
         }
     }
 
@@ -209,6 +220,7 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
             pages.put("music", new WeakReference<>(null));
             pageSeen.add("music");
             policy.register(musicSession);
+            SpiderDebug.log("music", "miniBar registerMusic");
         }
         refreshBar();
         refreshMusic();
@@ -217,16 +229,17 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
     /** 注销音乐会话（队列清空/服务停止时） */
     public synchronized void unregisterMusic() {
         if (musicSession == null) return;
+        SpiderDebug.log("music", "miniBar unregisterMusic");
         musicSession = null;
         pages.remove("music");
         policy.unregister("music");
         refreshBar();
     }
 
-    /** 第三波 M2：把音乐播放态变化喂给策略层，让暂停 10 秒自动收真生效
-     * （策略 playingChanged 只在会话已注册时起作用；未注册时为空操作）。
-     * 音乐会话的 pageForeground 从未被置 true（音乐条只在首页露、页引用为空），
-     * 所以暂停计时不受“在播放页”门控影响；onCloseSession 对音乐仅藏条，见下。 */
+    /** 第三波 M2：把音乐播放态变化喂给策略层（策略 playingChanged 只在会话
+     * 已注册时起作用；未注册时为空操作）。注意：音乐会话已豁免暂停 10 秒自动关
+     * （MusicMiniSession.autoCloseOnPause=false——首页常驻条有队列必在），喂这里
+     * 只同步策略内的播放态、不再起关闭计时；听书会话的自动关不受影响。 */
     public void musicPlayingChanged(boolean playing) {
         try {
             policy.playingChanged("music", playing);
@@ -255,6 +268,7 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
     public void onCloseSession(String id) {
         // 音乐真关闭：暂停＋落盘（断点在暂停时已存）＋注销条，队列保留
         if ("music".equals(id)) {
+            SpiderDebug.log("music", "miniBar onCloseSession music");
             try {
                 musicCtl().pause();
             } catch (Throwable ignored) {
@@ -342,6 +356,7 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
     }
 
     private void attachBar(Activity host, String visibleId) {
+        barGen++;
         boolean music = "music".equals(visibleId);
         ListenSession s = music ? null : sessions.get(visibleId);
         if (!music && s == null) return;
@@ -417,6 +432,7 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
     }
 
     private void detachBar() {
+        barGen++;
         // 条摘下时停掉音乐封面旋转与进度轮询；听书条从不设置这些成员，此调用对它为空操作
         stopHomeSpin();
         try {
@@ -438,10 +454,13 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
         }
         final ViewGroup parent = (ViewGroup) barView.getParent();
         final View v = barView;
+        final int gen = barGen;
         hostRef = null;
         try {
             v.animate().cancel();
             v.animate().alpha(0f).setDuration(200).withEndAction(() -> {
+                // 代次已变＝隐藏发起后条又被挂上/摘下：这次收尾作废，不许摘新条
+                if (gen != barGen) return;
                 try {
                     parent.removeView(v);
                 } catch (Throwable ignored) {

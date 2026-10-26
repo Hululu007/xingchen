@@ -68,6 +68,8 @@ public class CloudDriveActivity extends BaseActivity {
     /** 「保存到」上次所选文件夹的偏好键（按网盘分开记，拼 drive.getId()）：cid 与显示名各一份。 */
     private static final String PREF_SAVE_CID = "drive_save_cid_";
     private static final String PREF_SAVE_NAME = "drive_save_name_";
+    /** 视频展示下限（他拍板写死）：30MB 以内的短视频多半是广告，列表与搜索结果里直接不显示。 */
+    private static final long MIN_VIDEO_SIZE = 30L * 1024 * 1024;
 
     public static void start(Activity activity, String driveId) {
         Intent intent = new Intent(activity, CloudDriveActivity.class);
@@ -293,8 +295,8 @@ public class CloudDriveActivity extends BaseActivity {
                 }
                 if (raw != null) {
                     st.fetched += raw.size();
-                    // 搜索结果同文件列表口径：只出文件夹＋视频（过滤在组装处做，分页 offset 按原始条数走）
-                    for (CloudFile f : raw) if (f.isDir() || f.isVideo()) st.results.add(f);
+                    // 搜索结果同文件列表口径：只出文件夹＋大于 30MB 的视频（visibleInList，过滤在组装处做，分页 offset 按原始条数走）
+                    for (CloudFile f : raw) if (visibleInList(f)) st.results.add(f);
                     st.hasMore = raw.size() >= SEARCH_LIMIT;
                 } else {
                     st.hasMore = false;
@@ -484,6 +486,17 @@ public class CloudDriveActivity extends BaseActivity {
         if (binding.refresh.isRefreshing() && !loading) binding.refresh.setRefreshing(false);
     }
 
+    /**
+     * 展示过滤（他定的两条口径，文件列表与搜索结果共用）：
+     * 只留文件夹＋视频；视频里大小在 30MB 以内的短片直接藏掉（治短视频广告，「广告没有这么大」）。
+     * 大小取不到/为 0 的视频不藏，免得误伤字段缺失的正常文件。文件夹永远不受影响。
+     */
+    private static boolean visibleInList(CloudFile f) {
+        if (f.isDir()) return true;
+        if (!f.isVideo()) return false;
+        return f.getSize() <= 0 || f.getSize() > MIN_VIDEO_SIZE;
+    }
+
     private void fetchFiles() {
         fetchGen++;
         hasMore = true;
@@ -513,10 +526,10 @@ public class CloudDriveActivity extends BaseActivity {
                     int added = 0;
                     if (result != null) {
                         fetchedCount = append ? fetchedCount + result.size() : result.size();
-                        // 展示口径（他定的）：只显文件夹＋视频，非视频的普通文件不进展示列表。
+                        // 展示口径（他定的）：只显文件夹＋大于 30MB 的视频（visibleInList）。
                         // 过滤只在组装展示处做，不动各 Drive 的 listDir；分页 offset 与 hasMore 都按原始条数算，
-                        // 免得一页全是非视频文件时被误判成到底、把后面的视频漏掉。
-                        for (CloudFile f : result) if (f.isDir() || f.isVideo()) {
+                        // 免得一页全是被过滤的文件时被误判成到底、把后面的视频漏掉。
+                        for (CloudFile f : result) if (visibleInList(f)) {
                             files.add(f);
                             added++;
                         }

@@ -12,9 +12,10 @@ MSM=app/src/main/java/com/fongmi/android/tv/api/music/MusicSourceManager.java
 URL_GECIWANG="https://cdn.jsdelivr.net/gh/maotoumao/MusicFreePlugins@master/dist/geciwang/index.js"
 URL_GECIQIANXUN="https://cdn.jsdelivr.net/gh/maotoumao/MusicFreePlugins@master/dist/geciqianxun/index.js"
 URL_KUWO="https://cdn.jsdelivr.net/gh/qwerwhr/musicfree-plugins@master/%E5%85%83%E5%8A%9BKW.js"
+URL_YTMUSIC="https://xingchen-dl.pages.dev/music-sources/ytmusic.js"
 
 grep -q "public static List<MusicSite> builtinSites()" "$MSM" || fail "builtinSites 方法签名对不上"
-for u in "$URL_GECIWANG" "$URL_GECIQIANXUN" "$URL_KUWO"; do
+for u in "$URL_GECIWANG" "$URL_GECIQIANXUN" "$URL_KUWO" "$URL_YTMUSIC"; do
   grep -qF "\"$u\"" "$MSM" || fail "预置插件地址对不上：$u"
 done
 
@@ -50,18 +51,21 @@ with open(path, "w", encoding="utf-8") as fh:
 PYEOF
 
 # 光换 builtinSites() 方法体不够：歌词网／歌词千寻的地址另有两份常量
-# （MusicSourceManager.java 的 BUILTIN_LYRIC_*，不在方法体内），酷我地址另有一份
-# 在 KwChartSource.java 的 FALLBACK_PLUGIN_URL（榜单回落戳）。旧脚本只换方法体，
-# 终检 grep 仍命中这三处、必失败，朋友版编不出来。本步把这三处字面量一并清为空串
-# （只改 CI 临时检出，仓库源码不动）：常量名与 isBuiltinLyricPreset / 回落返回点还在，
+# （MusicSourceManager.java 的 BUILTIN_LYRIC_*，不在方法体内），酷我地址另有两份
+# （MusicSourceManager.java 的 BUILTIN_KUWO_YUANLI 活常量——isBuiltinKuwo 按它认
+# 预置身份；KwChartSource.java 的 FALLBACK_PLUGIN_URL 榜单回落戳），油管地址另有一份
+# 常量 BUILTIN_YTMUSIC（isProxyDesignated 按它认）。旧脚本漏清 BUILTIN_KUWO_YUANLI、
+# 且完全没管油管：终检 grep 命中酷我即 exit 1、朋友版编不出来；油管就算把酷我修掉
+# 也会把地址字面量留在朋友版源码里。本步把 MSM 内四址与 KwChartSource 的酷我址
+# 一并清为空串（只改 CI 临时检出，仓库源码不动）：常量名与各认身份／回落返回点还在，
 # 编译不断；朋友版里它们不再指向任何预置地址，播种与回落都种不出插件。
 KWCS=app/src/main/java/com/fongmi/android/tv/api/music/KwChartSource.java
 [ -f "$KWCS" ] || fail "找不到 KwChartSource.java"
 grep -qF "\"$URL_KUWO\"" "$KWCS" || fail "酷我榜单回落地址对不上：$URL_KUWO"
-python3 - "$MSM" "$KWCS" "$URL_GECIWANG" "$URL_GECIQIANXUN" "$URL_KUWO" <<'PYEOF'
+python3 - "$MSM" "$KWCS" "$URL_GECIWANG" "$URL_GECIQIANXUN" "$URL_KUWO" "$URL_YTMUSIC" <<'PYEOF'
 import sys
 
-for path, urls in ((sys.argv[1], sys.argv[3:5]), (sys.argv[2], sys.argv[5:6])):
+for path, urls in ((sys.argv[1], sys.argv[3:7]), (sys.argv[2], sys.argv[5:6])):
     with open(path, encoding="utf-8") as fh:
         text = fh.read()
     for u in urls:
@@ -72,8 +76,9 @@ for path, urls in ((sys.argv[1], sys.argv[3:5]), (sys.argv[2], sys.argv[5:6])):
         fh.write(text)
 PYEOF
 
-# 复查：三个预置地址不许在任何源码里残留（下架 bilibili 的存量清理常量是另一个地址，不在此列）
-if grep -rn "dist/geciwang/index\.js\|dist/geciqianxun/index\.js\|qwerwhr/musicfree-plugins" app/src --include=*.java; then
+# 复查：四个预置地址不许在任何源码里残留（下架 bilibili 的存量清理常量是另一个地址，不在此列；
+# 油管只认 music-sources/ytmusic.js 这一具体路径，同域名的歌词端点/ASR/内核地址不是预置插件、不在此列）
+if grep -rn "dist/geciwang/index\.js\|dist/geciqianxun/index\.js\|qwerwhr/musicfree-plugins\|music-sources/ytmusic\.js" app/src --include=*.java; then
   fail "删完后仍有预置插件地址残留"
 fi
 grep -q "public static List<MusicSite> builtinSites()" "$MSM" || fail "删完后 builtinSites 方法不见了"

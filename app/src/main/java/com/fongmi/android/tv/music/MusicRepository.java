@@ -906,26 +906,42 @@ public class MusicRepository {
                     // 完整聚合确认缺失后才清除存值并提示一次（清除后下次播不再重复提示）。
                     LyricRichAllResult agg = lyricRichAllDetailed(track, false);
                     for (LyricVersion v : agg.versions) {
-                        if (wantKey.equals(lyricVersionKey(v))) return v.getLyric();
+                        if (wantKey.equals(lyricVersionKey(v))) {
+                            earlyFetch.abandon();
+                            return v.getLyric();
+                        }
                     }
                     if (agg.complete) {
                         MusicStore.clearManualLyricChoice(MusicQueue.trackKey(track));
                         Notify.show("手动选择的歌词版本已失效，已按默认重新取词");
                     }
                 } catch (Throwable t) {
-                    rethrowKeyIssue(t);
+                    try {
+                        rethrowKeyIssue(t);
+                    } catch (RuntimeException key) {
+                        earlyFetch.abandon();
+                        throw key;
+                    }
                     SpiderDebug.log("music", "manual lyric restore error %s", t.getMessage());
                 }
             }
         }
         MusicSource s = find(track.platform);
-        if (s == null) return null;
+        if (s == null) {
+            earlyFetch.abandon();
+            return null;
+        }
         LyricPick pick = new LyricPick(MusicStore.getLyricPriority());
         MusicLyric own = null;
         try {
             own = normalizeRich(richOf(s, track));
         } catch (Throwable t) {
-            rethrowKeyIssue(t);
+            try {
+                rethrowKeyIssue(t);
+            } catch (RuntimeException key) {
+                earlyFetch.abandon();
+                throw key;
+            }
             SpiderDebug.log("music", "lyricRich error platform=%s %s", track.platform, t.getMessage());
         }
         // 来源名回填（与全量链 own 步同口径）：快路径步 0–3 此前集体不填，
@@ -936,18 +952,28 @@ public class MusicRepository {
         fireEarlyLyric(track, own, earlyFired);
         MusicLyric hit = pick.note(own);
         if (hit != null) {
+            earlyFetch.abandon();
             clearLyricMiss(track);
             return hit;
         }
 
-        if (!force && !MusicStore.isLyricFallback()) return own != null && own.hasLyric() ? own : null;
+        if (!force && !MusicStore.isLyricFallback()) {
+            earlyFetch.abandon();
+            return own != null && own.hasLyric() ? own : null;
+        }
         List<LocalTrackMeta.Query> queries = LocalTrackMeta.queries(track.title, track.artist, track.platform);
-        if (queries.isEmpty()) return own != null && own.hasLyric() ? own : null;
+        if (queries.isEmpty()) {
+            earlyFetch.abandon();
+            return own != null && own.hasLyric() ? own : null;
+        }
         // 二-28 负缓存后移＋分域（待裁13／19）：本源直取已在上方先行（本源新词不被旧判
         // 挡住），负判只拦整链重走；且只认 rich 作用域的负——纯文本链 lyric() 记的负
         // 覆盖不到本链独有的平台直连／AMLL 两步，不许未跑先判无词。
         // 手动重搜 force 不读、手动选版恢复在更上方已先行处理，口径不变。
-        if (!force && lyricRichMissedRecently(track)) return own != null && own.hasLyric() ? own : null;
+        if (!force && lyricRichMissedRecently(track)) {
+            earlyFetch.abandon();
+            return own != null && own.hasLyric() ? own : null;
+        }
         long gen = beginLyricCall(track);
         boolean exactPhaseRaw = false;
 
@@ -963,6 +989,7 @@ public class MusicRepository {
                 fireEarlyLyric(track, fb, earlyFired);
                 hit = pick.note(fb);
                 if (hit != null) {
+                    earlyFetch.abandon();
                     clearLyricMiss(track);
                     return hit;
                 }
@@ -977,10 +1004,10 @@ public class MusicRepository {
         // 抛出点都与串行版逐点一致，墙钟从各步之和降为最慢一步。步 2 收集器自带同口径
         // 探针桶，命中首选即停收，与串行版「note 返回即停」同点；主线程已返回后才跑完
         // 的预取结果直接丢弃、不回写任何状态，不改变任何选择。
-        // 主来源（Worker）结果一落地就先行发布，不等消费顺序轮到步 4——跨源收集
-        // （步 2，桥搜索）慢时，Worker 的词曾备好却压在队列里，页面干等整链收口。
-        LyricPrefetch prefetch = LyricPrefetch.start(track, s, queries, force, gen,
-                lyric -> fireEarlyLyric(track, lyric, earlyFired));
+        // 四个直连步已在链头由 EarlyLyricFetch 发出（见链头注），此处只补发步 2
+        // 跨源收集与步 3 歌词插件（都经单线程桥，不许与步 0／步 1 抢桥），并接管
+        // 直连四步的任务在原步序消费。
+        LyricPrefetch prefetch = LyricPrefetch.start(track, s, queries, force, gen, earlyFetch);
         // 2. 其它源（本地源跳过，它不提供歌词）：查询序列外层（净查询先问遍各源，再降级）
         // force 时预取内的步 2 只跑精确遍（exactOnly），包含遍在下方与步 1 包含级同段补跑。
         CrossCollect cross = prefetch.cross();
@@ -1550,6 +1577,90 @@ public class MusicRepository {
      * SOURCES 是 CopyOnWriteArrayList，只读遍历安全。步 5／5.5／6 原串行版的
      * try/catch 收口搬进各自任务内，日志文案与原来一致。
      */
+    /**
+     * 首帧直连四步（链头预发）：Worker 聚合／平台直连／酷我行级／AMLL——全是直连
+     * HTTP、不经单线程桥，与步 0／步 1 的桥调用零竞争，所以在 lyricRichInternal
+     * 一进门就并行发出；各自一完成就经先行发布上屏（只展示，挑选与返回仍由主链
+     * 在原步序消费同一批任务决定）。链在 LyricPrefetch 接管前退出时由调用方
+     * abandon 撤下，不许迟到结果在链收口后改屏；接管后撤下归 LyricPrefetch。
+     */
+    private static class EarlyLyricFetch {
+        final Future<MusicLyric> cf;
+        final Future<MusicLyric> platform;
+        final Future<MusicLyric> kuwo;
+        final Future<MusicLyric> amll;
+        /** 被 LyricPrefetch 接管后置真：此后撤下归 LyricPrefetch.abandon 管 */
+        volatile boolean adopted;
+
+        private EarlyLyricFetch(Future<MusicLyric> cf, Future<MusicLyric> platform,
+                                Future<MusicLyric> kuwo, Future<MusicLyric> amll) {
+            this.cf = cf;
+            this.platform = platform;
+            this.kuwo = kuwo;
+            this.amll = amll;
+        }
+
+        static EarlyLyricFetch start(MusicTrack track, java.util.function.Consumer<MusicLyric> early) {
+            Future<MusicLyric> cf = Task.largeExecutor().submit(() -> {
+                MusicLyric v = cfLyricWord(track);
+                fire(early, v);
+                return v;
+            });
+            Future<MusicLyric> platform = Task.largeExecutor().submit(() -> {
+                MusicLyric v = null;
+                try {
+                    v = new PlatformWordLyricSource().lyricRich(track);
+                } catch (Throwable t) {
+                    SpiderDebug.log("music", "lyricRich platform word error %s", t.getMessage());
+                }
+                fire(early, v);
+                return v;
+            });
+            Future<MusicLyric> kuwo = Task.largeExecutor().submit(() -> {
+                MusicLyric v = null;
+                try {
+                    v = kuwoLineLyric(track);
+                } catch (Throwable t) {
+                    SpiderDebug.log("music", "lyricRich kuwo line error %s", t.getMessage());
+                }
+                fire(early, v);
+                return v;
+            });
+            Future<MusicLyric> amll = MusicStore.isAmllEnabled()
+                    ? Task.largeExecutor().submit(() -> {
+                        MusicLyric v = null;
+                        try {
+                            v = normalizeRich(new AmllMusicLyricSource().lyricRich(track));
+                        } catch (Throwable t) {
+                            SpiderDebug.log("music", "lyricRich amll error %s", t.getMessage());
+                        }
+                        fire(early, v);
+                        return v;
+                    })
+                    : null;
+            return new EarlyLyricFetch(cf, platform, kuwo, amll);
+        }
+
+        private static void fire(java.util.function.Consumer<MusicLyric> early, MusicLyric v) {
+            if (v == null || early == null) return;
+            try {
+                early.accept(v);
+            } catch (Throwable ignored) {
+            }
+        }
+
+        void abandon() {
+            cancelQuietly(cf);
+            cancelQuietly(platform);
+            cancelQuietly(kuwo);
+            cancelQuietly(amll);
+        }
+
+        private static void cancelQuietly(Future<?> f) {
+            if (f != null) f.cancel(true);
+        }
+    }
+
     private static class LyricPrefetch {
         /**
          * 待裁18：单步等待总封顶——高于最慢一步的内部封顶（Worker 连接 10 秒＋读 25 秒），
@@ -1580,47 +1691,14 @@ public class MusicRepository {
         }
 
         static LyricPrefetch start(MusicTrack track, MusicSource self, List<LocalTrackMeta.Query> queries, boolean force, long gen,
-                                   java.util.function.Consumer<MusicLyric> cfEarly) {
+                                   EarlyLyricFetch early) {
             Future<CrossCollect> cross = Task.largeExecutor().submit(() -> collectCross(track, self, queries, force, force));
             Future<List<MusicLyric>> plugins = Task.largeExecutor().submit(() -> collectLyricPlugins(track));
-            Future<MusicLyric> cf = Task.largeExecutor().submit(() -> {
-                MusicLyric v = cfLyricWord(track);
-                // 主来源先到先发布（仅展示先行，步 4 消费与挑选口径不变）
-                if (v != null && cfEarly != null) {
-                    try {
-                        cfEarly.accept(v);
-                    } catch (Throwable ignored) {
-                    }
-                }
-                return v;
-            });
-            Future<MusicLyric> platform = Task.largeExecutor().submit(() -> {
-                try {
-                    return new PlatformWordLyricSource().lyricRich(track);
-                } catch (Throwable t) {
-                    SpiderDebug.log("music", "lyricRich platform word error %s", t.getMessage());
-                    return null;
-                }
-            });
-            Future<MusicLyric> kuwo = Task.largeExecutor().submit(() -> {
-                try {
-                    return kuwoLineLyric(track);
-                } catch (Throwable t) {
-                    SpiderDebug.log("music", "lyricRich kuwo line error %s", t.getMessage());
-                    return null;
-                }
-            });
-            Future<MusicLyric> amll = MusicStore.isAmllEnabled()
-                    ? Task.largeExecutor().submit(() -> {
-                        try {
-                            return normalizeRich(new AmllMusicLyricSource().lyricRich(track));
-                        } catch (Throwable t) {
-                            SpiderDebug.log("music", "lyricRich amll error %s", t.getMessage());
-                            return null;
-                        }
-                    })
-                    : null;
-            return new LyricPrefetch(gen, lyricCallKey(track), cross, plugins, cf, platform, kuwo, amll);
+            // 四个直连步在链头已由 EarlyLyricFetch 发出，此处接管其任务在原步序消费
+            // （步 4／5／5.5／6 的 await 与挑选口径一字不变）；接管后撤下归本对象管。
+            early.adopted = true;
+            return new LyricPrefetch(gen, lyricCallKey(track), cross, plugins,
+                    early.cf, early.platform, early.kuwo, early.amll);
         }
 
         CrossCollect cross() {

@@ -41,7 +41,8 @@ import com.fongmi.android.tv.ui.dialog.MusicOptionsDialog;
 import com.fongmi.android.tv.ui.dialog.MusicPlaylistImportDialog;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.Task;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.fongmi.android.tv.ui.music.MusicGlassDialogBuilder;
+import com.fongmi.android.tv.ui.music.MusicGlassDialogs;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -498,7 +499,7 @@ public class MusicPlaylistsActivity extends BaseActivity {
         cancel.setGravity(android.view.Gravity.CENTER);
         cancel.setPadding(0, dp(14), 0, 0);
         root.addView(cancel);
-        final android.app.Dialog dialog = new MaterialAlertDialogBuilder(this)
+        final android.app.Dialog dialog = new MusicGlassDialogBuilder(this)
                 .setView(root)
                 .setCancelable(true)
                 .create();
@@ -610,7 +611,7 @@ public class MusicPlaylistsActivity extends BaseActivity {
                 });
                 if (!lx) {
                     dialog.setBusy(false);
-                    new MaterialAlertDialogBuilder(MusicPlaylistsActivity.this)
+                    new MusicGlassDialogBuilder(MusicPlaylistsActivity.this)
                             .setTitle("需要落雪脚本")
                             .setMessage("这些歌需要装支持"
                                     + LxPlatformSearch.platformName(r.platformKey)
@@ -646,7 +647,7 @@ public class MusicPlaylistsActivity extends BaseActivity {
         }
         if (existing != null && !existing.trim().isEmpty()) {
             String cookie = existing;
-            new MaterialAlertDialogBuilder(this)
+            new MusicGlassDialogBuilder(this)
                     .setTitle("已登录账号（" + (netease ? "网易云音乐" : "QQ音乐") + "）")
                     .setMessage("登录 Cookie 已保存在本机，可直接拉取歌单；退出将只清该平台的 Cookie。")
                     .setPositiveButton("拉取歌单", (d, w) -> fetchAccountSheets(platform, cookie))
@@ -684,13 +685,16 @@ public class MusicPlaylistsActivity extends BaseActivity {
         box.addView(tip);
         box.addView(web, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(420)));
-        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
+        AlertDialog dialog = new MusicGlassDialogBuilder(this)
                 .setTitle(title)
                 .setView(box)
                 .setPositiveButton("完成，获取Cookie", null)
                 .setNegativeButton(android.R.string.cancel, null)
                 .create();
-        dialog.setOnShowListener(d -> dialog.getButton(DialogInterface.BUTTON_POSITIVE)
+        // 本站自带 OnShowListener 会覆盖玻璃壳在 create 里挂的显示回调，故在监听首行手动补壳的整片收口
+        dialog.setOnShowListener(d -> {
+            MusicGlassDialogs.apply(dialog);
+            dialog.getButton(DialogInterface.BUTTON_POSITIVE)
                 .setOnClickListener(v -> {
                     String cookie = android.webkit.CookieManager.getInstance().getCookie(url);
                     if (cookie == null || cookie.isEmpty()) {
@@ -703,7 +707,8 @@ public class MusicPlaylistsActivity extends BaseActivity {
                     }
                     dialog.dismiss();
                     fetchAccountSheets(platform, cookie);
-                }));
+                });
+        });
         dialog.show();
     }
 
@@ -873,7 +878,7 @@ public class MusicPlaylistsActivity extends BaseActivity {
                 // .lxmc 无支撑平台时导入前二次确认
                 java.util.List<String> names = new java.util.ArrayList<>();
                 for (String key : unsupported) names.add(LxPlatformSearch.platformName(key));
-                new MaterialAlertDialogBuilder(MusicPlaylistsActivity.this)
+                new MusicGlassDialogBuilder(MusicPlaylistsActivity.this)
                         .setTitle("需要落雪脚本")
                         .setMessage("这些歌需要装支持" + android.text.TextUtils.join("、", names)
                                 + "的落雪源才能播，当前没装，仍要导入吗？")

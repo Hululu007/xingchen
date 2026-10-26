@@ -18,6 +18,7 @@ import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.ui.music.MusicGlassDrawable;
+import com.fongmi.android.tv.ui.music.MusicGlassWire;
 import com.fongmi.android.tv.music.MusicController;
 import com.fongmi.android.tv.music.ParametricEq;
 
@@ -127,10 +128,8 @@ public class ParametricEqDialog extends BaseBottomSheetDialog {
         add.setTextColor(0xFFFA243C);
         add.setGravity(Gravity.CENTER);
         add.setPadding(0, dp(12), 0, dp(12));
-        GradientDrawable d = new GradientDrawable();
-        d.setColor(0xFFF3F3F3);
-        d.setCornerRadius(dp(12));
-        add.setBackground(d);
+        MusicGlassWire.glassifyView(add, 12f); // 添加钮换玻璃（原 #F3F3F3 实底浅灰片，2026-10-26 全扫）
+        add.setTextColor(0xFFFA243C); // flip 把单件文字归主色，红字是既有信号色、补回
         add.setOnClickListener(v -> {
             bands.add(new ParametricEq.Band(ParametricEq.FilterType.PEAKING, 1000f, 0f, 1f));
             pushBands();
@@ -147,10 +146,7 @@ public class ParametricEqDialog extends BaseBottomSheetDialog {
         LinearLayout card = new LinearLayout(getContext());
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(12), dp(12), dp(12), dp(12));
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(0xFFF3F3F3);
-        bg.setCornerRadius(dp(12));
-        card.setBackground(bg);
+        // 卡底不在建时给：整卡建成后在 return 前统一换玻璃（见方法尾），让 flip 在子件齐备时一次做对
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         lp.topMargin = dp(12);
@@ -164,10 +160,7 @@ public class ParametricEqDialog extends BaseBottomSheetDialog {
         type.setTextSize(14);
         type.setTextColor(0xFFFA243C);
         type.setPadding(dp(8), dp(4), dp(8), dp(4));
-        GradientDrawable td = new GradientDrawable();
-        td.setColor(0xFFF3F3F3);
-        td.setCornerRadius(dp(16));
-        type.setBackground(td);
+        // 类型筹的玻璃在方法尾、整卡 flip 之后再换：先换会被整卡 flip 当自家件收编、红字被归主色
         type.setOnClickListener(v -> {
             band.type = TYPES[(typeIndex(band.type) + 1) % TYPES.length];
             type.setText(TYPE_NAMES[typeIndex(band.type)]);
@@ -252,6 +245,11 @@ public class ParametricEqDialog extends BaseBottomSheetDialog {
             }
         });
         card.addView(qBar);
+        // 整卡换同源玻璃（原 #F3F3F3 实底浅灰卡，2026-10-26 全扫）：卡内深字由 flip 按共享口径翻浅；
+        // 类型筹此时无自有底会被 flip 收编，故先卡后筹、筹换完把既有红色信号补回
+        MusicGlassWire.glassifyView(card, 12f);
+        MusicGlassWire.glassifyView(type, 16f);
+        type.setTextColor(0xFFFA243C);
         return card;
     }
 

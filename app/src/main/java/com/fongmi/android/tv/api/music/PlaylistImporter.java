@@ -295,8 +295,10 @@ public class PlaylistImporter {
         r.total = songnum;
         JsonArray list = cd.has("songlist") && cd.get("songlist").isJsonArray() ? cd.getAsJsonArray("songlist") : null;
         if (list == null || list.size() == 0) {
-            // 实测：私密歌单（如他人「我喜欢」）返回名字但 songnum=0、列表空
-            throw new ImportException(songnum > 0 ? Fail.NETWORK : Fail.NOT_FOUND);
+            // 声明有歌（songnum>0）却不给列表＝歌单没公开（私密歌单，如他人「我喜欢」），
+            // 不是平台连不上：旧实现报 NETWORK「平台暂时连不上」是假原因，改 NOT_FOUND
+            // （文案「歌单不存在或没公开，先在原 App 里设为公开」）；songnum=0 同走此路。
+            throw new ImportException(Fail.NOT_FOUND);
         }
         for (JsonElement el : list) {
             if (!el.isJsonObject()) continue;

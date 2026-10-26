@@ -67,18 +67,8 @@
                     android:textSize="14sp" />
             </LinearLayout>
 
-            <TextView
-                android:id="@+id/searchCancel"
-                android:layout_width="wrap_content"
-                android:layout_height="48dp"
-                android:layout_marginStart="6dp"
-                android:gravity="center"
-                android:paddingStart="6dp"
-                android:paddingEnd="2dp"
-                android:text="@string/music_search_cancel"
-                android:textColor="#1A1A1A"
-                android:textSize="14sp"
-                android:visibility="gone" />
+            <!-- searchCancel 死接线已摘除（2026-10-26 体检 C 片）：原钮恒 gone、
+                 代码只挂 finish() 永不可达；关搜索走操作行搜索钮再点一次（关条清词）。 -->
         </LinearLayout>
 
         <!-- 歌单页头：GZ 页头 YOUR PLAYLISTS 10sp＋我的歌单 28sp＋右上多选／全部 pill -->
@@ -129,20 +119,8 @@
                 android:textColor="#1C1C1E"
                 android:textSize="12sp" />
 
-            <TextView
-                android:id="@+id/btnSheetsFilter"
-                android:layout_width="wrap_content"
-                android:layout_height="32dp"
-                android:layout_marginStart="8dp"
-                android:background="@drawable/bg_pill_overview"
-                android:drawableStart="@drawable/ic_music_stack_14"
-                android:drawablePadding="6dp"
-                android:gravity="center"
-                android:paddingStart="10dp"
-                android:paddingEnd="10dp"
-                android:text="全部 ▾"
-                android:textColor="#1C1C1E"
-                android:textSize="12sp" />
+            <!-- 筛选 pill 已摘除（2026-10-26 体检 C 片）：原 pill 点开只有「全部」一档、
+                 回调不过滤任何维度，是假筛选占位；按「不摆占位」口径整件摘除，代码接线同批摘。 -->
         </LinearLayout>
 
         <!-- 操作行：深色 pill 新建＋浅色 pill 导入＋44dp 搜索圆钮，行内间距 10dp -->
@@ -266,31 +244,8 @@
                     android:textSize="16sp" />
             </LinearLayout>
 
-            <LinearLayout
-                android:id="@+id/btnPlaySeq"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="16dp"
-                android:gravity="center_vertical"
-                android:orientation="horizontal"
-                android:padding="8dp">
-
-                <ImageView
-                    android:layout_width="36dp"
-                    android:layout_height="36dp"
-                    android:background="@drawable/card_music"
-                    android:padding="8dp"
-                    android:src="@drawable/ic_music_play"
-                    android:tint="#FA243C" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="12dp"
-                    android:text="@string/music_play_all_order"
-                    android:textColor="#9AA7B8"
-                    android:textSize="16sp" />
-            </LinearLayout>
+            <!-- btnPlaySeq 假播放钮已摘除（2026-10-26 体检 C 片）：多选态工具条常显时它点了
+                 只报「还没有在播的歌」；本页整单播放入口在行内播放钮，此钮无真功能整件摘除。 -->
 
             <View
                 android:layout_width="0dp"

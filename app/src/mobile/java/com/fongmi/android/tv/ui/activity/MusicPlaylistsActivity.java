@@ -119,6 +119,11 @@ public class MusicPlaylistsActivity extends BaseActivity {
     private final java.util.Map<Long, java.util.List<String>> sheetCovers = new java.util.HashMap<>();
     /** onResume 首过标记：首次由 initView 的 loadSheets 负责，之后回页才重拉。 */
     private boolean resumedOnce = false;
+
+    /** 歌单变化订阅（共用层完成追踪）：删单真落盘后 MusicLibrary 才广播，这里再重拉——
+     *  旧 deleteSheetsSelected 发完删除立刻 loadSheets，5 线程池里读赢了未落盘的删除、
+     *  歌单删了又回列表且无第二次重拉（与收藏竞态 02779cdd 同型）。 */
+    private final MusicLibrary.PlaylistsListener playlistsListener = () -> loadSheets();
     private android.os.Parcelable pendingListState;
 
     /** 通用排序第二段升降序弹层的 post（页销毁取消，见 onDestroy） */
@@ -173,22 +178,25 @@ public class MusicPlaylistsActivity extends BaseActivity {
         recycler.setLayoutManager(new LinearLayoutManager(this));
         recycler.setAdapter(adapter = new PlaylistsAdapter());
         btnPlayAll.setOnClickListener(v -> shufflePlay());
-        findViewById(R.id.btnPlaySeq).setOnClickListener(v -> playAllSequential());
         // 歌单页头／操作行
         findViewById(R.id.btnSheetsNew).setOnClickListener(v -> inputPlaylistName(name ->
                 MusicLibrary.createPlaylist(name, p -> loadSheets())));
         findViewById(R.id.btnSheetsImport).setOnClickListener(v -> showImportPlaylistDialog());
         findViewById(R.id.btnSheetsSearch).setOnClickListener(v -> {
-            boolean show = searchBar.getVisibility() != View.VISIBLE;
-            searchBar.setVisibility(show ? View.VISIBLE : View.GONE);
-            if (!show) applySheetsFilter();
+            // 淡出途中视为未显示（再点应是重新打开，与 XcFadeTransition 的显隐判定同口径）
+            boolean show = searchBar.getVisibility() != View.VISIBLE
+                    || XcFadeTransition.isFadingOut(searchBar);
+            if (show) {
+                XcFadeTransition.fadeIn(searchBar);
+            } else {
+                XcFadeTransition.fadeOutThenGone(searchBar);
+                // 关条必须清词：旧实现不清，搜索条已藏、列表仍被旧关键字过滤且无处改词
+                etKeyword.setText("");
+                applySheetsFilter();
+            }
         });
         btnSheetsMulti.setOnClickListener(v -> setSheetsMulti(!sheetsMulti));
-        findViewById(R.id.btnSheetsFilter).setOnClickListener(v ->
-                MusicOptionsDialog.show(this, "歌单筛选",
-                        java.util.Collections.singletonList("全部"), 0, idx -> applySheetsFilter()));
-        TextView searchCancel = findViewById(R.id.searchCancel);
-        if (searchCancel != null) searchCancel.setOnClickListener(v -> finish());
+        MusicLibrary.addPlaylistsListener(playlistsListener);
         // 歌单页搜索走键盘搜索键提交（与旧页 etKeyword 编辑动作口径一致）
         etKeyword.setOnEditorActionListener((v, actionId, event) -> {
             if (actionId == EditorInfo.IME_ACTION_SEARCH
@@ -240,6 +248,7 @@ public class MusicPlaylistsActivity extends BaseActivity {
 
     @Override
     protected void onDestroy() {
+        MusicLibrary.removePlaylistsListener(playlistsListener);
         MusicController.get().unbind();
         if (sortDialogHandler != null) sortDialogHandler.removeCallbacksAndMessages(null);
         super.onDestroy();
@@ -277,9 +286,14 @@ public class MusicPlaylistsActivity extends BaseActivity {
                 // 异步补每个歌单的曲目数（按 id 在当前过滤后列表里定位，不依赖加载时下标）
                 for (MusicPlaylist p : list) {
                     MusicLibrary.playlistTrackCount(p.getId(), n -> {
-                        p.trackCount = n;
+                        // 计数必须落到当前列表的对象上：重叠 loadSheets 时本回调的 p 可能已是
+                        // 被弃用的旧对象，只写旧对象＋notify 新行＝新行计数仍空白（短暂不一致窗口）
+                        for (MusicPlaylist cur : allSheets) {
+                            if (cur.getId() == p.getId()) cur.trackCount = n;
+                        }
                         for (int i = 0; i < cards.size(); i++) {
                             if (cards.get(i).getId() == p.getId()) {
+                                cards.get(i).trackCount = n;
                                 adapter.notifyItemChanged(i);
                                 break;
                             }
@@ -328,16 +342,17 @@ public class MusicPlaylistsActivity extends BaseActivity {
      * 有歌单时整块藏。瓜子多选 pill 空列表时置灰禁用（enabled＝过滤后列表非空，禁用 alpha 0.4）。 */
     private void refreshSheetsEmpty() {
         fadeListInOnce();
-        sheetsEmpty.setVisibility(View.GONE);
         XcFadeTransition.fadeOutThenGone(empty);
         String q = etKeyword.getText() == null ? ""
                 : etKeyword.getText().toString().trim();
         boolean noSheets = allSheets.isEmpty() && q.isEmpty();
+        // 空态块显隐与同页 empty 同口径走淡入淡出：先定内容（图标/文案），最后按终态
+        // 只发一次显隐——不在同一次刷新里先藏后显（同帧组合会互相吃掉动画）。
         if (noSheets) {
             sheetsEmptyIcon.setVisibility(View.VISIBLE);
             sheetsEmptyTitle.setText(R.string.music_no_playlist);
             sheetsEmptySub.setVisibility(View.VISIBLE);
-            sheetsEmpty.setVisibility(View.VISIBLE);
+            XcFadeTransition.fadeIn(sheetsEmpty);
         } else if (cards.isEmpty()) {
             sheetsEmptyIcon.setVisibility(View.GONE);
             sheetsEmptyTitle.setText(R.string.music_no_match_playlist);
@@ -345,7 +360,9 @@ public class MusicPlaylistsActivity extends BaseActivity {
             // 星辰歌单搜索只搜本地歌单、无平台可切，故只取前半句）
             sheetsEmptySub.setVisibility(View.VISIBLE);
             sheetsEmptySub.setText("换个关键词试试");
-            sheetsEmpty.setVisibility(View.VISIBLE);
+            XcFadeTransition.fadeIn(sheetsEmpty);
+        } else {
+            XcFadeTransition.fadeOutThenGone(sheetsEmpty);
         }
         boolean multiEnabled = !cards.isEmpty();
         btnSheetsMulti.setEnabled(multiEnabled);
@@ -374,18 +391,30 @@ public class MusicPlaylistsActivity extends BaseActivity {
         }
         List<Long> ids = new ArrayList<>(sheetsSelected);
         sheetsSelected.clear();
-        for (Long id : ids) MusicLibrary.deletePlaylist(id, null);
         setSheetsMulti(false);
-        loadSheets();
+        // 完成追踪在共用层：deletePlaylists 单 Task 串行逐张删、全落盘后才广播，
+        // playlistsListener 收到广播再重拉（读到的必是新账）；不在这里抢跑 loadSheets。
+        // 部分失败如实报张数，不许全报删完。
+        MusicLibrary.deletePlaylists(ids, new MusicLibrary.DataCallback<MusicLibrary.BatchResult>() {
+            @Override
+            public void onResult(MusicLibrary.BatchResult r) {
+                if (r.failed > 0) {
+                    Notify.show("有 " + r.failed + " 个歌单没删掉，请重试");
+                    loadSheets();
+                }
+            }
+
+            @Override
+            public void onError(Throwable t) {
+                Notify.show("删除失败，请重试");
+                loadSheets();
+            }
+        });
     }
 
     // ================= 工具条播放（歌单页无歌曲行，照旧口径只弹空提示；整单播放入口在行内播放钮） =================
 
     private void shufflePlay() {
-        Notify.show(R.string.music_no_track);
-    }
-
-    private void playAllSequential() {
         Notify.show(R.string.music_no_track);
     }
 
@@ -564,26 +593,37 @@ public class MusicPlaylistsActivity extends BaseActivity {
                     return;
                 }
                 // 无落雪支撑时导入前二次确认（歌单仍照常落库前先问）
-                Runnable doImport = () -> MusicLibrary.importPlaylist(r.name, r.tracks, res -> {
-                    if (res.inserted <= 0) {
-                        if (res.playlist != null) MusicLibrary.deletePlaylist(res.playlist.getId(), null);
+                // 落库回调必须带 onError：旧 lambda 只实现 onResult，库层失败走默认空
+                // onError 时 onResult 永不回，dialog 的忙态再无人解除、弹窗卡死在「正在导入…」
+                Runnable doImport = () -> MusicLibrary.importPlaylist(r.name, r.tracks, new MusicLibrary.DataCallback<MusicLibrary.ImportResult>() {
+                    @Override
+                    public void onResult(MusicLibrary.ImportResult res) {
+                        if (res.inserted <= 0) {
+                            if (res.playlist != null) MusicLibrary.deletePlaylist(res.playlist.getId(), null);
+                            dialog.setBusy(false);
+                            dialog.setError(R.string.music_import_err_empty);
+                            return;
+                        }
+                        dialog.dismissAllowingStateLoss();
+                        loadSheets();
+                        String msg;
+                        if (r.total > res.inserted) {
+                            msg = getString(R.string.music_import_partial, res.inserted, r.total - res.inserted);
+                        } else {
+                            msg = getString(R.string.music_imported, res.playlist.getName(), res.inserted);
+                        }
+                        if (!lx) {
+                            msg += "，" + getString(R.string.music_import_need_lx,
+                                    LxPlatformSearch.platformName(r.platformKey));
+                        }
+                        Notify.show(msg);
+                    }
+
+                    @Override
+                    public void onError(Throwable t) {
                         dialog.setBusy(false);
-                        dialog.setError(R.string.music_import_err_empty);
-                        return;
+                        dialog.setError(R.string.music_import_err_network);
                     }
-                    dialog.dismissAllowingStateLoss();
-                    loadSheets();
-                    String msg;
-                    if (r.total > res.inserted) {
-                        msg = getString(R.string.music_import_partial, res.inserted, r.total - res.inserted);
-                    } else {
-                        msg = getString(R.string.music_imported, res.playlist.getName(), res.inserted);
-                    }
-                    if (!lx) {
-                        msg += "，" + getString(R.string.music_import_need_lx,
-                                LxPlatformSearch.platformName(r.platformKey));
-                    }
-                    Notify.show(msg);
                 });
                 if (!lx) {
                     dialog.setBusy(false);
@@ -621,7 +661,9 @@ public class MusicPlaylistsActivity extends BaseActivity {
             existing = android.webkit.CookieManager.getInstance().getCookie(url);
         } catch (Throwable ignored) {
         }
-        if (existing != null && !existing.trim().isEmpty()) {
+        // 已登录判定走真口径（AccountPlaylistFetcher.hasLoginCookie）：匿名 Cookie 非空
+        // 不算已登录，未登录直接往下进登录 WebView，不再被「已登录」弹窗挡住
+        if (AccountPlaylistFetcher.hasLoginCookie(platform, existing)) {
             String cookie = existing;
             new MusicGlassDialogBuilder(this)
                     .setTitle("已登录账号（" + (netease ? "网易云音乐" : "QQ音乐") + "）")
@@ -696,8 +738,9 @@ public class MusicPlaylistsActivity extends BaseActivity {
             dialog.getButton(DialogInterface.BUTTON_POSITIVE)
                 .setOnClickListener(v -> {
                     String cookie = android.webkit.CookieManager.getInstance().getCookie(url);
-                    if (cookie == null || cookie.isEmpty()) {
-                        Notify.show("未读到登录 Cookie，请先在网页里登录");
+                    // 同一真判定：只有匿名 Cookie 时不算登录完成，不许放行去拉一份必失败的账
+                    if (!AccountPlaylistFetcher.hasLoginCookie(platform, cookie)) {
+                        Notify.show("还没登录成功，请先在网页里登录");
                         return;
                     }
                     try {
@@ -770,45 +813,60 @@ public class MusicPlaylistsActivity extends BaseActivity {
                     Notify.show(importErrorText(fail == null ? PlaylistImporter.Fail.NETWORK : fail));
                     return;
                 }
-                MusicLibrary.importPlaylist(result.name, result.tracks, res -> {
-                    if (res.inserted <= 0) {
-                        if (res.playlist != null) MusicLibrary.deletePlaylist(res.playlist.getId(), null);
-                        Notify.show(importErrorText(PlaylistImporter.Fail.EMPTY));
-                        return;
-                    }
-                    loadSheets();
-                    String baseMsg;
-                    if (result.total > res.inserted) {
-                        baseMsg = getString(R.string.music_import_partial, res.inserted, result.total - res.inserted);
-                    } else {
-                        baseMsg = getString(R.string.music_imported, res.playlist.getName(), res.inserted);
-                    }
-                    if (!lx) {
-                        baseMsg += "，" + getString(R.string.music_import_need_lx,
-                                LxPlatformSearch.platformName(result.platformKey));
-                    }
-                    // 收藏音乐一步：AccountPlaylistFetcher 没有“我喜欢”独立接口，
-                    // 收藏只能落在已拉到的歌单里：当导入的正是平台惯用的喜欢歌单
-                    // （网易云“我喜欢的音乐”／QQ“我喜欢”）时，把同批曲目按收藏落库口径
-                    // （MusicLibrary.setFavorite，与行内收藏同一 dao）批量写入收藏；
-                    // 其它歌单不触发本步。喜欢歌单若不在拉到的列表里，本步无从触发。
-                    String likedName = sheet.name == null ? "" : sheet.name.trim();
-                    boolean likedSheet = "我喜欢的音乐".equals(likedName) || "我喜欢".equals(likedName);
-                    if (!likedSheet || result.tracks == null || result.tracks.isEmpty()) {
-                        Notify.show(baseMsg);
-                        return;
-                    }
-                    String finalMsg = baseMsg;
-                    java.util.concurrent.atomic.AtomicInteger done = new java.util.concurrent.atomic.AtomicInteger(0);
-                    int total = result.tracks.size();
-                    for (MusicTrack favTrack : result.tracks) {
-                        MusicLibrary.setFavorite(favTrack, true, () -> {
-                            // total 是导入源全量，去重后真实入库数可能更少，不许拿全量冒充入库数；
-                            // 不按 insert 返回值重算（不改 dao 口径），提示去掉数字。
-                            if (done.incrementAndGet() >= total) {
-                                Notify.show(finalMsg + "，已同步收藏");
+                MusicLibrary.importPlaylist(result.name, result.tracks, new MusicLibrary.DataCallback<MusicLibrary.ImportResult>() {
+                    @Override
+                    public void onResult(MusicLibrary.ImportResult res) {
+                        if (res.inserted <= 0) {
+                            if (res.playlist != null) MusicLibrary.deletePlaylist(res.playlist.getId(), null);
+                            Notify.show(importErrorText(PlaylistImporter.Fail.EMPTY));
+                            return;
+                        }
+                        loadSheets();
+                        String baseMsg;
+                        if (result.total > res.inserted) {
+                            baseMsg = getString(R.string.music_import_partial, res.inserted, result.total - res.inserted);
+                        } else {
+                            baseMsg = getString(R.string.music_imported, res.playlist.getName(), res.inserted);
+                        }
+                        if (!lx) {
+                            baseMsg += "，" + getString(R.string.music_import_need_lx,
+                                    LxPlatformSearch.platformName(result.platformKey));
+                        }
+                        // 收藏音乐一步：AccountPlaylistFetcher 没有“我喜欢”独立接口，
+                        // 收藏只能落在已拉到的歌单里：当导入的正是平台惯用的喜欢歌单
+                        // （网易云“我喜欢的音乐”／QQ“我喜欢”）时，把同批曲目按收藏落库口径
+                        // 批量写入收藏；其它歌单不触发本步。喜欢歌单若不在拉到的列表里，本步无从触发。
+                        String likedName = sheet.name == null ? "" : sheet.name.trim();
+                        boolean likedSheet = "我喜欢的音乐".equals(likedName) || "我喜欢".equals(likedName);
+                        if (!likedSheet || result.tracks == null || result.tracks.isEmpty()) {
+                            Notify.show(baseMsg);
+                            return;
+                        }
+                        String finalMsg = baseMsg;
+                        // 完成追踪走共用层批量口径：全部跑完才回一次、失败有计数——旧实现靠
+                        // 每首 done 回调递减，任一首写失败 done 永不回、「已同步收藏」永不出现
+                        // 也不报明细。文案不拿源全量冒充入库数：全成才说已同步，部分失败报双计数。
+                        MusicLibrary.setFavoriteBatch(result.tracks, true, new MusicLibrary.DataCallback<MusicLibrary.BatchResult>() {
+                            @Override
+                            public void onResult(MusicLibrary.BatchResult br) {
+                                if (br.failed <= 0) {
+                                    Notify.show(finalMsg + "，已同步收藏");
+                                } else {
+                                    Notify.show(finalMsg + "，收藏同步了 " + br.succeeded
+                                            + " 首，还有 " + br.failed + " 首没同步上");
+                                }
+                            }
+
+                            @Override
+                            public void onError(Throwable t) {
+                                Notify.show(finalMsg + "，收藏同步失败");
                             }
                         });
+                    }
+
+                    @Override
+                    public void onError(Throwable t) {
+                        Notify.show("导入失败，请重试");
                     }
                 });
             });
@@ -895,35 +953,79 @@ public class MusicPlaylistsActivity extends BaseActivity {
         return parts.length >= 2 ? parts[1] : "";
     }
 
+    /** .lxmc 逐单落库进度：张数只计真有落库的单，失败单独记名，收尾统一汇总 */
+    private static class LxmcProgress {
+        int imported;
+        int inserted;
+        final List<String> failedNames = new ArrayList<>();
+    }
+
     /** 逐个落库（MusicLibrary.importPlaylist 自带主线程回调，串行避免提示乱序） */
     private void importLxmcPlaylists(List<LxmcPlaylist> lists, int idx, int imported, int inserted, Set<String> unsupported) {
+        importLxmcPlaylists(lists, idx, new LxmcProgress(), unsupported);
+    }
+
+    private void importLxmcPlaylists(List<LxmcPlaylist> lists, int idx, LxmcProgress progress, Set<String> unsupported) {
         if (idx >= lists.size()) {
-            if (inserted <= 0) {
+            if (progress.inserted <= 0 && progress.failedNames.isEmpty()) {
                 Notify.show(R.string.music_import_err_empty);
                 return;
             }
-            loadSheets();
-            String msg = "已导入 " + imported + " 个歌单，共 " + inserted + " 首";
-            if (!unsupported.isEmpty()) {
-                List<String> names = new ArrayList<>();
-                for (String key : unsupported) names.add(LxPlatformSearch.platformName(key));
-                StringBuilder joined = new StringBuilder();
-                for (String n : names) {
-                    if (joined.length() > 0) joined.append("、");
-                    joined.append(n);
+            if (progress.inserted > 0) loadSheets();
+            if (progress.failedNames.isEmpty() && progress.inserted > 0) {
+                String msg = "已导入 " + progress.imported + " 个歌单，共 " + progress.inserted + " 首";
+                if (!unsupported.isEmpty()) {
+                    List<String> names = new ArrayList<>();
+                    for (String key : unsupported) names.add(LxPlatformSearch.platformName(key));
+                    StringBuilder joined = new StringBuilder();
+                    for (String n : names) {
+                        if (joined.length() > 0) joined.append("、");
+                        joined.append(n);
+                    }
+                    msg += "，" + getString(R.string.music_import_need_lx, joined.toString());
                 }
-                msg += "，" + getString(R.string.music_import_need_lx, joined.toString());
+                Notify.show(msg);
+            } else {
+                // 部分汇总：导成了几张几首、哪几张没导上，都如实说清——旧实现任一单
+                // onError 后递归静默终止，用户只见一条通用写失败、不知道导到第几张
+                StringBuilder msg = new StringBuilder();
+                if (progress.inserted > 0) {
+                    msg.append("已导入 ").append(progress.imported).append(" 个歌单，共 ")
+                            .append(progress.inserted).append(" 首；");
+                }
+                msg.append("有 ").append(progress.failedNames.size()).append(" 个歌单没导入：")
+                        .append(android.text.TextUtils.join("、", progress.failedNames));
+                Notify.show(msg.toString());
             }
-            Notify.show(msg);
             return;
         }
         LxmcPlaylist p = lists.get(idx);
         if (p.tracks.isEmpty()) {
-            importLxmcPlaylists(lists, idx + 1, imported, inserted, unsupported);
+            importLxmcPlaylists(lists, idx + 1, progress, unsupported);
             return;
         }
-        MusicLibrary.importPlaylist(p.name, p.tracks, res ->
-                importLxmcPlaylists(lists, idx + 1, imported + 1, inserted + res.inserted, unsupported));
+        MusicLibrary.importPlaylist(p.name, p.tracks, new MusicLibrary.DataCallback<MusicLibrary.ImportResult>() {
+            @Override
+            public void onResult(MusicLibrary.ImportResult res) {
+                if (res.inserted <= 0) {
+                    // 全被唯一键跳过＝一张空单：删掉不留残留，也不计进已导入张数
+                    // （旧实现不删还计张数，留空歌单＋计数虚报）
+                    if (res.playlist != null) MusicLibrary.deletePlaylist(res.playlist.getId(), null);
+                    progress.failedNames.add(p.name);
+                } else {
+                    progress.imported++;
+                    progress.inserted += res.inserted;
+                }
+                importLxmcPlaylists(lists, idx + 1, progress, unsupported);
+            }
+
+            @Override
+            public void onError(Throwable t) {
+                // 单张失败记名后继续导后面的，不许整条递归静默终止
+                progress.failedNames.add(p.name);
+                importLxmcPlaylists(lists, idx + 1, progress, unsupported);
+            }
+        });
     }
 
     /** 带上限的整读（.lxmc 原文件不大，64MB 封顶；解压后上限另在解析里按瓜子 64MB 卡） */

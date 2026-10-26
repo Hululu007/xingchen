@@ -47,6 +47,26 @@ public class AccountPlaylistFetcher {
     private static final String UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36";
     private static final int TIMEOUT = 20000;
 
+    /**
+     * 真登录判定（登录导入入口共用）：music.163.com／y.qq.com 未登录访问也会种匿名
+     * Cookie（NMTID／__csrf 一类），「Cookie 非空」不等于已登录——旧口径据此把未登录
+     * 用户挡在「已登录」弹窗、进不了登录页。真判定认登录态标志：
+     * 网易云认 MUSIC_U 非空（登录成功才下发）；QQ 认 uin 数字段（uin/wxuin/qqmusic_uin
+     * 三级，与 fetchQq 取号同口径）＋ skey/p_skey 任一非空。
+     * 只判本地 Cookie 串、不发请求；真账号下标志名是否仍为此二者属待真机验。
+     */
+    public static boolean hasLoginCookie(String platform, String cookie) {
+        if (cookie == null || cookie.trim().isEmpty()) return false;
+        if ("netease".equals(platform)) {
+            return !cookieValue(cookie, "MUSIC_U").isEmpty();
+        }
+        String uin = digitsOnly(cookieValue(cookie, "uin"));
+        if (uin.isEmpty()) uin = digitsOnly(cookieValue(cookie, "wxuin"));
+        if (uin.isEmpty()) uin = digitsOnly(cookieValue(cookie, "qqmusic_uin"));
+        if (uin.isEmpty()) return false;
+        return !cookieValue(cookie, "skey").isEmpty() || !cookieValue(cookie, "p_skey").isEmpty();
+    }
+
     /* ================= 网易云 ================= */
 
     public static List<Sheet> fetchNetease(String cookie) throws FetchException {

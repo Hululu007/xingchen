@@ -10,9 +10,11 @@ import com.fongmi.android.tv.bean.music.MusicPluginTest;
 import com.fongmi.android.tv.bean.music.MusicQuality;
 import com.fongmi.android.tv.bean.music.MusicRuntimeStatus;
 import com.fongmi.android.tv.bean.music.MusicTrack;
+import com.fongmi.android.tv.clash.SourceProxyPolicy;
 import com.fongmi.android.tv.music.MusicStore;
 import com.fongmi.android.tv.utils.Task;
 import com.github.catvod.crawler.SpiderDebug;
+import com.github.catvod.net.SourceGate;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -194,7 +196,7 @@ public class MusicSourceManager {
         return null;
     }
 
-    /** 在线脚本缓存的探新间隔：缓存比这旧就进桥前探一次远端版本（探新失败照常用缓存） */
+    /** 在线脚本缓存的探新间隔：缓存比这旧就在后台探一次远端版本（探新失败照常用缓存） */
     private static final long JS_CACHE_TTL_MS = 24 * 60 * 60 * 1000L;
     /** 脚本内版本号（FreeJS 导出 version 字段形态：version: "1.1.0"／"version": "…"） */
     private static final Pattern SCRIPT_VERSION = Pattern.compile("version\\s*[:=]\\s*[\"']([0-9][^\"']*)[\"']");
@@ -205,7 +207,9 @@ public class MusicSourceManager {
      * 缓存除 applyUpdate 手动失效外，还有版本感知探新（见 refreshCachedJs）：
      * 托管脚本在服务端升版（如油管源加登录声明）时，老缓存若永不失效，
      * 装了新版 App 也永远读旧脚本，新能力（如 loginProvider 声明）到不了桥。
-     * checkUpdate 直调 downloadJs 不经这里，查更新语义不受影响。
+     * 探新在后台跑（scheduleJsRefresh）：本方法只管把现有缓存交出去建桥，
+     * 不许整份下载堵在建桥的同步路径上。checkUpdate 直调 downloadJs 不经
+     * 这里，查更新语义不受影响。
      */
     private String readJs(MusicSite site) throws Exception {
         if (isLocal(site)) {
@@ -222,7 +226,14 @@ public class MusicSourceManager {
             }
             if (cached != null) {
                 if (!jsCacheStale(cache)) return cached;
-                return refreshCachedJs(site, cache, cached);
+                // 探新移出建桥关键路径：缓存过期（装新版后首建桥必过期、24 小时到期）
+                // 时先用缓存把桥建起来，探新放后台跑——旧实现把整份脚本下载堵在
+                // 取链/搜索的同步建桥里（真机实测一次探新下载 3.3 秒，2026-10-26），
+                // 重启后第一次点歌/搜索全卡在它上面。探到新版写缓存并摘掉活桥，
+                // 下次建桥自然用新脚本；配套窗口由「当场」变「下次建桥」，而旧脚本
+                // ＋新 App 正是上一版在用的组合，不会比昨天更差。
+                scheduleJsRefresh(site, cache, cached);
+                return cached;
             }
         }
         String js = downloadJs(site.srcUrl);
@@ -254,11 +265,40 @@ public class MusicSourceManager {
         }
     }
 
+    /** 正在后台探新的插件（按 srcUrl 去重，进程内至多一发） */
+    private static final Set<String> jsRefreshInFlight = ConcurrentHashMap.newKeySet();
+
+    /** 后台探新调度：建桥先用缓存（见 readJs），探新在大池里慢慢跑，不堵任何人 */
+    private void scheduleJsRefresh(MusicSite site, File cache, String cached) {
+        if (site.srcUrl == null || !jsRefreshInFlight.add(site.srcUrl)) return;
+        final long seenMtime = cache.lastModified();
+        Task.largeExecutor().execute(() -> {
+            try {
+                // 排队期间缓存被更新流（applyUpdate 等）动过就不掺和，以新写入者为准
+                if (cache.lastModified() != seenMtime) return;
+                refreshCachedJs(site, cache, cached);
+            } catch (Throwable ignored) {
+            } finally {
+                jsRefreshInFlight.remove(site.srcUrl);
+            }
+        });
+    }
+
+    /** 摘掉某插件的活桥（脚本已换新时用）：与 removeSite 同口径——先摘表再毁，
+     * 在飞请求持有自己的引用、失败走既有收口；下次取桥按新脚本重建。 */
+    private void evictBridge(MusicSite site) {
+        FreeJsBridge b = bridges.remove(site.srcUrl);
+        if (b != null) b.destroy();
+        LxBridge lb = lxBridges.remove(site.srcUrl);
+        if (lb != null) lb.destroy();
+    }
+
     /**
-     * 版本感知探新：重下远端脚本，脚本内版本号高于缓存才换（换前先过格式判据，
-     * 免得错误页/坏脚本把能用的缓存顶掉）；版本号读不到时同样以远端为准
-     * （落雪脚本多无 version 字段，作者升版只能靠探）。探新/下载失败、
-     * 远端不比缓存新，一律照常用缓存，只把缓存时间往后推一格，
+     * 版本感知探新（后台跑，结果只影响下次建桥）：重下远端脚本，脚本内版本号
+     * 高于缓存才换（换前先过格式判据，免得错误页/坏脚本把能用的缓存顶掉）；
+     * 版本号读不到时同样以远端为准（落雪脚本多无 version 字段，作者升版只能
+     * 靠探）。换了新脚本就写缓存并摘掉活桥，下次建桥自然用新脚本。探新/下载
+     * 失败、远端不比缓存新，一律照常用缓存，只把缓存时间往后推一格，
      * 免得每次建桥都重下。返回本次建桥要用的脚本原文。
      */
     private String refreshCachedJs(MusicSite site, File cache, String cached) {
@@ -283,6 +323,9 @@ public class MusicSourceManager {
         } catch (Throwable ignored) {
         }
         SpiderDebug.log("music", "插件脚本已按版本刷新 site=%s %s -> %s", site.name, oldV, newV);
+        // 后台探新口径：活桥还揣着旧脚本，摘掉让下次建桥用新脚本（当场这次
+        // 建桥已按调度方的安排用缓存完成，不受影响）
+        evictBridge(site);
         return fresh;
     }
 

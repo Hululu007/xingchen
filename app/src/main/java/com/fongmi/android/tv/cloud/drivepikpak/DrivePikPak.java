@@ -85,6 +85,29 @@ public class DrivePikPak implements CloudDrive {
     // 接口限流 5rps（来源：pikpak-sdk/config.go DefaultRateLimitConfig）
     private static final long MIN_INTERVAL_MS = 220;
 
+    /**
+     * drive 接口的 captcha_token 缓存（按 action 分桶）。
+     * 风控口径（对照 pikpakapi/pikpak-sdk 的公开实现）：api-drive 的接口调用要在
+     * X-Captcha-Token 头带一枚经 shield/captcha/init 按「METHOD:路径」现取的 token，
+     * token 有效期约 300 秒；缺失/失效时服务端回 HTTP 400、error_code=9
+     * （captcha_invalid / "captcha_token is empty"，2026-10-26 真机实证：
+     * 列表请求从不带 token、恒死在这一步）。本地缓存 240 秒，留 60 秒余量。
+     */
+    private static final long CAPTCHA_TTL_MS = 240_000L;
+    private static final int MAX_CAPTCHA_RETRY = 1;
+
+    private static final class CaptchaEntry {
+        final String token;
+        final long expiresAt;
+
+        CaptchaEntry(String token, long expiresAt) {
+            this.token = token;
+            this.expiresAt = expiresAt;
+        }
+    }
+
+    private final java.util.Map<String, CaptchaEntry> captchaCache = new java.util.HashMap<>();
+
     private static final MediaType JSON = MediaType.get("application/json; charset=utf-8");
 
     private final OkHttpClient client;
@@ -211,10 +234,10 @@ public class DrivePikPak implements CloudDrive {
     private static final int MAX_AUTH_RETRY = 3;
 
     private JSONObject api(String method, String path, JSONObject query, JSONObject body, boolean auth) throws Exception {
-        return api(method, path, query, body, auth, 0);
+        return api(method, path, query, body, auth, 0, 0);
     }
 
-    private JSONObject api(String method, String path, JSONObject query, JSONObject body, boolean auth, int authRetry) throws Exception {
+    private JSONObject api(String method, String path, JSONObject query, JSONObject body, boolean auth, int authRetry, int captchaRetry) throws Exception {
         rateLimit();
         HttpUrl.Builder ub = HttpUrl.parse(API_HOST + path).newBuilder();
         if (query != null) {
@@ -238,6 +261,13 @@ public class DrivePikPak implements CloudDrive {
             ensureToken();
             rb.header("Authorization", "Bearer " + accessToken);
         }
+        // drive 接口风控：X-Captcha-Token 按本次动作（METHOD:路径）现取并缓存，
+        // 缺这枚头服务端恒回 error_code=9（见 CAPTCHA_TTL_MS 处注释）。
+        String action = method + ":" + path;
+        String captchaToken = cachedCaptchaToken(action);
+        if (!TextUtils.isEmpty(captchaToken)) {
+            rb.header("X-Captcha-Token", captchaToken);
+        }
         if ("POST".equals(method) || "PATCH".equals(method)) {
             String json = body != null ? body.toString() : "{}";
             rb.method(method, RequestBody.create(json, JSON));
@@ -252,13 +282,81 @@ public class DrivePikPak implements CloudDrive {
                 // token 过期，刷新后重试（上限 MAX_AUTH_RETRY 次）；超限不再刷新/递归，
                 // 落到下面既有的接口错误出口，避免服务端持续 401 时无限递归刷令牌。
                 refresh();
-                return api(method, path, query, body, true, authRetry + 1);
+                return api(method, path, query, body, true, authRetry + 1, captchaRetry);
             }
             if (!resp.isSuccessful()) {
-                throw new Exception("PikPak 接口错误 " + resp.code() + ": " + txt);
+                if (isCaptchaInvalid(txt) && captchaRetry < MAX_CAPTCHA_RETRY) {
+                    // token 被判失效：清掉本动作的缓存、重取新 token 再试一次（只一次，
+                    // 免得服务端持续判错时来回打转）。
+                    invalidateCaptcha(action);
+                    return api(method, path, query, body, auth, authRetry, captchaRetry + 1);
+                }
+                throw new Exception("PikPak 接口错误 " + resp.code() + "：" + errorDetail(resp.code(), txt));
             }
             return new JSONObject(txt.isEmpty() ? "{}" : txt);
         }
+    }
+
+    /** 取本动作的 captcha_token：缓存未过期直接用，过期/没有现取；取失败回空串（照常发请求，服务端判 9 时再走重试）。 */
+    private String cachedCaptchaToken(String action) {
+        synchronized (captchaCache) {
+            CaptchaEntry e = captchaCache.get(action);
+            if (e != null && System.currentTimeMillis() < e.expiresAt) return e.token;
+        }
+        String token;
+        try {
+            token = fetchCaptchaToken(action);
+        } catch (Exception ex) {
+            android.util.Log.w("DrivePikPak", "captcha_token fetch failed action=" + action, ex);
+            return "";
+        }
+        if (!TextUtils.isEmpty(token)) {
+            synchronized (captchaCache) {
+                captchaCache.put(action, new CaptchaEntry(token, System.currentTimeMillis() + CAPTCHA_TTL_MS));
+            }
+        }
+        return token == null ? "" : token;
+    }
+
+    private void invalidateCaptcha(String action) {
+        synchronized (captchaCache) {
+            captchaCache.remove(action);
+        }
+    }
+
+    /** 服务端错误体是否在判 captcha 失效：error_code=9 或 error=captcha_invalid。 */
+    private static boolean isCaptchaInvalid(String txt) {
+        if (txt == null || txt.isEmpty()) return false;
+        try {
+            JSONObject d = new JSONObject(txt);
+            return d.optInt("error_code", -1) == 9 || "captcha_invalid".equals(d.optString("error", ""));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * 接口错误的人话明细：原文整段进调试日志（tag=pikpak），脸上只给可读文案，
+     * 不再把整段 JSON 糊给用户（2026-10-26 截图实证：列表失败提示是整段错误 JSON）。
+     */
+    private static String errorDetail(int httpCode, String txt) {
+        String raw = txt == null ? "" : txt;
+        try {
+            com.github.catvod.crawler.SpiderDebug.log("pikpak", "api error http=%d body=%s", httpCode, raw);
+        } catch (Throwable ignored) {
+        }
+        try {
+            JSONObject d = new JSONObject(raw);
+            if (d.optInt("error_code", -1) == 9 || "captcha_invalid".equals(d.optString("error", ""))) {
+                return "人机验证未通过，请稍后重试";
+            }
+            String desc = d.optString("error_description", "");
+            if (!desc.isEmpty()) return desc;
+            String err = d.optString("error", "");
+            if (!err.isEmpty()) return err;
+        } catch (Exception ignored) {
+        }
+        return "请稍后重试";
     }
 
     /** 人机验证调试日志：把触发验证时的服务端完整返回写到文件，定位验证页 URL 字段 */
@@ -586,7 +684,7 @@ public class DrivePikPak implements CloudDrive {
                 return userGet(path, authRetry + 1);
             }
             if (!resp.isSuccessful()) {
-                throw new Exception("PikPak 用户接口错误 " + resp.code() + ": " + txt);
+                throw new Exception("PikPak 用户接口错误 " + resp.code() + "：" + errorDetail(resp.code(), txt));
             }
             return new JSONObject(txt.isEmpty() ? "{}" : txt);
         }

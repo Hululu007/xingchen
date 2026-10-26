@@ -993,17 +993,24 @@ public class CloudDriveActivity extends BaseActivity {
     }
 
     private void showOfflineDialog() {
+        TargetFolder target = new TargetFolder(currentCid(), currentCidName());
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        int pad = (int) (8 * getResources().getDisplayMetrics().density);
+        layout.setPadding(pad, pad, pad, pad);
         EditText input = makeInput("粘贴 magnet / ed2k / http 链接");
+        layout.addView(input);
+        layout.addView(makeTargetRow(target));
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("离线下载")
-                .setView(input)
+                .setView(layout)
                 .setPositiveButton("开始", (d, w) -> {
                     String url = input.getText().toString().trim();
                     if (url.isEmpty()) {
                         Notify.show("链接不能为空");
                         return;
                     }
-                    doOfflineDownload(url);
+                    doOfflineDownload(url, target.cid);
                 })
                 .setNegativeButton("取消", null)
                 .create();
@@ -1011,8 +1018,7 @@ public class CloudDriveActivity extends BaseActivity {
         dialog.show();
     }
 
-    private void doOfflineDownload(String url) {
-        String cid = currentCid();
+    private void doOfflineDownload(String url, String cid) {
         new Thread(() -> {
             try {
                 boolean ok = drive.offlineDownload(url, cid);

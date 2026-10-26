@@ -399,8 +399,9 @@ public class MusicLyricActivity extends AppCompatActivity implements MusicContro
                 }
             }
         }
-        if (!TextUtils.isEmpty(lyric.format)) mLyricChip = lyric.format;
-        else if (hasWords) mLyricChip = "逐字";
+        // 筹面只留中文（与播放页同口径，2026-10-27 他亲令英文不上筹）：原始格式名
+        // （AMLL/LRC/KRC 等）一律不上筹，AMLL 与带词时间的归逐字，其余按结构归档
+        if ("AMLL".equals(lyric.format) || hasWords) mLyricChip = "逐字";
         else if (main != null && !main.isEmpty() && main.get(0) != null && main.get(0).getTimeMs() > 0) mLyricChip = "逐行";
         else if (main != null && !main.isEmpty()) mLyricChip = "纯文本";
         else mLyricChip = "无词";

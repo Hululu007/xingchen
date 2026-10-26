@@ -997,10 +997,10 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
                 }
             }
         }
-        // 歌词筹文案只认瓜子那套（AMLL/逐字/逐行/纯文本/无词）：格式名只留 AMLL，
-        // LRC/KRC/YRC 这类原始格式名不上筹，按结构归到逐行/逐字（他截图定罪过「LRC」筹）
-        if ("AMLL".equals(lyric.format)) mLyricChip = "AMLL";
-        else if (hasWords) mLyricChip = "逐字";
+        // 歌词筹文案只留中文（2026-10-27 他亲令：逐字那个英文换掉，英文不上筹）：
+        // 原始格式名一律不上筹，按结构归档——AMLL 与带词时间的归逐字、行时间归逐行
+        // （内部按 format/sourceName 的 AMLL 判别不受影响，只改筹面文案）
+        if ("AMLL".equals(lyric.format) || hasWords) mLyricChip = "逐字";
         else if (main != null && !main.isEmpty() && main.get(0) != null && main.get(0).getTimeMs() > 0) mLyricChip = "逐行";
         else if (main != null && !main.isEmpty()) mLyricChip = "纯文本";
         else mLyricChip = "无词";

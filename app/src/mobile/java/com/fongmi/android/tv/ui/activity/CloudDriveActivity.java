@@ -1282,7 +1282,7 @@ public class CloudDriveActivity extends BaseActivity {
         fetchPickerDirs(st, adapter, tvPath);
     }
 
-    /** 拉当前层全部文件夹（分页取满，口径同文件列表：取满 PAGE_LIMIT 说明可能还有下一页）。 */
+    /** 进/切当前层：清掉旧层后从第一页起逐页增量拉（D6），不再整层拉完才显示。 */
     private void fetchPickerDirs(FolderPickerState st, FolderAdapter adapter, TextView tvPath) {
         String cid = st.path.get(st.path.size() - 1).cid;
         StringBuilder sb = new StringBuilder();
@@ -1294,31 +1294,44 @@ public class CloudDriveActivity extends BaseActivity {
         st.loading = true;
         st.dirs.clear();
         adapter.notifyDataSetChanged();
+        fetchPickerPage(st, adapter, cid, 0);
+    }
+
+    /**
+     * 选择器逐页增量（流畅度 D6）：每页回来先把该页的文件夹 append 进列表显示，再拉下一页——
+     * 深目录开选择器不用先干等整层拉完。到底判定沿用现口径：不满一页（PAGE_LIMIT）即到头、
+     * 安全阀 10000 条不变；切层作废改按页校验：每页回来先比 cid，层已变就整页丢弃、链也停，
+     * 不把旧层文件夹串进新层（比原先「全拉完一次性校验」更严，不退步）。
+     */
+    private void fetchPickerPage(FolderPickerState st, FolderAdapter adapter, String cid, int offset) {
         new Thread(() -> {
-            List<CloudFile> dirs = new ArrayList<>();
+            List<CloudFile> page = null;
             Exception error = null;
             try {
-                for (int offset = 0; offset <= 10000; offset += PAGE_LIMIT) {
-                    List<CloudFile> page = drive.listDir(cid, offset, PAGE_LIMIT);
-                    if (page == null || page.isEmpty()) break;
-                    for (CloudFile f : page) if (f.isDir()) dirs.add(f);
-                    if (page.size() < PAGE_LIMIT) break;
-                }
+                page = drive.listDir(cid, offset, PAGE_LIMIT);
             } catch (Exception e) {
                 error = e;
             }
+            List<CloudFile> raw = page;
             Exception err = error;
             runOnUiThread(() -> {
-                st.loading = false;
-                // 拉取期间用户已切层，这批结果作废，别串到新层上
                 if (!cid.equals(st.path.get(st.path.size() - 1).cid)) return;
                 if (err != null) {
+                    st.loading = false;
                     Notify.show("加载文件夹失败：" + msg(err));
                     return;
                 }
-                st.dirs.addAll(dirs);
-                adapter.notifyDataSetChanged();
-                if (dirs.isEmpty()) Notify.show("这个文件夹里没有子文件夹");
+                if (raw != null) {
+                    for (CloudFile f : raw) if (f.isDir()) st.dirs.add(f);
+                    adapter.notifyDataSetChanged();
+                }
+                boolean more = raw != null && raw.size() >= PAGE_LIMIT && offset + PAGE_LIMIT <= 10000;
+                if (more) {
+                    fetchPickerPage(st, adapter, cid, offset + PAGE_LIMIT);
+                } else {
+                    st.loading = false;
+                    if (st.dirs.isEmpty()) Notify.show("这个文件夹里没有子文件夹");
+                }
             });
         }).start();
     }

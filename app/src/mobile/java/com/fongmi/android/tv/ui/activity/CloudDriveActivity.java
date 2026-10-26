@@ -204,6 +204,7 @@ public class CloudDriveActivity extends BaseActivity {
         layout.addView(status);
         ListView list = new ListView(this);
         SearchAdapter adapter = new SearchAdapter(st);
+        adapter.listView = list;
         list.setAdapter(adapter);
         int listHeight = (int) (getResources().getDisplayMetrics().heightPixels * 0.46f);
         layout.addView(list, new LinearLayout.LayoutParams(
@@ -380,9 +381,29 @@ public class CloudDriveActivity extends BaseActivity {
     private class SearchAdapter extends BaseAdapter {
 
         private final SearchState st;
+        /** 宿主 ListView（showSearchDialog 建弹窗时回填）：封面定点刷新、续拉保持滚动位置都靠它定位。 */
+        ListView listView;
 
         SearchAdapter(SearchState st) {
             this.st = st;
+        }
+
+        /** 截帧封面落地后只刷这一行（流畅度 D1 搜索侧）：按 pickcode 实时定位，不可见/已不在结果里就丢弃，不整表重排打断滚动。 */
+        private void refreshCoverRow(CloudFile file) {
+            String pc = file.getPickCode();
+            if (TextUtils.isEmpty(pc) || listView == null) return;
+            int idx = -1;
+            for (int i = 0; i < st.results.size(); i++) {
+                if (pc.equals(st.results.get(i).getPickCode())) {
+                    idx = i;
+                    break;
+                }
+            }
+            if (idx < 0) return;
+            int first = listView.getFirstVisiblePosition();
+            if (idx < first || idx > listView.getLastVisiblePosition()) return;
+            View row = listView.getChildAt(idx - first);
+            if (row != null) getView(idx, row, listView);
         }
 
         @Override
@@ -457,7 +478,7 @@ public class CloudDriveActivity extends BaseActivity {
             row.tvMeta.setText(f.isDir() ? "文件夹" : f.getFormatSize());
             // 封面与文件列表同口径（bindRowCover）：文件夹仍是文件夹图标，只给视频行上图；
             // 弹窗是深面，图标占位着浅色
-            bindRowCover(row.ivThumb, f, 0xFFF1F4F5, () -> notifyDataSetChanged());
+            bindRowCover(row.ivThumb, f, 0xFFF1F4F5, () -> refreshCoverRow(f));
             return row.root;
         }
     }
@@ -1534,8 +1555,19 @@ public class CloudDriveActivity extends BaseActivity {
         }
 
         private void bindThumb(Holder h, CloudFile file) {
-            bindRowCover(h.binding.ivThumb, file, Color.parseColor("#0C0E12"),
-                    () -> notifyDataSetChanged());
+            // 流畅度 D1：截帧截成后只刷那一行——按 pickcode 在回调当刻的列表里实时定位行号
+            // （不许用 bind 时的旧 position，列表回收会刷错行）；定位不到（已切目录/行已不在）就丢弃，
+            // 不许再整表 notifyDataSetChanged 在滑动期打全量重绑脉冲
+            bindRowCover(h.binding.ivThumb, file, Color.parseColor("#0C0E12"), () -> {
+                String pc = file.getPickCode();
+                if (TextUtils.isEmpty(pc)) return;
+                for (int i = 0; i < files.size(); i++) {
+                    if (pc.equals(files.get(i).getPickCode())) {
+                        notifyItemChanged(i);
+                        return;
+                    }
+                }
+            });
         }
 
         @Override

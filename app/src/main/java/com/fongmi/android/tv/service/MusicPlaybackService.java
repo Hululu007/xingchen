@@ -390,7 +390,11 @@ public class MusicPlaybackService extends MediaSessionService {
     private PendingIntent buildPlayerIntent() {
         try {
             Intent intent = new Intent(this, Class.forName("com.fongmi.android.tv.ui.music.MusicPlayerActivity"));
-            intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            // 通知/会话点开播放页：NEW_TASK 是给外部投递定的任务归属——同包默认 affinity 命中
+            // 已有星辰任务就并回那一个任务（不清任务、不另起卡），没有任务时才以播放页为根建
+            // 唯一一张卡；不带 MULTIPLE_TASK，永远不会裂出第二张。CLEAR_TOP|SINGLE_TOP 保留：
+            // 播放页已在栈里就复用那一个、清掉它上面的页面，与原行为一致。
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
             return PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         } catch (Throwable t) {
             return null;

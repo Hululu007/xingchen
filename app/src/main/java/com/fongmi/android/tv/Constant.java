@@ -16,7 +16,8 @@ public class Constant {
     public static final long TIMEOUT_SYNC_TRANSFER = TimeUnit.MINUTES.toMillis(10);
     public static final long TIMEOUT_SEARCH = TimeUnit.SECONDS.toMillis(15);
     public static final long TIMEOUT_PARSE_DEF = TimeUnit.SECONDS.toMillis(15);
-    public static final long TIMEOUT_PARSE_WEB = TimeUnit.SECONDS.toMillis(15);
+    public static final long TIMEOUT_PARSE_SUPER = TimeUnit.SECONDS.toMillis(90);
+    public static final long TIMEOUT_PARSE_WEB = TimeUnit.SECONDS.toMillis(30);
     public static final long TIMEOUT_PARSE_LIVE = TimeUnit.SECONDS.toMillis(10);
     public static final long HISTORY_TIME = TimeUnit.DAYS.toMillis(60);
 

@@ -78,9 +78,10 @@ public class ParseJob implements ParseCallback {
 
     private void execute(Result result) {
         Future<?> task = executor.submit(getTask(result));
+        long timeout = parse.getType() == 4 ? Constant.TIMEOUT_PARSE_SUPER : Constant.TIMEOUT_PARSE_DEF;
         Task.schedule(() -> {
             if (task.cancel(true)) onParseError();
-        }, Constant.TIMEOUT_PARSE_DEF, TimeUnit.MILLISECONDS);
+        }, timeout, TimeUnit.MILLISECONDS);
     }
 
     private Runnable getTask(Result result) {
@@ -145,9 +146,9 @@ public class ParseJob implements ParseCallback {
         if (!webs.isEmpty()) startWeb(webs, webUrl);
         try {
             // web 槽位（+1）不走 countDown：web 终局走 onParseSuccess/onParseError 回调
-            // 置 done 并 stop() 中断本线程（CustomWebView 自带 15 秒计时兜底必回调）。
-            // 故 await 必须自带上界，与本 job 的总解析预算同口径，防无界等待。
-            latch.await(Constant.TIMEOUT_PARSE_DEF, TimeUnit.MILLISECONDS);
+            // 置 done 并 stop() 中断本线程（CustomWebView 自带 30 秒计时兜底必回调）。
+            // 故 await 必须自带上界，与本 job 的总解析预算同口径（超级解析 90 秒），防无界等待。
+            latch.await(Constant.TIMEOUT_PARSE_SUPER, TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return;

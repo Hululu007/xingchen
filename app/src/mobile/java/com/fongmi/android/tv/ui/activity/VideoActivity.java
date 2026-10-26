@@ -194,6 +194,7 @@ import com.fongmi.android.tv.utils.FileChooser;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.CoverRatioCache;
 import com.fongmi.android.tv.utils.Notify;
+import com.fongmi.android.tv.utils.PermissionUtil;
 import com.fongmi.android.tv.utils.PiP;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.Sniffer;
@@ -317,6 +318,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private String mHongguoDanmakuPending = "";
     private String mHongguoDanmakuPrefetchVid = "";
     private boolean mContentExpanded = false;
+    // 外部 VIEW 本地媒体认领中（独立外部门投递）：权限门未回前 checkId 让路
+    private boolean mExternalClaimPending;
     private int mKaraokeResultAction;
     private KaraokeResult mPendingKaraokeResult;
     private AlertDialog mKaraokeResultDialog;
@@ -914,6 +917,9 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         // 服务就绪通知的等效点：补调服务未就绪时攒下的工作（详情阶段二＋待点火解析请求），
         // 再无播放结果暂存槽；点火后跳过 checkId，避免直接播放会话重复点火。
         if (consumePendingOnServiceReady()) return;
+        // 外部本地媒体认领未回：原始 VIEW 意图没有可播 id，这一轮先让路，
+        // 认领回调把载荷经 onNewIntent 送回本页时自会 checkId
+        if (mExternalClaimPending) return;
         checkId();
     }
 
@@ -937,8 +943,32 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         }
     }
 
+    /**
+     * 外部本地媒体认领（独立外部门）：外部 VIEW 打开 content/file 的音视频时，
+     * 清单把意图直接投到本页（独立 taskAffinity），不再先唤醒首页主任务。
+     * 判别与分发复用 HomeActivity 那套（isLocalMediaIntent/dispatchLocalMedia）：
+     * 先过文件权限门，回调里以本页为上下文 dispatch——其内部的 startLocal 把
+     * 载荷意图发向本页，本页是 singleTop 且就在外部门任务顶，经 onNewIntent
+     * 回到同一实例，与应用内起播同形、走同一条 checkId。认领未完成前
+     * mExternalClaimPending 挡住 onServiceConnected 的 checkId，避免拿原始
+     * 意图的空 id 先跑一轮空详情。应用内起播意图不带 VIEW+data，判别天然
+     * 不命中，不受影响。
+     */
+    private boolean claimExternalMedia(Intent intent) {
+        if (intent == null || intent.getStringExtra("key") != null) return false;
+        if (!HomeActivity.isLocalMediaIntent(this, intent)) return false;
+        mExternalClaimPending = true;
+        PermissionUtil.requestFile(this, allGranted -> {
+            mExternalClaimPending = false;
+            if (isFinishing() || isDestroyed()) return;
+            HomeActivity.dispatchLocalMedia(this, intent);
+        });
+        return true;
+    }
+
     @Override
     protected void onNewIntent(Intent intent) {
+        if (claimExternalMedia(intent)) return;
         String oldId = getId();
         super.onNewIntent(intent);
         String id = Objects.toString(intent.getStringExtra("id"), "");
@@ -955,6 +985,13 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     @Override
     protected void initView(Bundle savedInstanceState) {
         super.initView(savedInstanceState);
+        // 外部本地媒体直达（独立外部门投递的原始 VIEW 意图）：先置认领中挡住
+        // 首轮 checkId，认领本体排到页面建完再跑——权限已授予时回调是同步的，
+        // 若在 initView 半途经 onNewIntent 重入，选集适配器还没建好会踩空
+        if (HomeActivity.isLocalMediaIntent(this, getIntent())) {
+            mExternalClaimPending = true;
+            mBinding.getRoot().post(() -> claimExternalMedia(getIntent()));
+        }
         sPlayerOwner = this;
         hasPlayer = true;
         mRestoringConfigurationPlayback = savedInstanceState != null;

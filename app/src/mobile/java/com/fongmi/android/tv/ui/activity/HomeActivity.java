@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.ui.activity;
 
+import android.app.Activity;
 import android.app.PendingIntent;
 import android.app.SearchManager;
 import android.content.ContentResolver;
@@ -313,8 +314,8 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
      * （已授权时同步通过、不挡；content 地址自带授权但播放器跨页读仍靠它）。
      */
     private boolean claimLocalMedia(Intent intent) {
-        if (!isLocalMediaIntent(intent)) return false;
-        PermissionUtil.requestFile(this, allGranted -> dispatchLocalMedia(intent));
+        if (!isLocalMediaIntent(this, intent)) return false;
+        PermissionUtil.requestFile(this, allGranted -> dispatchLocalMedia(this, intent));
         return true;
     }
 
@@ -325,7 +326,7 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
      * 的情形）。text/plain 先排除（txt 混合链接与 m3u 直播清单仍走原链）；
      * http/https/smb/rtsp 等网络方案、磁力/迅雷等推送链接一律不认领。
      */
-    private boolean isLocalMediaIntent(Intent intent) {
+    static boolean isLocalMediaIntent(Activity activity, Intent intent) {
         if (intent == null || intent.getData() == null) return false;
         if (!Intent.ACTION_VIEW.equals(intent.getAction())) return false;
         String scheme = intent.getData().getScheme();
@@ -335,7 +336,7 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
         if ("text/plain".equals(type)) return false;
         if (type == null && content) {
             try {
-                type = getContentResolver().getType(intent.getData());
+                type = activity.getContentResolver().getType(intent.getData());
             } catch (Exception ignored) {
             }
         }
@@ -346,7 +347,7 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
     }
 
     /** 本地媒体直达分发：能解出真实路径就按 file:// 播（最稳），解不出保留 content 原串；标题取文件名全名。 */
-    private void dispatchLocalMedia(Intent intent) {
+    static void dispatchLocalMedia(Activity activity, Intent intent) {
         Uri data = intent.getData();
         if (data == null) return;
         String path = null;
@@ -355,16 +356,16 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
         } catch (Exception ignored) {
         }
         if (!TextUtils.isEmpty(path)) {
-            VideoActivity.startLocal(this, "file://" + path, new File(path).getName());
+            VideoActivity.startLocal(activity, "file://" + path, new File(path).getName());
             return;
         }
-        String name = queryDisplayName(data);
+        String name = queryDisplayName(activity, data);
         if (TextUtils.isEmpty(name)) name = data.getLastPathSegment();
-        VideoActivity.startLocal(this, data.toString(), name);
+        VideoActivity.startLocal(activity, data.toString(), name);
     }
 
-    private String queryDisplayName(Uri uri) {
-        try (Cursor cursor = getContentResolver().query(uri, new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null)) {
+    private static String queryDisplayName(Activity activity, Uri uri) {
+        try (Cursor cursor = activity.getContentResolver().query(uri, new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null)) {
             if (cursor != null && cursor.moveToFirst()) {
                 int index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
                 if (index >= 0) return cursor.getString(index);

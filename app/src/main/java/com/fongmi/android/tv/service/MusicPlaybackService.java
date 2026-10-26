@@ -41,7 +41,6 @@ import androidx.media3.exoplayer.DefaultRenderersFactory;
 import androidx.media3.exoplayer.audio.AudioSink;
 import androidx.media3.exoplayer.audio.DefaultAudioSink;
 import androidx.media3.session.CommandButton;
-import androidx.media3.session.DefaultMediaNotificationProvider;
 import androidx.media3.session.MediaNotification;
 import androidx.media3.session.MediaSession;
 import androidx.media3.session.MediaSessionService;
@@ -92,8 +91,8 @@ public class MusicPlaybackService extends MediaSessionService {
 
     /**
      * 占位前台通知 id：必须与本服务给 media3 provider 设的媒体通知 id 一致
-     * （onCreate 里 DefaultMediaNotificationProvider.Builder.setNotificationId
-     * 传的就是本常量）——占位先顶上、真媒体通知出来时同 id 原地替换，不会双份。
+     * （onCreate 里给媒体通知 provider 设的通知 id 传的就是本常量；
+     * 1.4.43 起 provider 是自绘卡 MusicNotificationProvider，口径不变）——占位先顶上、真媒体通知出来时同 id 原地替换，不会双份。
      * 1.4.15 的教训是「占位 id 与 provider id 必须一致」，不是「必须等于 1001」：
      * 1001 是 media3 的默认 id，视频 PlaybackService 的 provider 没改 id、用的
      * 就是 1001，音乐若也用 1001，两个服务的媒体通知同 App 互相顶（D-18）。
@@ -368,7 +367,7 @@ public class MusicPlaybackService extends MediaSessionService {
         // 从没有外部 MediaController 连进来，onGetSession 永远等不到人触发登记，
         // 不加这行媒体通知永远发不出来（1.3.59 真机实证通知栏空白）。
         addSession(session);
-        setMediaNotificationProvider(new DiagNotificationProvider(new DefaultMediaNotificationProvider.Builder(this).setNotificationId(FG_NOTIFICATION_ID).build()));
+        setMediaNotificationProvider(new DiagNotificationProvider(new MusicNotificationProvider(this, FG_NOTIFICATION_ID, buildPlayerIntent())));
         SpiderDebug.log("music", "notifDiag enabled=" + NotificationManagerCompat.from(this).areNotificationsEnabled());
         restoreBreakpoint();
         startTicker();
@@ -387,6 +386,13 @@ public class MusicPlaybackService extends MediaSessionService {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        // 自绘通知卡的三键命令：显式服务 Intent 直达内部播放控制
+        if (intent != null) {
+            String action = intent.getAction();
+            if (MusicNotificationProvider.ACTION_TOGGLE.equals(action)) toggle();
+            else if (MusicNotificationProvider.ACTION_NEXT.equals(action)) next();
+            else if (MusicNotificationProvider.ACTION_PREV.equals(action)) prev();
+        }
         // onCreate 已顶过前台时这里是无害重入；服务被系统降级后再次被
         // startForegroundService 拉起时，靠这次把前台补回来，先于任何其它活。
         startForegroundNow();

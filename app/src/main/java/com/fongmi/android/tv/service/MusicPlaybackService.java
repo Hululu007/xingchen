@@ -215,6 +215,7 @@ public class MusicPlaybackService extends MediaSessionService {
     private final IBinder binder = new LocalBinder();
     private final Handler main = new Handler(Looper.getMainLooper());
     private final MusicQueue queue = new MusicQueue();
+    private MusicNotificationProvider musicNotificationProvider;
 
     private MediaSession session;
     private ExoPlayer player;
@@ -369,7 +370,10 @@ public class MusicPlaybackService extends MediaSessionService {
         // 从没有外部 MediaController 连进来，onGetSession 永远等不到人触发登记，
         // 不加这行媒体通知永远发不出来（1.3.59 真机实证通知栏空白）。
         addSession(session);
-        setMediaNotificationProvider(new DiagNotificationProvider(new MusicNotificationProvider(this, FG_NOTIFICATION_ID, buildPlayerIntent())));
+        musicNotificationProvider = new MusicNotificationProvider(this, FG_NOTIFICATION_ID, buildPlayerIntent());
+        // 通知歌词面取词走服务现有歌词状态（缓存同源），provider 只认 queue.current()
+        musicNotificationProvider.setTrackSupplier(() -> queue.current());
+        setMediaNotificationProvider(new DiagNotificationProvider(musicNotificationProvider));
         SpiderDebug.log("music", "notifDiag enabled=" + NotificationManagerCompat.from(this).areNotificationsEnabled());
         restoreBreakpoint();
         startTicker();
@@ -1868,6 +1872,8 @@ public class MusicPlaybackService extends MediaSessionService {
             MusicTrack cur = queue.current();
             if (cur != null && MusicQueue.trackKey(cur).equals(MusicQueue.trackKey(track))) {
                 listeners.forEach(l -> l.onLyricReady(track));
+                // 通知歌词面同刻补达：词刚进缓存，展开大卡的歌词组从无到有靠这一声
+                if (musicNotificationProvider != null) musicNotificationProvider.onLyricReady();
             }
         });
     }

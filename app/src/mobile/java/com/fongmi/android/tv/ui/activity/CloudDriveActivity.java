@@ -146,6 +146,9 @@ public class CloudDriveActivity extends BaseActivity {
             }
         });
         binding.refresh.setOnRefreshListener(this::fetchFiles);
+        // 加载圈配色：默认白底圈与本页深面口径不搭，改深底（#26282C，与登录/网盘弹窗深面同系）＋亮弧（本页深面行主字色），一眼看得清
+        binding.refresh.setProgressBackgroundColorSchemeColor(0xFF26282C);
+        binding.refresh.setColorSchemeColors(0xFFF1F4F5);
         binding.fab.setOnClickListener(v -> showFabMenu());
         if (fabActions().isEmpty()) binding.fab.setVisibility(View.GONE);
         crumbs.add(new Crumb(rootCid, "根目录"));

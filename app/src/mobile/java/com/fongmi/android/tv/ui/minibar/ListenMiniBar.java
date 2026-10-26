@@ -829,13 +829,18 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
         }
     }
 
-    /** 条身回播放页（spec §5.5）：反射 Intent 直开播放页＋NEW_TASK（宿主作 Context、无则用 app）。 */
+    /**
+     * 条身回播放页（spec §5.5）：反射 Intent 直开播放页。有宿主 Activity 就用宿主的上下文
+     * 在同一任务里打开（不许带 NEW_TASK——带了会把播放页分到独立任务，最近任务里多一张星辰卡，
+     * 2026-10-26 他真机点名）；只有退化到 app 上下文时才补 NEW_TASK（非 Activity 上下文的硬性要求，
+     * 与 MusicPlayerActivity.start 的收口口径一致）。
+     */
     private void openMusicPlayer() {
         try {
             Activity host = hostRef == null ? null : hostRef.get();
             Context ctx = host != null ? host : app;
             Intent it = new Intent(ctx, Class.forName("com.fongmi.android.tv.ui.music.MusicPlayerActivity"));
-            it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            if (!(ctx instanceof Activity)) it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             ctx.startActivity(it);
         } catch (Throwable ignored) {
         }

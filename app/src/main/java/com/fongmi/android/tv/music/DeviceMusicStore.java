@@ -46,6 +46,20 @@ public class DeviceMusicStore {
         List<MusicTrack> out = new ArrayList<>();
         scanMediaStore(ctx, out);
         scanLibraryDir(ctx, out);
+        // 按路径去重（一首一行）：music_library 在 App 专属外部目录下、同样会被
+        // MediaStore 扫到，导入歌在两路各入账一次（一为 device:<mediaId>、一为
+        // device:lib:<文件名>），列表里同一文件出现两行。MediaStore 路先行、
+        // 保留先到者（它带 mediaId 内容 URI 与专辑 art 决议），同路径后到者丢弃；
+        // 路径为空的条目无从判同，不参与去重、照常保留。
+        Set<String> seenPaths = new HashSet<>();
+        List<MusicTrack> deduped = new ArrayList<>();
+        for (MusicTrack t : out) {
+            if (t == null) continue;
+            String path = t.localPath;
+            if (path != null && !path.isEmpty() && !seenPaths.add(path)) continue;
+            deduped.add(t);
+        }
+        out = deduped;
         if ((minDuration <= 0 && excluded.isEmpty())) return out;
         List<MusicTrack> kept = new ArrayList<>();
         for (MusicTrack t : out) {

@@ -216,8 +216,17 @@ abstract class BaseConfig {
     private JsonArray fetch(String url) {
         try {
             JsonElement parsed = Json.parse(OkHttp.string(UrlUtil.convert(url)));
-            return parsed.isJsonArray() ? parsed.getAsJsonArray() : new JsonArray();
+            if (parsed.isJsonArray()) return parsed.getAsJsonArray();
+            // 扫描 O4：拉到但不是数组＝内容不对版，与失败一样留痕，不许静默吞成空数组
+            com.fongmi.android.tv.utils.SpiderDebug.log("config",
+                    "fetch sub-file not an array url=%s", url);
+            return new JsonArray();
         } catch (Exception e) {
+            // 扫描 O4：headers/proxy/rules/doh 子文件拉取失败此前静默变空数组、
+            // 配置照样报加载成功（代理/规则/请求头/DoH 缺失无任何线索）；
+            // 行为不变（仍回空数组不阻断配置加载），但必须留痕可查。
+            com.fongmi.android.tv.utils.SpiderDebug.log("config",
+                    "fetch sub-file failed url=%s err=%s", url, e.toString());
             return new JsonArray();
         }
     }

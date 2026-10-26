@@ -86,8 +86,10 @@ public class VodFragment extends BaseFragment implements ConfigListener, SiteLis
     private FragmentVodBinding mBinding;
     private SiteViewModel mViewModel;
     private HomeWebController mWeb;
-    private int loadedConfigId = Integer.MIN_VALUE;
-    private String loadedHomeKey = "";
+    // 上次成功加载首页时的签名（cid|主页 key|主页脚本戳）；null＝还没成功加载过。
+    // HOME 刷新（事件转发与 onResume 兜底）共用它把关：签名没变且内容已在，
+    // 这一发就是重复触发，不许再整页重拉（详见 refreshHome 入口闸）。
+    private String loadedHomeSig;
     private TypeAdapter mAdapter;
     private Result mResult;
     private String mChromeMode = WebHomeChrome.NORMAL;
@@ -529,8 +531,33 @@ public class VodFragment extends BaseFragment implements ConfigListener, SiteLis
         if (event.type() == ConfigEvent.Type.VOD || event.type() == ConfigEvent.Type.COMMON) setTitle();
     }
 
+    // 当前首页签名：配置 id＋主页 key＋主页脚本戳。脚本戳走 PyLoader.scriptStamp
+    // 同口径（本地脚本删了变 #missing、改了变 mtime/length，http 源恒为 api 本身），
+    // 保证「换配置／切源／删改当前源脚本」任一发生签名必变、闸必放行；
+    // 纯切后台回前台这类没动过配置的场景签名一字不变。
+    private String homeSignature() {
+        Site home = getHome();
+        String stamp = "";
+        try {
+            stamp = com.fongmi.android.tv.api.loader.PyLoader.scriptStamp(home.getApi());
+        } catch (Throwable ignored) {
+        }
+        return com.fongmi.android.tv.api.config.VodConfig.getCid() + "|" + home.getKey() + "|" + stamp;
+    }
+
+    private boolean hasHomeContent() {
+        return mResult != null || (mWeb != null && mWeb.isVisible());
+    }
+
     // HOME 刷新的实际动作（事件与 onResume 兜底共用一份，避免两处口径漂移）
     private void refreshHome() {
+        // 入口闸：内容已在且签名与上次成功加载一致，这一发 HOME 刷新不重拉。
+        // 发送点有十几处（配置事件转发、脚本失效、登录刷新、窗口形态变化、远程
+        // 动作等），此前任一发到达就整页重拉——切后台回前台时只要有一发迟到/
+        // 重复投递，用户看到的就是接口又加载一遍、滚动与分类全清。真变了的
+        //（换配置 cid 变、切源 key 变、当前源脚本被删改戳变）签名不同，照常
+        // 放行重拉；显式下拉刷新走 reloadHome 的强制路，不经这里、不受闸影响。
+        if (loadedHomeSig != null && hasHomeContent() && loadedHomeSig.equals(homeSignature())) return;
         if (mWeb != null && mWeb.isVisible()) {
             Site home = getHome();
             WebHomeChromeStartup.remember(getConfig(), home);
@@ -547,9 +574,7 @@ public class VodFragment extends BaseFragment implements ConfigListener, SiteLis
     }
 
     private void markHomeLoaded() {
-        loadedConfigId = com.fongmi.android.tv.api.config.VodConfig.getCid();
-        Site home = getHome();
-        loadedHomeKey = home == null ? "" : home.getKey();
+        loadedHomeSig = homeSignature();
     }
 
     @Subscribe(threadMode = ThreadMode.MAIN)
@@ -702,13 +727,9 @@ public class VodFragment extends BaseFragment implements ConfigListener, SiteLis
         super.onResume();
         if (mWeb != null) mWeb.onResume();
         // 兜底（深挖 L-14）：首页刷新只有 RefreshEvent 单通路，事件在未注册窗口期
-        // 丢了就永远陈旧。回前台时比对配置代次与主页 key，变了就按 HOME 口径补刷一次；
-        // 没变不动作，不改变常态行为。
-        if (loadedConfigId != Integer.MIN_VALUE) {
-            Site home = getHome();
-            String homeKey = home == null ? "" : home.getKey();
-            if (com.fongmi.android.tv.api.config.VodConfig.getCid() != loadedConfigId || !homeKey.equals(loadedHomeKey)) refreshHome();
-        }
+        // 丢了就永远陈旧。回前台时比对首页签名（cid＋主页 key＋主页脚本戳，与
+        // refreshHome 入口闸同一份口径），变了才按 HOME 口径补刷一次；没变不动作。
+        if (loadedHomeSig != null && !loadedHomeSig.equals(homeSignature())) refreshHome();
     }
 
     @Override

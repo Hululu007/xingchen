@@ -151,7 +151,7 @@ public class MusicSettingsActivity extends BaseActivity {
         binding.rowFluidBg.setOnClickListener(v -> binding.swFluidBg.toggle());
         initSwitch(binding.swKeepScreen, MusicStore.isPlayerKeepScreenOn(), MusicStore::setPlayerKeepScreenOn);
         binding.rowKeepScreen.setOnClickListener(v -> binding.swKeepScreen.toggle());
-        // 批 6：左手布局行已摘（music_left_hand_landscape 全树无读取方，是假开关；键与存量值保留未删）
+        // 批 6：左手布局行已摘（music_left_hand_landscape 全树无读取方，是假开关）；体检 E-P3 已清 MusicStore 读写方法，存量偏好值无读口、无害保留
         refreshLyricFontSizeText();
         binding.rowLyricFontSize.setOnClickListener(v -> showFontSizeDialog());
         refreshLyricWeightText();
@@ -165,7 +165,7 @@ public class MusicSettingsActivity extends BaseActivity {
         initSwitch(binding.swShowRomanization, MusicStore.isShowRomanization(), MusicStore::setShowRomanization);
         binding.rowShowRomanization.setOnClickListener(v -> binding.swShowRomanization.toggle());
         // 批 6：过滤词曲信息行已摘（music_filter_lyric_meta 全树无读取方：歌词解析链的元数据
-        // 过滤是无条件执行、与此键无关，开关改不了行为＝假开关；键与存量值保留未删）
+        // 过滤是无条件执行、与此键无关，开关改不了行为＝假开关）；体检 E-P3 已清 MusicStore 读写方法，存量偏好值无读口、无害保留
         initSwitch(binding.swAdvancedFx, MusicStore.isAdvancedFx(), MusicStore::setAdvancedFx);
         binding.rowAdvancedFx.setOnClickListener(v -> binding.swAdvancedFx.toggle());
     }

@@ -894,8 +894,6 @@ public class MusicStore {
 
     // ===== 面板＋设置面（redo3 round4） =====
 
-    /** 左手布局（横屏）（A7；默认右手） */
-    private static final String K_LEFT_HAND = "music_left_hand_landscape";
     /** 动态流体背景（A4；默认关） */
     private static final String K_FLUID_BG = "music_fluid_bg";
     /** 插件检测结果表（C4；srcUrl → MusicPluginTest 的 JSON） */
@@ -914,13 +912,8 @@ public class MusicStore {
     /** 歌词偏移范围 ±3000ms、步进 50ms：瓜子 LyricStylePanel 真值（smali 深挖 §15.1 第 4 项，滑杆量程 s51(−3000,3000)＋吸附 ÷50×50）。 */
     public static final int LYRIC_OFFSET_MAX_MS = 3000;
 
-    public static boolean isLeftHandLandscape() {
-        return Prefers.getBoolean(K_LEFT_HAND, false);
-    }
-
-    public static void setLeftHandLandscape(boolean on) {
-        Prefers.put(K_LEFT_HAND, on);
-    }
+    // 左手布局键 music_left_hand_landscape 的读写方法已清（体检 E-P3）：设置行
+    // 已摘、两方法全树零调用属死键残留；存量偏好值留在 prefs 里无读口、无害，不另清。
 
     /** 流体背景默认开（瓜子 PlayerViewModel 构造默认 Boolean.TRUE；此前默认关是误设）。 */
     public static boolean isFluidBg() {
@@ -1116,16 +1109,9 @@ public class MusicStore {
         Prefers.put(K_STOP_ON_TASK_REMOVED, on);
     }
 
-    /** 过滤词曲信息（瓜子歌词过滤：作词／作曲／编曲等制作信息行不进歌词区；默认关＝现行行为） */
-    private static final String K_FILTER_LYRIC_META = "music_filter_lyric_meta";
-
-    public static boolean isFilterLyricMeta() {
-        return Prefers.getBoolean(K_FILTER_LYRIC_META, false);
-    }
-
-    public static void setFilterLyricMeta(boolean on) {
-        Prefers.put(K_FILTER_LYRIC_META, on);
-    }
+    // 过滤词曲信息键 music_filter_lyric_meta 的读写方法已清（体检 E-P3）：设置行
+    // 已摘、两方法全树零调用属死键残留（歌词解析链的元数据过滤是无条件执行、
+    // 与此键无关）；存量偏好值留在 prefs 里无读口、无害，不另清。
 
     /** 下载命名（瓜子下载命名三档）：0＝歌手 - 歌名，1＝歌名 - 歌手，2＝歌名；
      * 默认 1＝星辰现行行为（歌名 - 歌手），不改老用户已下文件的文件名口径 */

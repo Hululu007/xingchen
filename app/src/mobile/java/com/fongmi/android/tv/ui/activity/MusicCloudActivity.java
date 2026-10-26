@@ -121,6 +121,8 @@ public class MusicCloudActivity extends BaseActivity {
     private ListView lvResults;
     private ResultAdapter adapter;
 
+    private ViewBinding cloudBinding;
+
     private final List<Hit> results = new ArrayList<>();
     private String currentDrive;
     private int searchGen;
@@ -129,9 +131,17 @@ public class MusicCloudActivity extends BaseActivity {
 
     @Override
     protected ViewBinding getBinding() {
+        // 绑定只建一次并缓存：BaseActivity 与 initView 各取一次，不缓存就会建出两棵树、
+        // initView 的 glassifyTree 走在游离树上，可见树整页接不上玻璃（同 Wire 注释里的老坑）。
+        if (cloudBinding != null) return cloudBinding;
+        // 页底与其余音乐页同构：统一暖底背景层直铺整屏＋内容层叠其上；
+        // 此前整页代码建、根挂近白实底 #FAFAFC，是白底清零与全域一底的漏网（2026-10-26 全扫）。
+        android.widget.FrameLayout page = new android.widget.FrameLayout(this);
+        page.addView(new com.fongmi.android.tv.ui.music.MusicGlassBackgroundView(this),
+                new android.widget.FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(0xFFFAFAFC);
         int side = ResUtil.dp2px(16);
         root.setPadding(side, getStatusBarHeight() + ResUtil.dp2px(8), side, ResUtil.dp2px(16));
 
@@ -328,7 +338,9 @@ public class MusicCloudActivity extends BaseActivity {
         });
         lvResults.setOnItemClickListener((parent, view, position, id) -> onResultClick(position));
 
-        return new SimpleBinding(root);
+        page.addView(root, new android.widget.FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        return cloudBinding = new SimpleBinding(page);
     }
 
     @Override

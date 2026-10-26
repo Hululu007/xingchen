@@ -8,6 +8,7 @@ import android.os.Bundle;
 import android.text.TextUtils;
 import android.util.Log;
 import android.view.Gravity;
+import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
@@ -56,11 +57,23 @@ public class CloudDriveActivity extends BaseActivity {
 
     private static final String TAG = "CloudDriveActivity";
     private static final String EXTRA_DRIVE_ID = "drive_id";
+    private static final String EXTRA_OPEN_CID = "open_cid";
+    private static final String EXTRA_OPEN_NAME = "open_name";
+    private static final int MENU_SEARCH = 0x1155;
     private static final int PAGE_LIMIT = 100;
 
     public static void start(Activity activity, String driveId) {
         Intent intent = new Intent(activity, CloudDriveActivity.class);
         intent.putExtra(EXTRA_DRIVE_ID, driveId);
+        activity.startActivity(intent);
+    }
+
+    /** 直达某个目录打开（如从搜索结果点文件夹进来）：面包屑＝根目录＋该目录。 */
+    public static void startAt(Activity activity, String driveId, String cid, String name) {
+        Intent intent = new Intent(activity, CloudDriveActivity.class);
+        intent.putExtra(EXTRA_DRIVE_ID, driveId);
+        intent.putExtra(EXTRA_OPEN_CID, cid);
+        intent.putExtra(EXTRA_OPEN_NAME, name);
         activity.startActivity(intent);
     }
 
@@ -77,6 +90,8 @@ public class CloudDriveActivity extends BaseActivity {
     /** onResume 刷新守门：initView 成功走完才置真；紧跟 initView 的首个 onResume 跳过，避免同一次进页重复拉取。 */
     private boolean viewReady;
     private boolean firstResume = true;
+    /** 115 全盘搜索模式：非空＝正在看搜索结果（列表数据源切到 Drive115.searchFiles，目录面包屑保持不动，退出即回原目录）。 */
+    private String searchKeyword = "";
 
     @Override
     protected ViewBinding getBinding() {
@@ -122,7 +137,53 @@ public class CloudDriveActivity extends BaseActivity {
         binding.fab.setOnClickListener(v -> showFabMenu());
         if (fabActions().isEmpty()) binding.fab.setVisibility(View.GONE);
         crumbs.add(new Crumb(rootCid, "根目录"));
+        String openCid = getIntent().getStringExtra(EXTRA_OPEN_CID);
+        if (!TextUtils.isEmpty(openCid) && !openCid.equals(rootCid)) {
+            String openName = getIntent().getStringExtra(EXTRA_OPEN_NAME);
+            crumbs.add(new Crumb(openCid, TextUtils.isEmpty(openName) ? "目录" : openName));
+        }
+        if (drive instanceof Drive115) setupSearchMenu();
         viewReady = true;
+        fetchFiles();
+    }
+
+    /** 搜索入口只给 115（他定的口径：只有 115 网盘的东西要能搜），挂工具栏右侧，形态与本页工具栏一致。 */
+    private void setupSearchMenu() {
+        MenuItem item = binding.toolbar.getMenu().add(0, MENU_SEARCH, 0, "搜网盘");
+        item.setIcon(R.drawable.ic_action_search);
+        item.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS);
+        item.setOnMenuItemClickListener(menuItem -> {
+            showSearchDialog();
+            return true;
+        });
+    }
+
+    private void showSearchDialog() {
+        EditText input = makeInput("搜索115网盘文件");
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("搜网盘")
+                .setView(input)
+                .setPositiveButton("搜索", (d, w) -> {
+                    String kw = input.getText().toString().trim();
+                    if (kw.isEmpty()) {
+                        Notify.show("关键词不能为空");
+                        return;
+                    }
+                    searchKeyword = kw;
+                    fetchFiles();
+                })
+                .setNegativeButton("取消", null)
+                .create();
+        MusicGlassDialogs.attach(dialog);
+        dialog.show();
+    }
+
+    private boolean isSearching() {
+        return !searchKeyword.isEmpty();
+    }
+
+    private void exitSearch() {
+        searchKeyword = "";
         fetchFiles();
     }
 
@@ -167,7 +228,9 @@ public class CloudDriveActivity extends BaseActivity {
 
     @Override
     protected void onBackInvoked() {
-        if (crumbs.size() > 1) {
+        if (isSearching()) {
+            exitSearch();
+        } else if (crumbs.size() > 1) {
             crumbs.remove(crumbs.size() - 1);
             fetchFiles();
         } else {
@@ -197,15 +260,19 @@ public class CloudDriveActivity extends BaseActivity {
         fetchPage(files.size(), true, fetchGen);
     }
 
-    /** 分页续取：offset 翻页；PikPak 的 listDir 内部用 page_token 兑 offset（见 DrivePikPak）。 */
+    /** 分页续取：offset 翻页；PikPak 的 listDir 内部用 page_token 兑 offset（见 DrivePikPak）。搜索模式下数据源是 115 全盘搜索、与当前目录无关，过期判定只认代次不认 cid。 */
     private void fetchPage(int offset, boolean append, int gen) {
         if (!append) setLoading(true);
         String cid = currentCid();
+        boolean searching = isSearching();
+        String kw = searchKeyword;
         new Thread(() -> {
             try {
-                List<CloudFile> result = drive.listDir(cid, offset, PAGE_LIMIT);
+                List<CloudFile> result = searching && drive instanceof Drive115
+                        ? ((Drive115) drive).searchFiles(kw, offset, PAGE_LIMIT)
+                        : drive.listDir(cid, offset, PAGE_LIMIT);
                 runOnUiThread(() -> {
-                    if (gen != fetchGen || !cid.equals(currentCid())) return;
+                    if (gen != fetchGen || (!searching && !cid.equals(currentCid()))) return;
                     if (!append) setLoading(false);
                     loadingMore = false;
                     if (!append) files.clear();
@@ -218,7 +285,7 @@ public class CloudDriveActivity extends BaseActivity {
             } catch (Exception e) {
                 runOnUiThread(() -> {
                     // A5：失败分支补与成功路同款 gen／cid 丢弃校验，过期请求失败不误弹“加载失败”。
-                    if (gen != fetchGen || !cid.equals(currentCid())) return;
+                    if (gen != fetchGen || (!searching && !cid.equals(currentCid()))) return;
                     if (!append) setLoading(false);
                     loadingMore = false;
                     if (!append) Notify.show("加载失败：" + msg(e));
@@ -230,6 +297,26 @@ public class CloudDriveActivity extends BaseActivity {
 
     private void renderBreadcrumb() {
         binding.breadcrumb.removeAllViews();
+        if (isSearching()) {
+            // 搜索模式：根目录（点它退出搜索回原目录）＋「搜索：关键词」当前位
+            TextView root = new TextView(this);
+            root.setText(crumbs.get(0).name);
+            root.setTextSize(13);
+            root.setSingleLine(true);
+            root.setTextColor(0xFF5A6675);
+            root.setClickable(true);
+            root.setFocusable(true);
+            root.setOnClickListener(v -> exitSearch());
+            binding.breadcrumb.addView(root);
+            addCrumbSeparator();
+            TextView cur = new TextView(this);
+            cur.setText("搜索：" + searchKeyword);
+            cur.setTextSize(13);
+            cur.setSingleLine(true);
+            cur.setTextColor(0xFF0C0E12);
+            binding.breadcrumb.addView(cur);
+            return;
+        }
         for (int i = 0; i < crumbs.size(); i++) {
             Crumb c = crumbs.get(i);
             if (i > 0) addCrumbSeparator();
@@ -261,33 +348,23 @@ public class CloudDriveActivity extends BaseActivity {
     }
 
     private void openDir(CloudFile dir) {
+        if (isSearching()) {
+            // 搜索结果里的文件夹不在当前目录路径上：退出搜索，面包屑重置为根目录＋该文件夹直达
+            searchKeyword = "";
+            while (crumbs.size() > 1) crumbs.remove(crumbs.size() - 1);
+        }
         crumbs.add(new Crumb(dir.getId(), dir.getName()));
         fetchFiles();
     }
 
     private void playFile(CloudFile file) {
+        if (drive instanceof Drive115) {
+            play115File(this, file);
+            return;
+        }
         Notify.show("正在获取播放地址…");
         new Thread(() -> {
             try {
-                // 确保 115 代理已启动（播放器只认本机代理地址，不直连 115）
-                // 用 startProxy()（优选端口 32115+），不要裸调 NanoHTTPD.start()
-                if (Drive115.ID.equals(drive.getId()) && drive instanceof Drive115) {
-                    Drive115 d115 = (Drive115) drive;
-                    com.fongmi.android.tv.cloud.drive115.Proxy115
-                            .getInstance(d115.getClient(), d115.getCookieJar())
-                            .startProxy();
-                }
-                if (Drive115.ID.equals(drive.getId()) && drive instanceof Drive115) {
-                    // 115 走网盘自己的播放会话：清单（原画＋转码多档＋自动画质）组装成
-                    // 直达选集载荷，线路归「115网盘」，不再把地址交进推送链合成详情。
-                    PlayUrlBuilder115.PlayList pl = ((Drive115) drive).playList(file);
-                    if (pl == null || pl.entries.isEmpty()) throw new Exception("取播放地址失败");
-                    String episodesJson = pan115EpisodesJson(pl);
-                    String firstUrl = pl.entries.get(pl.defaultIndex).proxyUrl;
-                    int selIdx = pl.defaultIndex;
-                    runOnUiThread(() -> VideoActivity.startPan115(this, firstUrl, file.getName(), episodesJson, selIdx));
-                    return;
-                }
                 String url = drive.getPlayUrl(file);
                 runOnUiThread(() -> {
                     if (!TextUtils.isEmpty(url)) {
@@ -297,6 +374,43 @@ public class CloudDriveActivity extends BaseActivity {
                         Notify.show("获取播放地址失败");
                     }
                 });
+            } catch (Exception e) {
+                Log.e(TAG, "播放失败", e); // 完整堆栈打到 Logcat
+                String m = msg(e);
+                String toast;
+                if (m.contains("代理启动失败")) {
+                    toast = "代理启动失败，请重试";
+                } else if (m.contains("pick_code")) {
+                    toast = "文件 pick_code 为空";
+                } else {
+                    toast = "获取播放地址失败：" + m;
+                }
+                final String ft = toast;
+                runOnUiThread(() -> Notify.show(ft));
+            }
+        }).start();
+    }
+
+    /**
+     * 115 文件直达起播（网盘自己的播放会话）：供本页点击与首页搜索的 115 结果共用同一条路。
+     * 确保本机代理已启动（播放器只认代理地址，不直连 115），清单组装成直达选集载荷走
+     * VideoActivity.startPan115，线路归「115网盘」，不经推送链合成详情。
+     */
+    public static void play115File(Activity activity, CloudFile file) {
+        Notify.show("正在获取播放地址…");
+        new Thread(() -> {
+            try {
+                Drive115 d115 = new Drive115();
+                // 用 startProxy()（优选端口 32115+），不要裸调 NanoHTTPD.start()
+                com.fongmi.android.tv.cloud.drive115.Proxy115
+                        .getInstance(d115.getClient(), d115.getCookieJar())
+                        .startProxy();
+                PlayUrlBuilder115.PlayList pl = d115.playList(file);
+                if (pl == null || pl.entries.isEmpty()) throw new Exception("取播放地址失败");
+                String episodesJson = pan115EpisodesJson(pl);
+                String firstUrl = pl.entries.get(pl.defaultIndex).proxyUrl;
+                int selIdx = pl.defaultIndex;
+                activity.runOnUiThread(() -> VideoActivity.startPan115(activity, firstUrl, file.getName(), episodesJson, selIdx));
             } catch (Exception e) {
                 Log.e(TAG, "115 播放失败", e); // 完整堆栈打到 Logcat
                 String m = msg(e);
@@ -309,7 +423,7 @@ public class CloudDriveActivity extends BaseActivity {
                     toast = "获取播放地址失败：" + m;
                 }
                 final String ft = toast;
-                runOnUiThread(() -> Notify.show(ft));
+                activity.runOnUiThread(() -> Notify.show(ft));
             }
         }).start();
     }

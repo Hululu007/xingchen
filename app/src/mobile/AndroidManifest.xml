@@ -20,6 +20,7 @@
         <activity
             android:name=".ui.activity.HomeActivity"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation"
+            android:documentLaunchMode="intoExisting"
             android:exported="true"
             android:launchMode="singleTop"
             android:screenOrientation="fullUser"

@@ -56,7 +56,8 @@ public final class MusicPlaylistPicker {
         // 在全玻璃口径下是整块实底漏网（2026-10-26 全扫）。
         root.setBackground(new MusicGlassDrawable(activity, 16, true));
 
-        // 头：标题居中（带首数）＋右侧 × 关（他的铁律：不放返回箭头，× 可以）
+        // 头：标题左对齐（带首数）＋右侧 × 关（他的铁律：标题左对齐、不放返回箭头，× 可以；
+        // 扫描 T5：此前标题 Gravity.CENTER 居中，与全 App 左对齐口径不符）
         FrameLayout header = new FrameLayout(activity);
         TextView title = new TextView(activity);
         title.setText("添加到歌单（1 首）");
@@ -64,7 +65,7 @@ public final class MusicPlaylistPicker {
         title.setTextSize(17);
         title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         title.setLetterSpacing(-0.3f / 17f);
-        title.setGravity(Gravity.CENTER);
+        title.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
         header.addView(title, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 44)));
         TextView close = new TextView(activity);
@@ -263,13 +264,27 @@ public final class MusicPlaylistPicker {
                 public void onResult(MusicPlaylist sheet) {
                     if (sheet != null) {
                         MusicLibrary.addToPlaylist(sheet.getId(), track, new MusicLibrary.DataCallback<Boolean>() {
+                            // 扫描 M26：此前不看返回值恒报「已添加」且无 onError——
+                            // 与行点击路径同口径：按真值分报、出错报失败，不许假报成功
                             @Override
                             public void onResult(Boolean added) {
-                                Toast.makeText(a, "已添加", Toast.LENGTH_SHORT).show();
+                                Toast.makeText(a, Boolean.TRUE.equals(added) ? "已添加" : "添加失败", Toast.LENGTH_SHORT).show();
+                            }
+
+                            @Override
+                            public void onError(Throwable t) {
+                                Toast.makeText(a, "添加失败", Toast.LENGTH_SHORT).show();
                             }
                         });
+                    } else {
+                        Toast.makeText(a, "添加失败", Toast.LENGTH_SHORT).show();
                     }
                     dialog.dismiss();
+                }
+
+                @Override
+                public void onError(Throwable t) {
+                    Toast.makeText(a, "添加失败", Toast.LENGTH_SHORT).show();
                 }
             });
         });

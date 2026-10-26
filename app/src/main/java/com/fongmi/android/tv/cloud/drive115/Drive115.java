@@ -478,6 +478,14 @@ public class Drive115 implements CloudDrive {
         }
         List<CloudFile> files = new ArrayList<>();
         JSONArray arr = d.optJSONArray("data");
+        if (arr == null) {
+            // PY 活口径防御：个别响应 data 是对象，列表在其 data/list 里
+            JSONObject dataObj = d.optJSONObject("data");
+            if (dataObj != null) {
+                arr = dataObj.optJSONArray("data");
+                if (arr == null) arr = dataObj.optJSONArray("list");
+            }
+        }
         if (arr == null) return files;
         for (int i = 0; i < arr.length(); i++) {
             JSONObject o = arr.optJSONObject(i);

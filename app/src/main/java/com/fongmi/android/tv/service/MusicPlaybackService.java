@@ -200,6 +200,13 @@ public class MusicPlaybackService extends MediaSessionService {
         }
 
         /**
+         * 当前曲封面被后到的真图换上时发（115 内嵌封面点播兜底读到后）：页面据此
+         * 重绑封面与氛围；会话元数据在服务侧已先换好。默认空实现，老监听不受影响。
+         */
+        default void onCoverChanged(MusicTrack track) {
+        }
+
+        /**
          * W-E 配合：可信的“已失败”信号——任一取链／播放失败收口时发（手动停在失败态、
          * 自动推进停机、自动跳歌越过失败歌时都发，失败歌以本事件为准，不许再从
          * 回滚宣告／null 宣告反推失败）。reasonRes 为失败原因串资源 id。
@@ -2269,6 +2276,15 @@ public class MusicPlaybackService extends MediaSessionService {
                     loadedQuality = quality;
                     return;
                 }
+                // 115 网盘歌：搜索时读全的内嵌标签在此兑现（装配前最后一道）——
+                // 内嵌封面第一优先（盖过平台配图）、标签歌名歌手专辑覆盖文件名解析、
+                // 时长补正；缓存里没有（没读过）不在这里等，装配后走异步兜底。
+                if (com.fongmi.android.tv.music.CloudMusicSource.PLATFORM.equals(track.platform)) {
+                    try {
+                        com.fongmi.android.tv.cloud.drive115.Pan115Tags.applyTo(track);
+                    } catch (Throwable ignored) {
+                    }
+                }
                 MediaItem item = new MediaItem.Builder()
                         .setMediaId(track.id == null ? "" : track.id)
                         .setUri(fUrl)
@@ -2303,6 +2319,35 @@ public class MusicPlaybackService extends MediaSessionService {
                 player.setMediaItem(item, startPosition);
                 hasMediaItem = true;
                 loadedTrack = track;
+                // 115 网盘歌点播兜底：标签没在搜索那趟定案（还在读／队列恢复直点）时
+                // 后台补读一次；读到内嵌封面且仍在播这首，就换元数据图并发 onCoverChanged，
+                // 页面据此重绑封面——内嵌图以文件自带的为准、后到也照换。
+                if (com.fongmi.android.tv.music.CloudMusicSource.PLATFORM.equals(track.platform)) {
+                    final MusicTrack panTrack = track;
+                    final String panCoverBefore = track.cover;
+                    com.fongmi.android.tv.cloud.drive115.Pan115Tags.ensureForPlayback(panTrack, () -> {
+                        if (loadedTrack != panTrack || player == null) return;
+                        boolean coverNew = panTrack.cover != null && !panTrack.cover.isEmpty()
+                                && !panTrack.cover.equals(panCoverBefore);
+                        if (!coverNew) return;
+                        try {
+                            MediaItem cur = player.getCurrentMediaItem();
+                            if (cur != null) {
+                                MediaItem swapped = cur.buildUpon()
+                                        .setMediaMetadata(new MediaMetadata.Builder()
+                                                .setTitle(panTrack.displayTitle())
+                                                .setArtist(panTrack.displayArtist())
+                                                .setAlbumTitle(panTrack.album)
+                                                .setArtworkUri(android.net.Uri.parse(panTrack.cover))
+                                                .build())
+                                        .build();
+                                player.replaceMediaItem(player.getCurrentMediaItemIndex(), swapped);
+                            }
+                        } catch (Throwable ignored) {
+                        }
+                        listeners.forEach(l -> l.onCoverChanged(panTrack));
+                    });
+                }
                 player.prepare();
                 ensureFx(); // 会话可能随音频汇重建而变，音效跟着重新挂
                 player.setPlaybackSpeed(getSpeed());

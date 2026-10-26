@@ -434,6 +434,12 @@ public class MusicLyricActivity extends AppCompatActivity implements MusicContro
     }
 
     @Override
+    public void onCoverChanged(MusicTrack track) {
+        // 同播放页：115 内嵌封面后到时只换氛围底封面，不重走整页 bindTrack
+        if (track != null && track == mTrack && mAmbient != null) mAmbient.setCover(track.cover);
+    }
+
+    @Override
     public void onAudioInfoChanged() {
         refreshChips();
     }

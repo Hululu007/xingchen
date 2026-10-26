@@ -62,6 +62,10 @@ public class MusicController {
         default void onLyricReady(MusicTrack track) {
         }
 
+        /** 当前曲封面被真图换上信号（见 MusicPlaybackService.ServiceListener.onCoverChanged），默认空实现 */
+        default void onCoverChanged(MusicTrack track) {
+        }
+
         /** 服务失败信号（见 MusicPlaybackService.ServiceListener.onTrackFailed），默认空实现 */
         default void onTrackFailed(MusicTrack track, int reasonRes) {
         }
@@ -153,6 +157,11 @@ public class MusicController {
         @Override
         public void onLyricReady(MusicTrack track) {
             App.post(() -> listeners.forEach(l -> l.onLyricReady(track)));
+        }
+
+        @Override
+        public void onCoverChanged(MusicTrack track) {
+            App.post(() -> listeners.forEach(l -> l.onCoverChanged(track)));
         }
 
         @Override

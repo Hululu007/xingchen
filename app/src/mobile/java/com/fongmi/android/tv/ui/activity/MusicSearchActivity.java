@@ -121,6 +121,9 @@ public class MusicSearchActivity extends BaseActivity {
     /** 咪咕时长后补回调：同上，只重绑被回填时长的行 */
     private final com.fongmi.android.tv.api.music.LxPlatformSearch.MgDurationListener mgDurationListener =
             filled -> runOnUiThread(() -> rebindTracks(filled));
+    /** 115 标签后补回调（内嵌封面／时长／标签歌名歌手回填）：同上，只重绑被回填的行 */
+    private final com.fongmi.android.tv.cloud.drive115.Pan115Tags.FillListener panTagsListener =
+            filled -> runOnUiThread(() -> rebindTracks(filled));
 
     /** 后补回填后按曲目对象身份找当前展示下标、逐行重绑（不在当前分段池里的忽略） */
     private void rebindTracks(List<MusicTrack> filled) {
@@ -209,9 +212,10 @@ public class MusicSearchActivity extends BaseActivity {
         });
         MusicGlassWire.glassifyTree(rootView);
         recycler.setAdapter(adapter = new SearchAdapter());
-        // 源层后补回填（酷狗封面／咪咕时长）通知：本页在前台时才接，销毁注销（onDestroy）
+        // 源层后补回填（酷狗封面／咪咕时长／115 标签）通知：本页在前台时才接，销毁注销（onDestroy）
         com.fongmi.android.tv.api.music.LxPlatformSearch.setKgCoverListener(kgCoverListener);
         com.fongmi.android.tv.api.music.LxPlatformSearch.setMgDurationListener(mgDurationListener);
+        com.fongmi.android.tv.cloud.drive115.Pan115Tags.addFillListener(panTagsListener);
 
         findViewById(R.id.searchCancel).setOnClickListener(v -> finish());
         // 搜索只由键盘搜索键显式触发，输入框无任何 TextWatcher 自动搜；
@@ -319,6 +323,7 @@ public class MusicSearchActivity extends BaseActivity {
     protected void onDestroy() {
         com.fongmi.android.tv.api.music.LxPlatformSearch.setKgCoverListener(null);
         com.fongmi.android.tv.api.music.LxPlatformSearch.setMgDurationListener(null);
+        com.fongmi.android.tv.cloud.drive115.Pan115Tags.removeFillListener(panTagsListener);
         MusicController.get().removeListener(controllerListener);
         MusicController.get().unbind();
         super.onDestroy();

@@ -456,6 +456,7 @@ public class Drive115 implements CloudDrive {
             f.setSize(o.optLong("s", 0));
             f.setPickCode(o.optString("pc"));
             f.setSha1(o.optString("sha"));
+            f.setIcon(o.optString("ico"));
             if (!isDir) f.setThumbUrl(thumbOf(o));
             f.setParentCid(cid);
             files.add(f);
@@ -521,6 +522,7 @@ public class Drive115 implements CloudDrive {
             f.setSize(o.optLong("s", 0));
             f.setPickCode(o.optString("pc"));
             f.setSha1(o.optString("sha"));
+            f.setIcon(o.optString("ico"));
             if (!isDir) f.setThumbUrl(thumbOf(o));
             // 结果不在当前目录下，parentCid 只能取结果项自带的归属，别沿用 listDir 的请求 cid
             f.setParentCid(isDir ? o.optString("pid") : o.optString("cid"));

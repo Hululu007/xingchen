@@ -522,6 +522,13 @@ public class LxPlatformSearch {
     private static final java.util.List<KgCoverListener> KG_COVER_LISTENERS =
             new java.util.concurrent.CopyOnWriteArrayList<>();
 
+    /** 单槽登记（搜索页用）：后来者顶替先到者，传 null 即注销——搜索页 initView／onDestroy
+     * 一直在调本方法，此前只有 add/remove 两口、调用对不上（编译断点），在此补齐。 */
+    public static void setKgCoverListener(KgCoverListener l) {
+        KG_COVER_LISTENERS.clear();
+        if (l != null) KG_COVER_LISTENERS.add(l);
+    }
+
     public static void addKgCoverListener(KgCoverListener l) {
         if (l != null && !KG_COVER_LISTENERS.contains(l)) KG_COVER_LISTENERS.add(l);
     }
@@ -706,6 +713,12 @@ public class LxPlatformSearch {
 
     private static final java.util.List<MgDurationListener> MG_DURATION_LISTENERS =
             new java.util.concurrent.CopyOnWriteArrayList<>();
+
+    /** 单槽登记（搜索页用），同 setKgCoverListener 口径补齐。 */
+    public static void setMgDurationListener(MgDurationListener l) {
+        MG_DURATION_LISTENERS.clear();
+        if (l != null) MG_DURATION_LISTENERS.add(l);
+    }
 
     public static void addMgDurationListener(MgDurationListener l) {
         if (l != null && !MG_DURATION_LISTENERS.contains(l)) MG_DURATION_LISTENERS.add(l);

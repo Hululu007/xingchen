@@ -1090,6 +1090,15 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
     }
 
     @Override
+    public void onCoverChanged(MusicTrack track) {
+        // 115 内嵌封面点播兜底后到：仍是当前曲就重绑封面与氛围底（服务侧元数据已先换）
+        if (track != null && track == mTrack) {
+            bindCover(mTrack, 0);
+            mAmbient.setCover(mTrack.cover);
+        }
+    }
+
+    @Override
     public void onAudioInfoChanged() {
         refreshChips();
     }

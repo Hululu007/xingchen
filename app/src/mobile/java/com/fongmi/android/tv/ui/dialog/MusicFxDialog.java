@@ -111,7 +111,7 @@ public class MusicFxDialog extends BaseBottomSheetDialog {
         TextView eqRow = new TextView(getContext());
         eqRow.setText(getString(R.string.music_parametric_eq) + " ›");
         eqRow.setTextSize(15);
-        eqRow.setTextColor(0xFF1C1C1E);
+        eqRow.setTextColor(0xFFF1F4F5);
         eqRow.setPadding(0, dp(16), 0, dp(4));
         eqRow.setOnClickListener(v -> {
             FragmentActivity host = getActivity();

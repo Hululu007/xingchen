@@ -968,7 +968,7 @@ public class MusicDownloadActivity extends BaseActivity {
                 TextView tv = new TextView(parent.getContext());
                 tv.setTextSize(17);
                 tv.setTypeface(null, android.graphics.Typeface.BOLD);
-                tv.setTextColor(0xFF1C1C1E);
+                tv.setTextColor(0xFFF1F4F5);
                 tv.setPadding(dp(4), dp(12), dp(4), dp(8));
                 tv.setLayoutParams(new RecyclerView.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));

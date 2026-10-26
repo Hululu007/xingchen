@@ -348,7 +348,7 @@ public class MusicPlaylistsActivity extends BaseActivity {
         sheetsMulti = on;
         if (!on) sheetsSelected.clear();
         btnSheetsMulti.setText(on ? "取消多选" : "多选");
-        btnSheetsMulti.setTextColor(on ? 0xFFFA243C : 0xFF1C1C1E);
+        btnSheetsMulti.setTextColor(on ? 0xFFFA243C : 0xFFF1F4F5);
         toolbar.setVisibility(on ? View.VISIBLE : View.GONE);
         btnSort.setVisibility(on ? View.GONE : View.VISIBLE);
         tvPlayAll.setText("删除所选 (" + sheetsSelected.size() + ")");

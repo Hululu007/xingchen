@@ -56,8 +56,8 @@ public class MusicToolsSheet {
     private static final int PANEL_BG = 0xF21C1C1E;
     private static final int CARD_BG = 0xFF2C2C2E;
     private static final int TEXT_HIGH = 0xFFF2F2F7;
-    private static final int TEXT_MED = 0xFF8E8E93;
-    private static final int TEXT_LOW = 0xFF636366;
+    private static final int TEXT_MED = 0x99FFFFFF;
+    private static final int TEXT_LOW = 0x99FFFFFF;
     private static final int ACCENT = 0xFFFA243C;
 
     private final AppCompatActivity mActivity;

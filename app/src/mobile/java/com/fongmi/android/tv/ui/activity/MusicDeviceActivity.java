@@ -464,9 +464,10 @@ public class MusicDeviceActivity extends BaseActivity {
         for (int i = 0; i < chips.length; i++) {
             if (chips[i] == null) continue;
             boolean sel = i == deviceView;
-            chips[i].setTextColor(sel ? 0xFFFA243C : 0xFF1C1C1E);
+            chips[i].setTextColor(sel ? 0xFFFA243C : 0xFFF1F4F5);
             chips[i].getPaint().setFakeBoldText(sel);
         }
+        deviceFilterBar.setTextColor(0x99FFFFFF);
         if (deviceGroupType >= 0) {
             deviceFilterBar.setVisibility(View.VISIBLE);
             String label = deviceGroupType == 0 ? "专辑：" : deviceGroupType == 1 ? "歌手：" : "文件夹：";

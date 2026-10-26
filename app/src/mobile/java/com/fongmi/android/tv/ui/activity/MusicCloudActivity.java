@@ -994,7 +994,7 @@ public class MusicCloudActivity extends BaseActivity {
                 content.addView(texts, textsLp);
                 nameView = new TextView(MusicCloudActivity.this);
                 nameView.setTextSize(14);
-                nameView.setTextColor(0xFF0C0E12);
+                nameView.setTextColor(0xFFF1F4F5);
                 nameView.setSingleLine(true);
                 nameView.setEllipsize(android.text.TextUtils.TruncateAt.END);
                 if (android.os.Build.VERSION.SDK_INT >= 28) nameView.setLineHeight(ResUtil.sp2px(20));
@@ -1067,7 +1067,7 @@ public class MusicCloudActivity extends BaseActivity {
                 playing = cur != null && want.equals(cur.id);
             } catch (Throwable ignored) {
             }
-            nameView.setTextColor(playing ? 0xFFFA243C : 0xFF0C0E12);
+            nameView.setTextColor(playing ? 0xFFFA243C : 0xFFF1F4F5);
             return convertView;
         }
     }

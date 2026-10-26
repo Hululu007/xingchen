@@ -34,7 +34,7 @@ import java.util.List;
 public final class MusicPlaylistPicker {
 
     private static final int TEXT_HIGH = 0xFFF2F2F7;
-    private static final int TEXT_LOW = 0xFF636366;
+    private static final int TEXT_LOW = 0x99FFFFFF;
     private static final int ACCENT = 0xFFFA243C;
 
     private MusicPlaylistPicker() {
@@ -234,7 +234,7 @@ public final class MusicPlaylistPicker {
         input.setSingleLine(true);
         input.setInputType(InputType.TYPE_CLASS_TEXT);
         input.setTextColor(TEXT_HIGH);
-        input.setHintTextColor(0x668E8E93);
+        input.setHintTextColor(0x99FFFFFF);
         input.setHint("歌单名");
         input.setTextSize(14);
         input.setPadding(dp(a, 14), 0, dp(a, 14), 0);

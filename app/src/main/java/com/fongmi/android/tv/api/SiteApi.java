@@ -746,8 +746,14 @@ public class SiteApi {
             params.put("ids", id);
             String detailContent = call(site, params);
             SpiderDebug.log("detail", detailContent);
-            detailCache.put(cacheKey, new DetailCacheEntry(System.currentTimeMillis(), detailContent));
             Result result = Result.fromType(site.getType(), detailContent);
+            // 扫描 O3：入缓存移到解析之后且只收真详情——此前无条件先 put，
+            // 空体/错误页会被缓存 5 分钟，站点恢复了也看不到详情；
+            // 判空口径与蜘蛛分支一致（vod 空或 playFrom/playUrl 任一空都不入缓存）。
+            Vod nonSpiderVod = result.getVod();
+            if (nonSpiderVod != null && !nonSpiderVod.getPlayFrom().isEmpty() && !nonSpiderVod.getPlayUrl().isEmpty()) {
+                detailCache.put(cacheKey, new DetailCacheEntry(System.currentTimeMillis(), detailContent));
+            }
             result.getVod().setFlags();
             if (parse) Source.get().parse(result.getVod());
             return result;
@@ -770,7 +776,8 @@ public class SiteApi {
     }
 
     /**
-     * 解析结果短时内存缓存：key = 源 key|flag|集 id。命中直接返回，不重跑解析。
+     * 解析结果短时内存缓存：key = 源 key|flag|集 id|播放器类型（O1：fetch 按播放器分流）。
+     * 命中直接返回，不重跑解析；空地址结果不入缓存（O2，见 cachePlayerResult）。
      * 普通源 TTL 10 分钟；Emby 直链易过期缩到 3 分钟；
      * 迅雷/磁力/ed2k 类不缓存（解析交给播放器引擎，缓存解析结果无意义）。
      * 只做内存、不落盘；缓存值是解析完的 URL＋header 原样（JSON 存取，防调用方篡改）。
@@ -857,9 +864,15 @@ public class SiteApi {
 
     private static Result cachePlayerResult(String cacheKey, Result result, long ttl) {
         if (cacheKey != null && result != null) {
-            try {
-                playerCache.put(cacheKey, new PlayerCacheEntry(System.currentTimeMillis(), ttl, result.toString()));
-            } catch (Throwable ignored) {
+            // 扫描 O2：空地址不入缓存——解析失败时 Result 是 empty()、URL 为 ""，
+            // 此前无条件 put 会让该集在 TTL 内每次播放都命中这份空结果、不再重跑解析，
+            // 表现为一直播不了且无新请求。四个调用分支共用此口、在此统一收口。
+            String url = result.getUrl() == null ? null : result.getUrl().v();
+            if (url != null && !url.isEmpty()) {
+                try {
+                    playerCache.put(cacheKey, new PlayerCacheEntry(System.currentTimeMillis(), ttl, result.toString()));
+                } catch (Throwable ignored) {
+                }
             }
         }
         return result;
@@ -894,7 +907,9 @@ public class SiteApi {
         if (HkDetailBridge.isHkKey(key)) return hkPlayerContent(key, flag, id, playerType);
         Site site = VodConfig.get().getSite(key);
         // 解析结果缓存：迅雷/磁力类不进缓存；海阔走独立路由（hkPlayerContent）不进缓存。
-        String playerCacheKey = isThunderId(id) ? null : key + "|" + flag + "|" + id;
+        // 扫描 O1：缓存键带播放器类型——Source.fetch 对 DASH 按 playerType 分流
+        // （MPV 解 EDL、EXO 改 format 防过期），不带类型时切播放器重播会串用另一形态的地址。
+        String playerCacheKey = isThunderId(id) ? null : key + "|" + flag + "|" + id + "|" + playerType;
         if (playerCacheKey != null) {
             PlayerCacheEntry cached = playerCache.get(playerCacheKey);
             if (cached != null && cached.fresh()) return Result.fromJson(cached.json);

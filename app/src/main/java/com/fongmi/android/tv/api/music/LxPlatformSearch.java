@@ -6,6 +6,7 @@ import android.util.Base64;
 import com.fongmi.android.tv.bean.music.MusicTrack;
 import com.fongmi.quickjs.bean.Req;
 import com.fongmi.quickjs.utils.Connect;
+import com.github.catvod.crawler.SpiderDebug;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -40,6 +41,11 @@ import okhttp3.Response;
  * 各取第 2 页回不同 20 条）；mg 封面真字段 imgItems、时长接口不给；kw 改 mobi 变体
  * 取 web_albumpic_short 封面；kg 专辑图改并发补齐；wy 本机出口被风控回
  * code 50000005、无回包，dt／al.picUrl 字段映射未获本机回包实证。
+ * 2026-10-26 复验补正：wy 的 weapi 方案定死——本机干净出口实测仍回
+ * {"code":50000005} 风控码、无 result，旧实现取空静默归零、网易在搜索里
+ * 长期无影。主路改 api/cloudsearch/pc 明文 GET（同日实测同词回 194 条，
+ * result.songs 与 weapi 同形，name／ar／al.picUrl／dt 字段齐），weapi 留兜底。
+ * kw／kg／mg 三端点同日逐字复测全活（kw HIT=818／kg total=437／mg code 000000）。
  */
 public class LxPlatformSearch {
 
@@ -77,23 +83,54 @@ public class LxPlatformSearch {
         return search(key, keyword, 1);
     }
 
-    /** 分页版（page 从 1 起）：五平台接口都收页码，旧实现全写死第一页、第二页永远拿不到。 */
+    /** 分页版（page 从 1 起）：五平台接口都收页码，旧实现全写死第一页、第二页永远拿不到。
+     * 失败／第一页空结果在此留痕（平台＋真因）：旧实现各平台回空与抛错一路静默到
+     * 搜索页计数器，某家整家消失时日志里什么都查不到（2026-10-26「只剩 QQ」一案）。 */
     public static List<MusicTrack> search(String key, String keyword, int page) throws Exception {
         int p = Math.max(1, page);
-        switch (key == null ? "" : key) {
-            case KW:
-                return searchKw(keyword, p);
-            case QQ:
-                return searchQq(keyword, p);
-            case WY:
-                return searchWy(keyword, p);
-            case KG:
-                return searchKg(keyword, p);
-            case MG:
-                return searchMg(keyword, p);
-            default:
-                return new ArrayList<>();
+        String k = key == null ? "" : key;
+        List<MusicTrack> out;
+        try {
+            switch (k) {
+                case KW:
+                    out = searchKw(keyword, p);
+                    break;
+                case QQ:
+                    out = searchQq(keyword, p);
+                    break;
+                case WY:
+                    out = searchWy(keyword, p);
+                    break;
+                case KG:
+                    out = searchKg(keyword, p);
+                    break;
+                case MG:
+                    out = searchMg(keyword, p);
+                    break;
+                default:
+                    out = new ArrayList<>();
+                    break;
+            }
+        } catch (Throwable t) {
+            SpiderDebug.log("music", "lx plat search fail platform=%s page=%d %s", k, p, errText(t));
+            if (t instanceof Exception) throw (Exception) t;
+            throw new Exception(t);
         }
+        if (out.isEmpty() && p == 1) {
+            SpiderDebug.log("music", "lx plat search empty platform=%s", k);
+        }
+        return out;
+    }
+
+    /** 错误日志文本：与 LxMusicSource.errText 同口径——解包到根因取消息，没消息记类名。 */
+    private static String errText(Throwable t) {
+        Throwable root = t;
+        while ((root instanceof java.util.concurrent.ExecutionException
+                || root instanceof java.util.concurrent.CompletionException) && root.getCause() != null) {
+            root = root.getCause();
+        }
+        String m = root.getMessage();
+        return m != null ? m : root.getClass().getSimpleName();
     }
 
     /* ---------------- 酷我 kw ---------------- */
@@ -212,7 +249,7 @@ public class LxPlatformSearch {
         return null;
     }
 
-    /* ---------------- 网易 wy（weapi 方案；本机 POST 超时未验通，见类注释） ---------------- */
+    /* ---------------- 网易 wy（主路 cloudsearch/pc 明文 GET；weapi 已被风控打死、留兜底，见类注释） ---------------- */
 
     private static final String WY_PRESET_KEY = "0CoJUm6Qyw8W8jud";
     private static final String WY_IV = "0102030405060708";
@@ -223,6 +260,18 @@ public class LxPlatformSearch {
     private static final String BASE62 = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
     private static List<MusicTrack> searchWy(String keyword, int page) throws Exception {
+        // 主路：api/cloudsearch/pc 明文 GET（2026-10-26 实测活，字段与 weapi 同形）。
+        // 回包结构不合（无 result.songs，如被风控换形）或请求抛错才落 weapi 兜底。
+        String url = "https://music.163.com/api/cloudsearch/pc?s=" + enc(keyword)
+                + "&type=1&offset=" + ((page - 1) * 20) + "&limit=20&total=true";
+        List<MusicTrack> out = null;
+        try {
+            String text = httpGet(url, "https://music.163.com/");
+            out = parseWySongs(JsonParser.parseString(text).getAsJsonObject());
+        } catch (Throwable t) {
+            SpiderDebug.log("music", "wy search pc fail %s", errText(t));
+        }
+        if (out != null) return out;
         JsonObject payload = new JsonObject();
         payload.addProperty("s", keyword);
         payload.addProperty("type", 1);
@@ -233,9 +282,20 @@ public class LxPlatformSearch {
         String text = httpPost("https://music.163.com/weapi/cloudsearch/get/web?csrf_token=", body,
                 "https://music.163.com");
         JsonObject root = JsonParser.parseString(text).getAsJsonObject();
+        if (!root.has("result")) {
+            // 风控回包只有 {"code":50000005}：把码记下来，别再静默归零装无结果
+            String code = root.has("code") ? root.get("code").toString() : "?";
+            SpiderDebug.log("music", "wy search weapi no-result code=%s", code);
+        }
+        List<MusicTrack> fb = parseWySongs(root);
+        return fb == null ? new ArrayList<>() : fb;
+    }
+
+    /** wy 回包解析（pc 与 weapi 同形）：无 result.songs 时回 null（与「真无结果」的空表分开）。 */
+    private static List<MusicTrack> parseWySongs(JsonObject root) {
         List<MusicTrack> out = new ArrayList<>();
         JsonArray songs = digArray(root, "result", "songs");
-        if (songs == null) return out;
+        if (songs == null) return null;
         for (JsonElement el : songs) {
             if (!el.isJsonObject()) continue;
             JsonObject o = el.getAsJsonObject();

@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.ai;
 import com.fongmi.android.tv.utils.ToastUtil;
+import com.fongmi.android.tv.utils.XcFadeTransition;
 
 import android.Manifest;
 import android.app.Activity;
@@ -77,7 +78,7 @@ public class AiFloatManager {
         }
         attach(activity);
         if (floatView != null) {
-            floatView.setVisibility(View.VISIBLE);
+            XcFadeTransition.fadeIn(floatView); // 出现走统一淡入 200ms
         }
     }
 
@@ -221,12 +222,33 @@ public class AiFloatManager {
         // 每离开一页就销毁，下次长按新建后立即 startListening 会撞系统服务未绑定窗口哑火。
         // 识别器随本单例走进程生命周期，仅启动失败时在 startPressToTalk 内销毁重建。
         if (floatView != null) {
-            try {
-                ViewGroup parent = (ViewGroup) floatView.getParent();
-                if (parent != null) parent.removeView(floatView);
-            } catch (Exception ignored) {
-            }
+            View view = floatView;
             floatView = null;
+            fadeOutAndRemove(view); // 消失走淡出 200ms 后摘除，不直摘
+        }
+    }
+
+    /** 悬浮件消失统一口：淡出 200ms 后从父容器摘除（系统动画关时直接摘）。 */
+    private void fadeOutAndRemove(View view) {
+        try {
+            if (!XcFadeTransition.isAnimEnabled(view.getContext())) {
+                removeFromParent(view);
+                return;
+            }
+            view.animate().alpha(0f).setDuration(XcFadeTransition.DURATION_MS)
+                    .setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator())
+                    .withEndAction(() -> removeFromParent(view))
+                    .start();
+        } catch (Exception ignored) {
+            removeFromParent(view);
+        }
+    }
+
+    private void removeFromParent(View view) {
+        try {
+            ViewGroup parent = (ViewGroup) view.getParent();
+            if (parent != null) parent.removeView(view);
+        } catch (Exception ignored) {
         }
     }
 
@@ -401,6 +423,7 @@ public class AiFloatManager {
             tip.setLayoutParams(lp);
             ((ViewGroup) activity.getWindow().getDecorView()).addView(tip);
             recordTip = tip;
+            XcFadeTransition.fadeIn(tip); // 录音提示条出现走统一淡入 200ms
         } catch (Exception ignored) {
         }
     }
@@ -413,9 +436,9 @@ public class AiFloatManager {
                 ballBgBackup = null;
             }
             if (recordTip != null) {
-                ViewGroup parent = (ViewGroup) recordTip.getParent();
-                if (parent != null) parent.removeView(recordTip);
+                View tip = recordTip;
                 recordTip = null;
+                fadeOutAndRemove(tip); // 录音提示条消失走淡出 200ms 后摘除
             }
         } catch (Exception ignored) {
         }

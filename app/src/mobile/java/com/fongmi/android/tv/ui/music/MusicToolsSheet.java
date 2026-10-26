@@ -401,8 +401,15 @@ public class MusicToolsSheet {
         tiles.setOrientation(LinearLayout.HORIZONTAL);
         tiles.addView(tile(R.drawable.ic_music_download, "下载", () -> {
             if (t != null) {
-                MusicDownloadStore.download(t);
-                Toast.makeText(mActivity, "已加入下载", Toast.LENGTH_SHORT).show();
+                // 扫描 M27：按受理结果如实报——本地歌不下载、每次询问模式不入队，
+                // 此前无条件弹「已加入下载」是假报（那两条路 download() 直接返回）
+                int r = MusicDownloadStore.download(t);
+                if (r == MusicDownloadStore.DL_ACCEPTED) {
+                    Toast.makeText(mActivity, "已加入下载", Toast.LENGTH_SHORT).show();
+                } else if (r == MusicDownloadStore.DL_LOCAL) {
+                    Toast.makeText(mActivity, "本地歌曲无需下载", Toast.LENGTH_SHORT).show();
+                }
+                // DL_ASK：download() 已发「去列表选档」提示，此处不再叠报
             }
         }));
         View tile2 = tile(R.drawable.ic_lyric_wave, "歌词", this::showLyricStyle);

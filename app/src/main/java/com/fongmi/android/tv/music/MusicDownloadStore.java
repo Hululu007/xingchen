@@ -453,18 +453,26 @@ public class MusicDownloadStore {
         });
     }
 
+    /** download() 的受理结果（扫描 M27）：调用方据此如实提示，不许无条件报「已加入下载」。 */
+    public static final int DL_ACCEPTED = 0;
+    /** 本地歌曲：无下载动作（原实现静默 return，瓷砖侧却照报已加入下载） */
+    public static final int DL_LOCAL = 1;
+    /** 每次询问模式：本入口不入队，已另发提示让用户去列表/播放页选档 */
+    public static final int DL_ASK = 2;
+
     /** 歌曲行 ⋮ 菜单「下载」入口（固定／跟随模式）：取直链 → 交 DownloadManager 下载。
      * 每次询问模式下本入口无 Activity 弹不了选档窗，不静默按固定档下载，只提示后返回；
      * 逐首选档走 downloadWithQuality（调用点在 mobile 侧弹 MusicOptionsDialog 后调入），
      * 播放页 downloadCurrent 的 ASK 分支见协调员补丁规格（本文件在 main 源集，不引 mobile 弹窗，
-     * 否则 leanback 变体编不过）。 */
-    public static void download(MusicTrack track) {
-        if (track == null || isLocal(track)) return;
+     * 否则 leanback 变体编不过）。返回值见 DL_* 常量；既有调用方忽略返回值不受影响。 */
+    public static int download(MusicTrack track) {
+        if (track == null || isLocal(track)) return DL_LOCAL;
         if (MusicStore.getDownloadMode() == MusicStore.DL_MODE_ASK) {
             post(() -> Notify.show(R.string.music_dl_ask_no_activity));
-            return;
+            return DL_ASK;
         }
         downloadWithQuality(track, MusicStore.getDownloadQuality());
+        return DL_ACCEPTED;
     }
 
     /** 逐首选档后的下载核心（ASK 弹窗的落点；固定／跟随模式由 download 转调）：取指定档直链 → 交 DownloadManager 下载 */

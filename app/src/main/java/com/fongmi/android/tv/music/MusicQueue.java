@@ -61,6 +61,13 @@ public class MusicQueue {
     /** route 参数（B7，纯 Java Map，不依赖安卓 Bundle）：list 路由带 mode／keyword／sitePlatform／playlistId／title。 */
     private java.util.Map<String, String> routeParams;
 
+    /**
+     * 列表会话标识（视频侧列表整拉入队时由入队方写入）：标识「这队歌出自哪个列表」
+     * （源＋分类／搜索词）。同列表后续翻页续载的新歌按此对号追加队尾；换队（setTracks）
+     * 与清队（clear）即失效——队列不再是死快照，但也绝不串到别的列表的队列上。
+     */
+    private String listSession;
+
     public synchronized void setTracks(List<MusicTrack> list, int startIndex) {
         setTracks(list, startIndex, null, null, null);
     }
@@ -124,6 +131,7 @@ public class MusicQueue {
         shuffleHistory.clear();
         shuffleOrder.clear();
         nextRoundOrder = null;
+        listSession = null;
         tracks.clear();
         if (list != null) tracks.addAll(list);
         index = tracks.isEmpty() ? -1 : Math.max(0, Math.min(startIndex, tracks.size() - 1));
@@ -393,10 +401,39 @@ public class MusicQueue {
         if (index < 0) index = 0;
     }
 
+    /** 列表会话标识：视频侧列表整拉入队时写，同列表续载追加按它对号；换队／清队即失效。 */
+    public synchronized String getListSession() {
+        return listSession;
+    }
+
+    public synchronized void setListSession(String listSession) {
+        this.listSession = listSession;
+    }
+
+    /**
+     * 批量追加队尾（同列表翻页续载用）：按 trackKey 去重——队里已有的、批内重复的
+     * 都跳过，不许一首歌在队里出现两遍；逐首走 append 的随机顺序跟进口径。
+     * @return 实际追加的条数
+     */
+    public synchronized int appendTracks(List<MusicTrack> more) {
+        if (more == null || more.isEmpty()) return 0;
+        java.util.Set<String> keys = new java.util.HashSet<>();
+        for (MusicTrack t : tracks) keys.add(trackKey(t));
+        int added = 0;
+        for (MusicTrack t : more) {
+            if (t == null) continue;
+            if (!keys.add(trackKey(t))) continue;
+            append(t);
+            added++;
+        }
+        return added;
+    }
+
     public synchronized void clear() {
         shuffleHistory.clear();
         shuffleOrder.clear();
         nextRoundOrder = null;
+        listSession = null;
         tracks.clear();
         index = -1;
         source = null;

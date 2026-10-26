@@ -211,6 +211,13 @@ public class TypeFragment extends BaseFragment implements CustomScroller.Callbac
         mBinding.swipeLayout.setRefreshing(false);
         mScroller.endLoading(result);
         if (size > 0) addVideo(result);
+        // 音乐列表续载同步（非首页、非第一页）：这页的歌若已从本列表起播成队列，
+        // 同步追进队尾——队列跟着列表长，不停在起播时那一页的快照上。
+        if (!first && size > 0 && !isHome()) {
+            com.fongmi.android.tv.ui.MusicVodRouter.appendListPage(
+                    com.fongmi.android.tv.ui.MusicVodRouter.categorySession(getKey(), getTypeId(), mExtends == null ? "" : mExtends.toString()),
+                    getKey(), result.getList());
+        }
     }
 
     private void addVideo(Result result) {
@@ -259,7 +266,8 @@ public class TypeFragment extends BaseFragment implements CustomScroller.Callbac
             getParent().openFolder(item.getId(), mExtends);
         } else {
             if (getSite().isIndex()) SearchActivity.start(requireActivity(), item.getName());
-            else if (com.fongmi.android.tv.ui.MusicVodRouter.routeVodList(requireActivity(), getKey(), mAdapter.getItems(), item)) {}
+            else if (com.fongmi.android.tv.ui.MusicVodRouter.routeVodList(requireActivity(), getKey(), mAdapter.getItems(), item,
+                    com.fongmi.android.tv.ui.MusicVodRouter.categorySession(getKey(), getTypeId(), mExtends == null ? "" : mExtends.toString()))) {}
             else if (ShortDramaHelper.shouldDirectPlay(getKey(), getTypeId(), getTypeName())) VideoActivity.startShortDrama(requireActivity(), getKey(), item.getId(), item.getName(), item.getPic());
             else if (ShortDramaHelper.isLiveShortDramaCover(coverView, item.getPic())) VideoActivity.startShortDrama(requireActivity(), getKey(), item.getId(), item.getName(), item.getPic());
             else VideoActivity.start(requireActivity(), getKey(), item.getId(), item.getName(), item.getPic(), isFolder() ? item.getName() : null);

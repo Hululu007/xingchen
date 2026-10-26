@@ -726,7 +726,17 @@ public class SiteApi {
                 }
             }
             long beforeSpider = System.currentTimeMillis();
-            String detailContent = marked(site, () -> site.recent().spider().detailContent(Arrays.asList(id)));
+            // 蜘蛛没就绪（被驱逐／脚本失效后重建被顶替打断）：空蜘蛛回的空串不是详情为空——
+            // 不许计次、不许驱逐、不许写缓存（旧口径会把没就绪攒成 3 次空详情反手把蜘蛛
+            // 再驱逐，越治越死）。与 homeContent 同口径等就绪：等不到就抛错，调用方按
+            // 暂时失败处理——音乐队列里的 py 歌靠这一口在队列活着期间按源 key 把蜘蛛
+            // 重建起来再取详情，不许因为蜘蛛被回收就整队判死。
+            Spider detailSpider = awaitReadySpider(site, site.recent().spider());
+            if (detailSpider == null) {
+                SpiderDebug.log("detail", "spider not ready key=%s id=%s", key, id);
+                throw new com.fongmi.android.tv.exception.ExtractException("蜘蛛未就绪");
+            }
+            String detailContent = marked(site, () -> detailSpider.detailContent(Arrays.asList(id)));
             SpiderDebug.log("detail", detailContent);
             Result result = Result.fromJson(detailContent);
             Vod vod = result.getVod();
@@ -954,7 +964,14 @@ public class SiteApi {
         }
         if (isSpider(key, site)) {
             long spiderStart = System.currentTimeMillis();
-            String playerContent = marked(site, () -> site.recent().spider().playerContent(flag, id, VodConfig.get().getFlags()));
+            // 同 detailContent 口径：蜘蛛没就绪先等就绪（按源 key 重建），等不到抛错，
+            // 不许拿空蜘蛛的空串当解析结果（还会把空结果递给 Source.fetch 判死刑）。
+            Spider playerSpider = awaitReadySpider(site, site.recent().spider());
+            if (playerSpider == null) {
+                SpiderDebug.log("player", "spider not ready key=%s flag=%s id=%s", key, flag, id);
+                throw new com.fongmi.android.tv.exception.ExtractException("蜘蛛未就绪");
+            }
+            String playerContent = marked(site, () -> playerSpider.playerContent(flag, id, VodConfig.get().getFlags()));
             SpiderDebug.log("player", "spider done key=%s cost=%dms", key, System.currentTimeMillis() - spiderStart);
             SpiderDebug.log("player", playerContent);
             Result result = Result.fromJson(playerContent);

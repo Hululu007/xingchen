@@ -1081,6 +1081,29 @@ public class MusicPlaybackService extends MediaSessionService {
         listeners.forEach(ServiceListener::onQueueChanged);
     }
 
+    /**
+     * 列表会话绑定（视频侧列表整拉专用）：playQueue 刚换完队后由控制器在同一发
+     * 服务任务里写。换队时 MusicQueue.setTracks 已清旧绑定，不会串到新队上。
+     */
+    public void bindQueueListSession(String session) {
+        queue.setListSession(session);
+    }
+
+    /**
+     * 同列表续载追加：只有当前队列的会话与来者一致才追——起播后原列表再翻页加载的
+     * 新歌同步进队尾；队列已被换掉（用户播了别的）或会话对不上，一律丢弃不串队。
+     * 真追加了才通知面板并更新断点（断点里的队列要与活队列一致）。
+     */
+    public void appendToQueueIfSession(String session, List<MusicTrack> more) {
+        if (session == null || session.isEmpty() || more == null || more.isEmpty()) return;
+        if (!session.equals(queue.getListSession())) return;
+        int added = queue.appendTracks(more);
+        if (added > 0) {
+            listeners.forEach(ServiceListener::onQueueChanged);
+            saveBreakpoint();
+        }
+    }
+
     /** 倍速：1.0 正常，其余 0.5/0.75/1.25/1.5/2.0；持久化，下首歌照样用 */
     public void setSpeed(float speed) {
         if (speed < 0.25f) speed = 0.25f;

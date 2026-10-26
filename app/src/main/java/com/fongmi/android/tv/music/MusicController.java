@@ -336,6 +336,29 @@ public class MusicController {
         runOnService(() -> service().playQueueWithMode(new ArrayList<>(queue), index, mode, source, route, routeParams));
     }
 
+    /**
+     * 视频侧列表整拉专用：入队＋列表会话绑定在同一发服务任务里完成——不分两步，
+     * 防中间插进别的换队把绑定写到别人队上。会话标识出自哪个列表（源＋分类／搜索词），
+     * 该列表后续翻页续载的新歌按 appendToListQueue 同步追进队尾。
+     */
+    public void playListSession(List<MusicTrack> queue, int index,
+                                String source, String route, java.util.Map<String, String> routeParams,
+                                String session) {
+        if (queue == null || queue.isEmpty()) return;
+        pausedByVideo = false;
+        pauseVideoForMusic();
+        runOnService(() -> {
+            service().playQueue(new ArrayList<>(queue), index, source, route, routeParams);
+            service().bindQueueListSession(session);
+        });
+    }
+
+    /** 同列表续载追加：会话对得上才进当前队列队尾，对不上（队列已换）由服务侧丢弃。 */
+    public void appendToListQueue(String session, List<MusicTrack> tracks) {
+        if (session == null || session.isEmpty() || tracks == null || tracks.isEmpty()) return;
+        runOnService(() -> service().appendToQueueIfSession(session, new ArrayList<>(tracks)));
+    }
+
     /** 播队列并从断点位置起 */
     public void playFrom(List<MusicTrack> queue, int index, long position) {
         playFrom(queue, index, position, null, null, null);

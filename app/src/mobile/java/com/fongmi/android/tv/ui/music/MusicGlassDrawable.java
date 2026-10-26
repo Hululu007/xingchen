@@ -230,6 +230,10 @@ public class MusicGlassDrawable extends Drawable {
     private int mToneColor = 0;
 
     private final Rect mSrc = new Rect();
+    // 浮点取样窗（缓冲坐标）：整数 src 每 4px 才跳一格是滑动「分档跳」的根源，
+    // 绘制改走矩阵贴图用浮点窗，GPU 亚像素插值，纹理位置连续跟随（见 drawSampled）。
+    private float mSrcFx, mSrcFy, mSrcFw = 1f, mSrcFh = 1f;
+    private final android.graphics.Matrix mSampleMatrix = new android.graphics.Matrix();
     private final RectF mDst = new RectF();
     private final RectF mTmp = new RectF();
     private final Path mClip = new Path();
@@ -384,9 +388,21 @@ public class MusicGlassDrawable extends Drawable {
             mProcessedH = h;
         }
         Canvas c = new Canvas(mProcessed);
-        mDst.set(0, 0, w, h);
-        c.drawBitmap(buf, mSrc, mDst, mBitmapPaint);
+        // 与滚动直画同一浮点取样口径：停稳切回处理图时纹理不跳最后一格
+        mSampleMatrix.reset();
+        mSampleMatrix.postTranslate(-mSrcFx, -mSrcFy);
+        mSampleMatrix.postScale(w / mSrcFw, h / mSrcFh);
+        c.drawBitmap(buf, mSampleMatrix, mBitmapPaint);
         mProcessedDirty = false;
+    }
+
+    /** 浮点取样直画：缓冲按浮点窗贴到 bounds，位置连续、无 4px 量化台阶。 */
+    private void drawSampled(Canvas canvas, Bitmap buf, Rect b, Paint paint) {
+        mSampleMatrix.reset();
+        mSampleMatrix.postTranslate(-mSrcFx, -mSrcFy);
+        mSampleMatrix.postScale(b.width() / mSrcFw, b.height() / mSrcFh);
+        mSampleMatrix.postTranslate(b.left, b.top);
+        canvas.drawBitmap(buf, mSampleMatrix, paint);
     }
 
     private boolean drawLensBackdrop(Canvas canvas, Rect b) {
@@ -487,13 +503,12 @@ public class MusicGlassDrawable extends Drawable {
             if (buf == null) buf = MusicGlassBackgroundView.getBuffer();
             if (buf != null && !buf.isRecycled()) {
                 if (sScrollActive) {
-                    // 滚动中按当前位置精确取样直画全局处理缓冲：内容与身后严丝合缝地走，
-                    // 不用平移近似（旧 drawSampleShifted 靠宿主位移补偿＋过半重锚，一滑一跳、
-                    // 停下再跳一次——他 2026-10-26 点名「滑动一次玻璃就动一次」）。折射停下恢复。
+                    // 滚动中按当前位置浮点取样直画全局处理缓冲：旧整数 src 窗在 1/4 缓冲上
+                    // 每 4px 才跳一格，纹理在框内分档跳（他 2026-10-26 录屏实证「滑动一下
+                    // 它就动一下」）；矩阵贴图位置连续，内容与身后同步走。折射停下恢复。
                     boolean okNow = computeCrop(b);
                     if (okNow) {
-                        mDst.set(b);
-                        canvas.drawBitmap(buf, mSrc, mDst, mProcessedPaint);
+                        drawSampled(canvas, buf, b, mProcessedPaint);
                     } else if (mProcessed != null) {
                         canvas.drawBitmap(mProcessed, b.left, b.top, mProcessedPaint);
                     }
@@ -554,33 +569,37 @@ public class MusicGlassDrawable extends Drawable {
                 bg.getLocationInWindow(mBgLoc);
                 float sx = (float) bw / bg.getWidth();
                 float sy = (float) bh / bg.getHeight();
-                return setSrc(
-                        (int) ((mHostLoc[0] + b.left - mBgLoc[0]) * sx),
-                        (int) ((mHostLoc[1] + b.top - mBgLoc[1]) * sy),
-                        (int) ((mHostLoc[0] + b.right - mBgLoc[0]) * sx),
-                        (int) ((mHostLoc[1] + b.bottom - mBgLoc[1]) * sy), bw, bh);
+                return setSrcF(
+                        (mHostLoc[0] + b.left - mBgLoc[0]) * sx,
+                        (mHostLoc[1] + b.top - mBgLoc[1]) * sy,
+                        (mHostLoc[0] + b.right - mBgLoc[0]) * sx,
+                        (mHostLoc[1] + b.bottom - mBgLoc[1]) * sy, bw, bh);
             }
             android.util.DisplayMetrics dm = host.getResources().getDisplayMetrics();
             if (dm.widthPixels > 0 && dm.heightPixels > 0) {
                 host.getLocationInWindow(mHostLoc);
                 float sx = (float) bw / dm.widthPixels;
                 float sy = (float) bh / dm.heightPixels;
-                return setSrc(
-                        (int) ((mHostLoc[0] + b.left) * sx),
-                        (int) ((mHostLoc[1] + b.top) * sy),
-                        (int) ((mHostLoc[0] + b.right) * sx),
-                        (int) ((mHostLoc[1] + b.bottom) * sy), bw, bh);
+                return setSrcF(
+                        (mHostLoc[0] + b.left) * sx,
+                        (mHostLoc[1] + b.top) * sy,
+                        (mHostLoc[0] + b.right) * sx,
+                        (mHostLoc[1] + b.bottom) * sy, bw, bh);
             }
         }
         return false;
     }
 
-    private boolean setSrc(int x0, int y0, int x1, int y1, int bw, int bh) {
-        x0 = Math.max(0, Math.min(x0, bw - 1));
-        y0 = Math.max(0, Math.min(y0, bh - 1));
-        x1 = Math.max(x0 + 1, Math.min(x1, bw));
-        y1 = Math.max(y0 + 1, Math.min(y1, bh));
-        mSrc.set(x0, y0, x1, y1);
+    private boolean setSrcF(float x0, float y0, float x1, float y1, int bw, int bh) {
+        x0 = Math.max(0f, Math.min(x0, bw - 1f));
+        y0 = Math.max(0f, Math.min(y0, bh - 1f));
+        x1 = Math.max(x0 + 0.5f, Math.min(x1, bw));
+        y1 = Math.max(y0 + 0.5f, Math.min(y1, bh));
+        mSrcFx = x0;
+        mSrcFy = y0;
+        mSrcFw = x1 - x0;
+        mSrcFh = y1 - y0;
+        mSrc.set((int) x0, (int) y0, (int) Math.ceil(x1), (int) Math.ceil(y1));
         return true;
     }
 

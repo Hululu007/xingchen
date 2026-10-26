@@ -101,7 +101,10 @@ public class WallConfig extends BaseConfig {
     }
 
     private void setSnapshot(File file) throws Throwable {
-        Bitmap bitmap = Glide.with(App.get()).asBitmap().frame(0).load(file).override(ResUtil.getScreenWidth(), ResUtil.getScreenHeight()).skipMemoryCache(true).diskCacheStrategy(DiskCacheStrategy.NONE).submit().get();
+        // 扫描 H16：等待加 15 秒超时——此前无超时 get()，壁纸文件损坏/超大图/视频帧
+        // 解码卡死会永久占住配置加载线程、无线索报错。超时按失败抛出（调用链原有
+        // 异常处理接住），壁纸链不再整体卡死。
+        Bitmap bitmap = Glide.with(App.get()).asBitmap().frame(0).load(file).override(ResUtil.getScreenWidth(), ResUtil.getScreenHeight()).skipMemoryCache(true).diskCacheStrategy(DiskCacheStrategy.NONE).submit().get(15, java.util.concurrent.TimeUnit.SECONDS);
         try (FileOutputStream fos = new FileOutputStream(FileUtil.getWallCache())) {
             bitmap.compress(Bitmap.CompressFormat.JPEG, 100, fos);
         } finally {

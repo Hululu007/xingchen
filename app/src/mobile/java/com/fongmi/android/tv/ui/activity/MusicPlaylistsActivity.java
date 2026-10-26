@@ -1177,14 +1177,34 @@ public class MusicPlaylistsActivity extends BaseActivity {
     private void sheetLongPress(MusicPlaylist p) {
         List<String> opts = new ArrayList<>();
         opts.add("重命名");
+        opts.add("编辑简介");
         opts.add("删除歌单");
         MusicOptionsDialog.show(this, p.getName(), opts, -1, idx -> {
             if (idx == 0) {
                 inputPlaylistName(name -> MusicLibrary.renamePlaylist(p.getId(), name, () -> loadSheets()));
+            } else if (idx == 1) {
+                editSheetDesc(p);
             } else {
                 MusicLibrary.deletePlaylist(p.getId(), () -> loadSheets());
             }
         });
+    }
+
+    /** 编辑歌单简介（扫描 M20：MusicStore.setSheetDesc 此前全树零调用、英雄卡简介永空，
+     *  写入口就挂在歌单长按菜单、与重命名并列；清空即删简介，英雄卡回到不显示） */
+    private void editSheetDesc(MusicPlaylist p) {
+        android.widget.EditText input = new android.widget.EditText(this);
+        input.setSingleLine(false);
+        input.setText(MusicStore.getSheetDesc(p.getId()));
+        input.setHint("歌单简介");
+        input.setSelection(input.getText().length());
+        new com.fongmi.android.tv.ui.music.MusicGlassDialogBuilder(this)
+                .setTitle("编辑简介")
+                .setView(input)
+                .setPositiveButton("保存", (d, w) ->
+                        MusicStore.setSheetDesc(p.getId(), input.getText() == null ? "" : input.getText().toString().trim()))
+                .setNegativeButton("取消", null)
+                .show();
     }
 
     private class PlaylistsAdapter extends RecyclerView.Adapter<PlaylistsAdapter.PlaylistHolder> {

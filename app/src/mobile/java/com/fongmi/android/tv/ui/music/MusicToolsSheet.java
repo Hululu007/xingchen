@@ -956,6 +956,11 @@ public class MusicToolsSheet {
             }
         });
         mPanelBox.addView(custom);
+
+        // 扫描 M19：分钟档「播完再停」开关——服务 armSleep 到点现读 MusicStore
+        // 键、等待态分支都已就绪，唯独面板从来没画这个开关，键只读不写、行为永不生效。
+        mPanelBox.addView(toggleRow("播完当前歌曲再停", MusicStore.isSleepFinishCurrent(), () ->
+                MusicStore.setSleepFinishCurrent(!MusicStore.isSleepFinishCurrent())));
     }
 
     private static String formatMs(long ms) {

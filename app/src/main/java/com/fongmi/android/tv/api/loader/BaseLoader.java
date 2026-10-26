@@ -30,12 +30,14 @@ public class BaseLoader {
     private final NodeLoader nodeLoader;
     private final PyLoader pyLoader;
     private final JsLoader jsLoader;
+    private final java.util.concurrent.ConcurrentHashMap<String, Spider> catSpiders;
 
     private BaseLoader() {
         jarLoader = new JarLoader();
         nodeLoader = new NodeLoader();
         pyLoader = new PyLoader();
         jsLoader = new JsLoader();
+        catSpiders = new java.util.concurrent.ConcurrentHashMap<>();
     }
 
     public static BaseLoader get() {
@@ -73,6 +75,7 @@ public class BaseLoader {
             jarLoader.clear();
             pyLoader.clear(reason);
             jsLoader.clear();
+            catSpiders.clear();
             try {
                 SiteApi.clearDetailEmptyStrikes();
             } catch (Throwable ignored) {
@@ -110,7 +113,7 @@ public class BaseLoader {
     }
 
     /**
-     * 统一驱逐分发：类型谓词与顺序严格复用 getSpider（Py → JS → CSP），
+     * 统一驱逐分发：类型谓词与顺序严格复用 getSpider（Cat → Py → JS → CSP），
      * 调用方不许再自维护近似判型（详情空驱逐旧写法只判 .js、其余皆 Py，
      * jar 蜘蛛全误落 PyLoader 空转、.wv 也误分）。jar 必须传 Site 的原串：
      * JarLoader 创建键是对完整原串取 md5，驱逐端任何拆解/归一都会算错键。
@@ -118,7 +121,8 @@ public class BaseLoader {
      */
     public void removeSpider(String key, String api, String jar, String reason) {
         if (api == null) return;
-        if (isPy(api)) pyLoader.remove(key, reason);
+        if (CatSpider.matches(api)) catSpiders.remove(key);
+        else if (isPy(api)) pyLoader.remove(key, reason);
         else if (isJs(api)) jsLoader.remove(key);
         else if (isCsp(api)) jarLoader.removeSpider(key, api, jar, reason);
     }
@@ -132,6 +136,8 @@ public class BaseLoader {
     }
 
     public Spider getSpider(String key, String api, String ext, String jar) {
+        // 猫源站点 type 也是 3，但 api 指向本机 bundle 的 HTTP 路由，得走协议适配而非本地引擎
+        if (CatSpider.matches(api)) return catSpiders.computeIfAbsent(key, k -> new CatSpider(api));
         if (isNode(api)) {
             RuntimeModule.NODEJS.require();
             return nodeLoader.getSpider(key, api, ext);
@@ -148,6 +154,7 @@ public class BaseLoader {
      * 走原路保证混合类型后台路径的预热语义与前台一致，不因静默把 jar 源漏暖。
      */
     public Spider getSpiderQuiet(String key, String api, String ext, String jar) {
+        if (CatSpider.matches(api)) return catSpiders.computeIfAbsent(key, k -> new CatSpider(api));
         // node 不走静默口径：未装信号是 MissingException，必须上抛如实暴露
         // （桥设计风险 5），吞成 SpiderNull 就是假装可用，故与 getSpider 同路。
         if (isNode(api)) {

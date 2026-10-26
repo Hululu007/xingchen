@@ -41,6 +41,8 @@ import com.fongmi.android.tv.ui.dialog.MusicQualityPanelDialog;
 import com.fongmi.android.tv.ui.dialog.MusicQueueDialog;
 import com.fongmi.android.tv.ui.music.view.BurstHeartView;
 import com.fongmi.android.tv.ui.music.view.ClassicScrubberView;
+import com.fongmi.android.tv.ui.music.view.theme.PlayerThemeView;
+import com.fongmi.android.tv.ui.music.view.theme.ThemeViewFactory;
 import com.fongmi.android.tv.ui.music.view.CoverAmbientView;
 import com.fongmi.android.tv.ui.music.view.InPageLyricsView;
 import com.fongmi.android.tv.ui.music.view.MiniProgressView;
@@ -94,6 +96,13 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
     private MiniProgressView mMiniProgress;
     private View mMiniGroup;
 
+    // 非经典主题（批二五主题）：主题 id 在 onCreate 定死，视图挂 playerThemeHost；
+    // 数据仍走本页同一条绑定链分发（bindTrack/applyLyric/updatePlayUi/收藏/tick 都转发），
+    // 经典内容列整列隐藏、经典逻辑原样跑在隐藏视图上不受影响。
+    private String mThemeId = MusicPlayerSettings.THEME_CLASSIC;
+    private PlayerThemeView mThemeView;
+    private String mQualityText = "";
+
 
     private MusicTrack mTrack;
     private String mTrackKey;
@@ -116,6 +125,11 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
         public void run() {
             if (isFinishing() || isDestroyed()) return;
             MusicController ctl = MusicController.get();
+            if (mThemeView != null) {
+                mThemeView.onTick(ctl.position(), ctl.duration(), ctl.isPlaying());
+                mTickHandler.postDelayed(this, 250L);
+                return;
+            }
             if (!mScrubber.isDragging()) mScrubber.setProgress(ctl.position(), ctl.duration());
             mMiniProgress.setProgress(ctl.position(), ctl.duration());
             // 瓜子口径：暂停→完整进度栈出来（音质/逐字筹在栈里）；播放→闲置 3 秒缩回迷你条
@@ -160,6 +174,20 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
         mScrubber = findViewById(R.id.playerScrubber);
         mMiniProgress = findViewById(R.id.playerMiniProgress);
         mMiniGroup = findViewById(R.id.playerMiniGroup);
+        // 主题装配：非经典主题整页换主题视图（经典内容列隐藏），氛围层共用不另建
+        mThemeId = MusicPlayerSettings.getTheme();
+        if (!MusicPlayerSettings.THEME_CLASSIC.equals(mThemeId)) {
+            mThemeView = ThemeViewFactory.create(this, mThemeId, mThemeHost);
+            if (mThemeView != null) {
+                findViewById(R.id.playerContent).setVisibility(View.GONE);
+                FrameLayout themeHost = findViewById(R.id.playerThemeHost);
+                themeHost.setVisibility(View.VISIBLE);
+                themeHost.addView(mThemeView, new FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+            } else {
+                mThemeId = MusicPlayerSettings.THEME_CLASSIC;
+            }
+        }
         // 进度区高度钉死为全栈高度：切换只在盒内交叉淡化，上面的封面/歌词一寸不动
         // （旧做法动画改盒高、整列跟着重排，他点名「切换时全屏都会动」）
         final View box = findViewById(R.id.playerScrubberBox);
@@ -247,6 +275,117 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
         super.onDestroy();
     }
 
+    /** 工具面板回调（经典菜单键与各主题的工具入口共用同一份）。 */
+    private final MusicToolsSheet.Callback mToolsCallback = new MusicToolsSheet.Callback() {
+        @Override
+        public void onSettingsChanged() {
+            // 主题被改选：整页重建让新主题装配（主题视图在 onCreate 按存档建）
+            if (!MusicPlayerSettings.getTheme().equals(mThemeId)) {
+                recreate();
+                return;
+            }
+            mLyrics.reloadSettings();
+            applyKeepScreenOn();
+            if (mAmbient != null) mAmbient.refreshSettings();
+        }
+
+        @Override
+        public void onOpenLyricPage() {
+            openLyricPage();
+        }
+    };
+
+    /** 主题视图 → 本页动作（与经典页按钮同一批落点，不另起一套）。 */
+    private final PlayerThemeView.Host mThemeHost = new PlayerThemeView.Host() {
+        @Override
+        public void openTools() {
+            MusicToolsSheet.show(MusicPlayerActivity.this, mToolsCallback);
+        }
+
+        @Override
+        public void openQueue() {
+            MusicQueueDialog.show(MusicPlayerActivity.this);
+        }
+
+        @Override
+        public void togglePlay() {
+            MusicController.get().toggle();
+        }
+
+        @Override
+        public void prev() {
+            MusicController.get().prev();
+        }
+
+        @Override
+        public void next() {
+            MusicController.get().next();
+        }
+
+        @Override
+        public void seekTo(long ms) {
+            MusicController.get().seekTo(ms);
+        }
+
+        @Override
+        public void toggleFavorite() {
+            MusicPlayerActivity.this.toggleFavorite();
+        }
+
+        @Override
+        public void artistClick() {
+            String first = firstArtist(mTrack == null ? null : mTrack.displayArtist());
+            if (first != null) {
+                com.fongmi.android.tv.ui.activity.MusicSearchActivity.startSearch(
+                        MusicPlayerActivity.this, first);
+            }
+        }
+
+        @Override
+        public void albumClick() {
+            if (mTrack == null || TextUtils.isEmpty(mTrack.album)) return;
+            String album = mTrack.album.trim();
+            if (album.isEmpty() || "—".equals(album) || "未知专辑".equals(album)) return;
+            com.fongmi.android.tv.ui.activity.MusicSearchActivity.startSearch(
+                    MusicPlayerActivity.this, album);
+        }
+
+        @Override
+        public void openLyricPage() {
+            MusicPlayerActivity.this.openLyricPage();
+        }
+
+        @Override
+        public void openQuality() {
+            showQualityPanel();
+        }
+
+        @Override
+        public void openLyricVersions() {
+            showLyricVersions();
+        }
+
+        @Override
+        public void collapse() {
+            finish();
+        }
+
+        @Override
+        public void themeVariantChanged() {
+            recreate();
+        }
+
+        @Override
+        public String qualityText() {
+            return mQualityText;
+        }
+
+        @Override
+        public String lyricChipText() {
+            return mLyricChip;
+        }
+    };
+
     private void applyKeepScreenOn() {
         if (MusicStore.isPlayerKeepScreenOn()) {
             getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -262,19 +401,7 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
     private void wireActions() {
         mBtnPlay.setOnClickListener(v -> MusicController.get().toggle());
         mBtnQueue.setOnClickListener(v -> MusicQueueDialog.show(this));
-        mBtnMenu.setOnClickListener(v -> MusicToolsSheet.show(this, new MusicToolsSheet.Callback() {
-            @Override
-            public void onSettingsChanged() {
-                mLyrics.reloadSettings();
-                applyKeepScreenOn();
-                if (mAmbient != null) mAmbient.refreshSettings();
-            }
-
-            @Override
-            public void onOpenLyricPage() {
-                openLyricPage();
-            }
-        }));
+        mBtnMenu.setOnClickListener(v -> MusicToolsSheet.show(this, mToolsCallback));
         mBtnFav.setOnClickListener(v -> toggleFavorite());
         // 爱心按压缩放 0.85（瓜子 SongMeta 同款）
         mBtnFav.setOnTouchListener((v, e) -> {
@@ -387,6 +514,9 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
 
     @Override
     public boolean dispatchTouchEvent(MotionEvent e) {
+        // 非经典主题：页级手势（竖滑切歌/左划歌词页）是经典页定案，主题各有自己的
+        // 手势面（Apple 横滑 pager 等），页级一律不接管
+        if (mThemeView != null) return super.dispatchTouchEvent(e);
         if (!mSwipeInjecting) {
             if (trackLyricSwipe(e)) return true;
             if (trackPageSwipe(e)) return true;
@@ -660,6 +790,17 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
         boolean wasFirst = mFirstBind;
         mFirstBind = false;
 
+        if (mThemeView != null) {
+            // 非经典主题：数据走主题视图，经典列隐藏不绑（氛围/收藏/歌词/元信息补全共用同链）
+            mThemeView.bindTrack(track, dir);
+            mAmbient.setCover(track.cover);
+            refreshFavorite(track);
+            tryLoadLyric(track);
+            updatePlayUi(MusicController.get().isPlaying());
+            maybeBackfillMeta(track, key);
+            return;
+        }
+
         // 歌名切换（瓜子 AnimatedSongText）：出 fadeOut 150/bs4.c → 换字 → 入 fadeIn 200/bs4.e
         // ＋尺寸动画 200/bs4.e（SizeTransform：文本块宽度由旧宽动画到新宽，单行标题高度恒定、
         // 尺寸变化只体现在宽度上，这里落为宽度剪裁动画）
@@ -859,6 +1000,7 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
             if (mTrack != track) return;
             mFavorite = fav != null && fav;
             applyFavUi();
+            if (mThemeView != null) mThemeView.setFavorite(mFavorite);
         });
     }
 
@@ -956,6 +1098,7 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
             if (info != null && info.describe() != null) q = info.describe();
         } catch (Throwable ignored) {
         }
+        mQualityText = q;
         mScrubber.setChips(q, lyricChipLabel());
     }
 
@@ -990,6 +1133,7 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
         List<RichLyrics.Line> lines = RichLyrics.align(main, trans, roma);
         if (mTrack != track) return;
         mLyrics.setLines(lines);
+        if (mThemeView != null) mThemeView.setLyricLines(lines);
         boolean hasWords = false;
         if (main != null) {
             for (com.fongmi.android.tv.player.lyrics.LyricsLine l : main) {
@@ -1010,6 +1154,7 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
     }
 
     private void updatePlayUi(boolean playing) {
+        if (mThemeView != null) mThemeView.setPlaying(playing);
         boolean firstBind = mPlayingUi == null;
         mScrubber.setPlaying(playing);
         mBtnPlay.setImageResource(playing ? R.drawable.ic_music_pause : R.drawable.ic_music_play);
@@ -1082,6 +1227,7 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
         // 封面到位回调里同点派生，服务侧元数据已先换）
         if (track != null && track == mTrack) {
             bindCover(mTrack, 0);
+            if (mThemeView != null) mThemeView.refreshCover();
         }
     }
 

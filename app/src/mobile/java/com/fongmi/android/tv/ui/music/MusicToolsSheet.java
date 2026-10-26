@@ -698,19 +698,32 @@ public class MusicToolsSheet {
     }
 
     // ---------- 主题子面板 ----------
-    // 2026-10-26 他令：没做出来的主题选项全部摘除——名表只留已建成的经典，其余六个
-    // （Apple Music／封面卡片／流光 CD 三变体／黑胶唱片架）连名带项摘干净，做完一个加回一个。
-    private static final String[] THEME_IDS = {MusicPlayerSettings.THEME_CLASSIC};
-    private static final String[] THEME_NAMES = {"经典"};
+    // 2026-10-27 批二：五主题全部建成，名表放行五张卡（流光 CD 三变体同属一张卡，
+    // 变体在 CD 页内表面键切换）。付费锁不搬：瓜子侧封面卡片/Apple 带锁是它的付费墙，
+    // 他令「只抄好的、付费墙不搬」——星辰五卡一律可用、不带锁徽。
+    private static final String[] THEME_IDS = {
+            MusicPlayerSettings.THEME_CLASSIC,
+            MusicPlayerSettings.THEME_COVER_IMMERSIVE,
+            MusicPlayerSettings.THEME_APPLE_MUSIC,
+            MusicPlayerSettings.THEME_LUMINOUS_CD,
+            MusicPlayerSettings.THEME_RECORD_SHELF};
+    private static final String[] THEME_NAMES = {"经典", "封面卡片", "Apple Music", "流光 CD", "黑胶唱片架"};
 
     private static String themeName(String id) {
+        if (MusicPlayerSettings.isCdTheme(id)) return "流光 CD";
         for (int i = 0; i < THEME_IDS.length; i++) if (THEME_IDS[i].equals(id)) return THEME_NAMES[i];
         return "经典";
     }
 
-    /** 已真正落地的主题才进面板（他的「不摆即将上线占位」令）：其余主题没做完之前不许摆名占位，
-     *  2026-10-26 他点名时面板里 7 张卡只有经典是真的、流光 CD 预览还是一块白。做完一个加回一个。 */
-    private static final String[] BUILT_THEME_IDS = {MusicPlayerSettings.THEME_CLASSIC};
+    /** 已真正落地的主题才进面板（他的「不摆即将上线占位」令）：批二五主题已全部落地。 */
+    private static final String[] BUILT_THEME_IDS = THEME_IDS;
+
+    /** 面板卡与存档的对应：CD 卡认三个变体 id，其余一对一。 */
+    private static boolean themeCardIsCurrent(String cardId, String current) {
+        if (cardId.equals(current)) return true;
+        return MusicPlayerSettings.THEME_LUMINOUS_CD.equals(cardId)
+                && MusicPlayerSettings.isCdTheme(current);
+    }
 
     private void showTheme() {
         clearPanel();
@@ -735,11 +748,11 @@ public class MusicToolsSheet {
             FrameLayout previewBox = new FrameLayout(mActivity);
             previewBox.setLayoutParams(new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, dp(120)));
-            ThemePreviewView preview = new ThemePreviewView(mActivity, id, () -> mCoverBitmap);
+            ThemePreviewView preview = new ThemePreviewView(mActivity, id, () -> mCoverBitmap, this::track);
             mCoverViews.add(preview);
             previewBox.addView(preview, new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-            if (id.equals(cur)) {
+            if (themeCardIsCurrent(id, cur)) {
                 ImageView check = new ImageView(mActivity);
                 check.setImageResource(R.drawable.ic_music_check_14);
                 check.setColorFilter(0xFF1C1C1E);
@@ -794,7 +807,7 @@ public class MusicToolsSheet {
         LinearLayout actions = new LinearLayout(mActivity);
         actions.setOrientation(LinearLayout.HORIZONTAL);
         actions.setPadding(0, dp(12), 0, dp(2));
-        boolean isCur = id.equals(MusicPlayerSettings.getTheme());
+        boolean isCur = themeCardIsCurrent(id, MusicPlayerSettings.getTheme());
         TextView apply = new TextView(mActivity);
         apply.setText(isCur ? "正在使用" : "应用这个主题");
         apply.setTextColor(0xFFFFFFFF);
@@ -859,6 +872,23 @@ public class MusicToolsSheet {
             float u = w / 360f; // 设计单位（px/设计dp）
             Bitmap cover = mCover.get();
             MusicTrack t = mTrackSupplier.get();
+            // 非经典主题走各自版式的整页真渲染（批二）
+            if (MusicPlayerSettings.THEME_COVER_IMMERSIVE.equals(mTheme)) {
+                drawCoverThemeFull(canvas, w, h, u, cover, t);
+                return;
+            }
+            if (MusicPlayerSettings.THEME_APPLE_MUSIC.equals(mTheme)) {
+                drawAppleFull(canvas, w, h, u, cover, t);
+                return;
+            }
+            if (MusicPlayerSettings.isCdTheme(mTheme)) {
+                drawCdFull(canvas, w, h, u, cover, t);
+                return;
+            }
+            if (MusicPlayerSettings.THEME_RECORD_SHELF.equals(mTheme)) {
+                drawShelfFull(canvas, w, h, u, cover, t);
+                return;
+            }
             // 氛围底：深底＋封面整幅低透垫底（经典页封面氛围同构的简化真渲染）
             mPaint.setColor(0xFF1C1C1E);
             canvas.drawRect(0, 0, w, h, mPaint);
@@ -931,6 +961,288 @@ public class MusicToolsSheet {
             mPaint.setColor(0xFFFFFFFF);
         }
 
+        private float progressFrac() {
+            try {
+                long pos = MusicController.get().position();
+                long dur = MusicController.get().duration();
+                return dur > 0 ? Math.max(0f, Math.min(1f, pos * 1f / dur)) : 0f;
+            } catch (Throwable ignored) {
+                return 0f;
+            }
+        }
+
+        private java.util.List<String> firstLyricLines(MusicTrack t, int n) {
+            java.util.List<String> out = new java.util.ArrayList<>();
+            if (t == null) return out;
+            try {
+                com.fongmi.android.tv.bean.music.MusicLyric lyric =
+                        com.fongmi.android.tv.music.MusicLyricCache.get(t);
+                if (lyric != null && lyric.rawLrc != null) {
+                    for (String raw : lyric.rawLrc.split("\n")) {
+                        String s = raw.replaceAll("\\[[^\\]]*\\]", "").trim();
+                        if (!s.isEmpty()) {
+                            out.add(s);
+                            if (out.size() >= n) break;
+                        }
+                    }
+                }
+            } catch (Throwable ignored) {
+            }
+            return out;
+        }
+
+        private void drawCoverClipped(Canvas canvas, Bitmap cover, float l, float t,
+                                      float w, float h, float radius, int fallback) {
+            if (cover != null && !cover.isRecycled()) {
+                canvas.save();
+                android.graphics.Path clip = new android.graphics.Path();
+                clip.addRoundRect(new android.graphics.RectF(l, t, l + w, t + h),
+                        radius, radius, android.graphics.Path.Direction.CW);
+                canvas.clipPath(clip);
+                canvas.drawBitmap(cover, null, new android.graphics.RectF(l, t, l + w, t + h), mPaint);
+                canvas.restore();
+            } else {
+                mPaint.setColor(fallback);
+                canvas.drawRoundRect(new android.graphics.RectF(l, t, l + w, t + h),
+                        radius, radius, mPaint);
+            }
+        }
+
+        private void drawCentered(Canvas canvas, String text, float cx, float baseline,
+                                  float size, int color, boolean bold, float maxW) {
+            if (text == null) text = "";
+            mText.setColor(color);
+            mText.setTextSize(size);
+            mText.setTypeface(bold ? android.graphics.Typeface.DEFAULT_BOLD : android.graphics.Typeface.DEFAULT);
+            if (maxW > 0 && mText.measureText(text) > maxW) {
+                while (text.length() > 1 && mText.measureText(text + "…") > maxW) {
+                    text = text.substring(0, text.length() - 1);
+                }
+                text = text + "…";
+            }
+            canvas.drawText(text, cx - mText.measureText(text) / 2f, baseline, mText);
+        }
+
+        private void drawPlayTri(Canvas canvas, float cx, float cy, float r, int color) {
+            mPaint.setColor(color);
+            android.graphics.Path p = new android.graphics.Path();
+            p.moveTo(cx - r * 0.7f, cy - r);
+            p.lineTo(cx - r * 0.7f, cy + r);
+            p.lineTo(cx + r, cy);
+            p.close();
+            canvas.drawPath(p, mPaint);
+        }
+
+        private void drawSeek(Canvas canvas, float l, float r, float y, float thick,
+                              int baseColor, int fillColor, float frac) {
+            mPaint.setColor(baseColor);
+            canvas.drawRoundRect(new android.graphics.RectF(l, y - thick / 2f, r, y + thick / 2f),
+                    thick / 2f, thick / 2f, mPaint);
+            if (frac > 0f) {
+                mPaint.setColor(fillColor);
+                canvas.drawRoundRect(new android.graphics.RectF(l, y - thick / 2f,
+                        l + (r - l) * frac, y + thick / 2f), thick / 2f, thick / 2f, mPaint);
+            }
+        }
+
+        /** 封面卡片整页：顶部歌名歌手＋宽卡（0.65）＋底部玻璃条（真歌词行＋播放键）。 */
+        private void drawCoverThemeFull(Canvas canvas, float w, float h, float u,
+                                        Bitmap cover, MusicTrack t) {
+            float designH = h / u;
+            mPaint.setColor(0xFF1C1C1E);
+            canvas.drawRect(0, 0, w, h, mPaint);
+            if (cover != null && !cover.isRecycled()) {
+                mPaint.setAlpha(40);
+                canvas.drawBitmap(cover, null, new android.graphics.RectF(0, 0, w, h), mPaint);
+                mPaint.setAlpha(255);
+            }
+            float margin = 28 * u;
+            drawLine(canvas, t == null ? "未在播放" : t.displayTitle(), margin, 66 * u,
+                    20 * u, 0xF5FFFFFF, true, w - margin);
+            drawLine(canvas, t == null ? "" : t.displayArtist(), margin, 92 * u,
+                    14 * u, 0xA6FFFFFF, false, w - margin);
+            float cardW = Math.min((360 - 48) * 0.98f, (designH - 260) / 0.65f) * u;
+            float cardH = cardW * 0.65f;
+            float cardL = (w - cardW) / 2f;
+            float cardT = 130 * u;
+            drawCoverClipped(canvas, cover, cardL + 8 * u, cardT + 10 * u, cardW, cardH,
+                    22 * u, 0xFF2C2C2E);
+            mPaint.setColor(0xFF3A3A3C);
+            // 错位卡在后（先画占位再画主卡的顺序在画布上以偏移呈现）
+            drawCoverClipped(canvas, cover, cardL, cardT, cardW, cardH, 22 * u, 0xFF3A3A3C);
+            float barY = h - 74 * u;
+            mPaint.setColor(0xFF1E1E22);
+            canvas.drawRoundRect(new android.graphics.RectF(24 * u, barY, w - 24 * u, barY + 48 * u),
+                    22 * u, 22 * u, mPaint);
+            mPaint.setColor(0x30FFFFFF);
+            canvas.drawRoundRect(new android.graphics.RectF(24 * u, barY, w - 24 * u, barY + 48 * u),
+                    22 * u, 22 * u, mPaint);
+            java.util.List<String> lines = firstLyricLines(t, 1);
+            drawCentered(canvas, lines.isEmpty() ? "" : lines.get(0), w / 2f, barY + 30 * u,
+                    13 * u, 0xEBFFFFFF, false, w - 140 * u);
+            drawPlayTri(canvas, w - 52 * u, barY + 24 * u, 9 * u, 0xFFFFFFFF);
+        }
+
+        /** Apple 整页：封面铺满上半＋标题列＋粗进度＋运输圆键＋功能点。 */
+        private void drawAppleFull(Canvas canvas, float w, float h, float u,
+                                   Bitmap cover, MusicTrack t) {
+            mPaint.setColor(0xFF1C1C1E);
+            canvas.drawRect(0, 0, w, h, mPaint);
+            float coverH = h * 0.52f;
+            if (cover != null && !cover.isRecycled()) {
+                canvas.drawBitmap(cover, null, new android.graphics.RectF(0, 0, w, coverH), mPaint);
+            } else {
+                mPaint.setColor(0xFF3A3A3C);
+                canvas.drawRect(0, 0, w, coverH, mPaint);
+            }
+            float margin = 24 * u;
+            float y = coverH + 26 * u;
+            drawLine(canvas, t == null ? "未在播放" : t.displayTitle(), margin, y,
+                    20 * u, 0xF5FFFFFF, true, w - 110 * u);
+            drawLine(canvas, t == null ? "" : t.displayArtist(), margin, y + 24 * u,
+                    14 * u, 0x99FFFFFF, false, w - margin);
+            drawSeek(canvas, margin, w - margin, h - 128 * u, 6 * u,
+                    0x24FFFFFF, 0xE6FFFFFF, progressFrac());
+            float cy = h - 82 * u;
+            mPaint.setColor(0xFFF2F2F7);
+            android.graphics.Path prev = new android.graphics.Path();
+            prev.moveTo(w / 2f - 62 * u, cy);
+            prev.lineTo(w / 2f - 44 * u, cy - 11 * u);
+            prev.lineTo(w / 2f - 44 * u, cy + 11 * u);
+            prev.close();
+            canvas.drawPath(prev, mPaint);
+            android.graphics.Path next = new android.graphics.Path();
+            next.moveTo(w / 2f + 62 * u, cy);
+            next.lineTo(w / 2f + 44 * u, cy - 11 * u);
+            next.lineTo(w / 2f + 44 * u, cy + 11 * u);
+            next.close();
+            canvas.drawPath(next, mPaint);
+            drawPlayTri(canvas, w / 2f, cy, 17 * u, 0xFFF2F2F7);
+            mPaint.setColor(0x80FFFFFF);
+            for (int i = -1; i <= 1; i++) {
+                canvas.drawCircle(w / 2f + i * 72 * u, h - 26 * u, 5 * u, mPaint);
+            }
+        }
+
+        /** 流光 CD 整页（浅档 Pearl）：色板渐变底＋盘面＋居中歌名歌手＋细进度＋运输行。 */
+        private void drawCdFull(Canvas canvas, float w, float h, float u,
+                                Bitmap cover, MusicTrack t) {
+            boolean dark = MusicPlayerSettings.THEME_LUMINOUS_CD_DARK.equals(mTheme);
+            int ink = dark ? 0xFFF2F2F7 : 0xFF282D36;
+            int muted = dark ? 0xFF8E96A3 : 0xFF747D89;
+            mPaint.setShader(new android.graphics.LinearGradient(0, 0, 0, h,
+                    dark ? 0xFF14161C : 0xFFF4F2EE, dark ? 0xFF14161C : 0xFFE9EFF5,
+                    android.graphics.Shader.TileMode.CLAMP));
+            canvas.drawRect(0, 0, w, h, mPaint);
+            mPaint.setShader(null);
+            float r = 108 * u;
+            float cx = w / 2f, cy = 150 * u;
+            mPaint.setColor(dark ? 0xFF2A2D36 : 0xFFE3DED4);
+            canvas.drawCircle(cx, cy, r, mPaint);
+            if (cover != null && !cover.isRecycled()) {
+                canvas.save();
+                android.graphics.Path clip = new android.graphics.Path();
+                clip.addRoundRect(new android.graphics.RectF(
+                                cx - r * 0.89f, cy - r * 0.89f, cx + r * 0.89f, cy + r * 0.89f),
+                        r * 0.045f, r * 0.045f, android.graphics.Path.Direction.CW);
+                canvas.clipPath(clip);
+                canvas.drawBitmap(cover, null, new android.graphics.RectF(
+                        cx - r, cy - r, cx + r, cy + r), mPaint);
+                canvas.restore();
+            }
+            mPaint.setColor(dark ? 0xFF14161C : 0xFFF4F2EE);
+            canvas.drawCircle(cx, cy, r * 0.07f, mPaint);
+            drawCentered(canvas, t == null ? "未在播放" : t.displayTitle(), cx, cy + r + 36 * u,
+                    15 * u, ink, true, w - 60 * u);
+            drawCentered(canvas, t == null ? "" : t.displayArtist(), cx, cy + r + 56 * u,
+                    11 * u, muted, false, w - 60 * u);
+            java.util.List<String> lines = firstLyricLines(t, 1);
+            drawCentered(canvas, lines.isEmpty() ? "" : lines.get(0), cx, cy + r + 92 * u,
+                    14 * u, ink, false, w - 80 * u);
+            drawSeek(canvas, 24 * u, w - 24 * u, h - 108 * u, 2 * u,
+                    dark ? 0x1AFFFFFF : 0x1A282D36, ink, progressFrac());
+            float ty = h - 56 * u;
+            android.graphics.Path prev = new android.graphics.Path();
+            prev.moveTo(cx - 66 * u, ty);
+            prev.lineTo(cx - 50 * u, ty - 10 * u);
+            prev.lineTo(cx - 50 * u, ty + 10 * u);
+            prev.close();
+            mPaint.setColor(ink);
+            canvas.drawPath(prev, mPaint);
+            android.graphics.Path next = new android.graphics.Path();
+            next.moveTo(cx + 66 * u, ty);
+            next.lineTo(cx + 50 * u, ty - 10 * u);
+            next.lineTo(cx + 50 * u, ty + 10 * u);
+            next.close();
+            canvas.drawPath(next, mPaint);
+            drawPlayTri(canvas, cx, ty, 15 * u, ink);
+        }
+
+        /** 唱片架整页：纸底＋居中标题＋袖套黑胶＋白色歌词面（真歌词行）＋进度与运输。 */
+        private void drawShelfFull(Canvas canvas, float w, float h, float u,
+                                   Bitmap cover, MusicTrack t) {
+            mPaint.setColor(0xFFF1F0ED);
+            canvas.drawRect(0, 0, w, h, mPaint);
+            drawCentered(canvas, t == null ? "未在播放" : t.displayTitle(), w / 2f, 44 * u,
+                    15 * u, 0xFF252522, true, w - 120 * u);
+            drawCentered(canvas, t == null ? "" : t.displayArtist(), w / 2f, 64 * u,
+                    11 * u, 0xFF86857E, false, w - 120 * u);
+            float side = 148 * u;
+            float sleeveL = w / 2f - side * 0.72f;
+            float sleeveT = 92 * u;
+            float discCx = sleeveL + side * 0.98f;
+            float discCy = sleeveT + side / 2f;
+            mPaint.setColor(0xFF141414);
+            canvas.drawCircle(discCx, discCy, side * 0.485f, mPaint);
+            if (cover != null && !cover.isRecycled()) {
+                canvas.save();
+                android.graphics.Path clip = new android.graphics.Path();
+                clip.addCircle(discCx, discCy, side * 0.11f, android.graphics.Path.Direction.CW);
+                canvas.clipPath(clip);
+                canvas.drawBitmap(cover, null, new android.graphics.RectF(
+                        discCx - side * 0.11f, discCy - side * 0.11f,
+                        discCx + side * 0.11f, discCy + side * 0.11f), mPaint);
+                canvas.restore();
+            }
+            mPaint.setColor(0xFFD4D0C5);
+            canvas.drawCircle(discCx, discCy, side * 0.032f, mPaint);
+            drawCoverClipped(canvas, cover, sleeveL, sleeveT, side, side, 3 * u, 0xFFDDD9D0);
+            mPaint.setColor(0x2E252522);
+            canvas.drawRoundRect(new android.graphics.RectF(
+                            w / 2f - side * 0.55f, sleeveT + side + 5 * u,
+                            w / 2f + side * 0.55f, sleeveT + side + 11 * u),
+                    3 * u, 3 * u, mPaint);
+            float faceT = sleeveT + side + 34 * u;
+            float faceB = h - 128 * u;
+            mPaint.setColor(0xFFFFFFFF);
+            canvas.drawRoundRect(new android.graphics.RectF(16 * u, faceT, w - 16 * u, faceB),
+                    24 * u, 24 * u, mPaint);
+            java.util.List<String> lines = firstLyricLines(t, 3);
+            float ly = faceT + 40 * u;
+            for (int i = 0; i < lines.size(); i++) {
+                drawLine(canvas, lines.get(i), 40 * u, ly, 14 * u,
+                        i == 0 ? 0xFF252522 : 0xB386857E, i == 0, w - 40 * u);
+                ly += 30 * u;
+            }
+            drawSeek(canvas, 28 * u, w - 28 * u, h - 96 * u, 2 * u,
+                    0x1F252522, 0xFF252522, progressFrac());
+            float ty = h - 44 * u;
+            android.graphics.Path prev = new android.graphics.Path();
+            prev.moveTo(w / 2f - 60 * u, ty);
+            prev.lineTo(w / 2f - 46 * u, ty - 9 * u);
+            prev.lineTo(w / 2f - 46 * u, ty + 9 * u);
+            prev.close();
+            mPaint.setColor(0xFF252522);
+            canvas.drawPath(prev, mPaint);
+            android.graphics.Path next = new android.graphics.Path();
+            next.moveTo(w / 2f + 60 * u, ty);
+            next.lineTo(w / 2f + 46 * u, ty - 9 * u);
+            next.lineTo(w / 2f + 46 * u, ty + 9 * u);
+            next.close();
+            canvas.drawPath(next, mPaint);
+            drawPlayTri(canvas, w / 2f, ty, 14 * u, 0xFF252522);
+        }
+
         private void drawLine(Canvas canvas, String text, float x, float baseline, float size, int color, boolean bold, float maxRight) {
             if (text == null) text = "";
             mText.setColor(color);
@@ -947,7 +1259,11 @@ public class MusicToolsSheet {
         }
     }
 
-    /** 主题迷你真预览：按主题形态用当前封面画简化版式（照瓜子 ThemeMiniPreview 口径）。 */
+    /**
+     * 主题迷你真预览：拿当前在播歌曲按该主题的版式实渲（真封面裁进主题几何、
+     * 真歌名落字、主题自己的底色/构件），不是线框占位图。
+     * 构成照瓜子 ThemeMiniPreview 的迷你版式口径，素材全用真数据。
+     */
     static class ThemePreviewView extends View {
         interface CoverSupplier {
             Bitmap get();
@@ -955,12 +1271,34 @@ public class MusicToolsSheet {
 
         private final String mTheme;
         private final CoverSupplier mCover;
+        private final ThemeFullPreviewView.TrackSupplier mTrackSupplier;
         private final android.graphics.Paint mPaint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG | android.graphics.Paint.FILTER_BITMAP_FLAG);
+        private final android.graphics.Paint mText = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
 
-        ThemePreviewView(android.content.Context ctx, String theme, CoverSupplier cover) {
+        ThemePreviewView(android.content.Context ctx, String theme, CoverSupplier cover,
+                         ThemeFullPreviewView.TrackSupplier trackSupplier) {
             super(ctx);
             mTheme = theme;
             mCover = cover;
+            mTrackSupplier = trackSupplier;
+        }
+
+        private String title() {
+            try {
+                MusicTrack t = mTrackSupplier == null ? null : mTrackSupplier.get();
+                return t == null ? "未在播放" : t.displayTitle();
+            } catch (Throwable ignored) {
+                return "";
+            }
+        }
+
+        private String artist() {
+            try {
+                MusicTrack t = mTrackSupplier == null ? null : mTrackSupplier.get();
+                return t == null ? "" : t.displayArtist();
+            } catch (Throwable ignored) {
+                return "";
+            }
         }
 
         @Override
@@ -970,60 +1308,140 @@ public class MusicToolsSheet {
             float d = getResources().getDisplayMetrics().density;
             Bitmap cover = mCover.get();
             boolean shelf = MusicPlayerSettings.THEME_RECORD_SHELF.equals(mTheme);
-            boolean cd = mTheme != null && mTheme.startsWith("luminous_cd");
-            // 背景
+            boolean cd = MusicPlayerSettings.isCdTheme(mTheme);
+            // 迷你卡统一以浅档（Pearl）呈流光主题，变体在 CD 页内表面键切换
             if (shelf) {
                 mPaint.setColor(0xFFF1F0ED);
-                canvas.drawRect(0, 0, w, h, mPaint);
-            } else if (cd && !MusicPlayerSettings.THEME_LUMINOUS_CD.equals(mTheme)) {
-                mPaint.setColor(0xFF14161C);
                 canvas.drawRect(0, 0, w, h, mPaint);
             } else if (cd) {
                 mPaint.setColor(0xFFF4F2EE);
                 canvas.drawRect(0, 0, w, h, mPaint);
             } else {
-                mPaint.setColor(0xFF2C2C2E);
+                mPaint.setColor(0xFF232326);
                 canvas.drawRect(0, 0, w, h, mPaint);
             }
             float pad = 8 * d;
             if (cd) {
-                float r = Math.min(w, h) * 0.32f;
+                // 盘面：圆盘＋封面圆芯＋盘心点，下方歌名/歌手真字（Ink/Muted）
+                float r = Math.min(w, h) * 0.30f;
+                float cx = w / 2f, cy = h * 0.38f;
+                mPaint.setColor(0xFF282D36);
+                canvas.drawCircle(cx, cy, r, mPaint);
                 if (cover != null && !cover.isRecycled()) {
                     canvas.save();
                     android.graphics.Path clip = new android.graphics.Path();
-                    clip.addCircle(w / 2f, h * 0.42f, r, android.graphics.Path.Direction.CW);
+                    clip.addCircle(cx, cy, r * 0.94f, android.graphics.Path.Direction.CW);
                     canvas.clipPath(clip);
                     canvas.drawBitmap(cover, null, new android.graphics.RectF(
-                            w / 2f - r, h * 0.42f - r, w / 2f + r, h * 0.42f + r), mPaint);
+                            cx - r, cy - r, cx + r, cy + r), mPaint);
                     canvas.restore();
-                } else {
-                    mPaint.setColor(0xFF3A3A3C);
-                    canvas.drawCircle(w / 2f, h * 0.42f, r, mPaint);
                 }
-                bar(canvas, w * 0.2f, h * 0.78f, w * 0.6f, shelf || cd && MusicPlayerSettings.THEME_LUMINOUS_CD.equals(mTheme) ? 0xFF252522 : 0xFFF2F2F7, 0.8f, d);
-                bar(canvas, w * 0.3f, h * 0.88f, w * 0.4f, 0xFF8E8E93, 0.7f, d);
+                mPaint.setColor(0xFFF4F2EE);
+                canvas.drawCircle(cx, cy, r * 0.10f, mPaint);
+                drawText(canvas, title(), cx, h * 0.80f, 9 * d, 0xFF282D36, true, true, w - pad * 2);
+                drawText(canvas, artist(), cx, h * 0.92f, 7.5f * d, 0xFF747D89, false, true, w - pad * 2);
                 return;
             }
             if (shelf) {
-                float bw = w * 0.52f, bh = bw * 0.9f;
-                drawCoverRect(canvas, cover, (w - bw) / 2f, h * 0.16f, bw, bh, 4 * d);
-                bar(canvas, w * 0.2f, h * 0.72f, w * 0.6f, 0xFF252522, 0.85f, d);
-                bar(canvas, w * 0.15f, h * 0.86f, w * 0.7f, 0xFF86857E, 0.9f, d);
+                // 袖套居左、黑胶圆盘右露一截，下方白色歌词面＋Ink 歌名
+                float bw = w * 0.46f, bh = bw;
+                float left = w * 0.16f, top = h * 0.10f;
+                mPaint.setColor(0xFF141414);
+                canvas.drawCircle(left + bw * 0.98f, top + bh / 2f, bh * 0.485f, mPaint);
+                drawCoverRect(canvas, cover, left, top, bw, bh, 3 * d);
+                mPaint.setColor(0xFFFFFFFF);
+                canvas.drawRoundRect(new android.graphics.RectF(pad, h * 0.62f, w - pad, h - pad),
+                        5 * d, 5 * d, mPaint);
+                drawText(canvas, title(), w / 2f, h * 0.76f, 8.5f * d, 0xFF252522, true, true, w - pad * 4);
+                drawText(canvas, artist(), w / 2f, h * 0.88f, 7.5f * d, 0xFF86857E, false, true, w - pad * 4);
                 return;
             }
             if (MusicPlayerSettings.THEME_COVER_IMMERSIVE.equals(mTheme)) {
+                // 顶部歌名/歌手，中间宽卡（0.65），底部玻璃条（圆角条＋播放三角）
+                drawText(canvas, title(), pad, h * 0.13f, 9 * d, 0xFFF2F2F7, true, false, w - pad * 2);
+                drawText(canvas, artist(), pad, h * 0.22f, 7.5f * d, 0xA6FFFFFF, false, false, w - pad * 2);
                 float bw = w - pad * 2, bh = bw * 0.65f;
-                drawCoverRect(canvas, cover, pad, h * 0.2f, bw, bh, 8 * d);
-                bar(canvas, pad, h * 0.1f, w * 0.55f, 0xFFF2F2F7, 0.95f, d);
+                drawCoverRect(canvas, cover, pad, h * 0.30f, bw, bh, 7 * d);
+                mPaint.setColor(0x40FFFFFF);
+                canvas.drawRoundRect(new android.graphics.RectF(pad, h * 0.86f, w - pad, h * 0.97f),
+                        6 * d, 6 * d, mPaint);
+                drawPlayTriangle(canvas, w / 2f, h * 0.915f, 4.5f * d, 0xFFFFFFFF);
                 return;
             }
-            // classic / apple：上封面＋下文线（apple 封面更大）
-            boolean apple = MusicPlayerSettings.THEME_APPLE_MUSIC.equals(mTheme);
-            float bh = h * (apple ? 0.52f : 0.44f);
+            if (MusicPlayerSettings.THEME_APPLE_MUSIC.equals(mTheme)) {
+                // 封面铺满上半，下接歌名＋一排运输圆键
+                drawCoverRect(canvas, cover, 0, 0, w, h * 0.58f, 0);
+                drawText(canvas, title(), pad, h * 0.70f, 9 * d, 0xFFF2F2F7, true, false, w - pad * 2);
+                drawText(canvas, artist(), pad, h * 0.79f, 7.5f * d, 0x99FFFFFF, false, false, w - pad * 2);
+                transportGlyphs(canvas, w / 2f, h * 0.90f, d, 0xFFF2F2F7);
+                return;
+            }
+            // 经典：大封面＋歌名/歌手＋一行歌词位＋进度线（封面下段溶进暗底的口径以渐隐近似）
+            float bh = h * 0.52f;
             drawCoverRect(canvas, cover, pad, pad, w - pad * 2, bh, 6 * d);
-            bar(canvas, pad, pad + bh + 8 * d, w * 0.55f, 0xFFF2F2F7, 0.95f, d);
-            bar(canvas, pad, pad + bh + 18 * d, w * 0.4f, 0xFF8E8E93, 0.8f, d);
-            bar(canvas, pad, h - 12 * d, w - pad * 2, 0xFFF2F2F7, 0.6f, d);
+            drawText(canvas, title(), pad, pad + bh + 11 * d, 9 * d, 0xFFF2F2F7, true, false, w - pad * 2);
+            drawText(canvas, artist(), pad, pad + bh + 21 * d, 7.5f * d, 0xA6FFFFFF, false, false, w - pad * 2);
+            mPaint.setColor(0x33FFFFFF);
+            canvas.drawRoundRect(new android.graphics.RectF(pad, h - 9 * d, w - pad, h - 6.5f * d),
+                    1.2f * d, 1.2f * d, mPaint);
+            long pos = 0, dur = 0;
+            try {
+                pos = MusicController.get().position();
+                dur = MusicController.get().duration();
+            } catch (Throwable ignored) {
+            }
+            if (dur > 0 && pos > 0) {
+                float frac = Math.max(0f, Math.min(1f, pos * 1f / dur));
+                mPaint.setColor(0x8CFFFFFF);
+                canvas.drawRoundRect(new android.graphics.RectF(pad, h - 9 * d,
+                        pad + (w - pad * 2) * frac, h - 6.5f * d), 1.2f * d, 1.2f * d, mPaint);
+            }
+        }
+
+        private void drawText(Canvas canvas, String s, float x, float baseline, float size,
+                              int color, boolean bold, boolean center, float maxW) {
+            if (s == null) s = "";
+            mText.setColor(color);
+            mText.setTextSize(size);
+            mText.setTypeface(bold ? android.graphics.Typeface.DEFAULT_BOLD : android.graphics.Typeface.DEFAULT);
+            if (maxW > 0 && mText.measureText(s) > maxW) {
+                while (s.length() > 1 && mText.measureText(s + "…") > maxW) {
+                    s = s.substring(0, s.length() - 1);
+                }
+                s = s + "…";
+            }
+            canvas.drawText(s, center ? x - mText.measureText(s) / 2f : x, baseline, mText);
+        }
+
+        private void drawPlayTriangle(Canvas canvas, float cx, float cy, float r, int color) {
+            mPaint.setColor(color);
+            android.graphics.Path p = new android.graphics.Path();
+            p.moveTo(cx - r * 0.7f, cy - r);
+            p.lineTo(cx - r * 0.7f, cy + r);
+            p.lineTo(cx + r, cy);
+            p.close();
+            canvas.drawPath(p, mPaint);
+        }
+
+        private void transportGlyphs(Canvas canvas, float cx, float cy, float d, int color) {
+            // 上一首｜播放｜下一首 的极简字形（条＋三角）
+            mPaint.setColor(color);
+            float s = 5 * d;
+            android.graphics.Path prev = new android.graphics.Path();
+            prev.moveTo(cx - s * 2.2f, cy);
+            prev.lineTo(cx - s * 0.9f, cy - s * 0.8f);
+            prev.lineTo(cx - s * 0.9f, cy + s * 0.8f);
+            prev.close();
+            canvas.drawPath(prev, mPaint);
+            canvas.drawRect(cx - s * 2.6f, cy - s * 0.8f, cx - s * 2.3f, cy + s * 0.8f, mPaint);
+            drawPlayTriangle(canvas, cx, cy, s * 0.95f, color);
+            android.graphics.Path next = new android.graphics.Path();
+            next.moveTo(cx + s * 2.2f, cy);
+            next.lineTo(cx + s * 0.9f, cy - s * 0.8f);
+            next.lineTo(cx + s * 0.9f, cy + s * 0.8f);
+            next.close();
+            canvas.drawPath(next, mPaint);
+            canvas.drawRect(cx + s * 2.3f, cy - s * 0.8f, cx + s * 2.6f, cy + s * 0.8f, mPaint);
         }
 
         private void drawCoverRect(Canvas canvas, Bitmap cover, float l, float t, float w, float h, float radius) {
@@ -1036,15 +1454,12 @@ public class MusicToolsSheet {
                 canvas.restore();
             } else {
                 mPaint.setColor(0xFF3A3A3C);
-                canvas.drawRoundRect(new android.graphics.RectF(l, t, l + w, t + h), radius, radius, mPaint);
+                if (radius > 0) {
+                    canvas.drawRoundRect(new android.graphics.RectF(l, t, l + w, t + h), radius, radius, mPaint);
+                } else {
+                    canvas.drawRect(l, t, l + w, t + h, mPaint);
+                }
             }
-        }
-
-        private void bar(Canvas canvas, float l, float t, float w, int color, float alpha, float d) {
-            mPaint.setColor(color);
-            mPaint.setAlpha(Math.round(255 * alpha));
-            canvas.drawRoundRect(new android.graphics.RectF(l, t, l + w, t + 5 * d), 2.5f * d, 2.5f * d, mPaint);
-            mPaint.setAlpha(255);
         }
     }
 

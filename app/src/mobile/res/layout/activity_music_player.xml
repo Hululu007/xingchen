@@ -193,4 +193,12 @@
             android:layout_width="match_parent"
             android:layout_height="45dp" />
     </LinearLayout>
+
+    <!-- 非经典主题宿主（批二五主题）：主题视图整页挂在这里，经典内容列隐藏；
+         根下第一层氛围（CoverAmbientView）与经典共用，主题不另建氛围层。 -->
+    <FrameLayout
+        android:id="@+id/playerThemeHost"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone" />
 </FrameLayout>

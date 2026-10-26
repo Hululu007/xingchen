@@ -15,8 +15,8 @@ import com.github.catvod.utils.Prefers;
  */
 public class MusicPlayerSettings {
 
-    // ===== 主题 id（枚举集 7 个；2026-10-26 摘除令后仅经典可选可读，其余六个 id 常量
-    // 只作批二五主题的预留登记，不在任何界面出现、存量值读时一律回落经典） =====
+    // ===== 主题 id（枚举集 7 个；2026-10-27 批二五主题建成后全部放行：
+    // 经典／封面卡片／Apple Music／流光 CD 三变体／黑胶唱片架） =====
     public static final String THEME_CLASSIC = "classic";
     public static final String THEME_COVER_IMMERSIVE = "cover_immersive";
     public static final String THEME_APPLE_MUSIC = "apple_music";
@@ -55,9 +55,9 @@ public class MusicPlayerSettings {
      * 躺着 cover_immersive——首次读时清掉存量主题并落标记，之后用户自选照常保留。
      * 1.4.39 再补一轮：1436 标记在 1.4.36/37 已被消费、1.4.38 真机仍落封面卡片（存量被
      * 旧播放页当用户值写回），新标记首次读再清一次，保这版起默认必是经典。
-     * 2026-10-26 摘除令：未建成的六个主题选项已从设置页与工具面板摘除，本读口随之收紧——
-     * 存量里躺着的非经典值（cover_immersive 等）一律回落经典返回，播放页只建经典、
-     * 不会因读到旧值报错或白屏；批二主题建成后再逐个放开。
+     * 2026-10-27 批二：五主题全部建成，读口放行枚举集 7 个 id（流光 CD 三变体
+     * 是同一主题的表面档、面板只摆一张流光卡）；枚举外的值一律回落经典，
+     * 播放页不会因读到非法值报错或白屏。
      */
     public static String getTheme() {
         if (!Prefers.getBoolean(K_THEME_RESET_1439, false)) {
@@ -66,13 +66,28 @@ public class MusicPlayerSettings {
             Prefers.remove(K_THEME);
             return THEME_CLASSIC;
         }
-        String theme = Prefers.getString(K_THEME, THEME_CLASSIC);
-        return THEME_CLASSIC.equals(theme) ? theme : THEME_CLASSIC;
+        return normalizeTheme(Prefers.getString(K_THEME, THEME_CLASSIC));
     }
 
-    /** 只写经典：非经典入参一律写经典（与 getTheme 的回落口径成对）。 */
+    /** 写枚举集内的主题；非法值写经典（与 getTheme 的回落口径成对）。 */
     public static void setTheme(String theme) {
-        Prefers.put(K_THEME, THEME_CLASSIC.equals(theme) ? theme : THEME_CLASSIC);
+        Prefers.put(K_THEME, normalizeTheme(theme));
+    }
+
+    /** 主题 id 合法性：枚举集 7 个之外一律经典。 */
+    public static String normalizeTheme(String theme) {
+        if (THEME_COVER_IMMERSIVE.equals(theme) || THEME_APPLE_MUSIC.equals(theme)
+                || THEME_LUMINOUS_CD.equals(theme) || THEME_LUMINOUS_CD_DARK.equals(theme)
+                || THEME_LUMINOUS_CD_AUTO.equals(theme) || THEME_RECORD_SHELF.equals(theme)) {
+            return theme;
+        }
+        return THEME_CLASSIC;
+    }
+
+    /** 流光 CD 三变体同属一张面板卡：任意 CD 变体 id 归一到面板卡 id。 */
+    public static boolean isCdTheme(String theme) {
+        return THEME_LUMINOUS_CD.equals(theme) || THEME_LUMINOUS_CD_DARK.equals(theme)
+                || THEME_LUMINOUS_CD_AUTO.equals(theme);
     }
 
     // ===== #2 歌词字号（委托；播放页页内键 music_lyric_font_size_cover，默认 22，钳 14–32；

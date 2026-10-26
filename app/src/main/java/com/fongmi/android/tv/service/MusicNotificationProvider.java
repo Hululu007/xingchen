@@ -113,6 +113,31 @@ public class MusicNotificationProvider implements MediaNotification.Provider {
         }
     };
 
+    /**
+     * 无词进度重发节拍（体检中5）：大卡进度条是 buildViews 时的快照，有词时靠换行
+     * 重发顺带刷新；无词时歌词面签名恒 MIN_VALUE、永不重发，进度条整首冻结而
+     * elapsed 计时器还在走、自相矛盾。无词且播放中时以同口径 5 秒封顶节拍重发
+     * （重发时进度现读），词一到自动让位歌词节拍、暂停即停排，不逐帧不轮询空转。
+     */
+    private final Runnable progressTick = () -> {
+        try {
+            Player player = attachedPlayer;
+            if (player == null || lyricLines != null || !player.isPlaying()) return;
+            repostNotification();
+        } catch (Throwable ignored) {
+        }
+    };
+
+    private void scheduleProgressTick(Player player) {
+        mainHandler.removeCallbacks(progressTick);
+        if (player == null || lyricLines != null) return;
+        try {
+            if (!player.isPlaying()) return;
+            mainHandler.postDelayed(progressTick, 5000);
+        } catch (Throwable ignored) {
+        }
+    }
+
     private final Player.Listener lyricListener = new Player.Listener() {
         @Override
         public void onMediaItemTransition(@Nullable MediaItem mediaItem, int reason) {
@@ -127,7 +152,10 @@ public class MusicNotificationProvider implements MediaNotification.Provider {
         @Override
         public void onIsPlayingChanged(boolean isPlaying) {
             if (isPlaying) mainHandler.post(lyricTick);
-            else mainHandler.removeCallbacks(lyricTick);
+            else {
+                mainHandler.removeCallbacks(lyricTick);
+                mainHandler.removeCallbacks(progressTick);
+            }
         }
     };
 
@@ -177,6 +205,7 @@ public class MusicNotificationProvider implements MediaNotification.Provider {
         shownFaceSignature = faceSignature(faceIdx);
         LyricFace face = faceAt(faceIdx);
         scheduleLyricTick(player);
+        scheduleProgressTick(player);
 
         RemoteViews small = buildViews(R.layout.notification_music, title, artist, playing, cover, pos, dur, null);
         RemoteViews big = buildViews(R.layout.notification_music_big, title, artist, playing, cover, pos, dur, face);
@@ -429,6 +458,7 @@ public class MusicNotificationProvider implements MediaNotification.Provider {
             return;
         }
         scheduleLyricTick(player);
+        scheduleProgressTick(player);
     }
 
     /** 下一次唤醒排在下一行行首（上限 5 秒回看一次防位置漂移）；暂停/无词/唱到末行就不排。 */
@@ -521,6 +551,12 @@ public class MusicNotificationProvider implements MediaNotification.Provider {
         try {
             if (url.startsWith("content://")) {
                 in = context.getContentResolver().openInputStream(Uri.parse(url));
+            } else if (url.startsWith("file://")) {
+                // 本地曲/设备曲封面是 file://（体检低）：此前只认 content/http、
+                // 本地封面恒取不到、通知恒占位图。直读本地文件（封面执行器线程内）。
+                String path = Uri.parse(url).getPath();
+                if (path == null) return null;
+                in = new java.io.FileInputStream(path);
             } else if (url.startsWith("http")) {
                 HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
                 conn.setConnectTimeout(6000);

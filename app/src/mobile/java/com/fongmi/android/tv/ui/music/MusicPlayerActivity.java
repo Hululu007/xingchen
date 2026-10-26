@@ -319,8 +319,7 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
         mScrubber.setMenuOpen(true);
         com.fongmi.android.tv.bean.music.MusicLyric cur =
                 com.fongmi.android.tv.music.MusicLyricCache.get(mTrack);
-        MusicLyricVersionsDialog.show(this, mTrack,
-                cur == null ? null : cur.rawLrc,
+        MusicLyricVersionsDialog.show(this, mTrack, cur,
                 version -> {
                     com.fongmi.android.tv.music.MusicRepository.saveManualLyricChoice(mTrack, version);
                     com.fongmi.android.tv.music.MusicLyricCache.put(mTrack, version.getLyric());

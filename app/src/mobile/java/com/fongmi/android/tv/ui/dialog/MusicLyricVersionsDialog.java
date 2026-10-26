@@ -67,17 +67,28 @@ public class MusicLyricVersionsDialog extends BaseBottomSheetDialog {
     private TextView subView;
     private MusicTrack track;
     private String currentRaw;
+    /** 在用词条（正在播的那份词本身）：聚合没回来/回空时面板的保底行，聚合有同文版时以聚合版为准 */
+    private LyricVersion seedVersion;
     private OnVersionPick callback;
     private List<LyricVersion> all = new ArrayList<>();
     private List<Integer> lineCounts = new ArrayList<>();
     private int filter = 0;
     private boolean loaded;
+    /** 阶段二（全量聚合）是否已收口：空态文案据此区分「还在找」与「找完为空＋真因」 */
+    private boolean loadDone;
 
-    public static void show(FragmentActivity activity, MusicTrack track, String currentRaw, OnVersionPick callback) {
+    public static void show(FragmentActivity activity, MusicTrack track, MusicLyric currentLyric, OnVersionPick callback) {
         if (activity == null || activity.isFinishing() || activity.isDestroyed() || track == null) return;
         MusicLyricVersionsDialog d = new MusicLyricVersionsDialog();
         d.track = track;
-        d.currentRaw = currentRaw;
+        d.currentRaw = currentLyric == null ? null : currentLyric.rawLrc;
+        // 在用词条种子：displayedVersion 是仓库里备好的「在播词即一个版本」口径，此前全 App
+        // 零调用——面板只拿 currentRaw 标当前行，聚合链慢/空时播着词面板照样空（真机实证）。
+        String seedName = currentLyric == null ? null : currentLyric.sourceName;
+        if ((seedName == null || seedName.isEmpty())) {
+            seedName = MusicRepository.sourceDisplayName(track.platform);
+        }
+        d.seedVersion = MusicRepository.displayedVersion(currentLyric, seedName);
         d.callback = callback;
         d.show(activity.getSupportFragmentManager(), "music_lyric_versions");
     }
@@ -120,6 +131,12 @@ public class MusicLyricVersionsDialog extends BaseBottomSheetDialog {
             }
         }
         buildFilter();
+        // 种子先上桌：不等任何网络链，打开即有在播的那一份；后续阶段发布按同文去重合并。
+        if (seedVersion != null) {
+            List<LyricVersion> seed = new ArrayList<>();
+            seed.add(seedVersion);
+            publishVersions(track, seed, false);
+        }
         loadVersions();
     }
 
@@ -187,9 +204,29 @@ public class MusicLyricVersionsDialog extends BaseBottomSheetDialog {
         });
     }
 
-    private void publishVersions(final MusicTrack t, final List<LyricVersion> vs, final boolean done) {
+    private void publishVersions(final MusicTrack t, final List<LyricVersion> vs0, final boolean done) {
+        // 在用词条合并：聚合结果里没有同文版本时种子保留（它就是在播的那份，是真版本）；
+        // 有同文版以聚合版为准（带真实定级），不重复列。
+        List<LyricVersion> vs = vs0;
+        if (seedVersion != null && seedVersion.getLyric() != null && seedVersion.getLyric().rawLrc != null) {
+            String seedKey = seedVersion.getLyric().rawLrc.trim();
+            boolean hasSame = false;
+            for (LyricVersion v : vs) {
+                if (v.getLyric() != null && v.getLyric().rawLrc != null
+                        && seedKey.equals(v.getLyric().rawLrc.trim())) {
+                    hasSame = true;
+                    break;
+                }
+            }
+            if (!hasSame) {
+                vs = new ArrayList<>(vs.size() + 1);
+                vs.add(seedVersion);
+                vs.addAll(vs0);
+            }
+        }
+        final List<LyricVersion> merged = vs;
         final List<Integer> counts = new ArrayList<>();
-        for (LyricVersion v : vs) {
+        for (LyricVersion v : merged) {
             int n = 0;
             try {
                 MusicLyric l = v.getLyric();
@@ -201,14 +238,32 @@ public class MusicLyricVersionsDialog extends BaseBottomSheetDialog {
         if (getActivity() == null) return;
         getActivity().runOnUiThread(() -> {
             if (!isAdded() || track != t) return;
-            all = vs;
+            all = merged;
             lineCounts = counts;
             loaded = true;
+            loadDone = done;
             if (subView != null) subView.setText(done
-                    ? vs.size() + " 个版本 · 按匹配度排列"
-                    : "已找到 " + vs.size() + " 个版本 · 继续搜索中");
+                    ? merged.size() + " 个版本 · 按匹配度排列"
+                    : "已找到 " + merged.size() + " 个版本 · 继续搜索中");
             renderRows();
         });
+    }
+
+    /** 全量收口后仍为空：把主来源的结局分类带出来，不再只剩一句无信息的「没有找到」——
+     * 他下次打开面板看状态行就能定案（连接失败/应答异常/主来源无此歌版本）。 */
+    private String emptyText() {
+        if (!loadDone) return "没有找到可用歌词";
+        String note = MusicRepository.lastCfNote();
+        if (com.fongmi.android.tv.api.music.CfLyricClient.NOTE_TRANSPORT.equals(note)) {
+            return "没有找到可用歌词（主来源连接失败）";
+        }
+        if (com.fongmi.android.tv.api.music.CfLyricClient.NOTE_NON_JSON.equals(note)) {
+            return "没有找到可用歌词（主来源应答异常）";
+        }
+        if (com.fongmi.android.tv.api.music.CfLyricClient.NOTE_OK.equals(note)) {
+            return "没有找到可用歌词（主来源暂无此歌版本）";
+        }
+        return "没有找到可用歌词";
     }
 
     private boolean passes(LyricVersion v) {
@@ -253,7 +308,7 @@ public class MusicLyricVersionsDialog extends BaseBottomSheetDialog {
         }
         if (shown.isEmpty()) {
             statusView.setVisibility(View.VISIBLE);
-            statusView.setText(all.isEmpty() ? "没有找到可用歌词" : "该类暂无版本，可切换全部查看");
+            statusView.setText(all.isEmpty() ? emptyText() : "该类暂无版本，可切换全部查看");
             scroll.setVisibility(View.GONE);
             return;
         }

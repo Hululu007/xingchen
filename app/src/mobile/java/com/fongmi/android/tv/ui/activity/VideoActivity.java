@@ -24,7 +24,6 @@ import android.text.Spanned;
 import android.text.TextUtils;
 import android.text.style.ClickableSpan;
 import android.util.Log;
-import android.view.GestureDetector;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
@@ -468,9 +467,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private final Runnable mCustomButtonStateListener = this::updateCustomButtonStates;
     private final Runnable mDiscMenuStateListener = this::updateDiscMenuTools;
     private PiP mPiP;
-    private GestureDetector mLongPressDetector;
-    private float mLongPressOriginSpeed = 1f;
-    private boolean mLongPressActive = false;
+    private float mSpeedUpOriginSpeed = 1f;
+    private boolean mSpeedUpActive = false;
     private String mContextWallUrl;
     private String mContextWallLockedUrl;
     private String playHealthKey;
@@ -933,17 +931,6 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mR4 = this::showEmpty;
         mPiP = new PiP();
         mPiP.useXingchenBackgroundMode();
-        mLongPressDetector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
-            @Override
-            public void onLongPress(MotionEvent e) {
-                float lpSpeed = getSharedPreferences("xingchen", MODE_PRIVATE).getFloat("longpress_speed", 0f);
-                if (lpSpeed > 0f && !mLongPressActive && player() != null) {
-                    mLongPressActive = true;
-                    mLongPressOriginSpeed = player().getSpeed();
-                    player().setSpeed(lpSpeed);
-                }
-            }
-        });
         checkDanmakuImg();
         setRecyclerView();
         mOsd = new PlayerOsdController(mBinding.osd.getRoot(), mBinding.osd.osdTopLeft, mBinding.osd.osdTopRight, mBinding.osd.osdBottomLeft, mBinding.osd.osdBottomRight, mBinding.osd.osdDiagnostics, mBinding.osd.osdMiniProgress, new PlayerOsdController.Source() {
@@ -1136,15 +1123,9 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.control.action.reset.setOnLongClickListener(view -> onResetToggle());
         mBinding.control.action.endingItem.setOnLongClickListener(view -> onEndingReset());
         mBinding.control.action.openingItem.setOnLongClickListener(view -> onOpeningReset());
-        mBinding.video.setOnTouchListener((view, event) -> {
-            if (mLongPressDetector != null) mLongPressDetector.onTouchEvent(event);
-            if ((event.getAction() == MotionEvent.ACTION_UP || event.getAction() == MotionEvent.ACTION_CANCEL) && mLongPressActive) {
-                mLongPressActive = false;
-                if (player() != null) player().setSpeed(mLongPressOriginSpeed);
-            }
-            return (!isVisible(mBinding.control.getRoot()) && dispatchDiscMenuTouch(event))
-                    || mKeyDown.onTouchEvent(event);
-        });
+        mBinding.video.setOnTouchListener((view, event) ->
+                (!isVisible(mBinding.control.getRoot()) && dispatchDiscMenuTouch(event))
+                        || mKeyDown.onTouchEvent(event));
         mBinding.control.action.getRoot().setOnTouchListener(this::onActionTouch);
         mBinding.swipeLayout.setOnRefreshListener(this::onSwipeRefresh);
         // 选集区滑动不许拉出下拉刷新：手指落在选集列表上就先关掉刷新，抬手再恢复
@@ -9622,17 +9603,34 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     @Override
+    public boolean isLongPressSpeedEnabled() {
+        // 播放设置「长按倍速」只认用户明确选过的值：选过「关」(0) 才关，没选过保持原有长按加速
+        android.content.SharedPreferences prefs = getSharedPreferences("xingchen", MODE_PRIVATE);
+        return !prefs.contains("longpress_speed") || prefs.getFloat("longpress_speed", 0f) > 0f;
+    }
+
+    private float longPressSpeed() {
+        float lpSpeed = getSharedPreferences("xingchen", MODE_PRIVATE).getFloat("longpress_speed", 0f);
+        return lpSpeed > 0f ? lpSpeed : PlayerSetting.getSpeed();
+    }
+
+    @Override
     public void onSpeedUp() {
         if (!player().isPlaying()) return;
+        mSpeedUpOriginSpeed = player().getSpeed();
+        mSpeedUpActive = true;
         mBinding.widget.speed.setVisibility(View.VISIBLE);
         mBinding.widget.speed.startAnimation(ResUtil.getAnim(R.anim.forward));
-        mBinding.control.action.speed.setText(player().setSpeed(PlayerSetting.getSpeed()));
+        mBinding.control.action.speed.setText(player().setSpeed(longPressSpeed()));
     }
 
     @Override
     public void onSpeedEnd() {
         mBinding.widget.speed.clearAnimation();
-        mBinding.control.action.speed.setText(player().setSpeed(PlayerSetting.getDefaultSpeed()));
+        if (mSpeedUpActive) {
+            mSpeedUpActive = false;
+            mBinding.control.action.speed.setText(player().setSpeed(mSpeedUpOriginSpeed));
+        }
         mHistory.setSpeed(player().getSpeed());
     }
 

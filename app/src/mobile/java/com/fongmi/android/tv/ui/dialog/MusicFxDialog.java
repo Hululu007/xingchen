@@ -26,7 +26,8 @@ import java.util.List;
 
 /**
  * 播放页「更多 → 音效」面板：总开关＋系统预设＋各段拉杆＋低音增强＋环绕。
- * 状态全从播放服务的 audiofx 三件读，设备不支持某项就置灰写「不支持」，
+ * 状态优先从播放服务的 audiofx 三件读；服务没起时按存档回落打开（E-P7，
+ * FxState.live=false，设备相关项不贴「不支持」），不再自关。设备真不支持某项才置灰写「不支持」，
  * 总开关关＝三件全 bypass。设置持久化走 MusicStore.music_fx_*。
  * 听感真机验（本机验不到）。
  * 批 6：面板底曾换液态玻璃（bg_music_glass_panel），1.4.28 真机点名透底后恢复实底 bg_sheet_panel（布局侧）；补 onDestroyView 置空
@@ -190,7 +191,11 @@ public class MusicFxDialog extends BaseBottomSheetDialog {
     private void buildBands(MusicPlaybackService.FxState s) {
         binding.bandBox.removeAllViews();
         if (!s.eqSupported) {
-            binding.tvEqLabel.setText(getString(R.string.music_equalizer) + "（" + getString(R.string.music_fx_unsupported) + "）");
+            // 服务未起的存档回落态（E-P7）：设备支持度未知，只摆 plain 标签，
+            // 不许贴「不支持」说谎；预设行同理由在 buildPresets 已隐藏。
+            binding.tvEqLabel.setText(s.live
+                    ? getString(R.string.music_equalizer) + "（" + getString(R.string.music_fx_unsupported) + "）"
+                    : getString(R.string.music_equalizer));
             return;
         }
         binding.tvEqLabel.setText(R.string.music_equalizer);

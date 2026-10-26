@@ -533,15 +533,31 @@ public class MusicController {
 
     // ================= 音效（App 内面板 → 服务 audiofx） =================
 
-    /** 音效全量状态（面板打开用）；服务没起来返回 null */
+    /** 音效全量状态（面板打开用）；服务没起来不返回 null（体检 E-P7）：
+     * 按存档回落组装（live=false，与 parametricBands 的回落口径一致），面板照常
+     * 打开、开关与存档值如实回显；预设名/频段/设备支持度是设备相关项，服务没起
+     * 时不伪造，面板按 live=false 不贴「不支持」。改动仍走 runOnService 排队，
+     * 服务起来后由服务 setter 写存档并应用。 */
     public MusicPlaybackService.FxState fxState() {
         MusicPlaybackService s = svc != null ? svc : MusicPlaybackService.get();
-        if (s == null) return null;
-        try {
-            return s.fxState();
-        } catch (Throwable t) {
-            return null;
+        if (s != null) {
+            try {
+                return s.fxState();
+            } catch (Throwable t) {
+                // 落到下面的存档回落，不让面板因服务异常自关
+            }
         }
+        MusicPlaybackService.FxState st = new MusicPlaybackService.FxState();
+        st.live = false;
+        st.enabled = MusicStore.isFxEnabled();
+        st.preset = MusicStore.getFxPreset();
+        st.bass = MusicStore.getFxBass();
+        st.virt = MusicStore.getFxVirtualizer();
+        st.levels = MusicStore.getFxBands();
+        st.bassSupported = true;
+        st.virtSupported = true;
+        st.eqSupported = false;
+        return st;
     }
 
     public void setFxEnabled(boolean on) {
@@ -576,7 +592,9 @@ public class MusicController {
 
     public boolean isParametricEnabled() {
         MusicPlaybackService s = svc != null ? svc : MusicPlaybackService.get();
-        return s != null && s.isParametricEnabled();
+        // 回落口径与 parametricBands()/服务自身一致（体检 E-P7）：服务不在时读存档，
+        // 不许恒 false 让面板回显假关（存档为开时）。
+        return s == null ? MusicStore.isParametricEnabled() : s.isParametricEnabled();
     }
 
     public java.util.List<ParametricEq.Band> parametricBands() {

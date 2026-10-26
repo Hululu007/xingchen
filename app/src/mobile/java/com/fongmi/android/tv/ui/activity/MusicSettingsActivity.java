@@ -72,6 +72,9 @@ public class MusicSettingsActivity extends BaseActivity {
     @Override
     protected void initView(Bundle savedInstanceState) {
         MusicGlassWire.glassifyTree(getBinding().getRoot()); // 全页玻璃件同源接线：共用件按资源识别统一换液态玻璃（MusicGlassWire）
+        // 照其它音乐页口径 bind 控制器（体检 E-P7）：进页即把播放服务拉起，
+        // 均衡器入口不再绑服务存活（此前本页不 bind、服务没起时音效面板自关）。
+        MusicController.get().bind(this);
         initQualityRows();
         // 第三波 S-A1：单独设置移动网络音质开关＋子行两段式（服务侧 effectivePlayQuality 逻辑不动：
         // 开关状态就是存值本身——开＝存固定档、关＝存 -1 跟随；关时先记下固定档以便再开恢复）。
@@ -168,6 +171,12 @@ public class MusicSettingsActivity extends BaseActivity {
         // 过滤是无条件执行、与此键无关，开关改不了行为＝假开关）；体检 E-P3 已清 MusicStore 读写方法，存量偏好值无读口、无害保留
         initSwitch(binding.swAdvancedFx, MusicStore.isAdvancedFx(), MusicStore::setAdvancedFx);
         binding.rowAdvancedFx.setOnClickListener(v -> binding.swAdvancedFx.toggle());
+    }
+
+    @Override
+    protected void onDestroy() {
+        MusicController.get().unbind();
+        super.onDestroy();
     }
 
     @Override

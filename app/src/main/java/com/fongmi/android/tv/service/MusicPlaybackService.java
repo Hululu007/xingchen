@@ -1483,6 +1483,9 @@ public class MusicPlaybackService extends MediaSessionService {
 
     /** 音效面板要的全部状态：支持与否逐项给，不支持就是不支持，不许装有效 */
     public static class FxState {
+        /** true＝本状态来自活服务（设备能力真实）；false＝服务未起时由
+         * MusicController 按存档回落组装（体检 E-P7），设备相关项不可信、不许贴「不支持」 */
+        public boolean live;
         public boolean enabled;
         public boolean eqSupported;
         public boolean bassSupported;
@@ -1594,6 +1597,7 @@ public class MusicPlaybackService extends MediaSessionService {
     public FxState fxState() {
         ensureFx();
         FxState s = new FxState();
+        s.live = true;
         s.enabled = MusicStore.isFxEnabled();
         s.bass = MusicStore.getFxBass();
         s.virt = MusicStore.getFxVirtualizer();

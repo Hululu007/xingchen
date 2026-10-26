@@ -53,7 +53,6 @@ public class MusicPlayerSettings {
                 || THEME_RECORD_SHELF.equals(theme);
     }
 
-    private static final String K_THEME_RESET_1436 = "music_theme_reset_1436";
     private static final String K_THEME_RESET_1439 = "music_theme_reset_1439";
 
     /**
@@ -66,7 +65,7 @@ public class MusicPlayerSettings {
     public static String getTheme() {
         if (!Prefers.getBoolean(K_THEME_RESET_1439, false)) {
             Prefers.put(K_THEME_RESET_1439, true);
-            Prefers.put(K_THEME_RESET_1436, true);
+            // 扫描 H8：1436 迁移旗只写不读（判定只认 1439），残留写已删
             Prefers.remove(K_THEME);
             return THEME_CLASSIC;
         }

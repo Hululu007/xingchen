@@ -1,6 +1,7 @@
 package com.fongmi.android.tv.ui.activity;
 
 import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
@@ -13,6 +14,7 @@ import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
 import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.AbsListView;
 import android.widget.BaseAdapter;
 import android.widget.EditText;
@@ -239,10 +241,26 @@ public class CloudDriveActivity extends BaseActivity {
         });
         list.setOnItemClickListener((parent, view, position, id) -> {
             CloudFile file = st.results.get(position);
-            dialog.dismiss();
-            if (file.isDir()) openDirFromSearch(file);
-            else if (file.isVideo()) playFile(file);
-            else gotoParentDir(file);
+            if (file.isDir()) {
+                dialog.dismiss();
+                openDirFromSearch(file);
+            } else if (file.isVideo()) {
+                // 他定的规矩「在哪点开视频，回来还是在哪里」：点视频不关弹窗，
+                // 播放页盖在弹窗上头，看完返回弹窗还在——关键词、结果、滚动位置都原样
+                // （状态全在 st 与列表视图本身里，弹窗不关就不会丢）。
+                // 只收键盘：不收的话回来时键盘会随弹窗窗口重新聚焦又弹出来盖住结果；
+                // 窗口输入模式一并改隐藏，用户回来再点输入框照常弹键盘。
+                input.clearFocus();
+                InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+                if (imm != null) imm.hideSoftInputFromWindow(input.getWindowToken(), 0);
+                if (dialog.getWindow() != null) {
+                    dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN);
+                }
+                playFile(file);
+            } else {
+                dialog.dismiss();
+                gotoParentDir(file);
+            }
         });
         MusicGlassDialogs.attach(dialog);
         dialog.show();

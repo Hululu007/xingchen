@@ -379,6 +379,9 @@ public class MusicStore {
                 .putString(K_QUEUE, "")
                 .putInt(K_INDEX, 0)
                 .putLong(K_POSITION, 0)
+                .putString(K_QUEUE_SOURCE, "")
+                .putString(K_QUEUE_ROUTE, "")
+                .putString(K_QUEUE_ROUTE_PARAMS, "")
                 .putString(K_INDEX_TRACK_KEY, "")
                 .apply();
     }

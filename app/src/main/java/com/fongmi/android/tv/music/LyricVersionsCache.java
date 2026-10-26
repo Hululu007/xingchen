@@ -117,6 +117,7 @@ public class LyricVersionsCache {
                 // 过期：先回旧账，本调用方顺带当后台补搜的加载者
                 settledNow = entry.full;
                 settledComplete = entry.complete;
+                entry.settled = false;
                 entry.loading = true;
                 entry.generation++;
                 entry.waiters.add(cb);

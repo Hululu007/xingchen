@@ -268,6 +268,7 @@ public class DesktopLyricsWindow {
     }
 
     private void schedule() {
+        App.removeCallbacks(tick);
         App.post(tick, UPDATE_INTERVAL_MS);
     }
 

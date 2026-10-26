@@ -44,6 +44,15 @@ import android.view.View;
  *    （底部内软影 18dp/黑 .30＋接触影 4dp/黑 .28，CSS 0 8px 32px rgba(0,0,0,.25–.32) 量级）。
  * 选中族 tone 染色（MusicGlassWire 挂 #305F67 @ .55）与前景翻白口径不变。
  * 取样为空/未就绪时走下限面（深色渐变满铺），任何底上都成形。
+ *
+ * 停稳闪根治（2026-10-26 他真机复现点名「滑动停下来，框就会闪一下」）：旧 draw 分两路——
+ * 滚动中（sScrollActive）直贴全局缓冲采样图＋描边走回落环线，停稳切回「本件处理图
+ * （ensureProcessed 渲的位图）＋折射着色器＋高光着色器」，停稳那一帧整框换脸即是闪。
+ * 03c06e96 只统一了取样窗浮点口径，没动两路切换，故未解。现改唯一画法：每帧按宿主
+ * 当前位置现算浮点取样窗，折射着色器的 content 直接采样全局处理缓冲（BitmapShader
+ * 挂同一取样窗的本地矩阵，位移采样越界取到的是缓冲里真实邻域），不再有本件处理图、
+ * 不再有按滚动状态分的分支；高光同理恒走着色器（无着色器设备恒走环线，是设备常量
+ * 不是状态）。接线层的 noteScrollActive/noteScrollChanged 自此无绘制语义（见其注）。
  */
 public class MusicGlassDrawable extends Drawable {
 
@@ -184,19 +193,14 @@ public class MusicGlassDrawable extends Drawable {
     private static final int SPEC_COLOR_PRESSED = 0xF2FFFFFF;
     private static final float SPEC_WIDTH_DP = 1.5f;
 
-    private static volatile int sEpoch = 0;
-
-    /** 列表滚动等宿主位置变化场景调用：令全部玻璃件下一帧重裁糊底。 */
+    /**
+     * 接线层滚动钩子的历史入口：绘制已不分滚动/静止状态（见类头「停稳闪根治」），
+     * 这两个方法自此无绘制语义，只为接线层现有调用点保留签名；接线层清理时一并删。
+     */
     public static void noteScrollChanged() {
-        sEpoch++;
     }
 
-    // 滚动进行中标记（接线层滚动钩子喂）：滚动中暂停折射/高光两道全幅着色器——
-    // 那是每帧最贵的部分；取样重裁照常实时跟随（他 00:17 令），停下钩子复位后下一帧恢复。
-    private static volatile boolean sScrollActive = false;
-
     public static void noteScrollActive(boolean active) {
-        sScrollActive = active;
     }
 
     private final float mRadiusPx;
@@ -204,7 +208,6 @@ public class MusicGlassDrawable extends Drawable {
     private final boolean mTopOnly;
     private final boolean mCircle;
 
-    private final Paint mBitmapPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
     private final Paint mProcessedPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
     private final Paint mLensPaint = new Paint();
     private final Paint mFallbackPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -223,8 +226,6 @@ public class MusicGlassDrawable extends Drawable {
     private boolean mLensDead;
     private boolean mHighlightDead;
 
-    private Bitmap mProcessed;
-    private int mProcessedW, mProcessedH;
     private ColorFilter mExternalFilter;
 
     private int mToneColor = 0;
@@ -234,20 +235,16 @@ public class MusicGlassDrawable extends Drawable {
     // 绘制改走矩阵贴图用浮点窗，GPU 亚像素插值，纹理位置连续跟随（见 drawSampled）。
     private float mSrcFx, mSrcFy, mSrcFw = 1f, mSrcFh = 1f;
     private final android.graphics.Matrix mSampleMatrix = new android.graphics.Matrix();
+    // 折射着色器 content 的本地矩阵（件内坐标→缓冲坐标，与取样窗同一映射）
+    private final android.graphics.Matrix mShaderMatrix = new android.graphics.Matrix();
     private final RectF mDst = new RectF();
     private final RectF mTmp = new RectF();
     private final Path mClip = new Path();
     private final int[] mHostLoc = new int[2];
     private final int[] mBgLoc = new int[2];
 
-    private int mLastVersion = -1;
-    private int mLastEpoch = -1;
-    private int mLastHostX = Integer.MIN_VALUE, mLastHostY = Integer.MIN_VALUE;
-    private boolean mLastOk = false;
-    private boolean mProcessedDirty = true;
     private boolean mPressed = false;
-    private boolean mCropDone = false;
-    // 滚动取样补偿：缓存着色器按宿主位移平移旧取样画，免逐帧重渲（见 draw）
+    // 折射取样补偿：着色器直接采样全局缓冲（缓冲实例变了才重建 BitmapShader）
     private android.graphics.BitmapShader mLensInputShader;
     private Bitmap mLensInputBitmap;
 
@@ -320,8 +317,6 @@ public class MusicGlassDrawable extends Drawable {
     @Override
     protected void onBoundsChange(Rect bounds) {
         super.onBoundsChange(bounds);
-        mLastVersion = -1;
-        mProcessedDirty = true;
         mFallbackPaint.setShader(new LinearGradient(0, bounds.top, 0, bounds.bottom,
                 FALLBACK, FALLBACK_STOPS, Shader.TileMode.CLAMP));
         float sh = 18f * mDensity;
@@ -375,28 +370,7 @@ public class MusicGlassDrawable extends Drawable {
         return new float[]{r, r, r, r};
     }
 
-    /** 把采样区渲成本件尺寸的过程图（colorControls 已烙入），供折射着色器取样/或直通绘制。 */
-    private void ensureProcessed(Rect b, Bitmap buf) {
-        int w = b.width(), h = b.height();
-        if (w <= 0 || h <= 0 || buf == null) return;
-        if (!mProcessedDirty && mProcessed != null && !mProcessed.isRecycled()
-                && mProcessedW == w && mProcessedH == h) return;
-        if (mProcessed == null || mProcessedW != w || mProcessedH != h) {
-            if (mProcessed != null) mProcessed.recycle();
-            mProcessed = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
-            mProcessedW = w;
-            mProcessedH = h;
-        }
-        Canvas c = new Canvas(mProcessed);
-        // 与滚动直画同一浮点取样口径：停稳切回处理图时纹理不跳最后一格
-        mSampleMatrix.reset();
-        mSampleMatrix.postTranslate(-mSrcFx, -mSrcFy);
-        mSampleMatrix.postScale(w / mSrcFw, h / mSrcFh);
-        c.drawBitmap(buf, mSampleMatrix, mBitmapPaint);
-        mProcessedDirty = false;
-    }
-
-    /** 浮点取样直画：缓冲按浮点窗贴到 bounds，位置连续、无 4px 量化台阶。 */
+    /** 浮点取样直画：缓冲按浮点窗贴到 bounds，位置连续、无 4px 量化台阶。
     private void drawSampled(Canvas canvas, Bitmap buf, Rect b, Paint paint) {
         mSampleMatrix.reset();
         mSampleMatrix.postTranslate(-mSrcFx, -mSrcFy);
@@ -405,14 +379,23 @@ public class MusicGlassDrawable extends Drawable {
         canvas.drawBitmap(buf, mSampleMatrix, paint);
     }
 
-    private boolean drawLensBackdrop(Canvas canvas, Rect b) {
-        if (mLensDead || !shaderSupported() || mProcessed == null) return false;
+    /**
+     * 折射底：content 直接采样全局缓冲——BitmapShader 挂与直画同一取样窗的本地矩阵
+     * （件内坐标→缓冲坐标），折射位移采样越出件界时取到缓冲里真实的邻域底图。
+     * 旧法先把取样渲成本件位图再喂着色器，是停稳交接必须换图的根源，现已整段删除。
+     */
+    private boolean drawLensBackdrop(Canvas canvas, Rect b, Bitmap buf) {
+        if (mLensDead || !shaderSupported()) return false;
         try {
             if (mLensShader == null) mLensShader = new RuntimeShader(REFRACTION_AGSL);
-            if (mLensInputShader == null || mLensInputBitmap != mProcessed) {
-                mLensInputShader = new BitmapShader(mProcessed, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
-                mLensInputBitmap = mProcessed;
+            if (mLensInputShader == null || mLensInputBitmap != buf) {
+                mLensInputShader = new BitmapShader(buf, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
+                mLensInputBitmap = buf;
             }
+            mShaderMatrix.reset();
+            mShaderMatrix.postScale(mSrcFw / b.width(), mSrcFh / b.height());
+            mShaderMatrix.postTranslate(mSrcFx, mSrcFy);
+            mLensInputShader.setLocalMatrix(mShaderMatrix);
             mLensShader.setInputShader("content", mLensInputShader);
             mLensShader.setFloatUniform("size", (float) b.width(), (float) b.height());
             mLensShader.setFloatUniform("offset", 0f, 0f);
@@ -468,57 +451,24 @@ public class MusicGlassDrawable extends Drawable {
         if (b.isEmpty()) return;
         mTmp.set(b);
 
-        boolean hostMoved = false;
-        if (getCallback() instanceof View) {
-            View host = (View) getCallback();
-            host.getLocationInWindow(mHostLoc);
-            hostMoved = mHostLoc[0] != mLastHostX || mHostLoc[1] != mLastHostY;
-        }
-        int ver = MusicGlassBackgroundView.getBufferVersion();
-        boolean verChanged = ver != mLastVersion || sEpoch != mLastEpoch;
-        // 取样维护：版本变/首裁/停稳态宿主移动/滚动中位移过半时重裁并标记处理图待更新。
-        // 滚动中的实际画法在下方分支：逐帧按当前位置精确取样直画全局处理缓冲（单次贴图），
-        // 不再用平移近似——旧平移补偿＋重锚就是「滑动一次玻璃就动一次」的跳变源（2026-10-26 他点名）。
-        boolean reanchor = sScrollActive && mCropDone && mProcessed != null
-                && (Math.abs(mHostLoc[1] - mLastHostY) > b.height() / 2
-                || Math.abs(mHostLoc[0] - mLastHostX) > b.width() / 2);
-        if (verChanged || !mCropDone || reanchor || (hostMoved && !sScrollActive)) {
-            mLastOk = computeCrop(b);
-            mCropDone = true;
-            mLastVersion = ver;
-            mLastEpoch = sEpoch;
-            mLastHostX = mHostLoc[0];
-            mLastHostY = mHostLoc[1];
-            mProcessedDirty = true;
-        }
+        // 唯一画法：每帧按宿主当前位置现算取样窗，底图恒走同一路——全局处理缓冲
+        // 经折射着色器采样（无着色器时同窗直贴）。滚动与静止之间没有任何分支：
+        // 旧两路在停稳那一帧整体换脸（采样直贴↔处理图＋折射、高光环线↔着色器描边）
+        // 就是「滑动停下来，框就会闪一下」，交接已整段删除（见类头注）。
+        boolean ok = computeCrop(b);
 
         canvas.save();
         canvas.clipPath(buildClip(mTmp));
         boolean lensDrawn = false;
-        if (mLastOk) {
+        if (ok) {
             // 取样源：无外部滤镜时用已烤 colorControls 的处理缓冲（免每帧滤镜整图重渲）；
-            // 外部滤镜在场时回原图＋滤镜（与旧行为一致：外部滤镜取代 colorControls）
+            // 外部滤镜在场时回原图（滤镜挂在各画笔上，与旧行为一致）
             Bitmap buf = null;
             if (mExternalFilter == null) buf = MusicGlassBackgroundView.getProcessedBuffer();
             if (buf == null) buf = MusicGlassBackgroundView.getBuffer();
             if (buf != null && !buf.isRecycled()) {
-                if (sScrollActive) {
-                    // 滚动中按当前位置浮点取样直画全局处理缓冲：旧整数 src 窗在 1/4 缓冲上
-                    // 每 4px 才跳一格，纹理在框内分档跳（他 2026-10-26 录屏实证「滑动一下
-                    // 它就动一下」）；矩阵贴图位置连续，内容与身后同步走。折射停下恢复。
-                    boolean okNow = computeCrop(b);
-                    if (okNow) {
-                        drawSampled(canvas, buf, b, mProcessedPaint);
-                    } else if (mProcessed != null) {
-                        canvas.drawBitmap(mProcessed, b.left, b.top, mProcessedPaint);
-                    }
-                } else {
-                    ensureProcessed(b, buf);
-                    lensDrawn = drawLensBackdrop(canvas, b);
-                    if (!lensDrawn && mProcessed != null) {
-                        canvas.drawBitmap(mProcessed, b.left, b.top, mProcessedPaint);
-                    }
-                }
+                lensDrawn = drawLensBackdrop(canvas, b, buf);
+                if (!lensDrawn) drawSampled(canvas, buf, b, mProcessedPaint);
             } else {
                 canvas.drawRect(mTmp, mFallbackPaint);
             }
@@ -535,9 +485,10 @@ public class MusicGlassDrawable extends Drawable {
         if (mPressed) canvas.drawRect(mTmp, mPressPaint);
         canvas.restore();
 
-        // Highlight.Default 着色器描边（Plus 叠加）；无着色器/滚动中回落环线。
-        // 顶镜面线两条路都画（样张顶边最亮、近白勾边）：裁在顶带内只露环的顶部一段
-        if (sScrollActive || !drawHighlightShader(canvas, b)) {
+        // Highlight.Default 着色器描边（Plus 叠加）；无着色器回落环线——按设备能力分，
+        // 不按滚动状态分。顶镜面线两条路都画（样张顶边最亮、近白勾边）：
+        // 裁在顶带内只露环的顶部一段
+        if (!drawHighlightShader(canvas, b)) {
             drawRing(canvas, b, mStrokePaint, mStrokePaint.getStrokeWidth() / 2f);
         }
         float band = Math.min(mRadiusPx + mSpecPaint.getStrokeWidth(), b.height() * 0.45f);
@@ -545,6 +496,21 @@ public class MusicGlassDrawable extends Drawable {
         canvas.clipRect(b.left, b.top, b.right, b.top + band);
         drawRing(canvas, b, mSpecPaint, mSpecPaint.getStrokeWidth() / 2f);
         canvas.restore();
+    }
+
+    // 背景 View 查找缓存（draw 每帧现算取样窗后，findInTree 不能每帧全树走）：
+    // 按根视图缓存、校验仍挂在同一棵树上，失效才重找；弹窗是另一棵根、各自一份。
+    private static View sBgCacheRoot;
+    private static MusicGlassBackgroundView sBgCache;
+
+    private static MusicGlassBackgroundView findBackground(View root) {
+        if (root == sBgCacheRoot && sBgCache != null && sBgCache.isAttachedToWindow()) {
+            return sBgCache;
+        }
+        MusicGlassBackgroundView bg = MusicGlassBackgroundView.findInTree(root);
+        sBgCacheRoot = root;
+        sBgCache = bg;
+        return bg;
     }
 
     /**
@@ -563,7 +529,7 @@ public class MusicGlassDrawable extends Drawable {
         if (getCallback() instanceof View) {
             View host = (View) getCallback();
             View root = host.getRootView();
-            MusicGlassBackgroundView bg = root != null ? MusicGlassBackgroundView.findInTree(root) : null;
+            MusicGlassBackgroundView bg = root != null ? findBackground(root) : null;
             if (bg != null && bg.getWidth() > 0 && bg.getHeight() > 0) {
                 host.getLocationInWindow(mHostLoc);
                 bg.getLocationInWindow(mBgLoc);
@@ -605,7 +571,6 @@ public class MusicGlassDrawable extends Drawable {
 
     @Override
     public void setAlpha(int alpha) {
-        mBitmapPaint.setAlpha(alpha);
         mProcessedPaint.setAlpha(alpha);
         mFallbackPaint.setAlpha(alpha);
         mTintPaint.setAlpha(alpha);
@@ -621,8 +586,8 @@ public class MusicGlassDrawable extends Drawable {
     public void setColorFilter(ColorFilter colorFilter) {
         // 糊底画笔：外部滤镜非空以外部为准（取样回原图）；清空时用预烤处理缓冲（colorControls 在缓冲里）
         mExternalFilter = colorFilter;
-        mBitmapPaint.setColorFilter(colorFilter);
-        mProcessedDirty = true;
+        mProcessedPaint.setColorFilter(colorFilter);
+        mLensPaint.setColorFilter(colorFilter);
         mFallbackPaint.setColorFilter(colorFilter);
         mTintPaint.setColorFilter(colorFilter);
         mShadowPaint.setColorFilter(colorFilter);

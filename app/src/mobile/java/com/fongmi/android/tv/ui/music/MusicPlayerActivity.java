@@ -163,6 +163,15 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
             android.view.ViewGroup.LayoutParams lp = box.getLayoutParams();
             lp.height = mScrubber.getMeasuredHeight();
             box.setLayoutParams(lp);
+            // 两态进度线同高（原地切换的几何前提）：全栈轨道中心在盒内
+            // 28（顶盒）＋4＋18/2＝41dp；迷你组原靠盒底、条中心只在盒内约 54dp 处，
+            // 切换时线凭空跳 13dp——改顶对齐＋顶距 41−12＝29dp（迷你条 24dp 热区、条居中），
+            // 两条线严丝合缝同位。迷你筹行当前是 gone，若日后恢复显示要同步重算此顶距。
+            android.widget.FrameLayout.LayoutParams glp =
+                    (android.widget.FrameLayout.LayoutParams) mMiniGroup.getLayoutParams();
+            glp.gravity = android.view.Gravity.TOP;
+            glp.topMargin = Math.round(dp(41) - dp(12));
+            mMiniGroup.setLayoutParams(glp);
         });
         // 迷你态常驻筹与全栈筹同路（播放时筹在他点名下不许消失）
         mMiniChipQuality.setOnClickListener(v -> showQualityPanel());
@@ -528,14 +537,27 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
         final View out = expanded ? mMiniGroup : mScrubber;
         in.animate().cancel();
         out.animate().cancel();
+        // 同位淡化＋绕线心微缩放：两条线已在装配时对齐同高（见盒钉高处），
+        // 缩放锚点取各自轨道线高度，进 0.96→1、出 1→0.96，像同一根条原地长开/收拢，
+        // 不再是两件东西生硬对换。
+        float inPivotY = expanded ? dp(41) : dp(12);
+        float outPivotY = expanded ? dp(12) : dp(41);
+        if (in.getWidth() > 0) in.setPivotX(in.getWidth() / 2f);
+        if (out.getWidth() > 0) out.setPivotX(out.getWidth() / 2f);
+        in.setPivotY(inPivotY);
+        out.setPivotY(outPivotY);
         in.setAlpha(0f);
+        in.setScaleX(0.96f);
+        in.setScaleY(0.96f);
         in.setVisibility(View.VISIBLE);
         out.setVisibility(View.VISIBLE);
-        in.animate().alpha(1f).setDuration(250).setInterpolator(BS4_A).start();
-        out.animate().alpha(0f).setDuration(200).setInterpolator(BS4_A)
+        in.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(250).setInterpolator(BS4_A).start();
+        out.animate().alpha(0f).scaleX(0.96f).scaleY(0.96f).setDuration(200).setInterpolator(BS4_A)
                 .withEndAction(() -> {
                     out.setVisibility(View.GONE);
                     out.setAlpha(1f);
+                    out.setScaleX(1f);
+                    out.setScaleY(1f);
                 }).start();
     }
 

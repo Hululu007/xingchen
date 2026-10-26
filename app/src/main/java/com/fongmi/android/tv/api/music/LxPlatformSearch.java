@@ -9,6 +9,7 @@ import com.fongmi.android.tv.clash.MihomoManager;
 import com.fongmi.android.tv.clash.SourceProxyPolicy;
 import com.fongmi.android.tv.login.GoogleLoginProvider;
 import com.fongmi.android.tv.login.LoginManager;
+import com.fongmi.android.tv.music.MusicStore;
 import com.fongmi.quickjs.bean.Req;
 import com.fongmi.quickjs.utils.Connect;
 import com.github.catvod.crawler.SpiderDebug;
@@ -178,10 +179,58 @@ public class LxPlatformSearch {
             JsonObject item = new JsonObject();
             item.addProperty("rid", rid);
             item.addProperty("songmid", rid);
+            // 每档目录：酷我搜索条目自带 MINFO/N_MINFO（分号分隔的
+            // level:..,bitrate:..,format:..,size:.. 段，本机真酷我插件的
+            // parseKuwoQualityInfo 解析的就是这个字段，实证在案）——只取档位
+            // 映射存 catalogTiers；size 是带单位的原样字符串、口径不明，
+            // 不换算成字节冒充大小（面板大小保持“未知”，不编数）。
+            String minfoTiers = kwMinfoTiers(o);
+            if (!minfoTiers.isEmpty()) item.addProperty("catalogTiers", minfoTiers);
             finish(t, item);
             out.add(t);
         }
         return out;
+    }
+
+    /**
+     * 酷我 MINFO → 星辰档位集合（逗号串，MusicStore.QUALITY_* 值）：
+     * bitrate≥20000 是酷我的母带/全景声特殊码→Hi-Res；format=flac 时
+     * bitrate≥4000→Hi-Res、其余（2000）→无损；其余格式 bitrate≤128→标准、
+     * 更高（192/320）→极高。段认不全（没 bitrate）跳过，全认不出返回空串。
+     */
+    private static String kwMinfoTiers(JsonObject o) {
+        String minfo = optStr(o, "N_MINFO");
+        if (minfo.isEmpty()) minfo = optStr(o, "MINFO");
+        if (minfo.isEmpty()) return "";
+        java.util.Set<Integer> tiers = new java.util.TreeSet<>();
+        for (String seg : minfo.split(";")) {
+            Integer bitrate = null;
+            String format = "";
+            for (String kv : seg.split(",")) {
+                int eq = kv.indexOf(':');
+                if (eq < 0) continue;
+                String k = kv.substring(0, eq).trim();
+                String v = kv.substring(eq + 1).trim();
+                if ("bitrate".equals(k)) {
+                    try {
+                        bitrate = Integer.parseInt(v);
+                    } catch (Exception ignored) {
+                    }
+                } else if ("format".equals(k)) {
+                    format = v.toLowerCase(java.util.Locale.US);
+                }
+            }
+            if (bitrate == null) continue;
+            if (bitrate >= 20000) tiers.add(MusicStore.QUALITY_SUPER);
+            else if ("flac".equals(format)) tiers.add(bitrate >= 4000 ? MusicStore.QUALITY_SUPER : MusicStore.QUALITY_HIGH);
+            else tiers.add(bitrate <= 128 ? MusicStore.QUALITY_LOW : MusicStore.QUALITY_STANDARD);
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int t : tiers) {
+            if (sb.length() > 0) sb.append(',');
+            sb.append(t);
+        }
+        return sb.toString();
     }
 
     /* ---------------- QQ tx ---------------- */
@@ -224,6 +273,11 @@ public class LxPlatformSearch {
             putSizeIfPositive(item, "size128", o, "size128");
             putSizeIfPositive(item, "size320", o, "size320");
             putSizeIfPositive(item, "sizeFlac", o, "sizeflac");
+            // Hi-Res 档：搜索回包有没有这个键本机未实证——两种常见键名都探，在才存
+            // （存了面板目录就不用等详情才列 Hi-Res）；不在也不编，QQ 详情 file 对象
+            // 仍是权威（面板第二层以它定案目录）。
+            putSizeIfPositive(item, "sizeHires", o, "sizehires");
+            putSizeIfPositive(item, "sizeHires", o, "size_hires");
             finish(t, item);
             out.add(t);
         }

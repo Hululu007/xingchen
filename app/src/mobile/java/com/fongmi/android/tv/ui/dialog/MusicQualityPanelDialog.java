@@ -52,9 +52,17 @@ import java.util.Set;
  * 请求档那一行的副标改写为在播文件的实测规格（“实测 16bit · FLAC”式，位深＋编码、无采样率），
  * 不许让它顶着档位定义副标装作真有该档——《来不及爱你》案：歌本身只有无损 FLAC
  * （平台目录 hr 档不存在、maxBrLevel=lossless），请求 Hi-Res 回来的还是这份 FLAC。
- * 按歌列档（不许写死 4 行）：只列当前歌／源实际提供的档——落雪取各启用插件声明的 qualitys 并集
- * （桥加载阻塞，走后台线程，算出前先以 4 档占位、算出后刷新）；FreeJS 取条目 qualities 键；
- * 本地／已下载／未知来源无源档信息，保持 4 档（选档仍走请求上限回落，不冒充源档）。
+ * 按歌列档（不许写死 4 行）：只列当前歌在其源实际有的档（2026-10-26 深夜他亲定
+ * 「音质面板跟着源跑」）——目录证据按真值强度取：①条目自带每档大小键（壳子直连
+ * tx／wy／kg 搜索回包的真字段，解析时只在该档真存在时才写入，在＝有档）；
+ * ②QQ 详情 file 对象（四档齐全、含 Hi-Res，拉到后以它为准重列，盖过搜索证据）；
+ * ③FreeJS 条目 qualities 键；④落雪各启用插件声明的 qualitys 并集（桥加载阻塞、
+ * 走后台线程——脚本路能给的“目录”只有声明集，取链时逐脚本 pickQuality 也是照它挑）。
+ * kw 的目录走条目 MINFO（真酷我插件 parseKuwoQualityInfo 解析同字段、本机实证；
+ * 只有档没有可信字节数，大小保持“未知”）；mg 搜索回包没有本机可验的每档目录
+ * 字段（audioFormats 无样本可证，不编），落到④或回落。目录拿不到时不摆 4 档装样子：只列实测在播这一档
+ * （还没测到时先列请求档一行占位、无“当前播放”标记，测到即换真行）；
+ * 本地／已下载同理只列在播档——磁盘上就这一个文件，摆别的档是骗人。
  * 在播档一定在列（源档里没有在播档时把它补进原位，保证“当前播放”标记可见）。
  * “当前播放”只认实测真值：与播放页音质筹同源——服务从 ExoPlayer 当前 Format 采的
  * MusicAudioInfo（编码／真实码率／采样率／位深），按档归类后落行；实测不到就不标、
@@ -129,6 +137,8 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
     private boolean[] specLocks = new boolean[0];
     /** 在播实测监听：位深探针异步回填，面板开着时实测一变就重算归类，不许拿打开瞬间的旧值标到底。 */
     private MusicController.Listener audioInfoListener;
+    /** 当前歌在其源的实际目录（档集合）：null＝还没拿到／源给不出，行按回落口径列（见 rowsForDisplay）。 */
+    private Set<Integer> catalogTiers;
     private OnQualityPick callback;
     private List<Row> shownRows = new ArrayList<>();
     private List<TextView> sizeViews = new ArrayList<>();
@@ -180,14 +190,8 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
         actualTier = actualTierOf(info0);
         measuredSpec = measuredSpecOf(info0);
         registerAudioInfoListener();
-        List<Row> initial = resolveTiersSync();
-        if (initial == null) {
-            // 落雪需后台算档：先铺 4 档占位、算出后刷新，不空着面板等
-            buildRows(allRows());
-            resolveTiersAsync();
-        } else {
-            buildRows(initial);
-        }
+        initCatalog();
+        buildRows(rowsForDisplay());
     }
 
     /** 订阅在播实测变化：位深探针回填／换歌都会走这里，归类或注记变了就整行重画。 */
@@ -202,7 +206,7 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
                 if (tier == actualTier && (spec == null ? measuredSpec == null : spec.equals(measuredSpec))) return;
                 actualTier = tier;
                 measuredSpec = spec;
-                if (!shownRows.isEmpty()) buildRows(new ArrayList<>(shownRows));
+                if (!shownRows.isEmpty()) buildRows(rowsForDisplay());
             }
         };
         try {
@@ -224,28 +228,92 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
     }
 
     /**
-     * 同步可算的档：FreeJS（条目 qualities 键）与本地／未知来源（保持 4 档）；
-     * 落雪需加载桥（阻塞），返回 null 走后台算。
+     * 目录定案（同步能算的先算）：条目自带证据（FreeJS qualities 键／直连平台每档
+     * 大小键）开面板即有；落雪脚本声明集要加载桥（阻塞），同步算不到走后台补。
+     * QQ 详情目录在 loadSizesAsync 里拉到后盖过先行目录（见 applyDetailCatalog）。
      */
-    private List<Row> resolveTiersSync() {
-        if (track == null) return allRows();
-        if (LxMusicSource.PLATFORM.equals(track.platform)) return null;
-        if (FreeJsMusicSource.PLATFORM.equals(track.platform)) {
-            Set<Integer> tiers = freeJsTiers(track);
-            if (tiers != null && !tiers.isEmpty()) return filterRows(tiers);
+    private void initCatalog() {
+        catalogTiers = itemCatalogTiers(track);
+        if (catalogTiers == null && track != null && LxMusicSource.PLATFORM.equals(track.platform)) {
+            Task.execute(() -> {
+                Set<Integer> tiers = lxTiers(track);
+                if (getActivity() == null) return;
+                getActivity().runOnUiThread(() -> {
+                    // 详情目录已先行定案时不许被声明集盖回去
+                    if (!isAdded() || tiers == null || tiers.isEmpty() || catalogTiers != null) return;
+                    catalogTiers = tiers;
+                    buildRows(rowsForDisplay());
+                });
+            });
         }
-        return allRows();
     }
 
-    private void resolveTiersAsync() {
-        Task.execute(() -> {
-            Set<Integer> tiers = lxTiers(track);
-            if (getActivity() == null) return;
-            getActivity().runOnUiThread(() -> {
-                if (!isAdded() || tiers == null || tiers.isEmpty()) return;
-                buildRows(filterRows(tiers));
-            });
-        });
+    /** 条目自带目录证据：有就返回档集合，没有返回 null（不许拿别的口径冒充）。 */
+    private static Set<Integer> itemCatalogTiers(MusicTrack track) {
+        if (track == null) return null;
+        if (FreeJsMusicSource.PLATFORM.equals(track.platform)) return freeJsTiers(track);
+        return sizeEvidenceTiers(track);
+    }
+
+    /**
+     * 直连平台目录证据：_item 的每档大小键（size128/size320/sizeFlac/sizeHires）——
+     * 解析侧（LxPlatformSearch）只在该档真存在时才写入（&gt;0），键在＝歌有这一档；
+     * 另并酷我的 catalogTiers（搜索侧从条目 MINFO 映射好的档集合，MINFO 只有档
+     * 没有可信字节数，所以 kw 走这个键而不是大小键）。都没有＝没带目录证据，返回 null。
+     */
+    private static Set<Integer> sizeEvidenceTiers(MusicTrack track) {
+        try {
+            if (track == null || TextUtils.isEmpty(track.rawJson)) return null;
+            JsonObject wrap = JsonParser.parseString(track.rawJson).getAsJsonObject();
+            if (!wrap.has("_item") || !wrap.get("_item").isJsonObject()) return null;
+            JsonObject item = wrap.getAsJsonObject("_item");
+            Set<Integer> tiers = new LinkedHashSet<>();
+            if (itemSizeOf(item, "size128") > 0) tiers.add(MusicStore.QUALITY_LOW);
+            if (itemSizeOf(item, "size320") > 0) tiers.add(MusicStore.QUALITY_STANDARD);
+            if (itemSizeOf(item, "sizeFlac") > 0) tiers.add(MusicStore.QUALITY_HIGH);
+            if (itemSizeOf(item, "sizeHires") > 0) tiers.add(MusicStore.QUALITY_SUPER);
+            JsonElement ct = item.get("catalogTiers");
+            if (ct != null && ct.isJsonPrimitive()) {
+                for (String p : ct.getAsString().split(",")) {
+                    try {
+                        int q = Integer.parseInt(p.trim());
+                        if (q >= MusicStore.QUALITY_LOW && q <= MusicStore.QUALITY_SUPER) tiers.add(q);
+                    } catch (Exception ignored) {
+                    }
+                }
+            }
+            return tiers.isEmpty() ? null : tiers;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static long itemSizeOf(JsonObject item, String key) {
+        try {
+            JsonElement v = item.get(key);
+            if (v == null || !v.isJsonPrimitive()) return -1;
+            return v.getAsLong();
+        } catch (Throwable ignored) {
+            return -1;
+        }
+    }
+
+    /**
+     * 要列的行：有目录按目录列（在播档照旧补进原位）；没目录不摆 4 档装样子——
+     * 只列实测在播这一档；实测还没到时先列请求档一行（不标“当前播放”，
+     * onAudioInfoChanged 一到就按真值重列）。
+     */
+    private List<Row> rowsForDisplay() {
+        if (catalogTiers != null && !catalogTiers.isEmpty()) return filterRows(catalogTiers);
+        int tier = actualTier >= 0 ? actualTier : current;
+        List<Row> rows = new ArrayList<>();
+        rows.add(rowForTier(tier));
+        return rows;
+    }
+
+    private static Row rowForTier(int quality) {
+        for (Row r : ROWS) if (r.quality == quality) return r;
+        return ROWS[1];
     }
 
     /** 落雪：各启用插件声明的 qualitys 并集（桥加载阻塞，只许后台调）。 */
@@ -506,7 +574,8 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
                     postSize(views, i, formatSize(len));
                 }
             }
-            // 第二层：QQ 详情补 Hi-Res 档大小＋位深规格（其余档大小与第一层同源同值，只补缺）。
+            // 第二层：QQ 详情——先按 file 对象定案目录（见上方），再补 Hi-Res 档大小＋位深规格
+            // （其余档大小与第一层同源同值，只补缺）。
             if ("tx".equals(lxPlatformKey(t))) {
                 try {
                     String mid = null;
@@ -524,6 +593,17 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
                     if (mid != null && !mid.isEmpty()) {
                         JsonObject file = com.fongmi.android.tv.api.music.LxPlatformSearch.qqFileInfo(mid);
                         if (file != null) {
+                            // 详情目录定案：file 对象四档大小就是这首歌的真实目录（含 Hi-Res），
+                            // 以它为准——与现行目录不同就重列并收工，大小回填交给重列后的
+                            // 新一轮 loadSizesAsync（新一轮算出的详情目录与现行相同、自然收敛）。
+                            final Set<Integer> detail = detailCatalogTiers(file);
+                            if (detail != null && !detail.equals(catalogTiers)) {
+                                if (getActivity() == null) return;
+                                getActivity().runOnUiThread(() -> {
+                                    if (isAdded()) applyDetailCatalog(detail);
+                                });
+                                return;
+                            }
                             for (int i = 0; i < rows.size(); i++) {
                                 if (!isAdded() || sizeViews != views) return;
                                 if (filled[i]) continue;
@@ -623,6 +703,25 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
         } catch (Throwable ignored) {
             return -1;
         }
+    }
+
+    /** QQ 详情 file 对象 → 该歌真实目录：四档大小键（size_128mp3/320mp3/flac/hires）&gt;0 的档；
+     * 四键全无返回 null（没信息，不许编目录）。 */
+    private static Set<Integer> detailCatalogTiers(JsonObject file) {
+        if (file == null) return null;
+        Set<Integer> tiers = new LinkedHashSet<>();
+        if (itemSizeOf(file, "size_128mp3") > 0) tiers.add(MusicStore.QUALITY_LOW);
+        if (itemSizeOf(file, "size_320mp3") > 0) tiers.add(MusicStore.QUALITY_STANDARD);
+        if (itemSizeOf(file, "size_flac") > 0) tiers.add(MusicStore.QUALITY_HIGH);
+        if (itemSizeOf(file, "size_hires") > 0) tiers.add(MusicStore.QUALITY_SUPER);
+        return tiers.isEmpty() ? null : tiers;
+    }
+
+    /** 详情目录落定（只许主线程调）：与现行目录不同才整行重列。 */
+    private void applyDetailCatalog(Set<Integer> detail) {
+        if (detail == null || detail.equals(catalogTiers)) return;
+        catalogTiers = detail;
+        buildRows(rowsForDisplay());
     }
 
     /** QQ 详情的 Hi-Res 真规格：只取位深（“24bit”式）；采样率不进面板（禁显口径，

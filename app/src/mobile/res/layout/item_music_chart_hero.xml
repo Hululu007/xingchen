@@ -33,7 +33,7 @@
                 android:id="@+id/name"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textColor="#1C1C1E"
+                android:textColor="#F1F4F5"
                 android:textSize="24sp" />
 
             <TextView
@@ -54,7 +54,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:textColor="#8E8E93"
+                android:textColor="#A6FFFFFF"
                 android:textSize="12sp"
                 android:visibility="gone" />
 
@@ -63,7 +63,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="2dp"
-                android:textColor="#8E8E93"
+                android:textColor="#A6FFFFFF"
                 android:textSize="11sp"
                 android:visibility="gone" />
         </LinearLayout>

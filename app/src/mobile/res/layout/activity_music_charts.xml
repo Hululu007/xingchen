@@ -36,7 +36,7 @@
                 android:layout_alignParentStart="true"
                 android:layout_centerVertical="true"
                 android:text="@string/music_charts"
-                android:textColor="#1C1C1E"
+                android:textColor="#F1F4F5"
                 android:textSize="26sp"
                 android:textStyle="bold" />
 
@@ -65,7 +65,7 @@
                 android:layout_height="wrap_content"
                 android:ellipsize="end"
                 android:maxLines="1"
-                android:textColor="#1C1C1E"
+                android:textColor="#F1F4F5"
                 android:textSize="30sp"
                 android:textStyle="bold" />
 

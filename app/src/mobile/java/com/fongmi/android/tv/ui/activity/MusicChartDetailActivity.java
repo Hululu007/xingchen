@@ -536,9 +536,9 @@ public class MusicChartDetailActivity extends BaseActivity {
             // 排名始终可见：在播行取封面语气色，其余默认灰
             h.rank.setVisibility(View.VISIBLE);
             h.rank.setText(String.valueOf(position + 1));
-            h.rank.setTextColor(0xFF8E8E93);
+            h.rank.setTextColor(0xA6FFFFFF);
             h.title.setText(t.displayTitle());
-            h.title.setTextColor(0xFF1A1A1A);
+            h.title.setTextColor(0xFFF1F4F5);
             h.artist.setText(artistDisplay(t.displayArtist()));
             h.duration.setText(fmt(t.duration));
             String trackKey = t.id == null ? "" : t.id;

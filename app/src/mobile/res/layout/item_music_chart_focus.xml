@@ -34,7 +34,7 @@
             android:layout_height="wrap_content"
             android:letterSpacing="0.17"
             android:text="CHART SPOTLIGHT"
-            android:textColor="#8E8E93"
+            android:textColor="#A6FFFFFF"
             android:textSize="9sp" />
     </LinearLayout>
 
@@ -64,7 +64,7 @@
                 android:layout_height="wrap_content"
                 android:ellipsize="end"
                 android:maxLines="1"
-                android:textColor="#1C1C1E"
+                android:textColor="#F1F4F5"
                 android:textSize="24sp" />
 
             <TextView
@@ -74,7 +74,7 @@
                 android:layout_marginTop="4dp"
                 android:ellipsize="end"
                 android:maxLines="1"
-                android:textColor="#8E8E93"
+                android:textColor="#A6FFFFFF"
                 android:textSize="12sp"
                 android:visibility="gone" />
 
@@ -85,7 +85,7 @@
                 android:layout_marginTop="8dp"
                 android:ellipsize="end"
                 android:maxLines="1"
-                android:textColor="#8E8E93"
+                android:textColor="#A6FFFFFF"
                 android:textSize="13sp" />
 
             <TextView
@@ -95,7 +95,7 @@
                 android:layout_marginTop="2dp"
                 android:ellipsize="end"
                 android:maxLines="1"
-                android:textColor="#8E8E93"
+                android:textColor="#A6FFFFFF"
                 android:textSize="13sp" />
 
             <TextView
@@ -105,7 +105,7 @@
                 android:layout_marginTop="2dp"
                 android:ellipsize="end"
                 android:maxLines="1"
-                android:textColor="#8E8E93"
+                android:textColor="#A6FFFFFF"
                 android:textSize="13sp" />
         </LinearLayout>
     </LinearLayout>

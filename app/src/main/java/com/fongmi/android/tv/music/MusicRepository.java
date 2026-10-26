@@ -881,6 +881,15 @@ public class MusicRepository {
         // 出词提速：链消费到第一份可用词（行级也算）时先行发布一次，供播放页先上屏；
         // 链的挑选口径与返回值不变，后到的更优版由页面在收口时无缝替换。
         java.util.concurrent.atomic.AtomicBoolean earlyFired = new java.util.concurrent.atomic.AtomicBoolean();
+        // 首帧再提速（1.4.45 真机日志定罪后）：四个直连步（Worker／平台直连／酷我／
+        // AMLL，全是 HTTP、不经单线程桥）在链头就与步 0 并行发出、各自完成即先行
+        // 发布。此前 Worker 要等步 0＋步 1 两段串行桥调用跑完才被启动：它本机实测
+        // 就要 5.6–9.3 秒，在他手机上连接超时全灭时，链在步 4 的 await 还要再烧满
+        // 45 秒上限，才轮到消费早已备好的平台直连结果——首帧被一条死链拖住。
+        // 消费与挑选口径不变：四步的结果仍由 LyricPrefetch 在原步序（4／5／5.5／6）
+        // 接管消费；链在接管前退出（含恢复命中）时一律 abandon 撤下。
+        EarlyLyricFetch earlyFetch = EarlyLyricFetch.start(track,
+                lyric -> fireEarlyLyric(track, lyric, earlyFired));
         // L10：非手动重搜时先试恢复上次手动选的版本（瓜子 restoreManualLyricChoice 口径）。
         // 恢复用全量聚合（lyricRichAllDetailed）匹配版本 key，命中即直接返回该版，不走快路径优先级；
         // 完整聚合里找不到才清除存值并通知一次“已失效”再走快路径——不许静默回落首版。
@@ -1280,6 +1289,8 @@ public class MusicRepository {
     private static void cfLyricVersionsAll(MusicTrack track, List<LyricVersion> out, Set<String> seen) {
         CfLyricClient.CfResponse response = new CfLyricClient().fetch(track);
         if (response == null) return;
+        sLastCfNote = response.fetchNote;
+        int before = out.size();
         for (CfLyricClient.CfVersion version : response.versions) {
             MusicLyric lyric = normalizeRich(toMusicLyric(version));
             if (lyric == null || !lyric.hasLyric()) continue;
@@ -1291,6 +1302,18 @@ public class MusicRepository {
             addVersion(out, seen, lyric, MATCH_CONTAINS, gzLevel,
                     version.songTitle, version.songArtist, deltaSec);
         }
+        // 诊断（版本面板空态定案用）：回包版本数与实际并入数分开记——回包非空却并入 0
+        // 与回包为空是两种病，不许再混成一句「没回来」。
+        SpiderDebug.log("music", "cf versions parsed=%d added=%d note=%s",
+                response.versions.size(), out.size() - before, String.valueOf(response.fetchNote));
+    }
+
+    /** 最近一次 Worker 取词的结局分类（CfLyricClient.NOTE_*）：版本面板空态显真因用 */
+    private static volatile String sLastCfNote;
+
+    /** 最近一次 Worker 取词结局（面板诊断用；null＝还没取过） */
+    public static String lastCfNote() {
+        return sLastCfNote;
     }
 
     /** Worker 版本 → MusicLyric：只搬字段，不搬 kind 宣称的档位（档位一律由解析定）。 */
@@ -1702,7 +1725,9 @@ public class MusicRepository {
         if (track == null) return out;
         try {
             cfLyricVersionsAll(track, out, seen);
-        } catch (Throwable ignored) {
+        } catch (Throwable t) {
+            // 旧写法静默吞：阶段一回空时日志里连一行都没有，定不了案（1.4.44 真机实证）
+            SpiderDebug.log("music", "lyricWorkerAll error %s", t.getMessage());
         }
         // 阶段一列表按定级降序（稳定排序，与面板头「按匹配度排列」同口径）
         java.util.Collections.sort(out, (a, b) ->

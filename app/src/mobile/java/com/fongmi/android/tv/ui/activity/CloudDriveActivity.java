@@ -36,6 +36,7 @@ import com.fongmi.android.tv.databinding.ItemCloudFileBinding;
 import com.fongmi.android.tv.music.CloudMusicSource;
 import com.fongmi.android.tv.music.MusicController;
 import com.fongmi.android.tv.ui.base.BaseActivity;
+import com.fongmi.android.tv.ui.music.MusicGlassDialogs;
 import com.fongmi.android.tv.ui.music.MusicPlayerActivity;
 import com.fongmi.android.tv.utils.Notify;
 
@@ -329,12 +330,14 @@ public class CloudDriveActivity extends BaseActivity {
     }
 
     private void confirmDelete(CloudFile file) {
-        new AlertDialog.Builder(this)
+        AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("删除")
                 .setMessage("确定删除「" + file.getName() + "」吗？")
                 .setPositiveButton("删除", (d, w) -> doDelete(file))
                 .setNegativeButton("取消", null)
-                .show();
+                .create();
+        MusicGlassDialogs.attach(dialog);
+        dialog.show();
     }
 
     private void doDelete(CloudFile file) {
@@ -374,7 +377,7 @@ public class CloudDriveActivity extends BaseActivity {
         List<String> actions = fabActions();
         if (actions.isEmpty()) return;
         String[] items = actions.toArray(new String[0]);
-        new AlertDialog.Builder(this)
+        AlertDialog dialog = new AlertDialog.Builder(this)
                 .setItems(items, (d, which) -> {
                     String action = actions.get(which);
                     if ("离线下载".equals(action)) showOfflineDialog();
@@ -382,7 +385,9 @@ public class CloudDriveActivity extends BaseActivity {
                     else if ("新建文件夹".equals(action)) showCreateFolderDialog();
                     else if ("离线任务".equals(action)) showTaskListDialog();
                 })
-                .show();
+                .create();
+        MusicGlassDialogs.attach(dialog);
+        dialog.show();
     }
 
     /** 离线任务弹窗的会话状态：已拼接的全部任务、已拉页数、第 1 页条数（满页判定基准）、是否还有下一页。 */
@@ -499,7 +504,7 @@ public class CloudDriveActivity extends BaseActivity {
     }
 
     private void confirmDeleteTask(CloudTask task, int loadedPages) {
-        new AlertDialog.Builder(this)
+        AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("删除离线任务")
                 .setMessage("确定删除「" + task.getName() + "」吗？")
                 .setPositiveButton("删除", (d, w) -> {
@@ -517,7 +522,9 @@ public class CloudDriveActivity extends BaseActivity {
                     }).start();
                 })
                 .setNegativeButton("取消", null)
-                .show();
+                .create();
+        MusicGlassDialogs.attach(dialog);
+        dialog.show();
     }
 
     /**

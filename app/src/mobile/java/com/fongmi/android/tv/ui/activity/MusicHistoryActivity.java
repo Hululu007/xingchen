@@ -584,7 +584,7 @@ public class MusicHistoryActivity extends BaseActivity {
                 else if (idx == dIdx) downloadTrack(track);
                 else if (idx == rmHistIdx) {
                     MusicStore.removeRecentByIds(
-                            java.util.Collections.singleton(track.id));
+                            java.util.Collections.singleton(com.fongmi.android.tv.music.MusicIdentity.keyOf(track)));
                     loadHistory();
                 }
                 else if (idx == delIdx) confirmDeleteLocal(track);
@@ -829,7 +829,7 @@ public class MusicHistoryActivity extends BaseActivity {
             }
             if (histMulti) {
                 // 历史多选态（行点按变勾选；行尾 24dp 选中圆圈，选中红底、未选灰框）
-                boolean sel = t.id != null && histSelected.contains(t.id);
+                boolean sel = t.id != null && histSelected.contains(com.fongmi.android.tv.music.MusicIdentity.keyOf(t));
                 android.graphics.drawable.GradientDrawable circle = new android.graphics.drawable.GradientDrawable();
                 circle.setShape(android.graphics.drawable.GradientDrawable.OVAL);
                 int s24 = dp(24);
@@ -840,9 +840,10 @@ public class MusicHistoryActivity extends BaseActivity {
                 int p10 = dp(10);
                 h.more.setPadding(p10, p10, p10, p10);
                 android.view.View.OnClickListener toggle = v -> {
-                    if (t.id != null) {
-                        if (histSelected.contains(t.id)) histSelected.remove(t.id);
-                        else histSelected.add(t.id);
+                    String selKey = com.fongmi.android.tv.music.MusicIdentity.keyOf(t);
+                    if (selKey != null) {
+                        if (histSelected.contains(selKey)) histSelected.remove(selKey);
+                        else histSelected.add(selKey);
                     }
                     refreshHistoryMultiText();
                     if (adapter != null) adapter.notifyDataSetChanged();

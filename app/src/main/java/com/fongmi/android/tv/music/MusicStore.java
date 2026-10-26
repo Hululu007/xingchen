@@ -380,13 +380,15 @@ public class MusicStore {
                 .apply();
     }
 
-    /** 最近播放：切歌成功即记一条，按 id 去重，上限 50 首 */
+    /** 最近播放：切歌成功即记一条，按身份键去重，上限 50 首（扫描 M5：旧实现裸比 id，
+     *  跨 FreeJS 插件同 id 互相顶掉，同文件下载/歌词键早已走身份键、唯独这里漏了） */
     public static void pushRecent(MusicTrack track) {
         if (track == null || track.id == null) return;
         try {
+            String key = MusicIdentity.keyOf(track);
             List<MusicTrack> list = loadRecent();
             for (int i = 0; i < list.size(); i++) {
-                if (track.id.equals(list.get(i).id)) {
+                if (key != null && key.equals(MusicIdentity.keyOf(list.get(i)))) {
                     list.remove(i);
                     break;
                 }
@@ -410,14 +412,16 @@ public class MusicStore {
         }
     }
 
-    /** 历史页行级移除：按 id 删掉若干条最近播放（不在场的 id 直接跳过） */
-    public static void removeRecentByIds(java.util.Set<String> ids) {
-        if (ids == null || ids.isEmpty()) return;
+    /** 历史页行级移除：按身份键删掉若干条最近播放（参数是 MusicIdentity 身份键集，
+     *  不在场的键直接跳过；扫描 M5：旧实现按裸 id 删，跨插件同 id 连坐误删） */
+    public static void removeRecentByIds(java.util.Set<String> keys) {
+        if (keys == null || keys.isEmpty()) return;
         try {
             List<MusicTrack> list = loadRecent();
             List<MusicTrack> kept = new ArrayList<>();
             for (MusicTrack t : list) {
-                if (t == null || t.id == null || !ids.contains(t.id)) kept.add(t);
+                String key = t == null ? null : MusicIdentity.keyOf(t);
+                if (key == null || !keys.contains(key)) kept.add(t);
             }
             Prefers.put(K_RECENT, App.gson().toJson(kept));
         } catch (Throwable ignored) {

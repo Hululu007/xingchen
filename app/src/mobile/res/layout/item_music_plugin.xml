@@ -43,18 +43,8 @@
                 android:textColor="#1C1C1E"
                 android:textSize="16sp"
                 android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/formatTag"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="10dp"
-                android:background="@drawable/badge_music"
-                android:paddingStart="6dp"
-                android:paddingTop="1dp"
-                android:paddingEnd="6dp"
-                android:paddingBottom="1dp"
-                android:textSize="11sp" />
+            <!-- 格式徽标（落雪／FreeJS 粉签）已整摘（2026-10-27 他令「卡片上不需要 freejs 之类的」）；
+                 落雪/FreeJS 区分只在分组段头，卡片只留名字、状态、检测、开关。 -->
         </LinearLayout>
 
         <!-- GZ 副文案串（单行 11sp，超长截断不折行）：官方／加密／版本／作者／耗时（有数据的段才拼，无数据不编） -->
@@ -104,24 +94,26 @@
             android:textSize="11sp"
             android:visibility="gone" />
 
-        <!-- 对照表 P12 失败 message 行内展开（检测失败且 message 非空时显，11sp，色与状态色一致） -->
+        <!-- 失败 message 行内展开（整插件失败或歌词单项失败时显，11sp；
+             色按本页口径恒白——旧红 #FFFF3B30 已按 2026-10-27 他令换掉，代码侧同口径） -->
         <TextView
             android:id="@+id/pluginError"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="2dp"
-            android:textColor="#FFFF3B30"
+            android:textColor="#FFFFFFFF"
             android:textSize="11sp"
             android:visibility="gone" />
     </LinearLayout>
 
-    <!-- C4 行内“检测”钮（放开关左侧；与 pluginMenu 菜单项二选一，定行内钮，菜单不另加检测项） -->
+    <!-- C4 行内“检测”钮（放开关左侧；与 pluginMenu 菜单项二选一，定行内钮，菜单不另加检测项）。
+         底改白钮 badge_music_test（2026-10-27 他令：白色、深字看得清；粉角标 badge_music 多处共用不动） -->
     <TextView
         android:id="@+id/pluginTest"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginStart="8dp"
-        android:background="@drawable/badge_music"
+        android:background="@drawable/badge_music_test"
         android:paddingStart="10dp"
         android:paddingTop="5dp"
         android:paddingEnd="10dp"

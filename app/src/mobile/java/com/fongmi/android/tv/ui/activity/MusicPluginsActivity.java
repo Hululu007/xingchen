@@ -321,7 +321,7 @@ public class MusicPluginsActivity extends BaseActivity {
         TextView reload = new TextView(this);
         reload.setText("重新加载插件");
         reload.setTextSize(14);
-        reload.setTextColor(0xFFFA243C);
+        reload.setTextColor(0xFFFFFFFF); // 本页红字全换白（2026-10-27 他令）
         reload.setPadding(dp(12), dp(8), dp(12), dp(8));
         reload.setOnClickListener(v -> {
             MusicSourceManager.get().reloadBridges();
@@ -426,10 +426,10 @@ public class MusicPluginsActivity extends BaseActivity {
         int badgeColor;
         if (st.quarantinedRunners > 0) {
             badge = "运行异常";
-            badgeColor = 0xFFFF3B30;
+            badgeColor = 0xFFFFFFFF; // 本页红字全换白（2026-10-27 他令：状态靠文案说清，不靠颜色喊）
         } else if (st.failedPlugins > 0) {
             badge = "启动失败";
-            badgeColor = 0xFFFF3B30;
+            badgeColor = 0xFFFFFFFF; // 同上
         } else if (st.initializing) {
             badge = "启动中";
             badgeColor = 0xFF8E8E93;
@@ -623,10 +623,10 @@ public class MusicPluginsActivity extends BaseActivity {
         boolean searchOk = result.searchOk || result.state == MusicPluginTest.State.AVAILABLE;
         String searchMsg = result.searchMessage != null && !result.searchMessage.isEmpty()
                 ? result.searchMessage : result.message;
-        addStageRow(box, "搜索", searchOk ? 0xFF34C759 : 0xFFFF3B30,
+        addStageRow(box, "搜索", searchOk ? 0xFF34C759 : 0xFFFFFFFF,
                 searchOk ? "通过" : "失败" + stageReason(searchMsg), false);
         boolean lyricOnly = !result.audioOk && result.lyricOk && searchOk;
-        addStageRow(box, "取播放", lyricOnly ? 0xFF8E8E93 : result.audioOk ? 0xFF34C759 : 0xFFFF3B30,
+        addStageRow(box, "取播放", lyricOnly ? 0xFF8E8E93 : result.audioOk ? 0xFF34C759 : 0xFFFFFFFF,
                 lyricOnly ? "歌词型插件，无取播放段"
                         : result.audioOk ? "通过（取链耗时 " + result.latencyMs + "ms）"
                         : "失败" + stageReason(result.playMessage != null && !result.playMessage.isEmpty()
@@ -642,7 +642,7 @@ public class MusicPluginsActivity extends BaseActivity {
         } else {
             lyricText = "失败" + stageReason(result.lyricMessage != null && !result.lyricMessage.isEmpty()
                     ? result.lyricMessage : result.message);
-            lyricColor = 0xFFFF3B30;
+            lyricColor = 0xFFFFFFFF; // 本页红字全换白（2026-10-27 他令）
         }
         TextView lyricTitle = new TextView(this);
         lyricTitle.setText("取歌词");
@@ -688,6 +688,14 @@ public class MusicPluginsActivity extends BaseActivity {
         line.setTextSize(14);
         line.setTextColor(color);
         box.addView(line);
+    }
+
+    /** 本页行内状态色（2026-10-27 他令：红字全换白、状态靠文案说清不靠颜色喊）：
+     * MusicPluginTest.labelColor 的失败红 #FFFF3B30 在本页一律出白；可用绿／未检测灰
+     * 不在此令内、原样。状态文与状态圆点共用此口径。 */
+    private static int pageStatusColor(MusicPluginTest t) {
+        int c = t.labelColor();
+        return c == 0xFFFF3B30 ? 0xFFFFFFFF : c;
     }
 
     /** 行内三段文案（搜索／取播放／取歌词一段一节，失败带原因短文；未检测返回空串＝不显行） */
@@ -761,7 +769,7 @@ public class MusicPluginsActivity extends BaseActivity {
         });
         routeCard.addView(policyRow);
         View routeDivider = new View(this);
-        routeDivider.setBackgroundColor(0xFFE5E5EA);
+        routeDivider.setBackgroundColor(0x33FFFFFF); // 玻璃面分隔线改白系（原浅灰实色是白卡口径）
         LinearLayout.LayoutParams rdlp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(1));
         rdlp.topMargin = dp(10);
@@ -774,6 +782,11 @@ public class MusicPluginsActivity extends BaseActivity {
         LinearLayout assignRow = sectionTextRow(getString(R.string.wave2_route_assign), assignSub,
                 v -> showPlatformAssignDialog());
         routeCard.addView(assignRow);
+        // 专区卡上玻璃（2026-10-27 他令：下半截白卡与全页玻璃面脱节）：专区卡是运行时
+        // 程序化直建的，进页那趟 glassifyTree(root) 时还不存在，卡底一直停在
+        // card_music_glass_24 的 XML 近白下限、字也留深色。建完逐卡走同一套接线：
+        // 底换同源液态玻璃、件内字翻白系、卡内开关换玻璃开关（与插件行同一路径）。
+        MusicGlassWire.glassifyTree(routeCard);
         pluginSections.addView(routeCard);
         // ---- 多插件智能切换行（标题 15sp；说明句按忌介绍文字铁律去掉，只留名字＋开关，功能不动） ----
         // 两行开关并进一张卡（原先每行一张卡，底下卡堆是实拍“一堆卡”的来源之一；功能与缩放区分不动）
@@ -805,7 +818,7 @@ public class MusicPluginsActivity extends BaseActivity {
                 });
         switchCard.addView(smartRow);
         View switchDivider = new View(this);
-        switchDivider.setBackgroundColor(0xFFE5E5EA);
+        switchDivider.setBackgroundColor(0x33FFFFFF); // 玻璃面分隔线改白系（原浅灰实色是白卡口径）
         LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(1));
         dlp.topMargin = dp(10);
@@ -825,6 +838,7 @@ public class MusicPluginsActivity extends BaseActivity {
                     refreshPluginSections();
                 });
         switchCard.addView(blockRow);
+        MusicGlassWire.glassifyTree(switchCard); // 同 routeCard：专区卡逐卡上玻璃
         pluginSections.addView(switchCard);
         // ---- 运行时状态区（异常项＋重新加载钮；总数／启用数与头卡重复，已删） ----
         MusicRuntimeStatus st = MusicSourceManager.get().runtimeStatus();
@@ -867,7 +881,7 @@ public class MusicPluginsActivity extends BaseActivity {
         TextView reloadBtn = new TextView(this);
         reloadBtn.setText("重新加载插件");
         reloadBtn.setTextSize(14);
-        reloadBtn.setTextColor(0xFFFA243C);
+        reloadBtn.setTextColor(0xFFFFFFFF); // 本页红字全换白（2026-10-27 他令）
         reloadBtn.setPadding(dp(12), dp(8), dp(12), dp(8));
         reloadBtn.setOnClickListener(v -> {
             MusicSourceManager.get().reloadBridges();
@@ -877,6 +891,7 @@ public class MusicPluginsActivity extends BaseActivity {
             Notify.show("已重新加载");
         });
         card.addView(reloadBtn);
+        MusicGlassWire.glassifyTree(card); // 同 routeCard：专区卡逐卡上玻璃
         pluginSections.addView(card);
     }
 
@@ -1176,7 +1191,7 @@ public class MusicPluginsActivity extends BaseActivity {
             row.addView(name, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
             TextView state = new TextView(this);
             state.setTextSize(14);
-            state.setTextColor(0xFFFA243C);
+            state.setTextColor(0xFFFFFFFF); // 本页红字全换白（2026-10-27 他令）
             row.addView(state);
             Runnable refresh = () -> state.setText(
                     MusicStore.getBlockedPlatforms(site.srcUrl).contains(p) ? "已屏蔽" : "");
@@ -1242,7 +1257,7 @@ public class MusicPluginsActivity extends BaseActivity {
         TextView retry = new TextView(this);
         retry.setText("重试");
         retry.setTextSize(14);
-        retry.setTextColor(0xFFFA243C);
+        retry.setTextColor(0xFFFFFFFF); // 本页红字全换白（2026-10-27 他令）
         retry.setPadding(0, dp(12), 0, 0);
         retry.setVisibility(View.GONE);
         box.addView(retry);
@@ -1434,7 +1449,7 @@ public class MusicPluginsActivity extends BaseActivity {
             return MusicSourceManager.siteColor(s);
         }
 
-        /** 插件行：名＋版本号小字＋格式标签；右侧开关（真接线启停）＋⋮菜单 */
+        /** 插件行：名＋副文案串（格式徽标已按他令整摘）；右侧开关（真接线启停）＋⋮菜单 */
         private void bindPlugin(PluginHolder h, int position) {
             // cards 是混装列表（PluginGroup＋MusicSite）：绑定前先验型，
             // 不靠视图分型的间接不变量兜底，混入第三类时不许强转崩列表（大扫查防崩同型命中）。
@@ -1453,11 +1468,8 @@ public class MusicPluginsActivity extends BaseActivity {
                 iconBg.setColor((c & 0x00FFFFFF) | 0x1F000000);
                 h.pluginIcon.setBackground(iconBg);
             }
-            boolean lx = MusicSourceManager.isLx(s);
-            h.formatTag.setText(lx ? "落雪" : "FreeJS");
-            // 格式标签底是实心粉 badge_music（#FF6B9D，多处角标共用、不动它）：
-            // 旧字色浅灰蓝／正红压粉底对比不足看不清，统一改深酒红压粉底（对比约 6.8:1）
-            h.formatTag.setTextColor(0xFF5C0A24);
+            // 格式徽标已整摘（2026-10-27 他令「卡片上不需要 freejs 之类的」）：卡片只留
+            // 名字、状态、检测、开关；落雪/FreeJS 的区分只在分组段头，不在卡片上挂标签。
             // 副文案串单行“官方 · 版本 · 作者 · 耗时”（只有真实数据的段才拼；
             // 官方按播种地址认（isOfficialSite，不读字段）；加密／配置项无数据来源，字段已删、不出段；
             // 耗时是单次检测耗时，均耗时未存检测层，不冒充平均值）
@@ -1501,20 +1513,33 @@ public class MusicPluginsActivity extends BaseActivity {
             } else {
                 if (test == null) test = new MusicPluginTest();
                 h.testStatus.setText(test.label());
-                h.testStatus.setTextColor(test.labelColor());
-                if (h.statusDot != null) setStatusDot(h.statusDot, test.labelColor());
+                h.testStatus.setTextColor(pageStatusColor(test));
+                if (h.statusDot != null) setStatusDot(h.statusDot, pageStatusColor(test));
                 h.pluginTest.setText("检测");
                 h.pluginTest.setEnabled(true);
             }
-            // 检测失败且 message 非空时行内另起一行显 message（11sp，色与状态色一致）
+            // 失败行（11sp）：整插件失败（核心项没过）显总 message；整插件可用但歌词
+            // 单项失败时只显歌词那一项（分项标，2026-10-27 他令——单项失败只落在
+            // 它自己那行，不许拖整插件下水）。色按本页口径出白（见下方设色处）。
             MusicPluginTest rowTest = MusicSourceManager.get().loadPluginTest(s.srcUrl);
             if (rowTest == null) rowTest = new MusicPluginTest();
-            if (!MusicSourceManager.get().isTesting(s.srcUrl)
-                    && rowTest.state == MusicPluginTest.State.FAILED
-                    && rowTest.message != null && !rowTest.message.isEmpty()) {
+            String errorText = null;
+            if (!MusicSourceManager.get().isTesting(s.srcUrl)) {
+                if (rowTest.state == MusicPluginTest.State.FAILED
+                        && rowTest.message != null && !rowTest.message.isEmpty()) {
+                    errorText = rowTest.message;
+                } else if (rowTest.state == MusicPluginTest.State.AVAILABLE
+                        && rowTest.lyricCapable && !rowTest.lyricOk
+                        && rowTest.message != null && !rowTest.message.isEmpty()) {
+                    errorText = rowTest.message;
+                }
+            }
+            if (errorText != null) {
                 h.pluginError.setVisibility(View.VISIBLE);
-                h.pluginError.setText(rowTest.message);
-                h.pluginError.setTextColor(rowTest.labelColor());
+                h.pluginError.setText(errorText);
+                // 失败行恒白：整插件失败态旧色是红（已按令换白）；可用但歌词单项失败时
+                // 状态色是可用绿，失败注记更不许借绿——两种情形都出白。
+                h.pluginError.setTextColor(0xFFFFFFFF);
             } else {
                 h.pluginError.setVisibility(View.GONE);
             }
@@ -1562,7 +1587,6 @@ public class MusicPluginsActivity extends BaseActivity {
             final ImageView pluginIcon;
             final View statusDot;
             final TextView name;
-            final TextView formatTag;
             final TextView version;
             final TextView testStatus;
             final TextView pluginError;
@@ -1578,7 +1602,6 @@ public class MusicPluginsActivity extends BaseActivity {
                 pluginIcon = v.findViewById(R.id.pluginIcon);
                 statusDot = v.findViewById(R.id.statusDot);
                 name = v.findViewById(R.id.name);
-                formatTag = v.findViewById(R.id.formatTag);
                 version = v.findViewById(R.id.version);
                 testStatus = v.findViewById(R.id.testStatus);
                 pluginError = v.findViewById(R.id.pluginError);

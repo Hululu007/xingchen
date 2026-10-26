@@ -1189,8 +1189,10 @@ public class MusicSourceManager {
 
     /**
      * C4 检测（子线程跑，回调在检测线程上）：搜索固定探针关键词＋首条取链计时＋歌词探针。
-     * 任一步失败／超时记 FAILED；音源可用且歌词可用（或插件无歌词能力时只看音源）记 AVAILABLE；
-     * 歌词型插件（搜不到 music 但 lyric 搜＋取词成功）同样记 AVAILABLE（音源档为空、只看歌词）。
+     * 结论分项（2026-10-27 他亲令）：整插件结论只由核心项（搜索＋取播放）定——核心任一
+     * 失败／超时记 FAILED，核心全过记 AVAILABLE；歌词是单项，失败只记歌词段、不拖结论
+     * （如酷我自家取词接口全回空，搜索/取播都好就仍是可用）。歌词型插件（搜不到 music
+     * 但 lyric 搜＋取词成功）的核心就是歌词，只看歌词记 AVAILABLE／FAILED。
      * 自动屏蔽开启时 FAILED 转 BLOCKED；检测通过自动解除屏蔽与隔离。
      */
     public void testPlugin(MusicSite site, PluginTestCallback cb) {
@@ -1328,11 +1330,20 @@ public class MusicSourceManager {
                     r.message = "歌词探针失败";
                     if (r.lyricMessage == null || r.lyricMessage.isEmpty()) r.lyricMessage = "歌词探针失败";
                 }
-            } else if (r.audioOk && (r.lyricOk || !r.lyricCapable)) {
+            } else if (r.audioOk) {
+                // 分项标（2026-10-27 他亲令）：整插件结论只由核心项（搜索＋取播放）定。
+                // 歌词是单项：失败只记在歌词段（lyricMessage＋message 供行内单项行显），
+                // 不许拖整插件成 FAILED——旧口径下酷我搜索/取播全过、只歌词探针失败
+                // 就整行标「检测失败」，还会被自动屏蔽连带摘掉。歌词型插件（lyricOnly）
+                // 的核心就是歌词，不在此口径内、仍按上方分支只看歌词。
                 r.state = MusicPluginTest.State.AVAILABLE;
+                if (r.lyricCapable && !r.lyricOk) {
+                    r.message = "歌词探针失败";
+                    if (r.lyricMessage == null || r.lyricMessage.isEmpty()) r.lyricMessage = "歌词探针失败";
+                }
             } else {
                 r.state = MusicPluginTest.State.FAILED;
-                r.message = !r.audioOk ? "取链失败" : "歌词探针失败";
+                r.message = "取链失败";
             }
             return r;
         } catch (Throwable t) {

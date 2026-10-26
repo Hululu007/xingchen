@@ -128,7 +128,20 @@ public final class MusicGlassWire {
 
     /** 滚动回调里调：令全部已登记玻璃件重画（位置变了、取样跟着身后变）。
      *  只刷当前可见的件：不可见/别的页面的件跟着刷是纯浪费——滑动卡顿的一条来源（2026-10-26）。 */
+    private static boolean sFrameRefreshQueued;
+
+    /** 滚动钩子每个事件都调本方法；逐个事件全量重绘＝掉帧（他点名设置页滑动像掉帧）。
+     *  改为逐帧合并：一个动画帧内多次调用只在帧边界刷一次。 */
     static void refreshGlassViews() {
+        if (sFrameRefreshQueued) return;
+        sFrameRefreshQueued = true;
+        android.view.Choreographer.getInstance().postFrameCallback(t -> {
+            sFrameRefreshQueued = false;
+            doRefreshGlassViews();
+        });
+    }
+
+    private static void doRefreshGlassViews() {
         java.util.List<View> copy;
         synchronized (sGlassViews) {
             copy = new java.util.ArrayList<>(sGlassViews);

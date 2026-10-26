@@ -302,6 +302,15 @@ public class LxBridge {
             } catch (java.util.concurrent.TimeoutException te) {
                 bridgeFuture.cancel(true);
                 throw te;
+            } catch (InterruptedException ie) {
+                // 外层放弃等待（单插件上限到点 cancel 了等链的线程）时必须连桥任务
+                // 一起取消：桥是单线程执行器，不取消的话这条慢链继续在桥线程上
+                // 跑满全链，后面每首歌的请求都排在它后面、被外层逐个砍死
+                //（2026-10-26 真机实证：一条慢链堵桥约 2 分钟、kg 连灭三首）。
+                // 中断落到桥线程后，awaitPromise 的等待会立即抛断、nativeRequest
+                // 也至多再跑完手头这一发就收，不再往下发新请求。
+                bridgeFuture.cancel(true);
+                throw ie;
             }
         } catch (java.util.concurrent.ExecutionException e) {
             // B4：脚本拒绝消息带显式 401／403 标记时包成密钥问题错误向上传递；
@@ -522,7 +531,11 @@ public class LxBridge {
             }
             if (body != null) req.put("body", body);
             long timeout = opts.optLong("timeout", 20000);
-            req.put("timeout", (int) Math.max(5000, Math.min(60000, timeout)));
+            // 下限只兜 1 秒防呆，不许再往上钳：旧下限 5000 把脚本自带的 2 秒超时
+            // 放大 2.5 倍——垫片请求是同步串行的，聚合脚本多后端顺序回退时每个
+            // 死后端多烧 3 秒，整链必爆单插件上限（2026-10-26 真机全灭＋本机复现实证）。
+            // 落雪口径是脚本给多少就用多少，这里只防 0／负数。
+            req.put("timeout", (int) Math.max(1000, Math.min(60000, timeout)));
             req.put("redirect", 1);
         } catch (Exception e) {
             try {

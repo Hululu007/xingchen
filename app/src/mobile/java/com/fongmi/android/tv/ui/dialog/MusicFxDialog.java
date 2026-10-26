@@ -170,16 +170,18 @@ public class MusicFxDialog extends BaseBottomSheetDialog {
         tv.setTextSize(13);
         int pad = dp(14);
         tv.setPadding(pad, dp(8), pad, dp(8));
-        GradientDrawable d = new GradientDrawable();
-        d.setCornerRadius(dp(16));
         if (selected) {
+            // 选中筹是红色强调态（与全模块选中信号同色），保留实红
+            GradientDrawable d = new GradientDrawable();
+            d.setCornerRadius(dp(16));
             d.setColor(0xFFFA243C);
             tv.setTextColor(0xFF1A1206);
+            tv.setBackground(d);
         } else {
-            d.setColor(0xFFF3F3F3);
+            // 未选筹换同源玻璃：原是 #F3F3F3 实底浅灰片，摆在玻璃面板根上就是白板（2026-10-26 全扫）
             tv.setTextColor(0xFF9AA7B8);
+            MusicGlassWire.glassifyView(tv, 16f);
         }
-        tv.setBackground(d);
         return tv;
     }
 

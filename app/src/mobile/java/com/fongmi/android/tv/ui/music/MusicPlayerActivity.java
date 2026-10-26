@@ -819,17 +819,12 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
         if (mCoverOut.getVisibility() == View.VISIBLE) {
             mCoverOut.animate().scaleX(mCoverScaleBase).scaleY(mCoverScaleBase).setDuration(300).setInterpolator(BS4_A).start();
         }
-        // 页内歌词整盒变暗（瓜子 lyricDimA：播放 0.38／暂停 1.0，350ms/bs4.a，挂在歌词盒的图形层上；首绑直接落值不走动画）
+        // 页内歌词整盒变暗已撤（2026-10-26 订正）：lyricDimA 0.38 不是经典页播放态的常态——
+        // 瓜子真机录屏帧实证播放中当前行是全白满亮（gz-ref-frames/gz-player-playing.jpg），
+        // 整盒乘 0.38 后当前行只剩灰、后续行几乎看不见，正是他点名的「歌词跟瓜子不一样」。
+        // 该值是宿主供值（PlayerThemeContext.lyricDimAlpha），生效条件未定死，经典页不落。
         if (mLyricDimAnim != null) mLyricDimAnim.cancel();
-        if (firstBind) {
-            mLyrics.setAlpha(playing ? 0.38f : 1.0f);
-        } else {
-            mLyricDimAnim = android.animation.ValueAnimator.ofFloat(mLyrics.getAlpha(), playing ? 0.38f : 1.0f);
-            mLyricDimAnim.setDuration(350);
-            mLyricDimAnim.setInterpolator(BS4_A);
-            mLyricDimAnim.addUpdateListener(a -> mLyrics.setAlpha((float) a.getAnimatedValue()));
-            mLyricDimAnim.start();
-        }
+        mLyrics.setAlpha(1.0f);
     }
 
     // ---------- MusicController.Listener ----------

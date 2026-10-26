@@ -428,7 +428,8 @@ public class InPageLyricsView extends View {
         int nodeH = Math.max(1, (int) Math.ceil(lay[2]));
         String sig = i + "|" + (i < mCurrent ? 1 : 0) + "|" + radius + "|" + w + "|" + mContentVersion;
         RowNode rn = mRowNodes.get(i);
-        if (rn == null || !sig.equals(rn.sig)) {
+        // 切后台回来节点录制被系统丢弃（hasDisplayList=false）时签名没变也必须重录，否则该行画空
+        if (rn == null || !sig.equals(rn.sig) || !rn.node.hasDisplayList()) {
             if (rn == null) {
                 rn = new RowNode();
                 rn.node = new RenderNode("lyricRow" + i);
@@ -464,9 +465,10 @@ public class InPageLyricsView extends View {
         if (i == mCurrent && mPrimary == 0 && line.main != null && line.main.hasWords()) {
             drawCurrentLine(canvas, line.main, now, fade, baseline);
         } else if (i == mCurrent) {
-            // 当前行（无逐字或主显非原文）：整行未唱色，不估已唱比例
-            mMainPaint.setColor(0xFFFFFFFF);
-            mMainPaint.setAlpha(Math.round(255 * ALPHA_CUR_UNSUNG * fade));
+            // 当前行（无逐字数据）：整行按已唱色满亮——「未唱 0.42」是逐字行内未唱字的色，
+            // 无字行没有未唱字可言；旧实现整行 0.42 再乘整盒暗化，当前行几乎看不见（2026-10-26 改）
+            mMainPaint.setColor(COLOR_SUNG);
+            mMainPaint.setAlpha(Math.round(255 * fade));
             canvas.drawText(main, alignX(main, mMainPaint), baseline, mMainPaint);
         } else if (mCurrent >= 0 && i < mCurrent) {
             mMainPaint.setColor(COLOR_SUNG);

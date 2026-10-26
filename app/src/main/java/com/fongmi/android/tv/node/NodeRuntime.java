@@ -159,7 +159,18 @@ public final class NodeRuntime {
             NodeService.stop(context);
             // stopService 是异步的，onDestroy 里的 killProcess 也需要时间生效。
             // 不等的话 startForegroundService 会投递到还没死掉的旧进程，node::Start 第二次调用会 SIGSEGV。
-            waitForProcessDeath(context);
+            if (!waitForProcessDeath(context)) {
+                // 扫描 O6：旧进程 3 秒没死透就绝不投递新启动——旧进程的
+                // NodeService.nodeLaunched 已为 true，新 Intent 进不了 startNode、
+                // 也不回 ERROR，本轮只能等满 12 分钟超时。改为本轮直接失败：
+                // 状态保持旧值（旧进程仍在退出路上），下一次 start 会先等它真死。
+                STARTING.set(false);
+                pendingCallback = null;
+                replyMessenger = null;
+                SpiderDebug.log("node", "abort switch: old :node process still alive after 3s");
+                if (callback != null) callback.onError("旧猫源进程未退出，请重试");
+                return;
+            }
             running = false;
             servingSourceKey = "";
             port = 0;
@@ -215,16 +226,21 @@ public final class NodeRuntime {
     }
 
     /**
-     * 等 :node 子进程真正死掉，最多等 3 秒。
+     * 等 :node 子进程真正死掉，最多等 3 秒；返回 true 表示已确认死亡。
      * stopService / killProcess 都是异步的，不等就 startForegroundService 会复用旧进程导致 node::Start 重入崩溃。
+     * 超时/被中断都算「没确认死」——调用方据此中止本轮启动（扫描 O6），不许照样投递。
      */
-    private static void waitForProcessDeath(Context context) {
+    private static boolean waitForProcessDeath(Context context) {
         String procName = context.getPackageName() + ":node";
         for (int i = 0; i < 30; i++) {
-            if (!isProcessRunning(context, procName)) return;
-            try { Thread.sleep(100); } catch (InterruptedException e) { return; }
+            if (!isProcessRunning(context, procName)) return true;
+            try { Thread.sleep(100); } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
         }
-        SpiderDebug.log("node", "old :node process still alive after 3s, proceeding anyway");
+        SpiderDebug.log("node", "old :node process still alive after 3s");
+        return false;
     }
 
     private static boolean isProcessRunning(Context context, String processName) {

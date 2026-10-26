@@ -230,6 +230,38 @@ public class ReadingShelfActivity extends AppCompatActivity {
             }
         }
         audios.sort((a, b) -> Long.compare(b.updatedAt, a.updatedAt));
+        // 本地导入的书只落 LocalBookStore，没读过就没有 ReadingStore 记录，
+        // 上面的列表只读 ReadingStore——导入完在书架里凭空消失（D1）。
+        // 按 localId 对账补列：已有记录的以记录为准（带进度），没记录的用
+        // 注册表元数据合成一张卡；点击仍走 openRecord 的本地分支
+        // （LocalBookSession 全表重建），不另造打开路径。
+        java.util.Set<String> recordedLocal = new java.util.HashSet<>();
+        for (ReadingStore.Record r : novels) {
+            if ("local".equals(r.origin) && !TextUtils.isEmpty(r.localId)) recordedLocal.add(r.localId);
+        }
+        for (ReadingStore.Record r : comics) {
+            if ("local".equals(r.origin) && !TextUtils.isEmpty(r.localId)) recordedLocal.add(r.localId);
+        }
+        for (com.fongmi.android.tv.localbook.LocalBook b
+                : com.fongmi.android.tv.localbook.LocalBookStore.list()) {
+            if (b == null || TextUtils.isEmpty(b.id) || recordedLocal.contains(b.id)) continue;
+            ReadingStore.Record r = new ReadingStore.Record();
+            r.kind = "COMIC".equals(b.kind) ? "COMIC" : "NOVEL";
+            r.sourceName = "本地书";
+            r.bookTitle = b.title == null ? "" : b.title;
+            r.coverUrl = TextUtils.isEmpty(b.coverPath) ? "" : "file://" + b.coverPath;
+            r.origin = "local";
+            r.localId = b.id;
+            r.chapterIndex = 0;
+            if (b.chapters != null && !b.chapters.isEmpty()) {
+                r.chapterName = b.chapters.get(0).name == null ? "" : b.chapters.get(0).name;
+            }
+            r.updatedAt = b.addedAt;
+            if ("COMIC".equals(r.kind)) comics.add(r);
+            else novels.add(r);
+        }
+        novels.sort((a, b) -> Long.compare(b.updatedAt, a.updatedAt));
+        comics.sort((a, b) -> Long.compare(b.updatedAt, a.updatedAt));
         boolean novel = "NOVEL".equals(currentTab);
         boolean comic = "COMIC".equals(currentTab);
         // 听书栏没有本地导入：隐藏"本地"按钮，小说漫画栏照旧

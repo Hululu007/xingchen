@@ -116,8 +116,8 @@ public final class MusicGlassWire {
             10f,   // bg_inset_row
             10f,   // bg_login_row
             12f,   // bg_platform_cell
-            999f,  // bg_music_quality_close（36 圆钮）
-            16f,   // bg_music_quality_row（瓜子版本卡圆角 16）
+            16f,   // bg_music_quality_close
+            14f,   // bg_music_quality_row
             10f,   // bg_music_quality_icon
             10f,   // bg_music_setting_icon（设置页图标片：脱糖果色、成玻璃片）
             999f,  // bg_pill_dark（胶囊全圆）
@@ -191,13 +191,8 @@ public final class MusicGlassWire {
         synchronized (sGlassViews) {
             copy = new java.util.ArrayList<>(sGlassViews);
         }
-        android.graphics.Rect visible = new android.graphics.Rect();
         for (View v : copy) {
-            if (!v.isAttachedToWindow() || !v.isShown()) continue;
-            // isShown 只看祖先可见性：长页（如设置页 ScrollView）折叠线以下的卡也算 shown，
-            // 每帧给它们发 invalidate 是纯浪费——只刷真正在窗口里露脸的件。
-            if (!v.getGlobalVisibleRect(visible)) continue;
-            v.invalidate();
+            if (v.isAttachedToWindow() && v.isShown()) v.invalidate();
         }
     }
 
@@ -465,9 +460,7 @@ public final class MusicGlassWire {
             MusicGlassDrawable.noteScrollActive(true);
             refreshGlassViews();
             sv.removeCallbacks(idle);
-            // 130ms 太短：慢拖时手指一顿就翻回着色器全量重绘大卡（设置页顿挫的一源）；
-            // 放宽到 260ms，停稳后折射回来晚一帧无感，慢拖全程走取样路。
-            sv.postDelayed(idle, 260);
+            sv.postDelayed(idle, 130);
         });
     }
 }

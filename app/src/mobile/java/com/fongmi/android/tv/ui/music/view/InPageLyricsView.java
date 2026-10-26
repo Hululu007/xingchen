@@ -225,8 +225,71 @@ public class InPageLyricsView extends View {
 
     public void setPosition(long positionMs) {
         mPosition = positionMs;
+        mRawBaseMs = positionMs;
+        mRawSyncElapsed = android.os.SystemClock.elapsedRealtime();
         updateCurrent(false);
         invalidate();
+    }
+
+    // ===== 帧时钟（2026-10-26 修「逐字一格一格跳」）=====
+    // 此前位置只靠宿主 250ms 的 tick 喂：逐字填充、光晕包络全按 250ms 步进，唱得快时整字整字跳。
+    // 改：tick 只做同步点，播放中视图自己用 Choreographer 逐帧插值推进（瓜子逐字＝逐帧线性插值）。
+
+    private long mRawBaseMs;
+    private long mRawSyncElapsed;
+    private boolean mPlaying;
+    private boolean mFrameRunning;
+    private final android.view.Choreographer.FrameCallback mFrameCallback = new android.view.Choreographer.FrameCallback() {
+        @Override
+        public void doFrame(long frameTimeNanos) {
+            if (!mPlaying || !isAttachedToWindow()) {
+                mFrameRunning = false;
+                return;
+            }
+            updateCurrent(false);
+            invalidate();
+            android.view.Choreographer.getInstance().postFrameCallback(this);
+        }
+    };
+
+    private long rawNowMs() {
+        if (!mPlaying) return mRawBaseMs;
+        return mRawBaseMs + (android.os.SystemClock.elapsedRealtime() - mRawSyncElapsed);
+    }
+
+    public void setPlaying(boolean playing) {
+        if (mPlaying == playing) return;
+        if (playing) {
+            mRawBaseMs = mPosition;
+            mRawSyncElapsed = android.os.SystemClock.elapsedRealtime();
+            mPlaying = true;
+            if (!mFrameRunning && isAttachedToWindow()) {
+                mFrameRunning = true;
+                android.view.Choreographer.getInstance().postFrameCallback(mFrameCallback);
+            }
+        } else {
+            mPosition = rawNowMs();
+            mRawBaseMs = mPosition;
+            mPlaying = false;
+        }
+    }
+
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        if (mPlaying && !mFrameRunning) {
+            mRawBaseMs = mPosition;
+            mRawSyncElapsed = android.os.SystemClock.elapsedRealtime();
+            mFrameRunning = true;
+            android.view.Choreographer.getInstance().postFrameCallback(mFrameCallback);
+        }
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        android.view.Choreographer.getInstance().removeFrameCallback(mFrameCallback);
+        mFrameRunning = false;
+        super.onDetachedFromWindow();
     }
 
     /** 拖动进度条的预览位置（瓜子 scrubPreviewMs）：非空时当前行/逐字/滚动全跟预览走；传 null 回到播放位置。 */
@@ -238,7 +301,7 @@ public class InPageLyricsView extends View {
     }
 
     private long now() {
-        long base = mPreviewMs != null ? mPreviewMs : mPosition;
+        long base = mPreviewMs != null ? mPreviewMs : rawNowMs();
         return base + MusicStore.getLyricOffsetMs();
     }
 

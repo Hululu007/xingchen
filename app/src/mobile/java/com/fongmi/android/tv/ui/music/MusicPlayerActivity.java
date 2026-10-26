@@ -813,6 +813,8 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
             });
         }
         mPlayingUi = playing;
+        // 歌词帧时钟：播放中逐帧插值推进逐字填充（他的「逐字也有问题」定因之一，见 InPageLyricsView）
+        mLyrics.setPlaying(playing);
         // 暂停缩放作用于封面本体（瓜子口径：缩封面，不缩盒——粒子层不跟着缩）
         mCoverScaleBase = playing ? 1f : 0.9f;
         mCover.animate().scaleX(mCoverScaleBase).scaleY(mCoverScaleBase).setDuration(300).setInterpolator(BS4_A).start();

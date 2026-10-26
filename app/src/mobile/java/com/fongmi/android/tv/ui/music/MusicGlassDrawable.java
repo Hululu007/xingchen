@@ -244,10 +244,6 @@ public class MusicGlassDrawable extends Drawable {
     private boolean mPressed = false;
     private boolean mCropDone = false;
     // 滚动取样补偿：缓存着色器按宿主位移平移旧取样画，免逐帧重渲（见 draw）
-    private android.graphics.BitmapShader mSampleShader;
-    private Bitmap mSampleShaderBitmap;
-    private final Paint mSamplePaint = new Paint(Paint.FILTER_BITMAP_FLAG);
-    private final android.graphics.Matrix mSampleMatrix = new android.graphics.Matrix();
     private android.graphics.BitmapShader mLensInputShader;
     private Bitmap mLensInputBitmap;
 
@@ -393,22 +389,6 @@ public class MusicGlassDrawable extends Drawable {
         mProcessedDirty = false;
     }
 
-    /** 滚动中的取样画法：旧取样图按宿主位移平移补偿（边缘 CLAMP 拉伸，糊化＋tint 之下滚动中不可辨），
-     *  一次着色器绘制代替逐帧重渲整张处理图。 */
-    private void drawSampleShifted(Canvas canvas, Rect b) {
-        if (mSampleShader == null || mSampleShaderBitmap != mProcessed) {
-            mSampleShader = new android.graphics.BitmapShader(
-                    mProcessed, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
-            mSampleShaderBitmap = mProcessed;
-        }
-        float dx = mHostLoc[0] - mLastHostX, dy = mHostLoc[1] - mLastHostY;
-        mSampleMatrix.setTranslate(b.left - dx, b.top - dy);
-        mSampleShader.setLocalMatrix(mSampleMatrix);
-        mSamplePaint.setShader(mSampleShader);
-        canvas.drawRect(b, mSamplePaint);
-        mSamplePaint.setShader(null);
-    }
-
     private boolean drawLensBackdrop(Canvas canvas, Rect b) {
         if (mLensDead || !shaderSupported() || mProcessed == null) return false;
         try {
@@ -480,9 +460,9 @@ public class MusicGlassDrawable extends Drawable {
         }
         int ver = MusicGlassBackgroundView.getBufferVersion();
         boolean verChanged = ver != mLastVersion || sEpoch != mLastEpoch;
-        // 全页卡顿的根（2026-10-26 他点名所有页面都卡）：此前宿主一动就重裁＋把处理图逐帧重渲一遍，
-        // 每件每帧一张位图重绘×全页件数。改：滚动中不重裁——旧取样按位移平移补偿（身后内容近似
-        // 实时跟随，不定格）、位移过半个件才重锚一次；停下后 hostMoved 仍成立、自动精确重裁一次。
+        // 取样维护：版本变/首裁/停稳态宿主移动/滚动中位移过半时重裁并标记处理图待更新。
+        // 滚动中的实际画法在下方分支：逐帧按当前位置精确取样直画全局处理缓冲（单次贴图），
+        // 不再用平移近似——旧平移补偿＋重锚就是「滑动一次玻璃就动一次」的跳变源（2026-10-26 他点名）。
         boolean reanchor = sScrollActive && mCropDone && mProcessed != null
                 && (Math.abs(mHostLoc[1] - mLastHostY) > b.height() / 2
                 || Math.abs(mHostLoc[0] - mLastHostX) > b.width() / 2);

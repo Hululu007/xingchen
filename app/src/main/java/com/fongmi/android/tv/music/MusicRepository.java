@@ -481,6 +481,33 @@ public class MusicRepository {
         }
     }
 
+    /** 失败可辨版（榜单页专用）：源抛错/无此源回 null，与 charts()/chartTracks() 的
+     * 吞错回空口径分开——页面靠它分「加载失败」与「真没数据」，不许再统一显暂无数据；
+     * 老调用方继续走吞错版，行为不变。 */
+    public static List<MusicChart> chartsOrNull(MusicSite site) {
+        if (site == null) return null;
+        MusicSource s = find(site.platform);
+        if (s == null) return null;
+        try {
+            return s.charts(site);
+        } catch (Throwable t) {
+            SpiderDebug.log("music", "charts error platform=%s %s", site.platform, t.getMessage());
+            return null;
+        }
+    }
+
+    public static List<MusicTrack> chartTracksOrNull(MusicChart chart) {
+        if (chart == null) return null;
+        MusicSource s = find(chart.platform);
+        if (s == null) return null;
+        try {
+            return s.chartTracks(chart);
+        } catch (Throwable t) {
+            SpiderDebug.log("music", "chartTracks error platform=%s %s", chart.platform, t.getMessage());
+            return null;
+        }
+    }
+
     /** 酷我榜单详情首屏：kbangserver 直连快出文字＋时长（无封面），仅 kw 源有效，其余返回空；详情页先渲染它，封面后补 */
     public static List<MusicTrack> chartTracksDirect(MusicChart chart) {
         if (chart == null) return Collections.emptyList();

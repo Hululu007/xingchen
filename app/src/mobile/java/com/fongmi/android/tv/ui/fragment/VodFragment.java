@@ -641,7 +641,7 @@ public class VodFragment extends BaseFragment implements ConfigListener, SiteLis
     private void onKuaishouTabLongClick() {
         if (!isAdded()) return;
         if (LoginManager.isKuaishouLoggedIn()) {
-            new androidx.appcompat.app.AlertDialog.Builder(requireActivity())
+            new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireActivity(), com.fongmi.android.tv.R.style.ThemeOverlay_WebHTV_LightDialog)
                     .setTitle("快手")
                     .setMessage("已登录")
                     .setPositiveButton("退出登录", (d, w) -> {

@@ -124,7 +124,7 @@ public class ConfigSourceActivity extends BaseActivity {
                 });
                 helper.attachToRecyclerView(binding.rvHistory);
                 binding.tvHistoryClear.setOnClickListener(v -> {
-                    new androidx.appcompat.app.AlertDialog.Builder(ctx)
+                    new com.google.android.material.dialog.MaterialAlertDialogBuilder(ctx, com.fongmi.android.tv.R.style.ThemeOverlay_WebHTV_LightDialog)
                         .setTitle("清空历史")
                         .setMessage("确定要清空全部历史记录吗？")
                         .setPositiveButton("确定", (d, w) -> {
@@ -153,7 +153,7 @@ public class ConfigSourceActivity extends BaseActivity {
      * indicator, and refresh the cards/history only after the load succeeds.
      */
     private void switchVodConfig(com.fongmi.android.tv.bean.Config config) {
-        android.app.ProgressDialog progress = new android.app.ProgressDialog(this);
+        android.app.ProgressDialog progress = new android.app.ProgressDialog(this, com.fongmi.android.tv.R.style.Theme_WebHTV_LightDialog);
         progress.setMessage("正在切换线路…");
         progress.setCancelable(false);
         progress.show();

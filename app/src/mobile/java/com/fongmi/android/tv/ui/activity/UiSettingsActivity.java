@@ -173,7 +173,7 @@ public class UiSettingsActivity extends BaseActivity {
     }
 
     private void inputUrlWallpaper() {
-        android.app.AlertDialog.Builder builder = new android.app.AlertDialog.Builder(this);
+        com.google.android.material.dialog.MaterialAlertDialogBuilder builder = new com.google.android.material.dialog.MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_WebHTV_LightDialog);
         builder.setTitle("输入图片URL");
         final android.widget.EditText input = new android.widget.EditText(this);
         builder.setView(input);

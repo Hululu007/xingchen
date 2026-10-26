@@ -1,7 +1,7 @@
 package com.fongmi.android.tv.ui.activity;
 
 import android.app.Activity;
-import android.app.AlertDialog;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.content.Intent;
 import android.os.Bundle;
 import android.os.Handler;
@@ -219,7 +219,7 @@ public class PikPakWebLoginActivity extends BaseActivity {
     private void showSuccessTip() {
         if (isFinishing() || isDestroyed()) return;
         setResult(RESULT_OK);
-        new AlertDialog.Builder(this)
+        new MaterialAlertDialogBuilder(this, com.fongmi.android.tv.R.style.ThemeOverlay_WebHTV_LightDialog)
                 .setTitle("PikPak 登录成功")
                 .setMessage("已通过网页登录导入 PikPak 会话。\n\n注意：App 与网页共用同一登录凭证，刷新后旧凭证会作废。请尽量不要同时在网页端操作 PikPak，否则 App 会提示重新登录。")
                 .setPositiveButton("知道了", (d, w) -> finish())

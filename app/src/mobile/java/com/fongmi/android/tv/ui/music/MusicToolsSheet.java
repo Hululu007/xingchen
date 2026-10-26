@@ -69,6 +69,9 @@ public class MusicToolsSheet {
     private LinearLayout mPanelBox;
     private boolean mPanelBuilt;
     private Bitmap mCoverBitmap;
+    /** 依赖封面的预览视图登记（迷你卡＋全貌预览）：封面异步晚到时逐个 invalidate，
+     * 此前 loadCover 回来只存位图、预览恒灰块到重进面板（体检低·主题预览封面竞态）。 */
+    private final java.util.List<View> mCoverViews = new java.util.ArrayList<>();
 
     private MusicToolsSheet(AppCompatActivity activity, Callback cb) {
         this(activity, cb, false);
@@ -140,6 +143,7 @@ public class MusicToolsSheet {
             @Override
             public void onResourceReady(@NonNull Bitmap resource, @Nullable Transition<? super Bitmap> transition) {
                 mCoverBitmap = resource;
+                for (View v : mCoverViews) v.invalidate();
             }
 
             @Override
@@ -158,6 +162,7 @@ public class MusicToolsSheet {
             mPanelBox.post(() -> com.fongmi.android.tv.utils.XcFadeTransition.fadeIn(mPanelBox));
         }
         mPanelBuilt = true;
+        mCoverViews.clear();
         mPanelBox.removeAllViews();
         // 拖拽把手
         View handle = new View(mActivity);
@@ -172,15 +177,16 @@ public class MusicToolsSheet {
     }
 
     // ---------- 通用件 ----------
+    // 子页头（2026-10-26 他亲点）：‹ 返回箭头删掉、标题顶到最左边——本方法五个子页共用
+    // （播放页主题/睡眠定时/歌词样式/外观设置/歌曲信息），一处删全清；× 关闭钮保留不动，
+    // 关面板走 × 或面板外，子页之间不再靠箭头回主面板。onBack 参数保留签名兼容各调用点、
+    // 不再接线（各 show* 传入的回主面板动作随箭头一并作废）。
     private LinearLayout subHeader(String title, Runnable onBack) {
         LinearLayout row = new LinearLayout(mActivity);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
-        ImageView back = circleButton(R.drawable.ic_music_chevron_left);
-        back.setOnClickListener(v -> onBack.run());
-        row.addView(back);
         TextView tv = new TextView(mActivity);
         tv.setText(title);
         tv.setTextColor(TEXT_HIGH);
@@ -530,7 +536,11 @@ public class MusicToolsSheet {
         LinearLayout row1 = new LinearLayout(mActivity);
         row1.setOrientation(LinearLayout.HORIZONTAL);
         row1.addView(gridEntry(R.drawable.ic_music_eq, "均衡器",
-                () -> MusicController.get().openEqualizer(mActivity)));
+                // 体检中2「同名两路」收口：此前走 MusicController.openEqualizer 的系统
+                // 均衡器 Intent，与设置页的 App 内 MusicFxDialog 是两套；无系统面板的
+                // 机型直接失败。统一到 App 内面板（与 E 片 P7 设置侧口径一致）；
+                // 本类在 ui.music 包、MusicFxDialog 在 ui.dialog 包，同模块直调。
+                () -> com.fongmi.android.tv.ui.dialog.MusicFxDialog.show(mActivity)));
         row1.addView(gridEntry(R.drawable.ic_player_grid, "播放页主题", this::showTheme));
         box.addView(row1);
         LinearLayout row2 = new LinearLayout(mActivity);
@@ -726,6 +736,7 @@ public class MusicToolsSheet {
             previewBox.setLayoutParams(new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, dp(120)));
             ThemePreviewView preview = new ThemePreviewView(mActivity, id, () -> mCoverBitmap);
+            mCoverViews.add(preview);
             previewBox.addView(preview, new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
             if (id.equals(cur)) {
@@ -749,15 +760,191 @@ public class MusicToolsSheet {
             nm.setGravity(Gravity.CENTER);
             nm.setPadding(0, dp(8), 0, dp(9));
             card.addView(nm);
-            card.setOnClickListener(v -> {
-                MusicPlayerSettings.setTheme(id);
-                showTheme();
-                if (mCallback != null) mCallback.onSettingsChanged();
-            });
+            card.setOnClickListener(v -> showThemePreview(id));
             row.addView(card);
         }
         hs.addView(row);
         mPanelBox.addView(hs);
+    }
+
+    /**
+     * 主题全貌预览（2026-10-26 他亲点：小缩略卡看不清，要看整页再决定）：
+     * 瓜子源码定根——ThemePanel 点卡是直接应用（ThemePanel$lambda 回调即 setPlayerTheme）、
+     * 卡内只有 previewRes 静态整页图（有图时）或 ThemeMiniPreview 活画迷你卡，没有先预览
+     * 后应用这一层；本面按他的口径补：点卡先进整页预览（用当前在播的歌真渲染该主题的
+     * 整页样子：真封面/真歌名歌手/真进度），看完点「应用」才写存档，点「返回」不改。
+     * 机制主题无关：渲染走 ThemeFullPreviewView 按主题 id 分发，批二新主题建成时
+     * 只在该视图加分支（或拆渲染器），本预览/确认流程不用再动。
+     */
+    private void showThemePreview(final String id) {
+        clearPanel();
+        mPanelBox.addView(subHeader(themeName(id), this::showTheme));
+        FrameLayout box = new FrameLayout(mActivity);
+        box.setBackground(new MusicGlassDrawable(mActivity, 16));
+        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(430));
+        blp.topMargin = dp(10);
+        box.setLayoutParams(blp);
+        ThemeFullPreviewView full = new ThemeFullPreviewView(mActivity, id, () -> mCoverBitmap, this::track);
+        mCoverViews.add(full);
+        box.addView(full, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        mPanelBox.addView(box);
+
+        LinearLayout actions = new LinearLayout(mActivity);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        actions.setPadding(0, dp(12), 0, dp(2));
+        boolean isCur = id.equals(MusicPlayerSettings.getTheme());
+        TextView apply = new TextView(mActivity);
+        apply.setText(isCur ? "正在使用" : "应用这个主题");
+        apply.setTextColor(0xFFFFFFFF);
+        apply.setTextSize(13);
+        apply.setGravity(Gravity.CENTER);
+        apply.setPadding(dp(14), dp(10), dp(14), dp(10));
+        GradientDrawable ab = new GradientDrawable();
+        ab.setColor(isCur ? 0x33FFFFFF : ACCENT);
+        ab.setCornerRadius(dp(10));
+        apply.setBackground(ab);
+        if (!isCur) {
+            apply.setOnClickListener(v -> {
+                MusicPlayerSettings.setTheme(id);
+                if (mCallback != null) mCallback.onSettingsChanged();
+                showTheme();
+            });
+        }
+        actions.addView(apply, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView back = new TextView(mActivity);
+        back.setText("返回");
+        back.setTextColor(TEXT_HIGH);
+        back.setTextSize(13);
+        back.setGravity(Gravity.CENTER);
+        back.setPadding(dp(14), dp(10), dp(14), dp(10));
+        back.setBackground(new MusicGlassDrawable(mActivity, 10));
+        LinearLayout.LayoutParams bklp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        bklp.leftMargin = dp(8);
+        actions.addView(back, bklp);
+        back.setOnClickListener(v -> showTheme());
+        mPanelBox.addView(actions);
+    }
+
+    /**
+     * 主题整页真预览：以当前在播歌曲按该主题的整页构成渲染（设计宽 360 等比缩放）。
+     * 经典分支＝播放页经典构成（氛围底＋大封面＋歌名/歌手＋一行真歌词＋进度线与真进度）；
+     * 其余主题分支随批二建成逐个补（未建成的 id 不会进面板，见 BUILT_THEME_IDS）。
+     */
+    static class ThemeFullPreviewView extends View {
+        interface TrackSupplier {
+            MusicTrack get();
+        }
+
+        private final String mTheme;
+        private final ThemePreviewView.CoverSupplier mCover;
+        private final TrackSupplier mTrackSupplier;
+        private final android.graphics.Paint mPaint = new android.graphics.Paint(
+                android.graphics.Paint.ANTI_ALIAS_FLAG | android.graphics.Paint.FILTER_BITMAP_FLAG);
+        private final android.graphics.Paint mText = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+
+        ThemeFullPreviewView(android.content.Context ctx, String theme,
+                             ThemePreviewView.CoverSupplier cover, TrackSupplier trackSupplier) {
+            super(ctx);
+            mTheme = theme;
+            mCover = cover;
+            mTrackSupplier = trackSupplier;
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            float w = getWidth(), h = getHeight();
+            if (w <= 0 || h <= 0) return;
+            float u = w / 360f; // 设计单位（px/设计dp）
+            Bitmap cover = mCover.get();
+            MusicTrack t = mTrackSupplier.get();
+            // 氛围底：深底＋封面整幅低透垫底（经典页封面氛围同构的简化真渲染）
+            mPaint.setColor(0xFF1C1C1E);
+            canvas.drawRect(0, 0, w, h, mPaint);
+            if (cover != null && !cover.isRecycled()) {
+                mPaint.setAlpha(46);
+                canvas.drawBitmap(cover, null, new android.graphics.RectF(0, 0, w, h), mPaint);
+                mPaint.setAlpha(255);
+            }
+            float margin = 28 * u;
+            float coverSide = w - margin * 2;
+            float coverTop = 20 * u;
+            if (cover != null && !cover.isRecycled()) {
+                canvas.save();
+                android.graphics.Path clip = new android.graphics.Path();
+                clip.addRoundRect(new android.graphics.RectF(margin, coverTop, margin + coverSide, coverTop + coverSide),
+                        8 * u, 8 * u, android.graphics.Path.Direction.CW);
+                canvas.clipPath(clip);
+                canvas.drawBitmap(cover, null, new android.graphics.RectF(
+                        margin, coverTop, margin + coverSide, coverTop + coverSide), mPaint);
+                canvas.restore();
+            } else {
+                mPaint.setColor(0xFF3A3A3C);
+                canvas.drawRoundRect(new android.graphics.RectF(margin, coverTop, margin + coverSide, coverTop + coverSide),
+                        8 * u, 8 * u, mPaint);
+            }
+            float y = coverTop + coverSide + 34 * u;
+            String title = t == null ? "未在播放" : t.displayTitle();
+            drawLine(canvas, title, margin, y, 17 * u, 0xFFF2F2F7, true, w - margin);
+            y += 24 * u;
+            drawLine(canvas, t == null ? "" : t.displayArtist(), margin, y, 13 * u, 0x73FFFFFF, false, w - margin);
+            // 一行真歌词（缓存有词取首行正文，没词留空不编）
+            String lyricLine = "";
+            if (t != null) {
+                try {
+                    com.fongmi.android.tv.bean.music.MusicLyric lyric =
+                            com.fongmi.android.tv.music.MusicLyricCache.get(t);
+                    if (lyric != null && lyric.rawLrc != null) {
+                        for (String raw : lyric.rawLrc.split("\n")) {
+                            String s = raw.replaceAll("\\[[^\\]]*\\]", "").trim();
+                            if (!s.isEmpty()) {
+                                lyricLine = s;
+                                break;
+                            }
+                        }
+                    }
+                } catch (Throwable ignored) {
+                }
+            }
+            if (!lyricLine.isEmpty()) {
+                y += 40 * u;
+                drawLine(canvas, lyricLine, margin, y, 15 * u, 0xD9FFFFFF, false, w - margin);
+            }
+            // 进度线（真进度/真时长，控制器现读）
+            long pos = 0, dur = 0;
+            try {
+                pos = MusicController.get().position();
+                dur = MusicController.get().duration();
+            } catch (Throwable ignored) {
+            }
+            float barY = h - 46 * u;
+            mPaint.setColor(0x33FFFFFF);
+            canvas.drawRoundRect(new android.graphics.RectF(margin, barY, w - margin, barY + 3 * u),
+                    1.5f * u, 1.5f * u, mPaint);
+            if (dur > 0 && pos > 0) {
+                float frac = Math.max(0f, Math.min(1f, pos * 1f / dur));
+                mPaint.setColor(0x73FFFFFF);
+                canvas.drawRoundRect(new android.graphics.RectF(margin, barY,
+                        margin + (w - margin * 2) * frac, barY + 3 * u), 1.5f * u, 1.5f * u, mPaint);
+            }
+            mPaint.setColor(0xFFFFFFFF);
+        }
+
+        private void drawLine(Canvas canvas, String text, float x, float baseline, float size, int color, boolean bold, float maxRight) {
+            if (text == null) text = "";
+            mText.setColor(color);
+            mText.setTextSize(size);
+            mText.setTypeface(bold ? android.graphics.Typeface.DEFAULT_BOLD : android.graphics.Typeface.DEFAULT);
+            float avail = maxRight - x;
+            if (avail > 0 && mText.measureText(text) > avail) {
+                while (text.length() > 1 && mText.measureText(text + "…") > avail) {
+                    text = text.substring(0, text.length() - 1);
+                }
+                text = text + "…";
+            }
+            canvas.drawText(text, x, baseline, mText);
+        }
     }
 
     /** 主题迷你真预览：按主题形态用当前封面画简化版式（照瓜子 ThemeMiniPreview 口径）。 */
@@ -885,7 +1072,11 @@ public class MusicToolsSheet {
             texts.addView(lab);
             TextView remain = new TextView(mActivity);
             long ms = MusicController.get().sleepRemainingMs();
-            remain.setText(cur == MusicPlaybackService.SLEEP_AFTER_CURRENT ? "本首结束"
+            // 体检中1：等待态（分钟档到点、等本首播完）如实显「本首结束后停止」——
+            // 此前等待态剩余已归 -1、回落 sleepName(cur) 把它显示成档名（如「15 分钟」），
+            // 看着像还没开始计时。服务侧等待态是真值口径，面板不再自己推断。
+            remain.setText(MusicController.get().isSleepWaitingForSongEnd() ? "本首结束后停止"
+                    : cur == MusicPlaybackService.SLEEP_AFTER_CURRENT ? "本首结束"
                     : (ms > 0 ? "剩余 " + formatMs(ms) : sleepName(cur)));
             remain.setTextColor(TEXT_HIGH);
             remain.setTextSize(18);
@@ -994,8 +1185,16 @@ public class MusicToolsSheet {
 
         // 扫描 M19：分钟档「播完再停」开关——服务 armSleep 到点现读 MusicStore
         // 键、等待态分支都已就绪，唯独面板从来没画这个开关，键只读不写、行为永不生效。
-        mPanelBox.addView(toggleRow("播完当前歌曲再停", MusicStore.isSleepFinishCurrent(), () ->
-                MusicStore.setSleepFinishCurrent(!MusicStore.isSleepFinishCurrent())));
+        // 体检中1 补接线：关开关时若已在等待态，同步调服务清等待态（接口此前备好零调用）——
+        // 不接的话等待态留着、曲终照样停，与开关已关的显示脱钩。开开关不动等待态。
+        mPanelBox.addView(toggleRow("播完当前歌曲再停", MusicStore.isSleepFinishCurrent(), () -> {
+            boolean on = !MusicStore.isSleepFinishCurrent();
+            MusicStore.setSleepFinishCurrent(on);
+            if (!on) {
+                MusicController.get().clearSleepWaitingForSongEnd();
+                showSleep(); // 等待态刚清掉，状态行立即回真（不留「本首结束后停止」旧字）
+            }
+        }));
     }
 
     private static String formatMs(long ms) {
@@ -1299,6 +1498,15 @@ public class MusicToolsSheet {
             if (!TextUtils.isEmpty(t.platform)) {
                 card.addView(divider());
                 card.addView(infoRow("来源", t.platform));
+            }
+            // 上次播放失败（落槌信号行）：服务失败收口落盘的最近一次（环＋错误大类＋域名），
+            // 按 trackKey 认领——不是这首的失败不显，换歌不串账；没失败过不摆行。
+            String[] fail = MusicStore.lastMusicFailure();
+            if (fail != null && fail[0].equals(com.fongmi.android.tv.music.MusicQueue.trackKey(t))) {
+                String ringText = "拉流".equals(fail[1]) ? "地址拿到了但播不出来" : "没取到播放地址";
+                String val = ringText + " · " + fail[2] + (fail[3].isEmpty() ? "" : " · " + fail[3]);
+                card.addView(divider());
+                card.addView(infoRow("上次失败", val));
             }
         }
         mPanelBox.addView(card);

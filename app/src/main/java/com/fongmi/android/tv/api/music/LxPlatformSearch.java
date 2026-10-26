@@ -29,6 +29,7 @@ import java.security.spec.X509EncodedKeySpec;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Map;
 
 import javax.crypto.Cipher;
 import javax.crypto.spec.IvParameterSpec;
@@ -814,6 +815,428 @@ public class LxPlatformSearch {
         }
         scheduleMgDurationFill(out);
         return out;
+    }
+
+    /* ---------------- 油管 yt ---------------- */
+
+    /**
+     * 油管搜索（落雪形态下搜索归壳子，是协议定死的分工）：轮试口径从原 FreeJS 托管
+     * 脚本 1.1.4 搬来不丢——WEB_REMIX（有谷歌登录态先带态）→ ANDROID_MUSIC／
+     * IOS_MUSIC 匿名 →（有登录态时）移动系带态 → WEB_REMIX 匿名兜底；每家死因
+     * 分开记日志、全灭记总账，不静默吞错。出口必须走节点：本段单独打
+     * (music, 油管落雪预置地址) 标记并按需拉内核（与 FreeJsBridge.nativeRequest
+     * 同口径），五平台老路不打点、行为不变。分页只做第一页：续页 token 是出它的
+     * 客户端发的、壳子搜索无状态，page＞1 回空（不许拿第一页冒充第二页）。
+     */
+    private static final String YT_API_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
+    private static final String YT_SAFARI_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15";
+    private static final String YT_SONG_PARAMS = "EgWKAQIIAWoKEAkQBRAKEAMQBA%3D%3D";
+    private static final String YT_AUTH_ORIGIN = "https://music.youtube.com";
+    private static final int YT_POST_TIMEOUT_MS = 6000;
+    private static final long YT_SEARCH_DEADLINE_MS = 22000;
+    private static final long YT_LOGIN_PROMPT_INTERVAL_MS = 10 * 60 * 1000L;
+    private static volatile String ytVisitorData = "";
+    private static volatile String ytRemixVersion = "1.20240724.01.00";
+    private static volatile boolean ytVisitorTried;
+    private static volatile long ytLoginPromptAt;
+    private static volatile long ytNodeStartFailedAt;
+
+    private static List<MusicTrack> searchYt(String keyword, int page) {
+        if (page > 1) return new ArrayList<>();
+        String cookie = LoginManager.getCookie(GoogleLoginProvider.ID);
+        boolean hasAuth = GoogleLoginProvider.isCookieValid(cookie);
+        if (!hasAuth) maybePromptYtLogin();
+        ytEnsureVisitor(cookie);
+        // 轮试表：{客户端序号, 是否带态}，次序与脚本 1.1.4 的 attempts 一字不差
+        List<int[]> attempts = new ArrayList<>();
+        attempts.add(new int[]{0, hasAuth ? 1 : 0});
+        attempts.add(new int[]{1, 0});
+        attempts.add(new int[]{2, 0});
+        if (hasAuth) {
+            attempts.add(new int[]{1, 1});
+            attempts.add(new int[]{2, 1});
+            attempts.add(new int[]{0, 0});
+        }
+        long startedAt = System.currentTimeMillis();
+        for (int i = 0; i < attempts.size(); i++) {
+            if (i > 0 && System.currentTimeMillis() - startedAt > YT_SEARCH_DEADLINE_MS) {
+                SpiderDebug.log("music", "yt search 轮试到点收口 q=%s 已试%d家", keyword, i);
+                break;
+            }
+            List<MusicTrack> out = ytTrySearch(keyword, attempts.get(i)[0], attempts.get(i)[1] == 1, cookie);
+            if (out != null) return out;
+        }
+        SpiderDebug.log("music", "yt search 全轮试无结果 q=%s auth=%s", keyword, hasAuth ? "yes" : "no");
+        return new ArrayList<>();
+    }
+
+    /** 未登录时请壳子弹统一登录（10 分钟节流，与 FreeJsBridge.maybePromptLogin 同口径；弹不弹不拦本次匿名搜索） */
+    private static void maybePromptYtLogin() {
+        try {
+            long now = System.currentTimeMillis();
+            if (now - ytLoginPromptAt < YT_LOGIN_PROMPT_INTERVAL_MS) return;
+            ytLoginPromptAt = now;
+            LoginManager.requestLogin(GoogleLoginProvider.ID);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 访客参数（进程内只取一次，失败照常继续——少带一个头，成败由接口定） */
+    private static void ytEnsureVisitor(String cookie) {
+        if (ytVisitorTried) return;
+        ytVisitorTried = true;
+        try {
+            JSONObject headers = new JSONObject();
+            headers.put("User-Agent", YT_SAFARI_UA);
+            if (!TextUtils.isEmpty(cookie)) headers.put("Cookie", cookie);
+            String html = ytHttp("https://music.youtube.com/", null, headers, YT_POST_TIMEOUT_MS);
+            if (html == null) return;
+            java.util.regex.Matcher vd = java.util.regex.Pattern.compile("\"VISITOR_DATA\":\"([^\"]+)\"").matcher(html);
+            if (vd.find()) ytVisitorData = vd.group(1);
+            java.util.regex.Matcher ver = java.util.regex.Pattern.compile("\"INNERTUBE_CLIENT_VERSION\":\"([^\"]+)\"").matcher(html);
+            if (ver.find()) ytRemixVersion = ver.group(1);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 单家搜索：出 ≥1 条算成（返回曲目）；失败把死因记进日志并返回 null（与脚本 trySearch 同口径） */
+    private static List<MusicTrack> ytTrySearch(String keyword, int clientIdx, boolean withAuth, String cookie) {
+        String name = clientIdx == 0 ? "WEB_REMIX" : clientIdx == 1 ? "ANDROID_MUSIC" : "IOS_MUSIC";
+        String tag = "yt search " + name + (withAuth ? "(带态)" : "(匿名)") + " q=" + keyword;
+        JsonObject client = ytClientContext(clientIdx);
+        JsonObject body = new JsonObject();
+        JsonObject context = new JsonObject();
+        context.add("client", client);
+        body.add("context", context);
+        body.addProperty("query", keyword);
+        body.addProperty("params", YT_SONG_PARAMS);
+        String text;
+        try {
+            JSONObject headers = ytClientHeaders(clientIdx, client);
+            if (withAuth) ytPutAuth(headers, cookie);
+            text = ytHttp("https://www.youtube.com/youtubei/v1/search?key=" + YT_API_KEY + "&prettyPrint=false",
+                    body.toString(), headers, YT_POST_TIMEOUT_MS);
+        } catch (Throwable t) {
+            SpiderDebug.log("music", "%s 请求失败 %s", tag, errText(t));
+            return null;
+        }
+        if (TextUtils.isEmpty(text)) {
+            SpiderDebug.log("music", "%s 回包为空", tag);
+            return null;
+        }
+        if (text.contains("LOGIN_REQUIRED")) {
+            SpiderDebug.log("music", "%s 回 LOGIN_REQUIRED（出口被谷歌按登录态拦）", tag);
+            return null;
+        }
+        JsonObject root;
+        try {
+            root = JsonParser.parseString(text).getAsJsonObject();
+        } catch (Throwable t) {
+            SpiderDebug.log("music", "%s 回包不是 JSON", tag);
+            return null;
+        }
+        if (root.has("error") && root.get("error").isJsonObject()) {
+            JsonObject err = root.getAsJsonObject("error");
+            SpiderDebug.log("music", "%s 接口error status=%s msg=%s", tag, optStr(err, "status"), optStr(err, "message"));
+            return null;
+        }
+        List<MusicTrack> out = new ArrayList<>();
+        ytVisitShelf(root, out, new java.util.HashSet<>());
+        if (out.isEmpty()) {
+            SpiderDebug.log("music", "%s 货架为空（真无结果或响应结构不认）", tag);
+            return null;
+        }
+        return out;
+    }
+
+    private static JsonObject ytClientContext(int clientIdx) {
+        JsonObject c = new JsonObject();
+        switch (clientIdx) {
+            case 1:
+                c.addProperty("clientName", "ANDROID_MUSIC");
+                c.addProperty("clientVersion", "7.27.52");
+                c.addProperty("osName", "Android");
+                c.addProperty("osVersion", "14");
+                c.addProperty("androidSdkVersion", 34);
+                c.addProperty("hl", "zh-CN");
+                c.addProperty("gl", "US");
+                c.addProperty("userAgent", "com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 14) gzip");
+                break;
+            case 2:
+                c.addProperty("clientName", "IOS_MUSIC");
+                c.addProperty("clientVersion", "7.27");
+                c.addProperty("deviceMake", "Apple");
+                c.addProperty("deviceModel", "iPhone16,2");
+                c.addProperty("osName", "iOS");
+                c.addProperty("osVersion", "18.3.2.22D82");
+                c.addProperty("hl", "en");
+                c.addProperty("gl", "US");
+                c.addProperty("userAgent", "com.google.ios.youtubemusic/7.27 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X)");
+                break;
+            default:
+                c.addProperty("clientName", "WEB_REMIX");
+                c.addProperty("clientVersion", ytRemixVersion);
+                c.addProperty("hl", "zh-CN");
+                c.addProperty("gl", "US");
+                break;
+        }
+        if (!TextUtils.isEmpty(ytVisitorData)) c.addProperty("visitorData", ytVisitorData);
+        return c;
+    }
+
+    private static JSONObject ytClientHeaders(int clientIdx, JsonObject client) throws Exception {
+        JSONObject h = new JSONObject();
+        String num = clientIdx == 0 ? "67" : clientIdx == 1 ? "21" : "26";
+        String ua = clientIdx == 0 ? YT_SAFARI_UA : optStr(client, "userAgent");
+        h.put("Content-Type", "application/json");
+        h.put("User-Agent", ua);
+        h.put("X-YouTube-Client-Name", num);
+        h.put("X-YouTube-Client-Version", optStr(client, "clientVersion"));
+        if (!TextUtils.isEmpty(ytVisitorData)) h.put("X-Goog-Visitor-Id", ytVisitorData);
+        return h;
+    }
+
+    /** 带态请求头：Cookie 原串＋SAPISIDHASH 系 Authorization（与脚本 mergeAuth、GoogleLoginProvider 种子口径对齐） */
+    private static void ytPutAuth(JSONObject headers, String cookie) {
+        try {
+            if (TextUtils.isEmpty(cookie) || !GoogleLoginProvider.isCookieValid(cookie)) return;
+            List<String> parts = new ArrayList<>();
+            String h = ytSapisidHash(ytCookieValue(cookie, "SAPISID"));
+            if (!h.isEmpty()) parts.add("SAPISIDHASH " + h);
+            String h1 = ytSapisidHash(ytCookieValue(cookie, "__Secure-1PSAPISID"));
+            if (!h1.isEmpty()) parts.add("SAPISID1PHASH " + h1);
+            String h3 = ytSapisidHash(ytCookieValue(cookie, "__Secure-3PSAPISID"));
+            if (!h3.isEmpty()) parts.add("SAPISID3PHASH " + h3);
+            headers.put("Cookie", cookie);
+            headers.put("Origin", YT_AUTH_ORIGIN);
+            headers.put("Referer", YT_AUTH_ORIGIN + "/");
+            headers.put("X-Goog-AuthUser", "0");
+            if (!parts.isEmpty()) headers.put("Authorization", String.join(" ", parts));
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static String ytCookieValue(String cookie, String name) {
+        if (TextUtils.isEmpty(cookie)) return "";
+        for (String pair : cookie.split(";")) {
+            String item = pair.trim();
+            int eq = item.indexOf('=');
+            if (eq <= 0) continue;
+            if (name.equals(item.substring(0, eq).trim())) return item.substring(eq + 1).trim();
+        }
+        return "";
+    }
+
+    /** SAPISIDHASH：SHA1(时间戳 + " " + 种子 + " " + Origin)，拼 时间戳_哈希（油管音乐网页端规矩） */
+    private static String ytSapisidHash(String seed) {
+        if (TextUtils.isEmpty(seed)) return "";
+        try {
+            long ts = System.currentTimeMillis() / 1000;
+            byte[] digest = java.security.MessageDigest.getInstance("SHA-1")
+                    .digest((ts + " " + seed + " " + YT_AUTH_ORIGIN).getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            for (byte b : digest) sb.append(String.format("%02x", b));
+            return ts + "_" + sb;
+        } catch (Throwable t) {
+            return "";
+        }
+    }
+
+    /** yt 专用出口：打 (music, 油管落雪预置地址) 标记＋按需拉内核后走壳子 OkHttp（Connect），与脚本 lx.request 同出口 */
+    private static String ytHttp(String url, String jsonBody, JSONObject headers, int timeoutMs) throws Exception {
+        ytEnsureNode();
+        SourceGate.Mark prev = SourceGate.push(SourceProxyPolicy.KIND_MUSIC, MusicSourceManager.BUILTIN_YTMUSIC);
+        try {
+            JSONObject reqJson = new JSONObject();
+            reqJson.put("method", jsonBody == null ? "GET" : "POST");
+            if (headers != null) reqJson.put("headers", headers);
+            if (jsonBody != null) reqJson.put("body", jsonBody);
+            reqJson.put("timeout", timeoutMs);
+            reqJson.put("redirect", 1);
+            Req req = Req.objectFrom(reqJson.toString());
+            try (Response res = Connect.to(url, req).execute()) {
+                byte[] bytes = res.body() != null ? res.body().bytes() : new byte[0];
+                return new String(bytes, req.getCharset());
+            }
+        } finally {
+            SourceGate.pop(prev);
+        }
+    }
+
+    /** 策略开则按需拉节点内核（FreeJsBridge.ensureNodeForMusic 同口径：拉不起不堵请求、留一条日志） */
+    private static void ytEnsureNode() {
+        try {
+            App app = App.get();
+            if (app == null) return;
+            if (!SourceProxyPolicy.isEnabled(app, SourceProxyPolicy.KIND_MUSIC, MusicSourceManager.BUILTIN_YTMUSIC)) return;
+            if (MihomoManager.get().isRunning()) return;
+            long now = System.currentTimeMillis();
+            if (now - ytNodeStartFailedAt < 60000) return;
+            if (!MihomoManager.get().ensureRunning(app)) {
+                ytNodeStartFailedAt = now;
+                SpiderDebug.log("clash", "gate music node-start-failed id=%s （内核没拉起来，本次请求直连）", MusicSourceManager.BUILTIN_YTMUSIC);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 递归摘货架（musicShelfRenderer／musicShelfContinuation），与脚本 extractShelf 同遍历口径 */
+    private static void ytVisitShelf(JsonElement node, List<MusicTrack> out, java.util.Set<String> seen) {
+        if (node == null) return;
+        if (node.isJsonArray()) {
+            for (JsonElement el : node.getAsJsonArray()) ytVisitShelf(el, out, seen);
+            return;
+        }
+        if (!node.isJsonObject()) return;
+        JsonObject o = node.getAsJsonObject();
+        JsonObject shelf = null;
+        if (o.has("musicShelfRenderer") && o.get("musicShelfRenderer").isJsonObject()) {
+            shelf = o.getAsJsonObject("musicShelfRenderer");
+        } else if (o.has("musicShelfContinuation") && o.get("musicShelfContinuation").isJsonObject()) {
+            shelf = o.getAsJsonObject("musicShelfContinuation");
+        }
+        if (shelf != null && shelf.has("contents") && shelf.get("contents").isJsonArray()) {
+            for (JsonElement el : shelf.getAsJsonArray("contents")) {
+                if (!el.isJsonObject()) continue;
+                MusicTrack t = ytParseResponsive(el.getAsJsonObject());
+                if (t == null) t = ytParseTwoColumn(el.getAsJsonObject());
+                if (t != null && seen.add(t.id)) out.add(t);
+            }
+        }
+        for (Map.Entry<String, JsonElement> e : o.entrySet()) ytVisitShelf(e.getValue(), out, seen);
+    }
+
+    /** WEB_REMIX 货架条目（musicResponsiveListItemRenderer，带专辑列），解析口径与脚本 parseShelfItem 一致 */
+    private static MusicTrack ytParseResponsive(JsonObject node) {
+        if (!node.has("musicResponsiveListItemRenderer") || !node.get("musicResponsiveListItemRenderer").isJsonObject()) return null;
+        JsonObject item = node.getAsJsonObject("musicResponsiveListItemRenderer");
+        String videoId = "";
+        if (item.has("playlistItemData") && item.get("playlistItemData").isJsonObject()) {
+            videoId = optStr(item.getAsJsonObject("playlistItemData"), "videoId");
+        }
+        if (videoId.isEmpty()) return null;
+        JsonArray cols = item.has("flexColumns") && item.get("flexColumns").isJsonArray() ? item.getAsJsonArray("flexColumns") : null;
+        if (cols == null || cols.size() == 0) return null;
+        List<String> titleRuns = ytFlexRuns(cols.get(0));
+        if (titleRuns.isEmpty() || titleRuns.get(0).isEmpty()) return null;
+        List<String> parts = new ArrayList<>();
+        if (cols.size() > 1) {
+            for (String s : ytFlexRuns(cols.get(1))) {
+                if (!" • ".equals(s) && !s.trim().isEmpty()) parts.add(s);
+            }
+        }
+        String duration = "";
+        if (!parts.isEmpty() && parts.get(parts.size() - 1).trim().matches("\\d{1,3}:\\d{2}(:\\d{2})?")) {
+            duration = parts.remove(parts.size() - 1).trim();
+        }
+        MusicTrack t = newTrack(YT, videoId);
+        t.title = titleRuns.get(0);
+        t.artist = parts.isEmpty() ? "" : parts.get(0);
+        t.album = parts.size() > 1 ? parts.get(1) : "";
+        t.duration = ytDurationMs(duration);
+        t.cover = ytArtwork(item);
+        JsonObject it = new JsonObject();
+        it.addProperty("songmid", videoId);
+        finish(t, it);
+        return t;
+    }
+
+    /** 移动系货架条目（musicTwoColumnItemRenderer，无专辑列），解析口径与脚本 parseTwoColumnItem 一致 */
+    private static MusicTrack ytParseTwoColumn(JsonObject node) {
+        if (!node.has("musicTwoColumnItemRenderer") || !node.get("musicTwoColumnItemRenderer").isJsonObject()) return null;
+        JsonObject item = node.getAsJsonObject("musicTwoColumnItemRenderer");
+        String videoId = "";
+        try {
+            videoId = item.getAsJsonObject("navigationEndpoint").getAsJsonObject("watchEndpoint").get("videoId").getAsString();
+        } catch (Throwable ignored) {
+        }
+        if (videoId == null || videoId.isEmpty()) return null;
+        String title = ytRunsText(item, "title");
+        if (title.isEmpty()) return null;
+        List<String> parts = new ArrayList<>();
+        try {
+            JsonArray runs = item.getAsJsonObject("subtitle").getAsJsonArray("runs");
+            for (JsonElement r : runs) {
+                if (!r.isJsonObject()) continue;
+                String s = optStr(r.getAsJsonObject(), "text");
+                if (!" • ".equals(s) && !s.trim().isEmpty()) parts.add(s);
+            }
+        } catch (Throwable ignored) {
+        }
+        String duration = "";
+        String artist = "";
+        String album = "";
+        for (String p0 : parts) {
+            String p = p0.trim();
+            if (duration.isEmpty() && p.matches("\\d{1,3}:\\d{2}(:\\d{2})?")) {
+                duration = p;
+                continue;
+            }
+            if (p.contains("播放次数") || p.contains("观看次数") || p.contains("次播放")) continue;
+            if (artist.isEmpty()) {
+                artist = p;
+                continue;
+            }
+            if (album.isEmpty()) album = p;
+        }
+        MusicTrack t = newTrack(YT, videoId);
+        t.title = title;
+        t.artist = artist;
+        t.album = album;
+        t.duration = ytDurationMs(duration);
+        t.cover = ytArtwork(item);
+        JsonObject it = new JsonObject();
+        it.addProperty("songmid", videoId);
+        finish(t, it);
+        return t;
+    }
+
+    private static List<String> ytFlexRuns(JsonElement flexColumn) {
+        List<String> out = new ArrayList<>();
+        try {
+            JsonArray runs = flexColumn.getAsJsonObject()
+                    .getAsJsonObject("musicResponsiveListItemFlexColumnRenderer")
+                    .getAsJsonObject("text").getAsJsonArray("runs");
+            for (JsonElement r : runs) {
+                if (r.isJsonObject()) out.add(optStr(r.getAsJsonObject(), "text"));
+            }
+        } catch (Throwable ignored) {
+        }
+        return out;
+    }
+
+    private static String ytRunsText(JsonObject item, String field) {
+        StringBuilder sb = new StringBuilder();
+        try {
+            JsonArray runs = item.getAsJsonObject(field).getAsJsonArray("runs");
+            for (JsonElement r : runs) {
+                if (r.isJsonObject()) sb.append(optStr(r.getAsJsonObject(), "text"));
+            }
+        } catch (Throwable ignored) {
+        }
+        return sb.toString();
+    }
+
+    private static String ytArtwork(JsonObject item) {
+        try {
+            JsonArray thumbs = item.getAsJsonObject("thumbnail").getAsJsonObject("musicThumbnailRenderer")
+                    .getAsJsonObject("thumbnail").getAsJsonArray("thumbnails");
+            if (thumbs.size() == 0) return "";
+            return optStr(thumbs.get(thumbs.size() - 1).getAsJsonObject(), "url");
+        } catch (Throwable ignored) {
+            return "";
+        }
+    }
+
+    private static long ytDurationMs(String duration) {
+        if (TextUtils.isEmpty(duration)) return 0;
+        try {
+            long total = 0;
+            for (String part : duration.trim().split(":")) total = total * 60 + Long.parseLong(part.trim());
+            return total * 1000;
+        } catch (Throwable ignored) {
+            return 0;
+        }
     }
 
     /* ---------------- 平台歌词 ---------------- */

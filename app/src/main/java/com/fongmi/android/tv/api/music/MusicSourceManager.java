@@ -154,10 +154,17 @@ public class MusicSourceManager {
         return BUILTIN_LYRIC_GECIWANG.equals(srcUrl) || BUILTIN_LYRIC_GECIQIANXUN.equals(srcUrl);
     }
 
-    /** 预置油管音乐地址（自有站托管）：接入定案就是「必须走壳子代理」——它的接口域名
-     *  直连在他网络下挂死（2026-10-26 真机日志 gate direct reason=no-mark 定罪），
-     *  名字里的「需代理」只是展示，真正的路由靠策略表镜像（见 mirrorProxyDesignations）。 */
-    private static final String BUILTIN_YTMUSIC =
+    /** 预置油管音乐地址（自有站托管，落雪脚本形态，2026-10-26 改令）：接入定案就是
+     *  「必须走壳子代理」——它的接口域名直连在他网络下挂死（2026-10-26 真机日志
+     *  gate direct reason=no-mark 定罪），名字里的「需代理」只是展示，真正的路由靠
+     *  策略表镜像（见 mirrorProxyDesignations）。包内可见：落雪壳子搜索（LxPlatformSearch
+     *  的 yt 平台）打节点标记时按此地址认身份，与 isProxyDesignated 同一口径。 */
+    static final String BUILTIN_YTMUSIC =
+            "https://xingchen-dl.pages.dev/music-sources/ytmusic-lx.js";
+
+    /** 已摘除的油管 FreeJS 形态预置地址（存量清理按它精确匹配，口径同 bilibili：
+     *  只删 format 非落雪、无本地文件的这一条播种记录；新落雪形态是另一个地址） */
+    private static final String RETIRED_BUILTIN_YTMUSIC_FREEJS =
             "https://xingchen-dl.pages.dev/music-sources/ytmusic.js";
 
     /** 是否「需代理」指定源（按播种地址认身份，与 isBuiltinKuwo 同口径，不看名字） */
@@ -173,14 +180,16 @@ public class MusicSourceManager {
                 BUILTIN_LYRIC_GECIQIANXUN));
         list.add(new MusicSite(FreeJsMusicSource.PLATFORM, "酷我音乐", "",
                 BUILTIN_KUWO_YUANLI));
-        /* 自写油管音乐源（自有站托管，2026-10-24）：必须走壳子代理、曲库随节点国家，
-           坏了只改托管脚本不动壳子；朋友版播种整套摘除的口径同上三件。
-           后加预置：打 lateBuiltin 标记，老用户存量靠 listSites 补播种（见 BuiltinReseed） */
-        MusicSite ytMusic = new MusicSite(FreeJsMusicSource.PLATFORM, "油管音乐（需代理）", "",
+        /* 自写油管音乐源（自有站托管，2026-10-24 接入、2026-10-26 改令换落雪脚本
+           形态）：必须走壳子代理、曲库随节点国家；朋友版播种整套摘除的口径同上三件。
+           后加预置：打 lateBuiltin 标记，老用户存量靠 listSites 补播种（见 BuiltinReseed）。
+           落雪形态的分工：搜索归壳子（LxPlatformSearch 的 yt 平台），脚本只做取链/歌词。 */
+        MusicSite ytMusic = new MusicSite(LxMusicSource.PLATFORM, "油管音乐（需代理）", "",
                 BUILTIN_YTMUSIC);
         ytMusic.lateBuiltin = true;
         list.add(ytMusic);
         for (MusicSite s : list) s.format = FORMAT_FREEJS;
+        ytMusic.format = FORMAT_LX;
         return list;
     }
 
@@ -441,6 +450,19 @@ public class MusicSourceManager {
                 FreeJsBridge b = bridges.remove(RETIRED_BUILTIN_BILIBILI);
                 if (b != null) b.destroy();
                 SpiderDebug.log("music", "已清理下架的预置 bilibili 插件记录");
+            }
+            // 存量清理（2026-10-26 油管改落雪形态）：FreeJS 形态的旧油管预置按旧地址
+            // 精确匹配删掉（同一能力只留一套，见 RETIRED_BUILTIN_YTMUSIC_FREEJS）；
+            // 只删 format 非落雪、无本地文件的播种记录——用户自己把同址装成落雪版的
+            // 不碰。与下方补播种同一次读写：清完新落雪预置随即补进，不留两套并存。
+            boolean ytRemoved = list.removeIf(s -> s != null
+                    && RETIRED_BUILTIN_YTMUSIC_FREEJS.equals(s.srcUrl)
+                    && !FORMAT_LX.equals(s.format) && TextUtils.isEmpty(s.localPath));
+            if (ytRemoved) {
+                saveSites(list);
+                FreeJsBridge fb = bridges.remove(RETIRED_BUILTIN_YTMUSIC_FREEJS);
+                if (fb != null) fb.destroy();
+                SpiderDebug.log("music", "已清理油管 FreeJS 形态的旧预置记录（改落雪形态）");
             }
             // 补播种（2026-10-25）：后加的预置（油管音乐）只在首装时随整表种下，
             // 老用户存量非空永远拿不到，这里把从没播种过的后加预置补到列表尾。

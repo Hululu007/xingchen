@@ -3,6 +3,8 @@
  * 宿主（LxBridge）预先注入的原生函数：
  *   __lxSend(event, json)            脚本 -> 宿主事件（inited / updateAlert）
  *   __lxRequest(url, optsJson)       同步网络（走壳子 OkHttp），返回 {resp} 或 {err} 的 JSON
+ *   __lxLoginCookie()                -> 壳子统一登录托管的 Cookie 串（脚本头部声明 @loginProvider 才有，未声明恒空串）
+ *   __lxLoginRequest()               -> 请壳子弹统一登录框，返回是否已登录（同上，未声明恒 false）
  *   __lxMd5(str)                     -> hex 字符串（同步）
  *   __lxAes(dataB64, mode, keyB64, ivB64) -> 密文 base64（同步）
  *   __lxRsa(dataB64, pem)            -> base64（同步，PKCS1 填充）
@@ -230,6 +232,22 @@
             }
         },
         request: lxRequest,
+        /* 壳子统一登录通路：提供方由脚本头部 @loginProvider 声明、桥侧闭包绑定，
+         * 脚本只能读自己声明那家的托管 Cookie，选不了提供方（与 FreeJS 桥同纪律）。 */
+        loginCookie: function () {
+            try {
+                return typeof __lxLoginCookie === 'function' ? String(__lxLoginCookie() || '') : '';
+            } catch (e) {
+                return '';
+            }
+        },
+        loginRequest: function () {
+            try {
+                return typeof __lxLoginRequest === 'function' ? !!__lxLoginRequest() : false;
+            } catch (e) {
+                return false;
+            }
+        },
         utils: {
             buffer: {
                 from: function (data, encoding) {

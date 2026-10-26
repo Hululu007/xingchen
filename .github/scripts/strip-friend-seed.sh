@@ -12,7 +12,7 @@ MSM=app/src/main/java/com/fongmi/android/tv/api/music/MusicSourceManager.java
 URL_GECIWANG="https://cdn.jsdelivr.net/gh/maotoumao/MusicFreePlugins@master/dist/geciwang/index.js"
 URL_GECIQIANXUN="https://cdn.jsdelivr.net/gh/maotoumao/MusicFreePlugins@master/dist/geciqianxun/index.js"
 URL_KUWO="https://cdn.jsdelivr.net/gh/qwerwhr/musicfree-plugins@master/%E5%85%83%E5%8A%9BKW.js"
-URL_YTMUSIC="https://xingchen-dl.pages.dev/music-sources/ytmusic.js"
+URL_YTMUSIC="https://xingchen-dl.pages.dev/music-sources/ytmusic-lx.js"
 
 grep -q "public static List<MusicSite> builtinSites()" "$MSM" || fail "builtinSites 方法签名对不上"
 for u in "$URL_GECIWANG" "$URL_GECIQIANXUN" "$URL_KUWO" "$URL_YTMUSIC"; do
@@ -76,9 +76,10 @@ for path, urls in ((sys.argv[1], sys.argv[3:7]), (sys.argv[2], sys.argv[5:6])):
         fh.write(text)
 PYEOF
 
-# 复查：四个预置地址不许在任何源码里残留（下架 bilibili 的存量清理常量是另一个地址，不在此列；
-# 油管只认 music-sources/ytmusic.js 这一具体路径，同域名的歌词端点/ASR/内核地址不是预置插件、不在此列）
-if grep -rn "dist/geciwang/index\.js\|dist/geciqianxun/index\.js\|qwerwhr/musicfree-plugins\|music-sources/ytmusic\.js" app/src --include=*.java; then
+# 复查：四个预置地址不许在任何源码里残留（下架 bilibili 与油管旧 FreeJS 形态的存量清理
+# 常量是另两个地址，不在此列——它们只删存量、不播种，留着才能清掉装错互装带进来的旧记录；
+# 油管只认 music-sources/ytmusic-lx.js 这一具体路径，同域名的歌词端点/ASR/内核地址不是预置插件、不在此列）
+if grep -rn "dist/geciwang/index\.js\|dist/geciqianxun/index\.js\|qwerwhr/musicfree-plugins\|music-sources/ytmusic-lx\.js" app/src --include=*.java; then
   fail "删完后仍有预置插件地址残留"
 fi
 grep -q "public static List<MusicSite> builtinSites()" "$MSM" || fail "删完后 builtinSites 方法不见了"

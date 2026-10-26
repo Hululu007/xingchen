@@ -3,11 +3,16 @@ package com.fongmi.android.tv.api.music;
 import android.text.TextUtils;
 import android.util.Base64;
 
+import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.bean.music.MusicSite;
+import com.fongmi.android.tv.clash.MihomoManager;
+import com.fongmi.android.tv.clash.SourceProxyPolicy;
+import com.fongmi.android.tv.login.LoginManager;
 import com.fongmi.quickjs.bean.Req;
 import com.fongmi.quickjs.method.Console;
 import com.fongmi.quickjs.utils.Connect;
 import com.github.catvod.crawler.SpiderDebug;
+import com.github.catvod.net.SourceGate;
 import com.github.catvod.utils.Asset;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -109,12 +114,29 @@ public class LxBridge {
     public final String metaVersion;
     public final String metaAuthor;
 
+    /**
+     * 脚本头部声明需要的壳子统一登录提供方 id（@loginProvider，如油管落雪脚本的
+     * google）；空＝不依赖登录。只存桥内、不回填 site，与 FreeJsBridge.loginProvider
+     * 同纪律：它只是能力声明，登录通路闭包绑定本字段，脚本选不了提供方、读不到
+     * 别家的 Cookie；未声明的脚本两个原生函数恒空转，老脚本零影响。
+     */
+    private final String loginProvider;
+
+    /** 未登录自动弹框的进程内节流（按提供方，10 分钟至多一次，与 FreeJsBridge 同口径） */
+    private static final long LOGIN_PROMPT_INTERVAL_MS = 10 * 60 * 1000L;
+    private static final java.util.Map<String, Long> LOGIN_PROMPT_AT = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** 按需拉节点内核失败后的重试间隔（与 FreeJsBridge.ensureNodeForMusic 同口径） */
+    private static final long NODE_START_RETRY_MS = 60000;
+    private volatile long nodeStartFailedAt;
+
     public LxBridge(MusicSite site, String scriptJs) {
         this.site = site;
         this.scriptJs = scriptJs == null ? "" : scriptJs;
         this.metaName = headerTag(this.scriptJs, "name");
         this.metaVersion = headerTag(this.scriptJs, "version");
         this.metaAuthor = headerTag(this.scriptJs, "author");
+        this.loginProvider = headerTag(this.scriptJs, "loginProvider").trim();
     }
 
     /** 从脚本开头注释块读 @tag（落雪脚本惯例，如 @name/@version/@author） */
@@ -195,6 +217,26 @@ public class LxBridge {
                 return out.toString();
             } catch (Throwable t) {
                 return "{\"err\":{\"msg\":" + JSONObject.quote(String.valueOf(t.getMessage())) + "}}";
+            }
+        });
+        // 统一登录通路（与 FreeJsBridge 同型）：只认本桥脚本头部声明的 loginProvider
+        // （闭包绑定，脚本传不了参、选不了提供方）；未声明时恒空转。
+        ctx.getGlobalObject().setProperty("__lxLoginCookie", (JSCallFunction) args -> {
+            try {
+                if (loginProvider.isEmpty()) return "";
+                String cookie = LoginManager.getCookie(loginProvider);
+                return cookie == null ? "" : cookie;
+            } catch (Throwable t) {
+                return "";
+            }
+        });
+        ctx.getGlobalObject().setProperty("__lxLoginRequest", (JSCallFunction) args -> {
+            try {
+                if (loginProvider.isEmpty()) return false;
+                if (LoginManager.isLoggedIn(loginProvider)) return true;
+                return LoginManager.requestLogin(loginProvider);
+            } catch (Throwable t) {
+                return false;
             }
         });
         ctx.getGlobalObject().setProperty("__lxMd5", (JSCallFunction) args ->
@@ -322,6 +364,9 @@ public class LxBridge {
      * 返回脚本 Promise 的兑现值（字符串原样、对象转 JSON）；失败抛异常。
      */
     public String request(String source, String action, JsonObject musicInfo, String quality) throws Exception {
+        // 登录提示只挂取链/取词两个用户动作入口（与 FreeJsBridge 同口径）：声明了登录
+        // 提供方且未登录时节流弹壳子统一登录框；弹与不弹都不拦本次调用，未登录照常匿名跑。
+        if ("musicUrl".equals(action) || "lyric".equals(action)) maybePromptLogin();
         java.util.concurrent.Future<String> bridgeFuture = null;
         try {
             // 取链走高优先、取词/取图维持原序（见 executor 注释）
@@ -366,6 +411,20 @@ public class LxBridge {
             int code = LxKeyIssue.detectStatusCode(msg);
             if (code > 0) throw new LxKeyIssue(source, msg, code);
             throw e;
+        }
+    }
+
+    /** 未登录自动弹框（节流见 LOGIN_PROMPT_AT）：口径与 FreeJsBridge.maybePromptLogin 一字不差 */
+    private void maybePromptLogin() {
+        try {
+            if (loginProvider.isEmpty()) return;
+            if (LoginManager.isLoggedIn(loginProvider)) return;
+            long now = System.currentTimeMillis();
+            Long last = LOGIN_PROMPT_AT.get(loginProvider);
+            if (last != null && now - last < LOGIN_PROMPT_INTERVAL_MS) return;
+            LOGIN_PROMPT_AT.put(loginProvider, now);
+            LoginManager.requestLogin(loginProvider);
+        } catch (Throwable ignored) {
         }
     }
 
@@ -494,6 +553,14 @@ public class LxBridge {
     private JSONObject nativeRequest(String url, String optsJson) throws Exception {
         JSONObject opts = new JSONObject(optsJson);
         Req req = Req.objectFrom(buildReqJson(opts));
+        // 节点定向接线（与 FreeJsBridge.nativeRequest 同口径，2026-10-26 油管落雪形态补）：
+        // 桥是落雪脚本唯一的网络出口，在此给当前线程打源归属点（kind=music、id=srcUrl），
+        // 壳子 OkHttp 的 SourceGate 选择器才看得见这是哪个音乐源的请求。此前落雪侧从不
+        // 打点：油管落雪脚本的请求一律 gate direct reason=no-mark、直连挂死。策略表里
+        // 没有条目的落雪源 isEnabled 恒 false，ensureNode 不拉内核、打点只多一条决策
+        // 留痕、路由不变，老脚本零影响。
+        ensureNodeForMusic();
+        SourceGate.Mark prev = SourceGate.push(SourceProxyPolicy.KIND_MUSIC, key());
         try (Response res = Connect.to(url, req).execute()) {
             byte[] bytes = res.body() != null ? res.body().bytes() : new byte[0];
             JSONObject out = new JSONObject();
@@ -528,6 +595,32 @@ public class LxBridge {
             }
             out.put("body", body);
             return out;
+        } finally {
+            SourceGate.pop(prev);
+        }
+    }
+
+    /**
+     * 本源在节点策略里开了走节点、而内核还没拉起时，先把内核拉起来再发请求
+     * （FreeJsBridge.ensureNodeForMusic 同款口径：单源开了即生效，不要求总开关先开）。
+     * 拉起失败不堵请求：照常发（门控会判直连），但留一条 clash 日志说明本次为什么
+     * 没走成节点，不许静默直连挂死。
+     */
+    private void ensureNodeForMusic() {
+        try {
+            String id = key();
+            if (id.isEmpty()) return;
+            App app = App.get();
+            if (app == null) return;
+            if (!SourceProxyPolicy.isEnabled(app, SourceProxyPolicy.KIND_MUSIC, id)) return;
+            if (MihomoManager.get().isRunning()) return;
+            long now = System.currentTimeMillis();
+            if (now - nodeStartFailedAt < NODE_START_RETRY_MS) return;
+            if (!MihomoManager.get().ensureRunning(app)) {
+                nodeStartFailedAt = now;
+                SpiderDebug.log("clash", "gate music node-start-failed id=%s （内核没拉起来，本次请求直连）", id);
+            }
+        } catch (Throwable ignored) {
         }
     }
 

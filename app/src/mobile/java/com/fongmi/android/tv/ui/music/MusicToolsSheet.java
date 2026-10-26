@@ -380,6 +380,7 @@ public class MusicToolsSheet {
         name.setText(t == null ? "未在播放" : t.displayTitle());
         name.setTextColor(TEXT_HIGH);
         name.setTextSize(16);
+        name.setLetterSpacing(-0.3f / 16f);
         name.setMaxLines(1);
         name.setEllipsize(TextUtils.TruncateAt.END);
         heroText.addView(name);
@@ -403,14 +404,17 @@ public class MusicToolsSheet {
                 Toast.makeText(mActivity, "已加入下载", Toast.LENGTH_SHORT).show();
             }
         }));
-        tiles.addView(tile(R.drawable.ic_lyric_wave, "歌词", () -> {
-            mDialog.dismiss();
-            if (mCallback != null) mCallback.onOpenLyricPage();
-        }));
-        tiles.addView(tile(R.drawable.ic_music_timer, "定时", this::showSleep));
-        tiles.addView(tile(R.drawable.ic_music_playlist_add, "加歌单", () -> {
+        View tile2 = tile(R.drawable.ic_lyric_wave, "歌词", this::showLyricStyle);
+        ((LinearLayout.LayoutParams) tile2.getLayoutParams()).leftMargin = dp(8);
+        tiles.addView(tile2);
+        View tile3 = tile(R.drawable.ic_music_timer, "定时", this::showSleep);
+        ((LinearLayout.LayoutParams) tile3.getLayoutParams()).leftMargin = dp(8);
+        tiles.addView(tile3);
+        View tile4 = tile(R.drawable.ic_music_playlist_add, "加歌单", () -> {
             if (t != null) MusicPlaylistPicker.show(mActivity, t);
-        }));
+        });
+        ((LinearLayout.LayoutParams) tile4.getLayoutParams()).leftMargin = dp(8);
+        tiles.addView(tile4);
         mPanelBox.addView(tiles);
 
         // 播放模式四段
@@ -431,13 +435,7 @@ public class MusicToolsSheet {
         card.setLayoutParams(clp);
         card.addView(settingsRow("歌曲信息", null, this::showSongInfo));
         card.addView(divider());
-        card.addView(settingsRow("均衡器", null, () -> MusicController.get().openEqualizer(mActivity)));
-        card.addView(divider());
-        card.addView(settingsRow("播放页主题", themeName(MusicPlayerSettings.getTheme()), this::showTheme));
-        card.addView(divider());
-        card.addView(settingsRow("外观设置", null, this::showAppearance));
-        card.addView(divider());
-        card.addView(settingsRow("歌词样式", null, this::showLyricStyle));
+        card.addView(buildToolsGrid());
         card.addView(divider());
         card.addView(toggleRow("播放页不熄屏", MusicStore.isPlayerKeepScreenOn(), () -> {
             MusicStore.setPlayerKeepScreenOn(!MusicStore.isPlayerKeepScreenOn());
@@ -453,8 +451,6 @@ public class MusicToolsSheet {
         box.setOrientation(LinearLayout.VERTICAL);
         box.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        blp.leftMargin = dp(4);
-        blp.rightMargin = dp(4);
         box.setLayoutParams(blp);
         FrameLayout iconBox = new FrameLayout(mActivity);
         iconBox.setBackground(new MusicGlassDrawable(mActivity, 16));
@@ -486,6 +482,60 @@ public class MusicToolsSheet {
             onClick.run();
         });
         return box;
+    }
+
+    /** 功能网格（瓜子 SettingsListCard 内的 ToolsGridEntry：两列、高 48、图标 20、标题 13sp）。
+     *  此前把均衡器/主题/外观做成整行列表、还多塞一行歌词样式，与瓜子构成对不上（2026-10-26 他点名布局有问题）。 */
+    private LinearLayout buildToolsGrid() {
+        LinearLayout box = new LinearLayout(mActivity);
+        box.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout row1 = new LinearLayout(mActivity);
+        row1.setOrientation(LinearLayout.HORIZONTAL);
+        row1.addView(gridEntry(R.drawable.ic_music_eq, "均衡器",
+                () -> MusicController.get().openEqualizer(mActivity)));
+        row1.addView(gridEntry(R.drawable.ic_player_grid, "播放页主题", this::showTheme));
+        box.addView(row1);
+        LinearLayout row2 = new LinearLayout(mActivity);
+        row2.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams r2lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        r2lp.topMargin = dp(8);
+        row2.setLayoutParams(r2lp);
+        row2.addView(gridEntry(R.drawable.ic_music_palette, "外观设置", this::showAppearance));
+        row2.addView(new View(mActivity), new LinearLayout.LayoutParams(0, dp(48), 1f));
+        box.addView(row2);
+        return box;
+    }
+
+    private LinearLayout gridEntry(int iconRes, String label, Runnable onClick) {
+        LinearLayout cell = new LinearLayout(mActivity);
+        cell.setOrientation(LinearLayout.HORIZONTAL);
+        cell.setGravity(Gravity.CENTER_VERTICAL);
+        cell.setPadding(dp(16), dp(12), dp(16), dp(12));
+        cell.setLayoutParams(new LinearLayout.LayoutParams(0, dp(48), 1f));
+        ImageView iv = new ImageView(mActivity);
+        iv.setImageResource(iconRes);
+        iv.setColorFilter(TEXT_HIGH);
+        cell.addView(iv, new LinearLayout.LayoutParams(dp(20), dp(20)));
+        TextView tv = new TextView(mActivity);
+        tv.setText(label);
+        tv.setTextColor(TEXT_HIGH);
+        tv.setTextSize(13);
+        tv.setMaxLines(1);
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        tlp.leftMargin = dp(8);
+        cell.addView(tv, tlp);
+        cell.setOnClickListener(v -> {
+            v.setScaleX(0.98f);
+            v.setScaleY(0.98f);
+            v.postDelayed(() -> {
+                v.setScaleX(1f);
+                v.setScaleY(1f);
+            }, 150);
+            onClick.run();
+        });
+        return cell;
     }
 
     private static final int[] SEG_MODES = {

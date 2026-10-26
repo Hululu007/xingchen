@@ -81,7 +81,7 @@ public class CustomKeyDown extends GestureDetector.SimpleOnGestureListener imple
         }
         if (action == MotionEvent.ACTION_UP) listener.onTouchEnd();
         if (changeBright && action == MotionEvent.ACTION_UP) PlayerSetting.putBrightness(currentBright);
-        if (changeSpeed && action == MotionEvent.ACTION_UP) listener.onSpeedEnd();
+        if (changeSpeed && (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL)) listener.onSpeedEnd();
         if (changeTime && action == MotionEvent.ACTION_UP) listener.onSeekEnd(time);
         return e.getPointerCount() == 2 ? scaleDetector.onTouchEvent(e) : detector.onTouchEvent(e);
     }
@@ -151,6 +151,7 @@ public class CustomKeyDown extends GestureDetector.SimpleOnGestureListener imple
     @Override
     public void onLongPress(@NonNull MotionEvent e) {
         if (multiTouch || isEdge(e) || changeScale || lock) return;
+        if (!listener.isLongPressSpeedEnabled()) return;
         listener.onSpeedUp();
         changeSpeed = true;
     }
@@ -316,6 +317,11 @@ public class CustomKeyDown extends GestureDetector.SimpleOnGestureListener imple
         void onSpeedUp();
 
         void onSpeedEnd();
+
+        /** 长按加速是否启用（宿主按自己的设置口径决定，默认启用）。 */
+        default boolean isLongPressSpeedEnabled() {
+            return true;
+        }
 
         void onBright(int progress);
 

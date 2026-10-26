@@ -65,13 +65,27 @@ public class CloudFile {
         }
     }
 
+    /** 视频双判：文件名后缀或 115 的 ico 类型任一命中视频表即认（与 isAudio 同口径）。
+     * 115 搜索回包的文件名常不带后缀、类型只在 ico 里（值即扩展名）；此前只判后缀，
+     * 聚合搜索里无后缀的 115 视频全被挡在截帧封面与点开直达起播的门外（全是排字素图）。 */
     public boolean isVideo() {
+        if (icon != null && !icon.isEmpty() && isVideoExt(icon.trim().toLowerCase())) return true;
         if (name == null) return false;
         String n = name.toLowerCase();
         return n.endsWith(".mp4") || n.endsWith(".mkv") || n.endsWith(".avi")
                 || n.endsWith(".rmvb") || n.endsWith(".flv") || n.endsWith(".mov")
                 || n.endsWith(".wmv") || n.endsWith(".ts") || n.endsWith(".m2ts")
                 || n.endsWith(".webm") || n.endsWith(".m3u8");
+    }
+
+    private static boolean isVideoExt(String ext) {
+        switch (ext) {
+            case "mp4": case "mkv": case "avi": case "rmvb": case "flv": case "mov":
+            case "wmv": case "ts": case "m2ts": case "webm": case "m3u8":
+                return true;
+            default:
+                return false;
+        }
     }
 
     public String getFormatSize() {

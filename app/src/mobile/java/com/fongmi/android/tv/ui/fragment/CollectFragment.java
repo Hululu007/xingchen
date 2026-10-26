@@ -354,8 +354,9 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
     /**
      * 115 搜索结果封面兜底（与网盘页 bindRowCover 同口径的第二路）：服务端没给缩略图的
      * 视频走 Pan115Cover 截帧——已有缓存直接把本地路径填进 pic（ImgUtil 对真实存在的
-     * 本地文件原样放行给 Glide）；没有就请求截帧，截好后回主线程补 pic 并刷列表
-     * （Vod 是同一对象引用，两个列表共用，刷一次即可）。文件夹/非视频/无 pickcode 不走。
+     * 本地文件原样放行给 Glide）；没有就请求截帧，截好后回主线程补 pic 并定点刷那一行
+     * （同网盘页 D1 口径：整表重绑会在滑动期打脉冲；Vod 是同一对象引用，当前列表里
+     * 找不到这一条就不用刷，pic 已在对象上、切过去自然带出）。文件夹/非视频/无 pickcode 不走。
      */
     private void fillFrameCover(Drive115 drive, CloudFile f, Vod vod) {
         if (f.isDir() || !f.isVideo() || TextUtils.isEmpty(f.getPickCode())) return;
@@ -371,7 +372,14 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
             App.post(() -> {
                 if (!isAdded() || mBinding == null) return;
                 vod.setPic(done.getAbsolutePath());
-                if (mSearchAdapter != null) mSearchAdapter.notifyDataSetChanged();
+                if (mSearchAdapter == null) return;
+                java.util.List<Vod> shown = mSearchAdapter.getItems();
+                for (int i = 0; i < shown.size(); i++) {
+                    if (shown.get(i) == vod) {
+                        mSearchAdapter.notifyItemChanged(i);
+                        return;
+                    }
+                }
             });
         });
     }

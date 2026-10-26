@@ -158,7 +158,7 @@ public final class MusicGlassWire {
      * 圆角 outline 与玻璃同半径＋elevation 分档（圆键 5／大卡 8／中卡 6／行与小件 2.5，单位 dp）。
      * 没有这层时玻璃件是「贴」在底上的、不浮——他点名「不明显」的一条结构因（2026-10-26）。
      */
-    private static void applyFloatShadow(View v, final float radiusDp) {
+    public static void applyFloatShadow(View v, final float radiusDp) {
         final float density = v.getResources().getDisplayMetrics().density;
         final float rPx = radiusDp >= 999f ? Float.MAX_VALUE : radiusDp * density;
         v.setOutlineProvider(new android.view.ViewOutlineProvider() {

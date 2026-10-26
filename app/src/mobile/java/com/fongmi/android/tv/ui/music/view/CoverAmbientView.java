@@ -240,7 +240,7 @@ public class CoverAmbientView extends View {
                 mBlurNode.setScaleY(mDriftScale);
                 mBlurNode.setTranslationX(mDriftTx);
                 mBlurNode.setTranslationY(mDriftTy);
-                mBlurNode.setRotation(mDriftRot);
+                mBlurNode.setRotationZ(mDriftRot); // RenderNode 只有 setRotationZ（无 setRotation，首编实证）
             }
             invalidate();
             android.view.Choreographer.getInstance().postFrameCallback(this);
@@ -300,7 +300,7 @@ public class CoverAmbientView extends View {
         mBlurNode.setScaleY(mDriftScale);
         mBlurNode.setTranslationX(mDriftTx);
         mBlurNode.setTranslationY(mDriftTy);
-        mBlurNode.setRotation(mDriftRot);
+        mBlurNode.setRotationZ(mDriftRot);
         canvas.drawRenderNode(mBlurNode);
     }
 }

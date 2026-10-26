@@ -83,6 +83,7 @@ public final class MusicGlassWire {
             R.drawable.bg_circle_light,
             R.drawable.bg_circle_white,
             R.drawable.bg_sheet_source,
+            R.drawable.home_bg_notif_strip, // 首页通知提示条：原是深色实底 #2B2B30 整条，实底清零漏网（2026-10-26 全扫补登）
     };
     private static final float[] RADII_DP = {
             16f,   // bg_music_glass_card
@@ -130,6 +131,7 @@ public final class MusicGlassWire {
             999f,  // bg_circle_light
             999f,  // bg_circle_white
             10f,   // bg_sheet_source（队列来源行）
+            12f,   // home_bg_notif_strip（与原 shape 圆角一致）
     };
 
     private static Map<Drawable.ConstantState, Float> sTable; // 懒建（ConstantState → 圆角 dp）

@@ -10,7 +10,9 @@
      身份块横内距 34：歌名 23sp 粗体 textHigh #1C1C1E 字距 -0.5、歌手行 12sp（间距 6）；找歌态骨架条（72%×25dp／48%×13dp、黑 @0.07、圆角 7、间隔 5）＋「正在寻找下一首…」11sp；
      进度块限宽 310、横内距 20：条高 3dp 圆角、轨道 textMedium @0.18、填充为封面 tone 渐变（代码里按 tone 重建）；时间行距条 5dp、11sp 两端对齐；
      运输行限宽 270、横内距 24：上一首/下一首 48dp 钮（图标 20dp、textHigh），中央播放钮 72dp 黑圆（textHigh 底、图标 34dp、contentSurface 色）；
-     反馈行限宽 310、横内距 20、间距 10：两颗等宽丸子键高 48、圆角 18、底 discoveryInset #F0F0F4、图标 15dp＋间距 6、字 12sp 半粗；
+     反馈行限宽 340、横内距 20、间距 10：两颗等宽丸子键高 52、圆角 18、底 discoveryInset #F0F0F4、图标 15dp＋间距 6、字 12sp 半粗
+     （行宽 340／键高 52／反馈行上距单独加一档，是他 1.4.47 真机点「框小了，图标都漏出来了」＋「往下挪」后的放宽值，覆盖瓜子原值；
+     图标 15dp 由代码 pinBtnIcon 显式设界落实——两颗图标资源固有 24dp，XML drawableStart 按固有尺寸画会贴框缘溢出）；
      底部不画瓜子 App 导航栏、不为它留位（他亲点排除）。
      星辰自有保留：失败块/空态块（诚实出口）、「再随机一次」（只重洗同一池子）、进度条可拖（瓜子此页进度条无拖动手势，星辰保留既有拖动行为不改交互，拖柄透明）。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -399,7 +401,7 @@
 
         <LinearLayout
             android:id="@+id/prefsRow"
-            android:layout_width="310dp"
+            android:layout_width="340dp"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
             android:orientation="horizontal"
@@ -409,7 +411,7 @@
             <TextView
                 android:id="@+id/btnDislike"
                 android:layout_width="0dp"
-                android:layout_height="48dp"
+                android:layout_height="52dp"
                 android:layout_marginEnd="10dp"
                 android:layout_weight="1"
                 android:background="@drawable/bg_shuffle_pill"
@@ -424,7 +426,7 @@
             <TextView
                 android:id="@+id/btnFav"
                 android:layout_width="0dp"
-                android:layout_height="48dp"
+                android:layout_height="52dp"
                 android:layout_weight="1"
                 android:background="@drawable/bg_shuffle_pill"
                 android:drawablePadding="6dp"

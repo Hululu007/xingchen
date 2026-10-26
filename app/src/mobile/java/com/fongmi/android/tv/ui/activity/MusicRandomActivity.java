@@ -3,6 +3,7 @@ package com.fongmi.android.tv.ui.activity;
 import android.animation.ObjectAnimator;
 import android.app.Activity;
 import android.content.Intent;
+import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -10,6 +11,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.animation.LinearInterpolator;
 import android.widget.SeekBar;
+import android.widget.TextView;
 
 import androidx.viewbinding.ViewBinding;
 
@@ -189,7 +191,8 @@ public class MusicRandomActivity extends BaseActivity {
         int panelGap = dp(compact ? 12 : 16);
         setTopMargin(binding.progressBlock, panelGap);
         setTopMargin(binding.transportRow, panelGap);
-        setTopMargin(binding.prefsRow, panelGap);
+        // 反馈行他真机亲点「往下挪」（1.4.47）：在统一块间距之外再加一档，与运输行拉开、整行更靠页面下方
+        setTopMargin(binding.prefsRow, panelGap + dp(compact ? 12 : 16));
         int innerW = sw - dp(16 * 2) - dp(cardPadH * 2);
         int d = Math.min(innerW, dp(compact ? 260 : 300));
         ViewGroup.LayoutParams lp = binding.discWrap.getLayoutParams();
@@ -216,6 +219,8 @@ public class MusicRandomActivity extends BaseActivity {
         // 「不合口味」照瓜子原键名落码（他亲点整页照瓜子）；星辰无偏好学习引擎，点击行为仍是
         // 切下一首；此前被定为假许诺的是「正在结合你的收藏与听歌足迹…由你的偏好决定」那段
         // 说明文案——那段不恢复，页内副文案只写星辰真实来源链
+        pinBtnIcon(binding.btnDislike, R.drawable.ic_shuffle_dislike, 0, false);
+        pinBtnIcon(binding.btnFav, R.drawable.ic_music_heart, 0xFF1C1C1E, true);
         binding.btnDislike.setOnClickListener(v -> manualSwitch(() -> MusicController.get().next()));
         binding.btnFav.setOnClickListener(v -> toggleFav());
         binding.tvRediscover.setOnClickListener(v -> buildQueue());
@@ -882,13 +887,27 @@ public class MusicRandomActivity extends BaseActivity {
         binding.seekBar.setEnabled(true);
     }
 
+    // 反馈丸子键图标限尺寸（他 1.4.47 真机定罪「框小了，图标都漏出来了」）：两颗图标资源固有
+    // 24dp、设计真值 15dp，而 XML 的 drawableStart 与原先的 WithIntrinsicBounds 都按固有尺寸
+    // 挂、不设界，真机上图标贴钮左缘被切、图文不成组。统一走这里：显式设界 15dp 再挂，
+    // 尺寸再不受资源固有值影响；着色口径与原调用逐字一致（不合口味钮图标自带灰、不着色）。
+    private void pinBtnIcon(TextView btn, int resId, int tint, boolean applyTint) {
+        Drawable d = getDrawable(resId);
+        if (d == null) return;
+        int s = dp(15);
+        d.setBounds(0, 0, s, s);
+        btn.setCompoundDrawablesRelative(d, null, null, null);
+        if (applyTint) {
+            btn.setCompoundDrawableTintList(android.content.res.ColorStateList.valueOf(tint));
+        }
+    }
+
     private void refreshFavButton() {
         MusicTrack cur = MusicController.get().current();
         if (cur == null || cur.id == null) {
             binding.btnFav.setText("收藏这首");
             binding.btnFav.setTextColor(0xFF1C1C1E);
-            binding.btnFav.setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_music_heart, 0, 0, 0);
-            binding.btnFav.setCompoundDrawableTintList(android.content.res.ColorStateList.valueOf(0xFF1C1C1E));
+            pinBtnIcon(binding.btnFav, R.drawable.ic_music_heart, 0xFF1C1C1E, true);
             return;
         }
         MusicLibrary.isFavorite(cur, fav -> {
@@ -896,10 +915,9 @@ public class MusicRandomActivity extends BaseActivity {
             binding.btnFav.setText(fav ? "已收藏这首" : "收藏这首");
             // 浅底丸子键：未收藏 textHigh、已收藏红（星辰既有口径色 #FA243C 保留）
             binding.btnFav.setTextColor(fav ? 0xFFFA243C : 0xFF1C1C1E);
-            binding.btnFav.setCompoundDrawablesRelativeWithIntrinsicBounds(
-                    fav ? R.drawable.ic_music_heart_fill : R.drawable.ic_music_heart, 0, 0, 0);
-            binding.btnFav.setCompoundDrawableTintList(android.content.res.ColorStateList.valueOf(
-                    fav ? 0xFFFA243C : 0xFF1C1C1E));
+            pinBtnIcon(binding.btnFav,
+                    fav ? R.drawable.ic_music_heart_fill : R.drawable.ic_music_heart,
+                    fav ? 0xFFFA243C : 0xFF1C1C1E, true);
         });
     }
 

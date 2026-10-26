@@ -175,8 +175,14 @@ public class LxMusicSource implements MusicSource {
         }
     }
 
-    /** 单个落雪脚本取链上限：一个脚本卡住不许拖垮整条取链（对差清单 D2） */
-    private static final long PLUGIN_TIMEOUT_MS = 8000;
+    /** 单个落雪脚本取链上限：一个脚本卡住不许拖垮整条取链（对差清单 D2）。
+     * 8 秒是误判脚本形态定的：聚合脚本按落雪语义是多后端并发回退，到星辰同步
+     * 垫片里变全串行——本机同脚本同歌复现串行总耗时 10199 毫秒（星海 2.3s＋
+     * Huibq 2.5s＋溯音 3.2s＋聆川 2.2s），他网络下更慢（日志实测星海一发 4 秒、
+     * Huibq 一发 10 秒），8 秒一到必砍、错误还是无消息的 TimeoutException，
+     * 日志只剩 error null（2026-10-26 真机 tx/kg/mg 全灭实证）。改 18 秒：
+     * 仍在取链总预算 20 秒与桥内层 40 秒之内，wait 仍与 remain 取小。 */
+    private static final long PLUGIN_TIMEOUT_MS = 18000;
     /** 脚本链实测验链的探测超时（毫秒）：只读响应码即断、不读体，见 probeUrlDead 口径 */
     private static final int PROBE_TIMEOUT_MS = 3000;
     /** 取链总预算（与播放服务 20 秒看门狗同口径）：到点还没出链就按失败返回 */

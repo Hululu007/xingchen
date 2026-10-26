@@ -113,6 +113,21 @@ public class ReadingRouter {
             fetchNovelChapters(context, r, s);
             return;
         }
+        // py 漫画：与小说同路，带详情 id 的后台重拉全量章节表重建（能切章）；
+        // 老记录（无 detailId）走原来的单章口径，页号照旧恢复。
+        if (s.kind == ReadingSession.Kind.COMIC && !TextUtils.isEmpty(s.siteKey)
+                && TextUtils.isEmpty(s.legadoKey) && TextUtils.isEmpty(s.ruleTitle)
+                && !TextUtils.isEmpty(r.detailId)) {
+            fetchComicChapters(context, r, s);
+            return;
+        }
+        // Legado：带 bookUrl 的按源目录重建全量章节表（bookInfo→toc，与追更检查
+        // 同一条路）；源没了/目录拉空时回退单章口径。bookUrl 被旧版存进度抹掉的
+        // 老记录为空，只能等下次从搜索打开时由 LegadoReading 建会话写回。
+        if (!TextUtils.isEmpty(s.legadoKey) && !TextUtils.isEmpty(r.bookUrl)) {
+            fetchLegadoChapters(context, r, s);
+            return;
+        }
         if (s.kind == ReadingSession.Kind.NOVEL && !TextUtils.isEmpty(r.content)) {
             s.text = r.content;
         }
@@ -137,7 +152,7 @@ public class ReadingRouter {
             try {
                 com.fongmi.android.tv.bean.Result res =
                         com.fongmi.android.tv.api.SiteApi.detailContent(siteKey, detailId);
-                chapters = pickNovelChapters(res, playFlag);
+                chapters = pickDetailChapters(res, playFlag);
             } catch (Throwable ignored) {
             }
             final java.util.List<ReadingSession.Chapter> table = chapters;
@@ -169,8 +184,87 @@ public class ReadingRouter {
         }).start();
     }
 
+    /**
+     * py 漫画章节表重建：与小说同路（重拉详情取选集表），定位回原话再开阅读器，
+     * 页号按记录恢复。拉失败/表为空时回退单章口径（fail-open），页号不丢。
+     */
+    private static void fetchComicChapters(Context context, ReadingStore.Record r, ReadingSession s) {
+        ToastUtil.show(context, "正在拉取目录…", Toast.LENGTH_SHORT);
+        final String detailId = r.detailId;
+        final String siteKey = r.siteKey;
+        final String playFlag = r.playFlag;
+        new Thread(() -> {
+            java.util.List<ReadingSession.Chapter> chapters = new java.util.ArrayList<>();
+            try {
+                com.fongmi.android.tv.bean.Result res =
+                        com.fongmi.android.tv.api.SiteApi.detailContent(siteKey, detailId);
+                chapters = pickDetailChapters(res, playFlag);
+            } catch (Throwable ignored) {
+            }
+            final java.util.List<ReadingSession.Chapter> table = chapters;
+            new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+                if (table.size() > 1) {
+                    int idx = com.fongmi.android.tv.read.NovelChapterTable.resolveIndex(
+                            table, r.chapterUrl, r.chapterName, r.chapterIndex);
+                    s.chapters = new java.util.ArrayList<>(table);
+                    s.chapterIndex = idx;
+                    s.chapterUrl = s.currentChapter().url;
+                    s.detailId = detailId;
+                    s.playFlag = playFlag == null ? "" : playFlag;
+                }
+                if (r.position > 0) openReadingWithStartPage(context, s, r.position);
+                else openReading(context, s);
+            });
+        }).start();
+    }
+
+    /**
+     * Legado 章节表重建：bookInfo→toc（与 ReadingUpdateChecker 追更同一条路），
+     * 定位回原章再开阅读器；小说章内进度由阅读器按下标/地址恢复，漫画页号按记录恢复。
+     * 源已删/书地址失效/目录为空时回退单章口径（fail-open）。
+     */
+    private static void fetchLegadoChapters(Context context, ReadingStore.Record r, ReadingSession s) {
+        ToastUtil.show(context, "正在拉取目录…", Toast.LENGTH_SHORT);
+        new Thread(() -> {
+            java.util.List<ReadingSession.Chapter> table = new java.util.ArrayList<>();
+            try {
+                com.fongmi.android.tv.legado.LegadoSource src =
+                        com.fongmi.android.tv.legado.LegadoStore.get(r.legadoKey);
+                if (src != null) {
+                    com.fongmi.android.tv.legado.LegadoPipeline pipe =
+                            new com.fongmi.android.tv.legado.LegadoPipeline(src);
+                    com.fongmi.android.tv.legado.LegadoPipeline.BookInfo info =
+                            pipe.bookInfo(r.bookUrl);
+                    java.util.List<com.fongmi.android.tv.legado.LegadoPipeline.TocChapter> toc =
+                            pipe.toc(info.tocUrl);
+                    if (toc != null) {
+                        for (com.fongmi.android.tv.legado.LegadoPipeline.TocChapter c : toc) {
+                            table.add(new ReadingSession.Chapter(c.name, c.url));
+                        }
+                    }
+                }
+            } catch (Throwable ignored) {
+            }
+            final java.util.List<ReadingSession.Chapter> chapters = table;
+            new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+                if (chapters.size() > 1) {
+                    int idx = com.fongmi.android.tv.read.NovelChapterTable.resolveIndex(
+                            chapters, r.chapterUrl, r.chapterName, r.chapterIndex);
+                    s.chapters = new java.util.ArrayList<>(chapters);
+                    s.chapterIndex = idx;
+                    s.chapterUrl = s.currentChapter().url;
+                }
+                if (s.kind == ReadingSession.Kind.COMIC && r.position > 0) {
+                    openReadingWithStartPage(context, s, r.position);
+                } else {
+                    openReading(context, s);
+                }
+            });
+        }).start();
+    }
+
     /** 从详情结果取章节表：优先记录时的线路，找不到用第一个有选集的线路。 */
-    private static java.util.List<ReadingSession.Chapter> pickNovelChapters(
+    private static java.util.List<ReadingSession.Chapter> pickDetailChapters(
             com.fongmi.android.tv.bean.Result res, String playFlag) {
         java.util.List<ReadingSession.Chapter> out = new java.util.ArrayList<>();
         try {

@@ -2366,8 +2366,9 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             }
             ReadingSession.Chapter cur = rs.currentChapter();
             if (TextUtils.isEmpty(rs.chapterUrl)) rs.chapterUrl = cur.url;
-            // py 小说：记下书的详情 id 与线路，供书架重建章节表时重拉详情用
-            if (!TextUtils.isEmpty(rs.siteKey) && rs.kind == ReadingSession.Kind.NOVEL
+            // py 小说/漫画：记下书的详情 id 与线路，供书架重建章节表时重拉详情用
+            // （漫画此前只记小说，重开只能单章、不能切章）
+            if (!TextUtils.isEmpty(rs.siteKey)
                     && TextUtils.isEmpty(rs.legadoKey) && TextUtils.isEmpty(rs.localId)
                     && TextUtils.isEmpty(rs.ruleTitle)) {
                 rs.detailId = getId();

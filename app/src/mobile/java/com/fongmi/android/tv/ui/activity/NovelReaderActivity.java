@@ -995,9 +995,14 @@ public class NovelReaderActivity extends AppCompatActivity {
                                 ? com.fongmi.android.tv.read.ReadingStore.findLocal(session.localId)
                                 : com.fongmi.android.tv.read.ReadingStore.find(
                                         "NOVEL", session.sourceName, session.bookTitle);
-                if (prog != null && prog.chapterIndex == session.chapterIndex
-                        && prog.position > 0) {
-                    restoreFrac = prog.position / 10000f;
+                if (prog != null && prog.position > 0) {
+                    // 全表会话按下标记对位；单章会话（书架重开的海阔/Legado/py 老
+                    // 记录）下标恒 0 对不上记录里的真下标，改按章节地址认同一章，
+                    // 章内进度（万分比）才恢复得回来。
+                    boolean sameChapter = prog.chapterIndex == session.chapterIndex
+                            || (session.chapters.size() <= 1 && !TextUtils.isEmpty(prog.chapterUrl)
+                                    && prog.chapterUrl.equals(session.chapterUrl));
+                    if (sameChapter) restoreFrac = prog.position / 10000f;
                 }
             }
             final float frac0 = restoreFrac;

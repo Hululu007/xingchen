@@ -50,6 +50,8 @@ public class DriveQuark implements CloudDrive {
     private static final String API_SHARE_DETAIL = BASE + "/share/sharepage/detail";
     private static final String API_SHARE_SAVE = BASE + "/share/sharepage/save";
     private static final String API_TASK = BASE + "/task";
+    // 全局搜索（来源：quarklite 的 QuarkClient.searchFiles，其搜索走 drive.quark.cn 而非 drive-pc）
+    private static final String API_SEARCH = "https://drive.quark.cn/1/clouddrive/file/search";
 
     // 二维码登录（来源：h1d3rone/quarkmanager，已验证）
     // 注意：旧的 getQrcodeToken 是空接口（返回空 200），正确接口是 getTokenForQrcodeLogin
@@ -394,6 +396,53 @@ public class DriveQuark implements CloudDrive {
             f.setName(o.optString("file_name"));
             f.setSize(o.optLong("size", 0));
             f.setParentCid(TextUtils.isEmpty(cid) ? "0" : cid);
+            files.add(f);
+        }
+        return files;
+    }
+
+    /**
+     * 全盘搜索（来源：quarklite 的 QuarkClient.searchFiles，已上线 App 的活口径）：
+     * GET drive.quark.cn/1/clouddrive/file/search，参数 q＋_page＋_size＋_fetch_total＋_sort＋_is_hl，
+     * 响应与 file/sort 同构（{status:200, data:{list:[...]}}，条目字段同列表）。
+     * _is_hl=1 时 file_name 带高亮标签，解析时剥掉再用；parentCid 取条目自带 pdir_fid。
+     * 响应字段未经真机对死，顶层键与条数打调试日志（tag pansrc），真机一跑即可对字段。
+     */
+    @Override
+    public List<CloudFile> searchFiles(String keyword, int offset, int limit) throws Exception {
+        if (limit <= 0) limit = 50;
+        int page = offset / limit + 1;
+        Map<String, String> p = defaultParams();
+        p.put("q", keyword == null ? "" : keyword.trim());
+        p.put("_page", String.valueOf(page));
+        p.put("_size", String.valueOf(limit));
+        p.put("_fetch_total", "1");
+        p.put("_sort", "file_type:asc,updated_at:desc");
+        p.put("_is_hl", "1");
+        JSONObject d = reqJsonGet(API_SEARCH, p);
+        if (d.optInt("status", -1) != 200) {
+            throw new Exception("搜索失败：" + d.optString("message", d.optString("msg", "status=" + d.optInt("status", -1))));
+        }
+        List<CloudFile> files = new ArrayList<>();
+        JSONObject data = d.optJSONObject("data");
+        JSONArray arr = data != null ? data.optJSONArray("list") : null;
+        try {
+            com.github.catvod.crawler.SpiderDebug.log("pansrc",
+                    "quark kw=%s keys=%s got=%s",
+                    keyword, String.valueOf(d.names()),
+                    arr == null ? "null" : String.valueOf(arr.length()));
+        } catch (Throwable ignored) {
+        }
+        if (arr == null) return files;
+        for (int i = 0; i < arr.length(); i++) {
+            JSONObject o = arr.optJSONObject(i);
+            if (o == null) continue;
+            CloudFile f = new CloudFile();
+            f.setDir(o.optBoolean("dir", o.optInt("file_type", 1) == 0));
+            f.setId(o.optString("fid"));
+            f.setName(o.optString("file_name").replaceAll("<[^>]+>", ""));
+            f.setSize(o.optLong("size", 0));
+            f.setParentCid(o.optString("pdir_fid", "0"));
             files.add(f);
         }
         return files;

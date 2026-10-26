@@ -45,6 +45,15 @@ public interface CloudDrive {
     String getPlayUrl(CloudFile file) throws Exception;
 
     /**
+     * 全盘搜索：按关键词搜自己网盘里的文件，offset/limit 分页。
+     * 默认未实现（抛人话异常）；各家按自家已验证口径覆盖，115 已实现。
+     * 结果项须回填 parentCid（所在目录 id），供 UI 从结果直达所在目录。
+     */
+    default List<CloudFile> searchFiles(String keyword, int offset, int limit) throws Exception {
+        throw new Exception("当前网盘暂不支持搜索");
+    }
+
+    /**
      * 转存分享链接到自己网盘
      * @param shareUrl 分享链接
      * @param password 提取码（可空）

@@ -388,7 +388,7 @@ public class CustomWebView extends WebView implements DialogInterface.OnDismissL
      */
     private void probeDomMedia(int attempt) {
         if (stopped || attempt > 6 || mediaProbeCount++ > 12) return;
-        String js = "(function(){var a=[];var seen=[];function walk(d){if(!d||seen.indexOf(d)>=0)return;seen.push(d);try{d.querySelectorAll('video,audio,video source,audio source').forEach(function(v){var u=v.currentSrc||v.src;if(u)a.push({u:u,k:'video'});});d.querySelectorAll('iframe,frame').forEach(function(f){try{walk(f.contentDocument);}catch(e){}});try{d.defaultView.performance.getEntriesByType('resource').forEach(function(e){if(e.initiatorType==='video'||e.initiatorType==='audio')a.push({u:e.name,k:'resource'});});}catch(e){}}walk(document);return JSON.stringify(a);})()";
+        String js = "(function(){var a=[];var seen=[];function walk(d){if(!d||seen.indexOf(d)>=0)return;seen.push(d);try{d.querySelectorAll('video,audio,video source,audio source').forEach(function(v){var u=v.currentSrc||v.src;if(u)a.push({u:u,k:'video'});});d.querySelectorAll('iframe,frame').forEach(function(f){try{walk(f.contentDocument);}catch(e){}});try{d.defaultView.performance.getEntriesByType('resource').forEach(function(e){if(e.initiatorType==='video'||e.initiatorType==='audio')a.push({u:e.name,k:'resource'});});}catch(e){}}catch(e){}}walk(document);return JSON.stringify(a);})()";
         evaluateJavascript(js, value -> {
             try {
                 String payload = value == null ? "" : new org.json.JSONTokener(value).nextValue().toString();

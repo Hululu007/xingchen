@@ -172,11 +172,42 @@ public class PlayUrlBuilder115 {
     }
 
     /**
-     * 组装播放清单（对照 PY _file_detail 的选集构成）：
-     * 原画（/files/video 的 origin_file_url 优先，chrome/downurl 兜底）
-     * → 转码多档（最多 6 档）→ 网盘自动画质（m3u8 探活才入列）。
-     * 默认起播档＝自动画质（起播快、与既有 auto 口径一致），没有则第一档。
-     * 全部候选都拿不到时降级走 build(auto) 单条，与旧 getPlayUrl 同口径。
+     * 档名清晰度打分（选转码最高档用）：从档名里抠分辨率数字（1080P/720P/4K 等），
+     * 抠不到返回 -1。纯函数、无外部依赖，供离线断言直接抽取验证。
+     */
+    static int tierScore(String name) {
+        if (name == null) return -1;
+        String s = name.toUpperCase(java.util.Locale.US);
+        if (s.contains("8K")) return 4320;
+        if (s.contains("4K")) return 2160;
+        if (s.contains("2K")) return 1440;
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("(\\d{3,4})\\s*P").matcher(s);
+        int best = -1;
+        while (m.find()) {
+            try {
+                best = Math.max(best, Integer.parseInt(m.group(1)));
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        if (best > 0) return best;
+        // 无 P 后缀的裸分辨率数字（如 2160/1080）也认
+        java.util.regex.Matcher n = java.util.regex.Pattern.compile("(2160|1440|1080|720|576|480|360)").matcher(s);
+        if (n.find()) {
+            try {
+                return Integer.parseInt(n.group(1));
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * 组装播放清单（潇洒哥定案口径）：总共只出两条——
+     * 原画（/files/video 的 origin_file_url 优先，chrome/downurl 兜底，排第一）
+     * ＋转码一条（接口多档里最高的那一档，其余档不列）。
+     * 默认起播＝转码条（原画不作默认，流量与起播速度考虑）；只有原画时默认原画。
+     * 什么都拿不到（无原画、无转码）走播放失败的既有报错路，不再回退「自动单条」。
+     * m3u8 仅作 build() 内部取链手段保留，不以任何名字进本清单。
      */
     public PlayList buildPlayList(CloudFile file) throws Exception {
         if (file == null || TextUtils.isEmpty(file.getPickCode())) {
@@ -186,8 +217,7 @@ public class PlayUrlBuilder115 {
         boolean forceRefresh = markPlay(pc);
 
         java.util.List<RawEntry> raw = new java.util.ArrayList<>();
-        java.util.Set<String> seenUrl = new java.util.HashSet<>();
-        java.util.Set<String> seenLabel = new java.util.HashSet<>();
+        String originUrl = "";
 
         // 原画：origin_file_url 现拿优先，downurl 老链兜底
         String origin = "";
@@ -202,41 +232,38 @@ public class PlayUrlBuilder115 {
                 Log.d(TAG, "原画取链失败: " + e.getMessage());
             }
         }
-        if (!TextUtils.isEmpty(origin) && seenUrl.add(origin)) {
+        if (!TextUtils.isEmpty(origin)) {
+            originUrl = origin;
             raw.add(new RawEntry("原画", origin, false));
-            seenLabel.add("原画");
         }
 
-        // 转码多档（对照 PY _file_detail：最多 6 档，同名跳过）
+        // 转码只出一条：接口多档里最高的那一档（同址即原画的那档跳过；
+        // 档名打不出分时按接口原序，第一档胜出）
         java.util.List<java.util.Map<String, String>> tiers = drive.videoTiers(pc);
-        for (int i = 0; i < tiers.size() && i < 6; i++) {
+        String bestUrl = "";
+        String bestName = "";
+        int bestScore = Integer.MIN_VALUE;
+        for (int i = 0; i < tiers.size(); i++) {
             String tUrl = tiers.get(i).get("url");
             String tName = tiers.get(i).get("name");
-            if (TextUtils.isEmpty(tUrl) || !seenUrl.add(tUrl)) continue;
-            String label = TextUtils.isEmpty(tName) ? ("转码 " + (i + 1)) : ("转码 " + tName);
-            if (!seenLabel.add(label)) continue;
-            raw.add(new RawEntry(label, tUrl, tUrl.toLowerCase().contains(".m3u8")));
-        }
-
-        // 网盘自动画质（HLS）：探活通过才入列（对照 PY m3u8 候选）
-        int autoIndex = -1;
-        try {
-            String m3u8 = drive.m3u8Url(pc);
-            if (!TextUtils.isEmpty(m3u8) && !seenUrl.contains(m3u8) && probeM3u8(m3u8)) {
-                raw.add(new RawEntry("自动画质", m3u8, true));
-                seenUrl.add(m3u8);
-                autoIndex = raw.size() - 1;
+            if (TextUtils.isEmpty(tUrl) || tUrl.equals(originUrl)) continue;
+            int score = tierScore(tName);
+            if (score > bestScore) {
+                bestScore = score;
+                bestUrl = tUrl;
+                bestName = tName;
             }
-        } catch (Exception e) {
-            Log.d(TAG, "自动画质探查失败: " + e.getMessage());
+        }
+        int transIndex = -1;
+        if (!TextUtils.isEmpty(bestUrl)) {
+            String label = TextUtils.isEmpty(bestName) ? "转码" : ("转码 " + bestName);
+            raw.add(new RawEntry(label, bestUrl, bestUrl.toLowerCase().contains(".m3u8")));
+            transIndex = raw.size() - 1;
         }
 
         if (raw.isEmpty()) {
-            // 候选全灭：降级旧 auto 单条（m3u8 探活→原画直链的既有链）
-            PlayRequest r = build(file, "auto");
-            java.util.List<PlayEntry> single = new java.util.ArrayList<>();
-            single.add(new PlayEntry("自动画质", r.proxyUrl, r.isM3u8));
-            return new PlayList(single, 0);
+            // 原画、转码都拿不到：走播放失败的既有报错路（与 build 同文案）
+            throw new Exception("取播放地址失败");
         }
 
         java.util.List<PlayEntry> entries = new java.util.ArrayList<>();
@@ -246,7 +273,7 @@ public class PlayUrlBuilder115 {
             String proxyUrl = viaProxy(re.url, pc, re.isM3u8);
             if (TextUtils.isEmpty(proxyUrl)) throw new Exception("代理启动失败");
             entries.add(new PlayEntry(re.label, proxyUrl, re.isM3u8));
-            if (i == autoIndex) defaultIndex = entries.size() - 1;
+            if (i == transIndex) defaultIndex = entries.size() - 1;
         }
         Log.d(TAG, "播放清单已组装: " + entries.size() + " 档, 默认第 " + (defaultIndex + 1) + " 档");
         return new PlayList(entries, defaultIndex);

@@ -17,10 +17,15 @@
 
     <application>
 
+        <!-- documentLaunchMode=never（2026-10-26 订正）：外部应用以 NEW_DOCUMENT 方式
+             打开本地视频/链接时，意图必须并回星辰既有任务。intoExisting 只在「已有任务的
+             根意图与本次意图全等」时才复用——主任务根意图是 MAIN、文件意图是 VIEW+URI，
+             永不相等，所以 intoExisting 在这条路上永远另开一张文档卡（1.4.46 真机仍分裂
+             的定罪点）。never 才是把文档意图按普通意图投进既有 affinity 任务的取值。 -->
         <activity
             android:name=".ui.activity.HomeActivity"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation"
-            android:documentLaunchMode="intoExisting"
+            android:documentLaunchMode="never"
             android:exported="true"
             android:launchMode="singleTop"
             android:screenOrientation="fullUser"
@@ -298,8 +303,11 @@
             android:screenOrientation="fullUser"
             android:windowSoftInputMode="adjustResize" />
 
+        <!-- documentLaunchMode=never：与 HomeActivity 同口径，外部 NEW_DOCUMENT 打开
+             规则文件时并回星辰既有任务，不另开卡 -->
         <activity
             android:name=".ui.activity.HkPageActivity"
+            android:documentLaunchMode="never"
             android:exported="true"
             android:theme="@style/Theme.XingChen.HkPage"
             android:configChanges="screenSize|smallestScreenSize|screenLayout"
@@ -352,6 +360,7 @@
         <!-- 本地书：文件管理器"用星辰打开" epub/zip/cbz/pdf/mobi/cbr/cb7 的分发页（txt 走 HomeActivity 既有链，不动） -->
         <activity
             android:name=".localbook.LocalBookOpenActivity"
+            android:documentLaunchMode="never"
             android:exported="true"
             android:theme="@style/Theme.XingChen.HkPage"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboardHidden"
@@ -430,6 +439,7 @@
             android:screenOrientation="fullUser" />
         <activity
             android:name=".ui.lab.LabInstallActivity"
+            android:documentLaunchMode="never"
             android:exported="true"
             android:theme="@style/Theme.XingChen.LabPage"
             android:configChanges="screenSize|smallestScreenSize|screenLayout"

@@ -37,9 +37,12 @@
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation"
             android:screenOrientation="sensorLandscape" />
 
+        <!-- documentLaunchMode=never：与 mobile 同口径，外部 NEW_DOCUMENT 打开
+             本地媒体/链接时并回既有任务，不另开卡 -->
         <activity
             android:name=".ui.activity.HomeActivity"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation"
+            android:documentLaunchMode="never"
             android:exported="true"
             android:launchMode="singleTop"
             android:screenOrientation="sensorLandscape"

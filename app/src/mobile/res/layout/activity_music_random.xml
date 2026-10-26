@@ -121,7 +121,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
             android:gravity="center"
-            android:text="正在结合你的收藏与听歌足迹&#10;每一首都由你的偏好决定"
+            android:text="从你的队列、最近播放、收藏和下载里&#10;随机挑歌，洗好顺序连着播"
             android:textColor="#B3FFFFFF"
             android:textSize="12sp" />
 
@@ -304,7 +304,7 @@
                 android:gravity="center"
                 android:paddingStart="16dp"
                 android:paddingEnd="16dp"
-                android:text="不合口味"
+                android:text="跳过这首"
                 android:textColor="#FFFFFF"
                 android:textSize="14sp" />
 

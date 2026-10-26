@@ -83,9 +83,11 @@ public class MusicRandomActivity extends BaseActivity {
     private long prevPosition;
     private boolean prevHadQueue;
     private boolean prevPlaying;
-    // 模式泄漏修：进页 playWithMode 把全局模式写成顺序，离页恢复队列时必须把旧模式写回去；
-    // 默认值只防快照失败——快照失败时 prevHadQueue=false，恢复提前返回，哑值走不到恢复
+    // 模式泄漏修：进页 playWithMode 把全局模式写成顺序，离页时必须把旧模式写回去
+    //（队列恢复走不走得通都要还，见 restorePreviousQueue）；快照没拍成（prevSnapshotOk=false）
+    // 时 prevMode 是哑默认，不许写回
     private int prevMode = MusicQueue.MODE_SEQUENTIAL;
+    private boolean prevSnapshotOk;
     /** 本页实际播过的随机队列（洗后顺序），恢复时用它判定服务队列是否仍是本页的队 */
     private List<MusicTrack> randomQueue;
     private boolean randomReplacedQueue;
@@ -174,7 +176,7 @@ public class MusicRandomActivity extends BaseActivity {
         binding.btnPrev.setOnClickListener(v -> manualSwitch(() -> MusicController.get().prev()));
         binding.btnNext.setOnClickListener(v -> manualSwitch(() -> MusicController.get().next()));
         binding.btnPlayPause.setOnClickListener(v -> MusicController.get().toggle());
-        // 不合口味＝切下一首（星辰无偏好学习引擎，学习效果不假装）
+        // 跳过这首＝切下一首（星辰无偏好学习引擎，钮名只许诺真实行为，不许叫「不合口味」假装学习）
         binding.btnDislike.setOnClickListener(v -> manualSwitch(() -> MusicController.get().next()));
         binding.btnFav.setOnClickListener(v -> toggleFav());
         binding.tvRediscover.setOnClickListener(v -> buildQueue());
@@ -281,9 +283,11 @@ public class MusicRandomActivity extends BaseActivity {
             prevPosition = MusicController.get().position();
             prevPlaying = MusicController.get().isPlaying();
             prevMode = MusicController.get().getMode();
+            prevSnapshotOk = true;
             prevHadQueue = prevQueue != null && !prevQueue.isEmpty() && prevIndex >= 0 && prevIndex < prevQueue.size();
         } catch (Throwable ignored) {
             prevHadQueue = false;
+            prevSnapshotOk = false;
         }
     }
 
@@ -294,23 +298,28 @@ public class MusicRandomActivity extends BaseActivity {
      * 那会切断现播音频；快照在播而当前已暂停时也不用 playFrom 擅自起播。
      */
     private void restorePreviousQueue() {
-        if (!randomReplacedQueue || !prevHadQueue || prevQueue == null || prevQueue.isEmpty()
-                || prevIndex < 0 || prevIndex >= prevQueue.size()) return;
+        if (!randomReplacedQueue) return;
         try {
-            boolean nowPlaying = MusicController.get().isPlaying();
-            if (prevPlaying != nowPlaying) return;
-            List<MusicTrack> cur = MusicController.get().queue();
-            if (!sameTrackSequence(cur, randomQueue)) return;
-            if (prevPlaying) {
-                MusicController.get().playFrom(prevQueue, prevIndex, prevPosition, prevSource, prevRoute, prevRouteParams);
-            } else {
-                MusicController.get().loadQueuePaused(prevQueue, prevIndex, prevPosition, prevSource, prevRoute, prevRouteParams);
+            // 队列恢复仍守三条件（换过队／仍是本页随机队／播放态一致），任一不中不换队
+            boolean queueOk = prevHadQueue && prevQueue != null && !prevQueue.isEmpty()
+                    && prevIndex >= 0 && prevIndex < prevQueue.size();
+            if (queueOk) {
+                boolean nowPlaying = MusicController.get().isPlaying();
+                List<MusicTrack> cur = MusicController.get().queue();
+                if (prevPlaying == nowPlaying && sameTrackSequence(cur, randomQueue)) {
+                    if (prevPlaying) {
+                        MusicController.get().playFrom(prevQueue, prevIndex, prevPosition, prevSource, prevRoute, prevRouteParams);
+                    } else {
+                        MusicController.get().loadQueuePaused(prevQueue, prevIndex, prevPosition, prevSource, prevRoute, prevRouteParams);
+                    }
+                }
             }
-            // 模式恢复只在恢复分支内：playFrom／loadQueuePaused 本身不改模式，进页被
-            // playWithMode 写成顺序的全局模式要在这里写回旧模式；提前返回（态不一致／
-            // 队已不是本页随机队）时不碰模式——此时现队已不是快照队，单改模式会改错队。
-            // runOnService 按调用顺序执行，setMode 落在换队之后，不串到旧队上。
-            MusicController.get().setMode(prevMode);
+            // 模式写回不再挂在队列恢复成功上：进页 playWithMode 已把全局模式写成顺序，
+            // 这是本页对全局态的改动，与现队归谁无关——此前早退路径（态不一致／队被换）
+            // 不写回，用户原模式（如随机）被永久顶掉（体检 A 片）。快照没拍成时 prevMode
+            // 是哑默认、不许拿它覆盖真模式，故用 prevSnapshotOk 守卫。
+            // runOnService 按调用顺序执行，setMode 落在换队之后，不串序。
+            if (prevSnapshotOk) MusicController.get().setMode(prevMode);
         } catch (Throwable ignored) {
         }
     }
@@ -393,7 +402,7 @@ public class MusicRandomActivity extends BaseActivity {
         // 清理轮 R-C3：入页用 playWithMode 一次定序——洗后队列＋MODE_SEQUENTIAL，
         // next() 按洗后顺序走，不走全局 SHUFFLE 的现抽随机；不给队列加新标记位。
         // 注意钩子本身会把存盘的全局模式写成顺序（服务 playQueueWithMode 口径），
-        // 本页不另调 setMode，离页恢复走原快照的 playFrom／loadQueuePaused，不改模式。
+        // 本页不另调 setMode；离页时 restorePreviousQueue 无条件写回快照的 prevMode。
         MusicController.get().playWithMode(shuffled, 0, MusicQueue.MODE_SEQUENTIAL,
                 getString(R.string.home_shuffle), "home", null);
         // finding 不在这里清：受理宣告只进 pending，等落位事件再清，见 handleTrackChanged／handleTrackReady
@@ -649,7 +658,9 @@ public class MusicRandomActivity extends BaseActivity {
     private void updatePlaying(boolean playing) {
         if (!pageAlive) return;
         binding.btnPlayPause.setImageResource(playing ? R.drawable.ic_music_pause : R.drawable.ic_music_play);
-        binding.btnPlayPause.setImageTintList(android.content.res.ColorStateList.valueOf(0xFF1C1C1E));
+        // 图标必须白：btnPlayPause 的白圆底已被 glassifyTree 换成深玻璃，此前每次都把 tint
+        // 写回深墨 #1C1C1E＝深压深、主控制键图标看不见（体检 A 片高危）；按玻璃白字口径给白
+        binding.btnPlayPause.setImageTintList(android.content.res.ColorStateList.valueOf(0xFFFFFFFF));
         binding.btnPlayPause.setContentDescription(playing ? "暂停" : "播放");
         if (discAnim == null) {
             updateState();

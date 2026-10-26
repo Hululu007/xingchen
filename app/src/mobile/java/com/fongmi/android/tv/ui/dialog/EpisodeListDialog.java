@@ -34,6 +34,7 @@ import com.fongmi.android.tv.ui.custom.SpaceItemDecoration;
 import com.fongmi.android.tv.utils.EpisodeTitleCompact;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.Util;
+import com.fongmi.android.tv.utils.XcFadeTransition;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -49,6 +50,7 @@ public class EpisodeListDialog extends AppCompatDialogFragment implements FlagAd
     private int episodeSpanCount = 4;
     private boolean reverse;
     private boolean shortDrama;
+    private boolean exiting;
 
     public static EpisodeListDialog create() {
         return new EpisodeListDialog();
@@ -149,6 +151,45 @@ public class EpisodeListDialog extends AppCompatDialogFragment implements FlagAd
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
         initView();
+        animatePanelIn();
+    }
+
+    // 进出过渡（统一 200ms）：窗是全屏透明层，动画落面板本体——竖屏自下而上、横屏自右而入，均带淡入。
+    private void animatePanelIn() {
+        View panel = binding != null ? binding.getRoot() : null;
+        if (panel == null) return;
+        panel.post(() -> {
+            if (!isAdded() || exiting || !XcFadeTransition.isAnimEnabled(requireContext())) return;
+            panel.setAlpha(0f);
+            if (ResUtil.isLand(requireContext())) panel.setTranslationX(panel.getWidth());
+            else panel.setTranslationY(panel.getHeight());
+            panel.animate().alpha(1f).translationX(0f).translationY(0f)
+                    .setDuration(XcFadeTransition.DURATION_MS)
+                    .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                    .start();
+        });
+    }
+
+    @Override
+    public void dismiss() {
+        View panel = binding != null ? binding.getRoot() : null;
+        if (exiting || panel == null || !isAdded() || !XcFadeTransition.isAnimEnabled(requireContext())) {
+            super.dismiss();
+            return;
+        }
+        exiting = true;
+        android.view.ViewPropertyAnimator animator = panel.animate().alpha(0f)
+                .setDuration(XcFadeTransition.DURATION_MS)
+                .setInterpolator(new android.view.animation.AccelerateInterpolator())
+                .withEndAction(() -> {
+                    try {
+                        super.dismiss();
+                    } catch (Throwable ignored) {
+                    }
+                });
+        if (ResUtil.isLand(requireContext())) animator.translationX(panel.getWidth());
+        else animator.translationY(panel.getHeight());
+        animator.start();
     }
 
     private int getWidth() {

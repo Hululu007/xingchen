@@ -28,6 +28,7 @@ import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.ui.dialog.MusicOptionsDialog;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Task;
+import com.fongmi.android.tv.utils.XcFadeTransition;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -166,7 +167,7 @@ public class MusicChartsActivity extends BaseActivity {
     // ================= 数据加载 =================
 
     private void showLoading() {
-        empty.setVisibility(View.VISIBLE);
+        XcFadeTransition.fadeIn(empty);
         empty.setText("正在加载…");
     }
 
@@ -197,7 +198,8 @@ public class MusicChartsActivity extends BaseActivity {
                 // 大标题行 30sp 同名隐藏，只留「N 个榜单」计数＋刷新钮作副标题／工具行
                 tvBigTitle.setVisibility(View.GONE);
                 tvBigCount.setText(result.size() + " 个榜单");
-                empty.setVisibility(result.isEmpty() ? View.VISIBLE : View.GONE);
+                if (result.isEmpty()) XcFadeTransition.fadeIn(empty);
+                else XcFadeTransition.fadeOutThenGone(empty);
                 if (result.isEmpty()) {
                     empty.setText(R.string.wave2_chart_empty);
                     empty.setOnClickListener(v -> loadCharts());

@@ -39,6 +39,7 @@ import com.fongmi.android.tv.ui.music.MusicPlayerActivity;
 import com.fongmi.android.tv.utils.CoverTextDrawable;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
+import com.fongmi.android.tv.utils.XcFadeTransition;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -158,7 +159,7 @@ public class MusicGuessActivity extends BaseActivity {
 
     private void showLoading() {
         empty.setText("正在加载…");
-        empty.setVisibility(View.VISIBLE);
+        XcFadeTransition.fadeIn(empty);
     }
 
     /** 三路本地数据：收藏（异步）→ 已下载（异步）→ 最近播放（同步读），各带存活守卫。 */
@@ -180,9 +181,9 @@ public class MusicGuessActivity extends BaseActivity {
                 adapter.notifyDataSetChanged();
                 if (tracks.isEmpty()) {
                     empty.setText("熟悉的偏爱，也有意外的新发现\n多听几首，让推荐慢慢懂你");
-                    empty.setVisibility(View.VISIBLE);
+                    XcFadeTransition.fadeIn(empty);
                 } else {
-                    empty.setVisibility(View.GONE);
+                    XcFadeTransition.fadeOutThenGone(empty);
                 }
             });
         });

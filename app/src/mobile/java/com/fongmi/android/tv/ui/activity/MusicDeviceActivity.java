@@ -37,6 +37,7 @@ import com.fongmi.android.tv.ui.music.MusicPlayerActivity;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.Task;
+import com.fongmi.android.tv.utils.XcFadeTransition;
 import com.fongmi.android.tv.ui.music.MusicGlassDialogBuilder;
 
 import java.io.ByteArrayOutputStream;
@@ -315,7 +316,7 @@ public class MusicDeviceActivity extends BaseActivity {
             adapter.notifyDataSetChanged();
             tvBigTitle.setText(bigTitle);
             tvBigCount.setText("");
-            empty.setVisibility(View.VISIBLE);
+            XcFadeTransition.fadeIn(empty);
             empty.setText(R.string.music_device_need_permission);
             empty.setOnClickListener(v -> requestAudioPermissionOrSettings());
             if (!permAutoAsked) {
@@ -325,7 +326,7 @@ public class MusicDeviceActivity extends BaseActivity {
             return;
         }
         empty.setOnClickListener(null);
-        empty.setVisibility(View.VISIBLE);
+        XcFadeTransition.fadeIn(empty);
         empty.setText("正在加载…");
         Task.execute(() -> {
             List<MusicTrack> list = com.fongmi.android.tv.music.DeviceMusicStore.scan(this);
@@ -502,7 +503,8 @@ public class MusicDeviceActivity extends BaseActivity {
             tracks.addAll(ordered);
             tvBigTitle.setText(bigTitle);
             tvBigCount.setText(tracks.size() + " " + getString(R.string.music_tracks));
-            empty.setVisibility(tracks.isEmpty() ? View.VISIBLE : View.GONE);
+            if (tracks.isEmpty()) XcFadeTransition.fadeIn(empty);
+            else XcFadeTransition.fadeOutThenGone(empty);
             if (tracks.isEmpty()) {
                 if (!deviceSearchKw.isEmpty()) {
                     empty.setText("没有找到本地音乐");
@@ -541,7 +543,8 @@ public class MusicDeviceActivity extends BaseActivity {
             tracks.clear();
             tvBigTitle.setText(bigTitle);
             tvBigCount.setText(cards.size() + " 组");
-            empty.setVisibility(cards.isEmpty() ? View.VISIBLE : View.GONE);
+            if (cards.isEmpty()) XcFadeTransition.fadeIn(empty);
+            else XcFadeTransition.fadeOutThenGone(empty);
             if (cards.isEmpty()) {
                 if (!deviceSearchKw.isEmpty()) {
                     empty.setText("没有找到本地音乐");

@@ -34,6 +34,7 @@ import com.fongmi.android.tv.ui.music.MusicGlassWire;
 import com.fongmi.android.tv.ui.music.MusicPlayerActivity;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
+import com.fongmi.android.tv.utils.XcFadeTransition;
 import com.fongmi.android.tv.ui.music.MusicGlassDialogBuilder;
 
 import java.util.ArrayList;
@@ -245,7 +246,8 @@ public class MusicTracksActivity extends BaseActivity {
             tvBigCount.setText(tracks.size() + " " + getString(R.string.music_tracks));
             refreshSortLabel();
             boolean showEmpty = tracks.isEmpty();
-            empty.setVisibility(showEmpty ? View.VISIBLE : View.GONE);
+            if (showEmpty) XcFadeTransition.fadeIn(empty);
+            else XcFadeTransition.fadeOutThenGone(empty);
             if (tracks.isEmpty()) empty.setText(R.string.music_no_track);
         });
     }

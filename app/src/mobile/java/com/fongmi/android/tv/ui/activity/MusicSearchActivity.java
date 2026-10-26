@@ -37,6 +37,7 @@ import com.fongmi.android.tv.ui.music.MusicGlassWire;
 import com.fongmi.android.tv.ui.music.MusicPlayerActivity;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.Task;
+import com.fongmi.android.tv.utils.XcFadeTransition;
 import com.fongmi.android.tv.ui.music.MusicGlassDialogBuilder;
 
 import java.util.ArrayList;
@@ -519,7 +520,7 @@ public class MusicSearchActivity extends BaseActivity {
         tracks.clear();
         cards.clear();
         adapter.notifyDataSetChanged();
-        empty.setVisibility(View.GONE);
+        XcFadeTransition.fadeOutThenGone(empty);
         refreshHistory();
     }
 
@@ -613,10 +614,10 @@ public class MusicSearchActivity extends BaseActivity {
     /** 状态层统一出口：有结果收起；无结果按「全失败／未到齐／真无果」三态给文案。 */
     private void updateEmptyState(boolean isEmpty, boolean allFailed, String notFoundCopy) {
         if (!isEmpty) {
-            empty.setVisibility(View.GONE);
+            XcFadeTransition.fadeOutThenGone(empty);
             return;
         }
-        empty.setVisibility(View.VISIBLE);
+        XcFadeTransition.fadeIn(empty);
         if (allFailed) empty.setText("搜索失败，请重试");
         else if (!searchAllReady) empty.setText("正在加载…");
         else empty.setText(notFoundCopy);
@@ -733,7 +734,7 @@ public class MusicSearchActivity extends BaseActivity {
     // ================= 列表与播放 =================
 
     private void showLoading() {
-        empty.setVisibility(View.VISIBLE);
+        XcFadeTransition.fadeIn(empty);
         empty.setText("正在加载…");
     }
 

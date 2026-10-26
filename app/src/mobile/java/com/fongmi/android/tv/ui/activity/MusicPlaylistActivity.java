@@ -34,6 +34,7 @@ import com.fongmi.android.tv.ui.music.MusicPlayerActivity;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.Task;
+import com.fongmi.android.tv.utils.XcFadeTransition;
 import com.fongmi.android.tv.ui.music.MusicGlassDialogBuilder;
 
 import java.util.ArrayList;
@@ -257,7 +258,7 @@ public class MusicPlaylistActivity extends BaseActivity {
     // ================= 数据加载 =================
 
     private void showLoading() {
-        empty.setVisibility(View.VISIBLE);
+        XcFadeTransition.fadeIn(empty);
         empty.setText("正在加载…");
     }
 
@@ -294,7 +295,8 @@ public class MusicPlaylistActivity extends BaseActivity {
         tracks.clear();
         tracks.addAll(show);
         adapter.notifyDataSetChanged();
-        empty.setVisibility(tracks.isEmpty() ? View.VISIBLE : View.GONE);
+        if (tracks.isEmpty()) XcFadeTransition.fadeIn(empty);
+        else XcFadeTransition.fadeOutThenGone(empty);
         if (tracks.isEmpty()) {
             // 歌单专属空／搜不到文案（瓜子 PlaylistDetailScreenKt 口径）
             if (!sheetSearchKw.isEmpty()) {
@@ -513,7 +515,8 @@ public class MusicPlaylistActivity extends BaseActivity {
         tracks.addAll(list);
         adapter.notifyDataSetChanged();
         refreshSortLabel();
-        empty.setVisibility(tracks.isEmpty() ? View.VISIBLE : View.GONE);
+        if (tracks.isEmpty()) XcFadeTransition.fadeIn(empty);
+        else XcFadeTransition.fadeOutThenGone(empty);
         if (tracks.isEmpty()) empty.setText(R.string.music_no_track);
     }
 

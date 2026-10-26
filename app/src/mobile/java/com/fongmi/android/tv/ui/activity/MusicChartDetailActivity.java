@@ -28,6 +28,7 @@ import com.fongmi.android.tv.ui.music.MusicPlayerActivity;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.Task;
+import com.fongmi.android.tv.utils.XcFadeTransition;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -182,7 +183,7 @@ public class MusicChartDetailActivity extends BaseActivity {
     // ================= 数据加载 =================
 
     private void showLoading() {
-        empty.setVisibility(View.VISIBLE);
+        XcFadeTransition.fadeIn(empty);
         empty.setText("正在加载…");
     }
 
@@ -202,7 +203,8 @@ public class MusicChartDetailActivity extends BaseActivity {
                 tracks.clear();
                 if (r != null) tracks.addAll(r);
                 adapter.notifyDataSetChanged();
-                empty.setVisibility(tracks.isEmpty() ? View.VISIBLE : View.GONE);
+                if (tracks.isEmpty()) XcFadeTransition.fadeIn(empty);
+                else XcFadeTransition.fadeOutThenGone(empty);
                 if (tracks.isEmpty()) {
                     // 榜单详情空态走榜单口径；点空态重试（失败与空未区分，源不给失败态）
                     empty.setText(R.string.wave2_chart_empty);
@@ -226,7 +228,8 @@ public class MusicChartDetailActivity extends BaseActivity {
                     tracks.clear();
                     if (r != null) tracks.addAll(r);
                     adapter.notifyDataSetChanged();
-                    empty.setVisibility(tracks.isEmpty() ? View.VISIBLE : View.GONE);
+                    if (tracks.isEmpty()) XcFadeTransition.fadeIn(empty);
+                    else XcFadeTransition.fadeOutThenGone(empty);
                     if (tracks.isEmpty()) {
                         empty.setText(R.string.wave2_chart_empty);
                         empty.setOnClickListener(v -> loadChartDetail());
@@ -239,7 +242,7 @@ public class MusicChartDetailActivity extends BaseActivity {
                 tracks.clear();
                 tracks.addAll(direct);
                 adapter.notifyDataSetChanged();
-                empty.setVisibility(View.GONE);
+                XcFadeTransition.fadeOutThenGone(empty);
             });
             MusicRepository.fetchKwChartCovers(chart, new KwChartSource.CoverListener() {
                 @Override

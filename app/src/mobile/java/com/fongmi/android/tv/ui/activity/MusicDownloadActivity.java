@@ -34,6 +34,7 @@ import com.fongmi.android.tv.ui.music.MusicPlayerActivity;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.Task;
+import com.fongmi.android.tv.utils.XcFadeTransition;
 import com.fongmi.android.tv.ui.music.MusicGlassDialogBuilder;
 
 import java.util.ArrayList;
@@ -276,7 +277,7 @@ public class MusicDownloadActivity extends BaseActivity {
     // ================= 数据加载 =================
 
     private void showLoading() {
-        empty.setVisibility(View.VISIBLE);
+        XcFadeTransition.fadeIn(empty);
         empty.setText("正在加载…");
     }
 
@@ -406,7 +407,8 @@ public class MusicDownloadActivity extends BaseActivity {
             refreshSortLabel();
             // 有进行中任务时不显空态（已完成为空不等于没内容）
             boolean showEmpty = tracks.isEmpty() && dlTasks.isEmpty();
-            empty.setVisibility(showEmpty ? View.VISIBLE : View.GONE);
+            if (showEmpty) XcFadeTransition.fadeIn(empty);
+            else XcFadeTransition.fadeOutThenGone(empty);
             // 下载空态用 GZ 文案，不许套通用「还没有在播的歌」；搜已下载搜不到时走通用搜不到文案
             if (tracks.isEmpty()) {
                 empty.setText(dlSearchKw.isEmpty()

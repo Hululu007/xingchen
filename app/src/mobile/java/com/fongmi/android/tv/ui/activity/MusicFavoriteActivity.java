@@ -33,6 +33,7 @@ import com.fongmi.android.tv.ui.music.MusicGlassWire;
 import com.fongmi.android.tv.ui.music.MusicPlayerActivity;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
+import com.fongmi.android.tv.utils.XcFadeTransition;
 import com.fongmi.android.tv.ui.music.MusicGlassDialogBuilder;
 
 import java.util.ArrayList;
@@ -285,7 +286,7 @@ public class MusicFavoriteActivity extends BaseActivity {
     // ================= 数据加载 =================
 
     private void showLoading() {
-        empty.setVisibility(View.VISIBLE);
+        XcFadeTransition.fadeIn(empty);
         empty.setText("正在加载…");
     }
 
@@ -387,7 +388,7 @@ public class MusicFavoriteActivity extends BaseActivity {
             }
         }
         if (tracks.isEmpty()) {
-            empty.setVisibility(View.VISIBLE);
+            XcFadeTransition.fadeIn(empty);
             // 搜不到时显 GZ 搜不到文案，不许套用收藏空态
             if (!favSearchKw.isEmpty()) {
                 empty.setText("未找到匹配歌曲\n换个关键词试试歌名、歌手或专辑");
@@ -395,7 +396,7 @@ public class MusicFavoriteActivity extends BaseActivity {
                 empty.setText("还没有喜欢的歌曲\n播放时点亮爱心，它们会出现在这里");
             }
         } else {
-            empty.setVisibility(View.GONE);
+            XcFadeTransition.fadeOutThenGone(empty);
         }
         refreshFavoriteMultiText();
     }

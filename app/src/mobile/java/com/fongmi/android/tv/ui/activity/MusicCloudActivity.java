@@ -49,6 +49,7 @@ import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.PanAuth;
 import com.fongmi.android.tv.utils.QRCode;
 import com.fongmi.android.tv.utils.ResUtil;
+import com.fongmi.android.tv.utils.XcFadeTransition;
 
 import org.json.JSONObject;
 
@@ -274,7 +275,7 @@ public class MusicCloudActivity extends BaseActivity {
         loadingView.setOrientation(LinearLayout.HORIZONTAL);
         loadingView.setGravity(Gravity.CENTER_VERTICAL);
         loadingView.setPadding(0, ResUtil.dp2px(10), 0, ResUtil.dp2px(6));
-        loadingView.setVisibility(View.GONE);
+        XcFadeTransition.fadeOutThenGone(loadingView);
         ProgressBar pb = new ProgressBar(this);
         loadingView.addView(pb, new LinearLayout.LayoutParams(ResUtil.dp2px(20), ResUtil.dp2px(20)));
         tvLoadingCount = new TextView(this);
@@ -743,7 +744,7 @@ public class MusicCloudActivity extends BaseActivity {
     }
 
     private void hideCloudStates() {
-        if (loadingView != null) loadingView.setVisibility(View.GONE);
+        if (loadingView != null) XcFadeTransition.fadeOutThenGone(loadingView);
         if (tvEmptyState != null) tvEmptyState.setVisibility(View.GONE);
         if (errorView != null) errorView.setVisibility(View.GONE);
     }
@@ -765,7 +766,7 @@ public class MusicCloudActivity extends BaseActivity {
         adapter.notifyDataSetChanged();
         hideCloudStates();
         if (tvTail != null) tvTail.setVisibility(View.GONE);
-        loadingView.setVisibility(View.VISIBLE);
+        XcFadeTransition.fadeIn(loadingView);
         tvLoadingCount.setText("已扫 0 项");
         new Thread(() -> {
             CloudDrive drive;

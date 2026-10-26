@@ -41,6 +41,7 @@ import com.fongmi.android.tv.ui.dialog.MusicOptionsDialog;
 import com.fongmi.android.tv.ui.dialog.MusicPlaylistImportDialog;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.Task;
+import com.fongmi.android.tv.utils.XcFadeTransition;
 import com.fongmi.android.tv.ui.music.MusicGlassDialogBuilder;
 import com.fongmi.android.tv.ui.music.MusicGlassDialogs;
 import com.google.gson.JsonArray;
@@ -251,7 +252,7 @@ public class MusicPlaylistsActivity extends BaseActivity {
     // ================= 数据加载 =================
 
     private void showLoading() {
-        empty.setVisibility(View.VISIBLE);
+        XcFadeTransition.fadeIn(empty);
         empty.setText("正在加载…");
     }
 
@@ -321,7 +322,7 @@ public class MusicPlaylistsActivity extends BaseActivity {
      * 有歌单时整块藏。瓜子多选 pill 空列表时置灰禁用（enabled＝过滤后列表非空，禁用 alpha 0.4）。 */
     private void refreshSheetsEmpty() {
         sheetsEmpty.setVisibility(View.GONE);
-        empty.setVisibility(View.GONE);
+        XcFadeTransition.fadeOutThenGone(empty);
         String q = etKeyword.getText() == null ? ""
                 : etKeyword.getText().toString().trim();
         boolean noSheets = allSheets.isEmpty() && q.isEmpty();

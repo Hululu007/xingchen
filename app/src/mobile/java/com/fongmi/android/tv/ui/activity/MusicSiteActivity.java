@@ -36,6 +36,7 @@ import com.fongmi.android.tv.ui.music.MusicPlayerActivity;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.Task;
+import com.fongmi.android.tv.utils.XcFadeTransition;
 import com.fongmi.android.tv.ui.music.MusicGlassDialogBuilder;
 
 import java.util.ArrayList;
@@ -240,7 +241,7 @@ public class MusicSiteActivity extends BaseActivity {
     }
 
     private void showLoading() {
-        empty.setVisibility(View.VISIBLE);
+        XcFadeTransition.fadeIn(empty);
         empty.setText("正在加载…");
     }
 
@@ -260,7 +261,8 @@ public class MusicSiteActivity extends BaseActivity {
             tvBigCount.setText(tracks.size() + " " + getString(R.string.music_tracks));
             refreshSortLabel();
             boolean showEmpty = tracks.isEmpty();
-            empty.setVisibility(showEmpty ? View.VISIBLE : View.GONE);
+            if (showEmpty) XcFadeTransition.fadeIn(empty);
+            else XcFadeTransition.fadeOutThenGone(empty);
             if (tracks.isEmpty()) empty.setText(R.string.music_no_track);
         });
     }

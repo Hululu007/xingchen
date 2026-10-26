@@ -35,6 +35,7 @@ import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.ResUtil;
+import com.fongmi.android.tv.utils.XcFadeTransition;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -198,7 +199,7 @@ public class EmbyLibraryActivity extends BaseActivity {
         authExpired = false;
         items.clear();
         if (adapter != null) adapter.notifyDataSetChanged();
-        binding.tvEmpty.setVisibility(View.GONE);
+        XcFadeTransition.fadeOutThenGone(binding.tvEmpty);
         if (MODE_VIEW.equals(mode)) loadMore();
         else loadSingle();
     }
@@ -452,7 +453,7 @@ public class EmbyLibraryActivity extends BaseActivity {
             return;
         }
         loading = true;
-        if (start == 0) binding.loading.setVisibility(View.VISIBLE);
+        if (start == 0) XcFadeTransition.fadeIn(binding.loading);
         final int myGen = gen;
         final int offset = start;
         final String[] sort = parseSort(EmbyStore.libSort());
@@ -483,7 +484,7 @@ public class EmbyLibraryActivity extends BaseActivity {
             App.post(() -> {
                 if (myGen != gen) return;
                 loading = false;
-                binding.loading.setVisibility(View.GONE);
+                XcFadeTransition.fadeOutThenGone(binding.loading);
                 binding.refresh.setRefreshing(false);
                 if (data == null) {
                     if (isAuthExpired(error)) {
@@ -516,7 +517,7 @@ public class EmbyLibraryActivity extends BaseActivity {
             showEmpty(getString(R.string.emby_filter_person_no_work));
             return;
         }
-        binding.loading.setVisibility(View.VISIBLE);
+        XcFadeTransition.fadeIn(binding.loading);
         final int myGen = gen;
         new Thread(() -> {
             List<EmbyItem> list = null;
@@ -534,7 +535,7 @@ public class EmbyLibraryActivity extends BaseActivity {
             final String error = err;
             App.post(() -> {
                 if (myGen != gen) return;
-                binding.loading.setVisibility(View.GONE);
+                XcFadeTransition.fadeOutThenGone(binding.loading);
                 binding.refresh.setRefreshing(false);
                 if (data == null) {
                     if (isAuthExpired(error)) {
@@ -559,7 +560,8 @@ public class EmbyLibraryActivity extends BaseActivity {
     }
 
     private void updateEmpty() {
-        binding.tvEmpty.setVisibility(items.isEmpty() ? View.VISIBLE : View.GONE);
+        if (items.isEmpty()) XcFadeTransition.fadeIn(binding.tvEmpty);
+        else XcFadeTransition.fadeOutThenGone(binding.tvEmpty);
         int text = MODE_PERSON.equals(mode) ? R.string.emby_filter_person_no_work
                 : MODE_FAV.equals(mode) ? R.string.emby_empty_fav
                 : (MODE_VIEW.equals(mode) && isMusic) ? R.string.emby_audio_empty
@@ -568,9 +570,9 @@ public class EmbyLibraryActivity extends BaseActivity {
     }
 
     private void showEmpty(String text) {
-        binding.loading.setVisibility(View.GONE);
+        XcFadeTransition.fadeOutThenGone(binding.loading);
         binding.refresh.setRefreshing(false);
-        binding.tvEmpty.setVisibility(View.VISIBLE);
+        XcFadeTransition.fadeIn(binding.tvEmpty);
         binding.tvEmpty.setText(text);
     }
 
@@ -857,7 +859,8 @@ public class EmbyLibraryActivity extends BaseActivity {
                 if (key.isEmpty() || n.toLowerCase().contains(key)) shown.add(it);
             }
             notifyDataSetChanged();
-            tvEmpty.setVisibility(shown.isEmpty() ? View.VISIBLE : View.GONE);
+            if (shown.isEmpty()) XcFadeTransition.fadeIn(tvEmpty);
+            else XcFadeTransition.fadeOutThenGone(tvEmpty);
         }
 
         @NonNull

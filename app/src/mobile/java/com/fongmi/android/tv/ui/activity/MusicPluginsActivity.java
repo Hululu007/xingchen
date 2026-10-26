@@ -35,6 +35,7 @@ import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.ui.dialog.MusicOptionsDialog;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.Task;
+import com.fongmi.android.tv.utils.XcFadeTransition;
 import com.fongmi.android.tv.ui.music.MusicGlassDialogBuilder;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
@@ -189,7 +190,7 @@ public class MusicPluginsActivity extends BaseActivity {
     }
 
     private void showLoading() {
-        empty.setVisibility(View.VISIBLE);
+        XcFadeTransition.fadeIn(empty);
         empty.setText("正在加载…");
     }
 
@@ -238,8 +239,9 @@ public class MusicPluginsActivity extends BaseActivity {
                 refreshPluginHeader(sites);
                 refreshPluginSections();
                 // 空态改为空态卡，替代原 empty 文本；非空时两者都隐藏
-                empty.setVisibility(View.GONE);
-                pluginEmptyCard.setVisibility(sites.isEmpty() ? View.VISIBLE : View.GONE);
+                XcFadeTransition.fadeOutThenGone(empty);
+                if (sites.isEmpty()) XcFadeTransition.fadeIn(pluginEmptyCard);
+                else XcFadeTransition.fadeOutThenGone(pluginEmptyCard);
             });
         });
     }

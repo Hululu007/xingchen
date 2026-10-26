@@ -33,11 +33,27 @@ public class FreeJsMusicSource implements MusicSource {
         return MusicSourceManager.get().enabledSitesOfFormat(MusicSourceManager.FORMAT_FREEJS);
     }
 
+    /**
+     * 聚合搜歌（F1·聚合 search() 口径分裂治本）：旧实现只搜主插件（primaryBridge），
+     * 与 searchSite 的逐插件口径不一致——聚合路（心情电台/跨源对歌/歌词兜底）永远
+     * 只问得到一个插件。现与 searchBySite 对齐：逐个可搜歌插件各搜一页汇合，
+     * 单插件失败只记日志不拖垮整表；同规范身份的插件（镜像址/本地重装的同一插件，
+     * 身份口径见 MusicRepository.siteIdentityOf）只搜先到者，防同插件双份结果。
+     */
     @Override
     public List<MusicTrack> search(String keyword) throws Exception {
-        FreeJsBridge b = MusicSourceManager.get().primaryBridge();
-        if (b == null) return Collections.emptyList();
-        return b.search(keyword, 1, "music").getTracks();
+        List<MusicTrack> all = new ArrayList<>();
+        java.util.Set<String> seenIdentities = new java.util.HashSet<>();
+        for (MusicSite s : searchableSites()) {
+            String identity = com.fongmi.android.tv.music.MusicRepository.siteIdentityOf(s);
+            if (identity != null && !seenIdentities.add(identity)) continue;
+            try {
+                all.addAll(searchBySite(s, keyword, 1));
+            } catch (Throwable t) {
+                SpiderDebug.log("music", "freejs aggregate search error site=%s %s", s.name, t.getMessage());
+            }
+        }
+        return all;
     }
 
     /**
@@ -79,14 +95,26 @@ public class FreeJsMusicSource implements MusicSource {
     /** 分页版：页码原样给桥（FreeJS 协议 search(query, page, type) 本就收页码，旧实现写死 1） */
     @Override
     public List<MusicTrack> searchBySite(MusicSite site, String keyword, int page) throws Exception {
+        return searchPage(site, keyword, page).tracks;
+    }
+
+    /**
+     * 带末页信号版（F1 低）：桥的 search 结果本就带协议 isEnd（FreeJsBridge 已解析），
+     * 旧实现只取 getTracks() 把信号丢了——插件明示末页仍多发一页靠回空兜底。
+     * 现原样透传：isEnd 或回空（屏蔽过滤后为空）都判末页。
+     * 桥没建起来＝失败不是无结果：抛错交调用方按失败收口（此前静默回空冒充无结果，
+     * 该插件在搜索里整家消失、页面还分不清是坏了还是没搜到）。
+     */
+    @Override
+    public com.fongmi.android.tv.music.MusicSearchPage searchPage(MusicSite site, String keyword, int page) throws Exception {
         FreeJsBridge b = MusicSourceManager.get().bridgeOf(site);
         if (b == null) {
-            // 桥没建起来（脚本下载/求值/初始化失败，细节在建桥侧日志）：此前静默回空，
-            // 该插件在搜索里整家消失还没留痕，这里补一行定位标记
             SpiderDebug.log("music", "freejs search no-bridge site=%s", site.name);
-            return Collections.emptyList();
+            throw new IllegalStateException("插件桥未建起：" + (site == null ? "" : site.name));
         }
-        List<MusicTrack> tracks = b.search(keyword, Math.max(1, page), "music").getTracks();
+        com.fongmi.android.tv.bean.music.MusicSearchResult r =
+                b.search(keyword, Math.max(1, page), "music");
+        List<MusicTrack> tracks = r == null ? null : r.getTracks();
         // 单插件屏蔽平台：该插件屏蔽掉的内容平台不进单源结果（聚合搜索同口径在
         // MusicSourceManager.searchAll；旧实现单源搜索完全不查，屏蔽只在聚合页生效一半）
         if (tracks != null && site != null) {
@@ -95,9 +123,10 @@ public class FreeJsMusicSource implements MusicSource {
                 String cp = t == null ? null : com.fongmi.android.tv.music.MusicIdentity.contentPlatformOf(t);
                 if (cp == null || !com.fongmi.android.tv.music.MusicStore.isPlatformBlocked(site.srcUrl, cp)) kept.add(t);
             }
-            return kept;
+            tracks = kept;
         }
-        return tracks;
+        boolean end = r == null || r.isEnd() || tracks == null || tracks.isEmpty();
+        return new com.fongmi.android.tv.music.MusicSearchPage(tracks, end);
     }
 
     @Override

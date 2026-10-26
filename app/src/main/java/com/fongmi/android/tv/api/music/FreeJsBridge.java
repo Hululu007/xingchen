@@ -255,6 +255,10 @@ public class FreeJsBridge {
         String platform = prop("platform");
         String version = prop("version");
         String author = prop("author");
+        // 规范身份单独落 pluginPlatform（去重认它，见 MusicSite 字段注）：name 仍按
+        // 老口径被自报 platform 覆写作显示名，但身份不再寄生在显名上——用户改名、
+        // 镜像址重装都动不了身份判据。
+        if (!TextUtils.isEmpty(platform)) site.pluginPlatform = platform;
         if (!TextUtils.isEmpty(platform)) site.name = platform;
         if (!TextUtils.isEmpty(version)) site.version = version;
         if (!TextUtils.isEmpty(author)) site.author = author;

@@ -47,6 +47,16 @@ public interface MusicSource {
         return page <= 1 ? searchBySite(site, keyword) : java.util.Collections.emptyList();
     }
 
+    /**
+     * 带末页信号的分页搜歌：真知道末页的源覆写本方法（FreeJS 认协议 isEnd、
+     * 落雪平台认不满整页、Py 认 Result.pagecount）；默认实现退化为旧两参口径，
+     * 回空即末页（与旧兜底同义，只是把信号显式化）。
+     */
+    default MusicSearchPage searchPage(MusicSite site, String keyword, int page) throws Exception {
+        List<MusicTrack> tracks = searchBySite(site, keyword, Math.max(1, page));
+        return new MusicSearchPage(tracks, tracks == null || tracks.isEmpty());
+    }
+
     /** 源曲目（阻塞调用，请在子线程调） */
     List<MusicTrack> tracks(MusicSite site) throws Exception;
 

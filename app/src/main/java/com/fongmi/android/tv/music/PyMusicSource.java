@@ -108,10 +108,68 @@ public class PyMusicSource implements MusicSource {
     /** 分页版：SiteApi.searchContent 本就收页码字符串，旧实现写死 "1" */
     @Override
     public List<MusicTrack> searchBySite(MusicSite site, String keyword, int page) throws Exception {
+        return searchPage(site, keyword, page).tracks;
+    }
+
+    /**
+     * 带末页信号版：Result.pagecount 给了总页数就认它（page≥pagecount 即末页），
+     * 没给就回空判末页（默认口径）。点播源已不存在（源被删/改名）＝无源可路由，
+     * 抛错带失败标记，不回空冒充无结果。
+     * 封面补路（F1 Py 条）：蜘蛛不给 pic 的条目走既有在线补图路同口径——拿本次
+     * 搜索词在其它在线源对歌（MusicRepository.onlineMeta 同款 matchSong 判据），
+     * 命中同歌才回填它的封面；时长不补：Vod 模型没有可用的时长字段来源
+     * （embyDuration 是 Emby 专用字段、py 蜘蛛回包不带），无数据源、不编造。
+     */
+    @Override
+    public MusicSearchPage searchPage(MusicSite site, String keyword, int page) throws Exception {
         Site vod = vodSite(site == null ? null : site.srcUrl);
-        if (vod == null) return new ArrayList<>();
-        Result result = SiteApi.searchContent(vod, keyword, false, String.valueOf(Math.max(1, page)));
-        return mapList(vod, result);
+        if (vod == null) throw new IllegalStateException("py 源不存在：" + (site == null ? "" : site.srcUrl));
+        int p = Math.max(1, page);
+        Result result = SiteApi.searchContent(vod, keyword, false, String.valueOf(p));
+        List<MusicTrack> tracks = mapList(vod, result);
+        supplementCovers(tracks, keyword);
+        boolean end = result != null && result.getPagecount() > 0
+                ? p >= result.getPagecount()
+                : tracks.isEmpty();
+        return new MusicSearchPage(tracks, end);
+    }
+
+    /** 补图在途守卫：onlineMeta 内部会再经各源 search（含本源），防递归补图 */
+    private static final ThreadLocal<Boolean> SUPPLEMENTING = new ThreadLocal<>();
+
+    /**
+     * 无封面条目的在线补图：只在确有缺图时发一次聚合搜索（其它源的同词结果汇合），
+     * 逐首 matchSong 对歌命中且对方有图才回填——与播放页 maybeFetchOnlineCover
+     * 的 onlineMeta 同口径（对不上不填、不拿别首歌的图冒充）。聚合搜索含本源自身
+     * 结果（无图、命不中回填条件），不构成递归（守卫另防 onlineMeta 链再入）。
+     */
+    private void supplementCovers(List<MusicTrack> tracks, String keyword) {
+        if (tracks == null || tracks.isEmpty() || keyword == null || keyword.isEmpty()) return;
+        boolean anyMissing = false;
+        for (MusicTrack t : tracks) {
+            if (t != null && (t.cover == null || t.cover.isEmpty())) {
+                anyMissing = true;
+                break;
+            }
+        }
+        if (!anyMissing) return;
+        if (Boolean.TRUE.equals(SUPPLEMENTING.get())) return;
+        SUPPLEMENTING.set(Boolean.TRUE);
+        try {
+            List<MusicTrack> pool = MusicRepository.search(keyword);
+            if (pool == null || pool.isEmpty()) return;
+            for (MusicTrack t : tracks) {
+                if (t == null || (t.cover != null && !t.cover.isEmpty())) continue;
+                MusicTrack hit = MusicRepository.matchSong(t, pool);
+                if (hit != null && hit != t && hit.cover != null && !hit.cover.isEmpty()) {
+                    t.cover = hit.cover;
+                }
+            }
+        } catch (Throwable t) {
+            SpiderDebug.log("music", "py cover supplement error %s", t.getMessage());
+        } finally {
+            SUPPLEMENTING.remove();
+        }
     }
 
     /** 列表：首页推荐＋前几个分类第一页合并（分类太多只扫前 5 个，防慢源拖死列表页） */

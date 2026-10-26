@@ -109,9 +109,20 @@ public class LxMusicSource implements MusicSource {
     /** 分页版：页码透传壳子平台搜索（五平台接口都收页码，旧实现全写死第一页） */
     @Override
     public List<MusicTrack> searchBySite(MusicSite site, String keyword, int page) throws Exception {
+        return searchPage(site, keyword, page).tracks;
+    }
+
+    /**
+     * 带末页信号版：五平台接口页大小恒 20（LxPlatformSearch 各 searchXx 的 rn/pageSize），
+     * 回不满整页即末页。站点键缺失（不是 lx:// 合成项）＝无源可路由，抛错带失败标记，
+     * 不回空冒充无结果（与仓库 searchSitePage 同口径）。
+     */
+    @Override
+    public com.fongmi.android.tv.music.MusicSearchPage searchPage(MusicSite site, String keyword, int page) throws Exception {
         String key = platformKeyOf(site);
-        if (key.isEmpty()) return Collections.emptyList();
-        return LxPlatformSearch.search(key, keyword, Math.max(1, page));
+        if (key.isEmpty()) throw new IllegalStateException("落雪站点键缺失：" + (site == null ? "" : site.srcUrl));
+        List<MusicTrack> tracks = LxPlatformSearch.search(key, keyword, Math.max(1, page));
+        return new com.fongmi.android.tv.music.MusicSearchPage(tracks, tracks == null || tracks.size() < 20);
     }
 
     @Override

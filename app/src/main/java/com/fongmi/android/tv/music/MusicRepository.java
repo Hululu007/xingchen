@@ -335,16 +335,50 @@ public class MusicRepository {
                 SpiderDebug.log("music", "sites error platform=%s %s", s.platform(), t.getMessage());
             }
         }
-        return all;
+        // 身份去重扩面（F1 酷我重复残根）：此前只有搜索排（searchableSites）去重，
+        // 本聚合清单与歌词跨源仍双含同一平台——同身份只留先到者，与搜索排同口径。
+        return dedupByIdentity(all);
     }
 
+    /** 同规范身份只留先到者（身份判据见 siteIdentityOf；认不出身份的不参与去重） */
+    private static List<MusicSite> dedupByIdentity(List<MusicSite> all) {
+        List<MusicSite> deduped = new ArrayList<>();
+        java.util.Set<String> seenIdentities = new java.util.HashSet<>();
+        for (MusicSite site : all) {
+            String identity = siteIdentityOf(site);
+            if (identity != null && !seenIdentities.add(identity)) continue;
+            deduped.add(site);
+        }
+        return deduped;
+    }
+
+    /**
+     * 聚合搜歌（提速⑧）：旧实现按源串行（主 FreeJS 桥→落雪五平台串行→各兜底逐个走），
+     * 最坏是各段相加（十几秒级），与搜索页的分源并行口径不一致。现改为与搜索页
+     * fan-out 同款：各源同时发、全部到齐后按源注册序合并（合并口径不变——
+     * 心情电台攒队列等消费方拿到的仍是同一份按源序的合并表，只是等待从
+     * 「各段相加」降为「最慢单源」）。单源失败只记日志、不拖垮整表（旧口径不变）。
+     */
     public static List<MusicTrack> search(String keyword) {
+        List<MusicSource> sources = new ArrayList<>(SOURCES);
+        List<java.util.concurrent.Future<List<MusicTrack>>> futures = new ArrayList<>();
+        for (MusicSource s : sources) {
+            futures.add(com.fongmi.android.tv.utils.Task.largeExecutor().submit(() -> {
+                try {
+                    List<MusicTrack> r = s.search(keyword);
+                    return r == null ? Collections.<MusicTrack>emptyList() : r;
+                } catch (Throwable t) {
+                    SpiderDebug.log("music", "search error platform=%s %s", s.platform(), t.getMessage());
+                    return Collections.<MusicTrack>emptyList();
+                }
+            }));
+        }
         List<MusicTrack> all = new ArrayList<>();
-        for (MusicSource s : SOURCES) {
+        for (java.util.concurrent.Future<List<MusicTrack>> f : futures) {
             try {
-                all.addAll(s.search(keyword));
+                all.addAll(f.get());
             } catch (Throwable t) {
-                SpiderDebug.log("music", "search error platform=%s %s", s.platform(), t.getMessage());
+                SpiderDebug.log("music", "search join error %s", errText(t));
             }
         }
         return all;
@@ -355,8 +389,8 @@ public class MusicRepository {
      * 只提供歌词的插件（声明里只有 lyric）不进排，歌词链路不受影响。
      * 平台身份去重（2026-10-25 用户点名「酷我有两个」）：预置酷我（FreeJS）与落雪
      * 合成项酷我（lx://kw）是同一个平台在搜索排里出两张 chip——同身份只留先到者；
-     * 聚合顺序里 FreeJS 在落雪之前，故预置优先。去重只作用于本搜索排清单，
-     * 插件本体与各源 sites() 一行不动，歌词／取链／歌单导入都不走这里。
+     * 聚合顺序里 FreeJS 在落雪之前，故预置优先。去重只作用于聚合清单（本排与
+     * sites() 同口径，见 sites 注），插件本体一行不动，取链／歌单导入不走这里。
      */
     public static List<MusicSite> searchableSites() {
         List<MusicSite> all = new ArrayList<>();
@@ -367,35 +401,41 @@ public class MusicRepository {
                 SpiderDebug.log("music", "searchable sites error platform=%s %s", s.platform(), t.getMessage());
             }
         }
-        List<MusicSite> deduped = new ArrayList<>();
-        java.util.Set<String> seenIdentities = new java.util.HashSet<>();
-        for (MusicSite site : all) {
-            String identity = searchIdentityOf(site);
-            if (identity != null && !seenIdentities.add(identity)) continue;
-            deduped.add(site);
-        }
-        return deduped;
+        return dedupByIdentity(all);
     }
 
     /**
-     * 搜索排的平台身份键（认不出返回 null＝不参与去重）：
-     * 落雪合成项按 srcUrl 的 lx://&lt;平台&gt; 取平台 key；预置酷我按播种地址认；
-     * 其余源名字恰为落雪五平台显示名（酷我音乐／网易云音乐／QQ音乐／酷狗音乐／咪咕音乐）
-     * 时按该平台认（FreeJS 站点名即插件自报平台，自报平台名的插件与落雪同平台即同身份）。
+     * 插件/平台的规范身份键（认不出返回 null＝不参与去重）。判据优先级（F1 残根治本）：
+     * ①落雪合成项按 srcUrl 的 lx://&lt;平台&gt; 取平台 key；
+     * ②FreeJS 插件认规范身份 pluginPlatform（插件自报 platform 原值，readMeta 落盘，
+     * 与地址/显名脱钩——镜像址、本地重装、用户改名都动不了它）：自报值恰为落雪
+     * 五平台显示名时归一到该平台 key（与落雪合成项同身份），其余自报值自成一身份
+     * （同插件双装只留先到者）；
+     * ③预置酷我按播种地址认（恒 kw）；
+     * ④规范身份还没落盘的老存量回落显名判据（名字恰为五平台显示名时按该平台认），
+     * 桥下次初始化回填 pluginPlatform 后自动升到②。
      */
-    private static String searchIdentityOf(MusicSite site) {
+    public static String siteIdentityOf(MusicSite site) {
         if (site == null) return null;
         if (site.srcUrl != null && site.srcUrl.startsWith("lx://")) {
             String key = site.srcUrl.substring("lx://".length());
             return key.isEmpty() ? null : "lxplat:" + key;
         }
+        String[] keys = {com.fongmi.android.tv.api.music.LxPlatformSearch.KW,
+                com.fongmi.android.tv.api.music.LxPlatformSearch.QQ,
+                com.fongmi.android.tv.api.music.LxPlatformSearch.WY,
+                com.fongmi.android.tv.api.music.LxPlatformSearch.KG,
+                com.fongmi.android.tv.api.music.LxPlatformSearch.MG};
+        if (site.pluginPlatform != null && !site.pluginPlatform.isEmpty()) {
+            for (String key : keys) {
+                if (site.pluginPlatform.equals(com.fongmi.android.tv.api.music.LxPlatformSearch.platformName(key))) {
+                    return "lxplat:" + key;
+                }
+            }
+            return "freejs-plat:" + site.pluginPlatform;
+        }
         if (com.fongmi.android.tv.api.music.MusicSourceManager.isBuiltinKuwo(site.srcUrl)) return "lxplat:kw";
         if (site.name != null) {
-            String[] keys = {com.fongmi.android.tv.api.music.LxPlatformSearch.KW,
-                    com.fongmi.android.tv.api.music.LxPlatformSearch.QQ,
-                    com.fongmi.android.tv.api.music.LxPlatformSearch.WY,
-                    com.fongmi.android.tv.api.music.LxPlatformSearch.KG,
-                    com.fongmi.android.tv.api.music.LxPlatformSearch.MG};
             for (String key : keys) {
                 if (site.name.equals(com.fongmi.android.tv.api.music.LxPlatformSearch.platformName(key))) {
                     return "lxplat:" + key;
@@ -417,15 +457,26 @@ public class MusicRepository {
      * 失败在此记真因再上抛：搜索页 fan-out 此前只计数不记日志，某家源整家消失时
      * 无从定罪（2026-10-26「只剩 QQ」一案）；无源可路由同样留痕。 */
     public static List<MusicTrack> searchSite(MusicSite site, String keyword, int page) throws Exception {
-        if (site == null) return Collections.emptyList();
+        return searchSitePage(site, keyword, page).tracks;
+    }
+
+    /**
+     * 带末页信号与失败标记的分页搜歌（F1）：与 searchSite 的区别有二——
+     * ①结果带源的末页信号（MusicSearchPage.end），搜索页据此判桶终局、末页不多发一页；
+     * ②无对应源可路由（site 为空／platform 找不到源）是「源配置坏了」的失败，
+     * 抛错带失败标记，不许再回空表冒充「没搜到」（页面层要把失败桶与真无果分开呈现）。
+     * 源自身抛错同口径记真因再上抛。
+     */
+    public static MusicSearchPage searchSitePage(MusicSite site, String keyword, int page) throws Exception {
+        if (site == null) throw new Exception("searchSitePage: site 为空（无源可路由）");
         MusicSource s = find(site.platform);
         if (s == null) {
             SpiderDebug.log("music", "search site no-source site=%s platform=%s", site.name, site.platform);
-            return Collections.emptyList();
+            throw new Exception("searchSitePage: 无对应源 platform=" + site.platform);
         }
         try {
-            List<MusicTrack> r = s.searchBySite(site, keyword, Math.max(1, page));
-            return r == null ? Collections.emptyList() : r;
+            MusicSearchPage r = s.searchPage(site, keyword, Math.max(1, page));
+            return r == null ? new MusicSearchPage(null, true) : r;
         } catch (Throwable t) {
             SpiderDebug.log("music", "search site fail site=%s platform=%s page=%d %s",
                     site.name, site.platform, page, errText(t));

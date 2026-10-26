@@ -378,6 +378,24 @@ public class MusicSourceManager {
         }
     }
 
+    /**
+     * 把桥初始化读到的插件规范身份（pluginPlatform）回填落盘（与 noteMusicSearch
+     * 同款回填路）：bridgeOf 拿到的是调用方的站点副本，readMeta 只改那一份，
+     * 不回填则仓库去重时读到的存量记录永远是空身份。值没变不写盘。
+     */
+    public void notePluginPlatform(MusicSite site) {
+        if (site == null || TextUtils.isEmpty(site.srcUrl) || TextUtils.isEmpty(site.pluginPlatform)) return;
+        List<MusicSite> list = listSites();
+        boolean changed = false;
+        for (MusicSite s : list) {
+            if (site.srcUrl.equals(s.srcUrl) && !site.pluginPlatform.equals(s.pluginPlatform)) {
+                s.pluginPlatform = site.pluginPlatform;
+                changed = true;
+            }
+        }
+        if (changed) saveSites(list);
+    }
+
     /** 把「是否支持搜歌」的实测结果落盘（搜索页枚举免建桥用）；值没变不写盘 */
     public void noteMusicSearch(MusicSite site, boolean supported) {
         if (site == null || TextUtils.isEmpty(site.srcUrl)) return;
@@ -676,6 +694,7 @@ public class MusicSourceManager {
             try {
                 FreeJsBridge nb = new FreeJsBridge(site, readJs(site));
                 nb.init();
+                notePluginPlatform(site);
                 bridges.put(site.srcUrl, nb);
                 failedNames.remove(site.srcUrl);
                 return nb;

@@ -17,6 +17,13 @@ public class MusicSite {
 
     /** 插件作者（源层读插件元数据回填） */
     public String author = "";
+    /**
+     * 插件规范身份（FreeJS 插件自报的 platform 原值，FreeJsBridge.readMeta 落此，
+     * 与显示名 name 分开存）：去重认它不认「地址＋显名」——镜像址/本地重装的同一
+     * 插件地址不同、显名可改，只有自报 platform 是插件本体身份（F1 酷我重复残根）。
+     * 老存量为空，桥下次初始化时由 MusicSourceManager 回填落盘。
+     */
+    public String pluginPlatform = "";
     /** 是否启用（源层持久化，用户可开关） */
     public boolean enabled = true;
     /**

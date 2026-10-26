@@ -447,10 +447,13 @@ public final class MusicGlassWire {
         glassifyView(v);
     }
 
-    /** 消费面契约（未重写页面的既有调用点）：列表行一框——先按识别表换，未命中按行圆角 14dp 直换。 */
+    /** 消费面契约（未重写页面的既有调用点）：列表行一框——先按识别表换，未命中按行圆角 14dp 直换。
+     * 扫描 M21：已是玻璃的行不许早退——列表行回收复用时绑定代码刚把字色写回深色，
+     * 必须走 glassifyView 的「已是玻璃件重翻前景」把字翻回来；旧实现直接 return，
+     * 黑字收口（519eb5c1）在所有走 frameRow 的列表页被挡在门外。 */
     public static void frameRow(View row) {
-        if (row == null || row.getBackground() instanceof MusicGlassDrawable) return;
-        if (!glassifyView(row)) glassifyView(row, 14f);
+        if (row == null) return;
+        if (!glassifyView(row) && !(row.getBackground() instanceof MusicGlassDrawable)) glassifyView(row, 14f);
     }
 
     /** 面板根底：仅顶角玻璃（贴底无缺口），再走树换内件。radiusDp 与原面板 shape 顶角对应。 */

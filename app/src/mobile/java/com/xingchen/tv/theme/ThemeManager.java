@@ -133,10 +133,18 @@ public class ThemeManager {
     // 音乐独立页（与海阔页同口径：自带底、不跟主壁纸走）：不贴星辰壁纸，
     // 窗口底落页面自己的基色。判定按包内前缀泛化：.ui.activity.Music* 全算
     // （MusicActivity/MusicPluginsActivity/MusicSettingsActivity/MusicCloudActivity/
-    // MusicRandomActivity 及后续同包新页）；播放页在 .ui.music 包，不在此列。
+    // MusicRandomActivity 及后续同包新页）；播放页在 .ui.music 包、单独判定（见下）。
     private boolean isMusicPage(Activity activity) {
         String actName = activity.getClass().getName();
         return actName.contains(".ui.activity.Music");
+    }
+
+    // 播放页（.ui.music.MusicPlayerActivity）：整页是自己的封面氛围，窗口底同音乐页口径
+    // 只落暖基色。此前它漏在分类外：每次 onResume 都被贴上主壁纸，从后台切回时
+    // 壁纸透出一帧＝他真机点名的「切回播放页闪一下」（2026-10-26）。
+    private boolean isMusicPlayerPage(Activity activity) {
+        String actName = activity.getClass().getName();
+        return actName.endsWith(".ui.music.MusicPlayerActivity");
     }
 
     // 随心听是音乐页里的深底沉浸页：异步贴落它自己的深底，不落浅色基色。
@@ -147,7 +155,7 @@ public class ThemeManager {
 
     // 同步贴：只用已有图源（当前缓存优先，其次上一张），不解码。
     private void applyCachedNow(Activity activity) {
-        if (activity == null || isHkPage(activity) || isMusicPage(activity)) return;
+        if (activity == null || isHkPage(activity) || isMusicPage(activity) || isMusicPlayerPage(activity)) return;
         if (theme == null) theme = XingChenTheme.load(activity);
         android.graphics.drawable.Drawable dw = null;
         if (currentCacheKey().equals(sCachedKey)) dw = freshDrawableFromCache(activity);
@@ -224,7 +232,7 @@ public class ThemeManager {
             // MusicGlassBackgroundView.BASE 三处同值（0xFF6E4E30），改色须三处同改；
             // 随心听例外落自己的深底 0xFF0A0E16（与 @color/music_random_base、
             // activity_music_random.xml 布局根底三处同值）。
-            if (isMusicPage(activity)) {
+            if (isMusicPage(activity) || isMusicPlayerPage(activity)) {
                 try {
                     int base = isMusicRandomPage(activity) ? 0xFF0A0E16 : 0xFF6E4E30;
                     activity.getWindow().setBackgroundDrawable(

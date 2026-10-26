@@ -40,6 +40,15 @@
         <item name="android:windowSplashScreenBackground">@color/music_random_base</item>
     </style>
 
+    <!-- 播放页专属主题：窗口底落音乐暖基色（与 @color/music_page_base 同值）。
+         此前借用随心听的 MusicDark（深蓝黑 0A0E16），与播放页暖氛围不是一路，
+         转场帧色差明显；且 ThemeManager 曾漏分播放页、每次回前台贴主壁纸（闪的根）。 -->
+    <style name="Theme.XingChen.MusicPlayer" parent="Theme.App">
+        <item name="android:windowBackground">@color/music_page_base</item>
+        <item name="android:colorBackground">@color/music_page_base</item>
+        <item name="android:windowSplashScreenBackground">@color/music_page_base</item>
+    </style>
+
     <style name="Theme.Crash" parent="Theme.XingChen">
         <item name="android:windowDisablePreview">true</item>
         <item name="android:windowBackground">@android:color/transparent</item>

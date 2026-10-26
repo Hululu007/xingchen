@@ -103,6 +103,7 @@ public class MusicLyricVersionsDialog extends BaseBottomSheetDialog {
         View close = root.findViewById(R.id.lv_close);
         if (close != null) close.setOnClickListener(v -> dismissAllowingStateLoss());
         filterBar = root.findViewById(R.id.lv_filter);
+        if (filterBar != null) MusicGlassWire.glassifyView(filterBar, 14f); // 筛选条直换玻璃（圆角照 bg_music_glass_seg 的 14dp，不走树查表——截图里它也是白条）
         rowsContainer = root.findViewById(R.id.lv_rows);
         scroll = root.findViewById(R.id.lv_scroll);
         statusView = root.findViewById(R.id.lv_status);
@@ -253,9 +254,9 @@ public class MusicLyricVersionsDialog extends BaseBottomSheetDialog {
         LayoutInflater inflater = LayoutInflater.from(rowsContainer.getContext());
         for (int i = 0; i < shown.size(); i++) {
             View row = inflater.inflate(R.layout.item_music_lyric_version, rowsContainer, false);
-            MusicGlassWire.glassify(row);
+            MusicGlassWire.glassifyView(row, 14f); // 版本行直换玻璃（圆角照 bg_music_quality_row 的 14dp，不走识别表——与音质行同病）
             View iconBox0 = row.findViewById(R.id.vr_icon_box);
-            if (iconBox0 != null) MusicGlassWire.glassify(iconBox0);
+            if (iconBox0 != null) MusicGlassWire.glassifyView(iconBox0, 10f); // 图标盒直换玻璃（圆角照 bg_music_quality_icon 的 10dp）
             if (i > 0) {
                 LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) row.getLayoutParams();
                 if (lp != null) lp.topMargin = dp(6);

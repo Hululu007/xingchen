@@ -284,9 +284,9 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
         LayoutInflater inflater = LayoutInflater.from(rowsContainer.getContext());
         for (int i = 0; i < rows.size(); i++) {
             View row = inflater.inflate(R.layout.item_music_quality_row, rowsContainer, false);
-            MusicGlassWire.glassify(row); // 音质行一框：液态玻璃（原 bg_music_quality_row 半透渐变）
+            MusicGlassWire.glassifyView(row, 14f); // 音质行直换玻璃（圆角照原 bg_music_quality_row 的 14dp，不走识别表——弹窗主题换后表查不到就是 1.4.43 白板）
             View iconBox0 = row.findViewById(R.id.qr_icon_box);
-            if (iconBox0 != null) MusicGlassWire.glassify(iconBox0); // 图标盒同换玻璃（识别表已登记）
+            if (iconBox0 != null) MusicGlassWire.glassifyView(iconBox0, 10f); // 图标盒直换玻璃（圆角照原 bg_music_quality_icon 的 10dp）
             if (i > 0) {
                 LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) row.getLayoutParams();
                 if (lp != null) lp.topMargin = dp(6);

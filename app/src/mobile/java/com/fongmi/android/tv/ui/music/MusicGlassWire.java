@@ -240,15 +240,52 @@ public final class MusicGlassWire {
         return IDS.length;
     }
 
+    /** 主题探查缓存：静态识别表是首个上下文主题下建的，弹窗/对话框换了主题后
+     * 同一资源的 ConstantState 实例就不再同一只——静态表查不到时按视图自身主题
+     * 重载识别表逐件比对（1.4.43 音质行白板实证：根是直建玻璃所以棕、行走表所以白）。
+     * 查过（含查不到）都记下，同一状态不重复扫识别表。 */
+    private static final Map<Drawable.ConstantState, Float> sProbeCache = new HashMap<>();
+    private static final Map<Drawable.ConstantState, Integer> sToneProbeCache = new HashMap<>();
+
+    private static synchronized Float probeRadius(Context ctx, Drawable.ConstantState state) {
+        if (sProbeCache.containsKey(state)) return sProbeCache.get(state);
+        Float found = null;
+        try {
+            for (int i = 0; i < IDS.length; i++) {
+                Drawable d = ctx.getResources().getDrawable(IDS[i], ctx.getTheme());
+                if (d != null && d.getConstantState() == state) { found = RADII_DP[i]; break; }
+            }
+        } catch (Throwable ignored) {
+        }
+        sProbeCache.put(state, found);
+        return found;
+    }
+
+    private static synchronized Integer probeTone(Context ctx, Drawable.ConstantState state) {
+        if (sToneProbeCache.containsKey(state)) return sToneProbeCache.get(state);
+        Integer found = null;
+        try {
+            for (int id : TONE_IDS) {
+                Drawable d = ctx.getResources().getDrawable(id, ctx.getTheme());
+                if (d != null && d.getConstantState() == state) { found = SELECTED_TONE_COLOR; break; }
+            }
+        } catch (Throwable ignored) {
+        }
+        sToneProbeCache.put(state, found);
+        return found;
+    }
+
     /** 单件换玻璃：背景命中识别表才换，返回是否换了。已是玻璃件不重复包。选中族同步挂 tone 成带色玻璃。 */
     public static boolean glassifyView(View v) {
         if (v == null) return false;
         Drawable bg = v.getBackground();
         if (bg == null || bg instanceof MusicGlassDrawable) return false;
         Float r = table(v.getContext()).get(bg.getConstantState());
+        if (r == null) r = probeRadius(v.getContext(), bg.getConstantState());
         if (r == null) return false;
         MusicGlassDrawable glass = new MusicGlassDrawable(v.getContext(), r);
         Integer tone = toneTable(v.getContext()).get(bg.getConstantState());
+        if (tone == null) tone = probeTone(v.getContext(), bg.getConstantState());
         if (tone != null) glass.setToneColor(tone, SELECTED_TONE_ALPHA);
         v.setBackground(glass);
         applyFloatShadow(v, r);

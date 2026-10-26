@@ -16,6 +16,7 @@ import android.view.inputmethod.EditorInfo;
 import android.widget.AbsListView;
 import android.widget.BaseAdapter;
 import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.TextView;
@@ -34,6 +35,7 @@ import com.fongmi.android.tv.cloud.CloudDrive;
 import com.fongmi.android.tv.cloud.CloudFile;
 import com.fongmi.android.tv.cloud.CloudTask;
 import com.fongmi.android.tv.cloud.drive115.Drive115;
+import com.fongmi.android.tv.cloud.drive115.Pan115Cover;
 import com.fongmi.android.tv.cloud.drive115.PlayUrlBuilder115;
 import com.fongmi.android.tv.cloud.drivepikpak.DrivePikPak;
 import com.fongmi.android.tv.cloud.drivequark.DriveQuark;
@@ -49,6 +51,7 @@ import com.fongmi.android.tv.utils.Notify;
 
 import org.json.JSONObject;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -372,43 +375,65 @@ public class CloudDriveActivity extends BaseActivity {
             return position;
         }
 
+        /** 搜索行视图持有（封面图＋文件名＋右侧小字）。 */
+        private class SearchRow {
+            final LinearLayout root;
+            final ImageView ivThumb;
+            final TextView tvName;
+            final TextView tvMeta;
+
+            SearchRow(LinearLayout root, ImageView ivThumb, TextView tvName, TextView tvMeta) {
+                this.root = root;
+                this.ivThumb = ivThumb;
+                this.tvName = tvName;
+                this.tvMeta = tvMeta;
+            }
+        }
+
         @Override
         public View getView(int position, View convertView, ViewGroup parent) {
-            LinearLayout row;
-            TextView tvName;
-            TextView tvMeta;
-            if (convertView instanceof LinearLayout) {
-                row = (LinearLayout) convertView;
-                tvName = (TextView) row.getChildAt(0);
-                tvMeta = (TextView) row.getChildAt(1);
+            SearchRow row;
+            if (convertView instanceof LinearLayout && convertView.getTag() instanceof SearchRow) {
+                row = (SearchRow) convertView.getTag();
             } else {
                 float density = getResources().getDisplayMetrics().density;
-                row = new LinearLayout(CloudDriveActivity.this);
-                row.setOrientation(LinearLayout.HORIZONTAL);
-                row.setGravity(Gravity.CENTER_VERTICAL);
+                LinearLayout layout = new LinearLayout(CloudDriveActivity.this);
+                layout.setOrientation(LinearLayout.HORIZONTAL);
+                layout.setGravity(Gravity.CENTER_VERTICAL);
                 int padH = (int) (16 * density);
                 int padV = (int) (11 * density);
-                row.setPadding(padH, padV, padH, padV);
-                tvName = new TextView(CloudDriveActivity.this);
+                layout.setPadding(padH, padV, padH, padV);
+                ImageView ivThumb = new ImageView(CloudDriveActivity.this);
+                ivThumb.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                LinearLayout.LayoutParams ivLp = new LinearLayout.LayoutParams(
+                        (int) (40 * density), (int) (40 * density));
+                ivLp.setMarginEnd((int) (12 * density));
+                layout.addView(ivThumb, ivLp);
+                TextView tvName = new TextView(CloudDriveActivity.this);
                 tvName.setSingleLine(true);
                 tvName.setEllipsize(TextUtils.TruncateAt.END);
                 tvName.setTextColor(0xFFF1F4F5);
                 tvName.setTextSize(14);
-                row.addView(tvName, new LinearLayout.LayoutParams(
+                layout.addView(tvName, new LinearLayout.LayoutParams(
                         0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-                tvMeta = new TextView(CloudDriveActivity.this);
+                TextView tvMeta = new TextView(CloudDriveActivity.this);
                 tvMeta.setSingleLine(true);
                 tvMeta.setTextColor(0x99FFFFFF);
                 tvMeta.setTextSize(13);
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
                 lp.setMarginStart((int) (12 * density));
-                row.addView(tvMeta, lp);
+                layout.addView(tvMeta, lp);
+                row = new SearchRow(layout, ivThumb, tvName, tvMeta);
+                layout.setTag(row);
             }
             CloudFile f = st.results.get(position);
-            tvName.setText(f.getName());
-            tvMeta.setText(f.isDir() ? "文件夹" : f.getFormatSize());
-            return row;
+            row.tvName.setText(f.getName());
+            row.tvMeta.setText(f.isDir() ? "文件夹" : f.getFormatSize());
+            // 封面与文件列表同口径（bindRowCover）：文件夹仍是文件夹图标，只给视频行上图；
+            // 弹窗是深面，图标占位着浅色
+            bindRowCover(row.ivThumb, f, 0xFFF1F4F5, () -> notifyDataSetChanged());
+            return row.root;
         }
     }
 
@@ -1395,6 +1420,56 @@ public class CloudDriveActivity extends BaseActivity {
         return m == null ? "" : m;
     }
 
+    /** 115 的视频文件（截帧封面的适用面）：115 接口不给缩略图，只能本地截帧补。 */
+    private boolean is115Video(CloudFile f) {
+        return f != null && !f.isDir() && f.isVideo()
+                && drive != null && Drive115.ID.equals(drive.getId())
+                && !TextUtils.isEmpty(f.getPickCode());
+    }
+
+    /**
+     * 行封面装配（文件列表与搜索结果共用，三家分两路）：
+     * 夸克/PikPak 的缩略图直链（thumbUrl）走 Glide；115 视频走截帧封面
+     * （Pan115Cover 本地缓存，截好后回调 refresh 刷行）；都没有就图标占位。
+     * iconTint 是占位图标的着色（浅面行深色、深面弹窗行浅色）。
+     */
+    private void bindRowCover(ImageView iv, CloudFile file, int iconTint, Runnable refresh) {
+        if (!TextUtils.isEmpty(file.getThumbUrl())) {
+            iv.setImageTintList(null);
+            Glide.with(iv)
+                    .load(file.getThumbUrl())
+                    .placeholder(file.isDir() ? R.drawable.ic_folder : R.drawable.ic_file)
+                    .error(file.isDir() ? R.drawable.ic_folder : R.drawable.ic_file)
+                    .into(iv);
+            return;
+        }
+        if (is115Video(file)) {
+            File cover = Pan115Cover.coverFile(this, file.getPickCode());
+            if (cover != null) {
+                iv.setImageTintList(null);
+                Glide.with(iv)
+                        .load(cover)
+                        .placeholder(R.drawable.ic_file)
+                        .error(R.drawable.ic_file)
+                        .into(iv);
+                return;
+            }
+            Glide.with(iv).clear(iv);
+            iv.setImageTintList(ColorStateList.valueOf(iconTint));
+            iv.setImageResource(R.drawable.ic_file);
+            if (drive instanceof Drive115) {
+                Pan115Cover.requestCover(this, (Drive115) drive, file.getPickCode(),
+                        (pc, ok) -> runOnUiThread(() -> {
+                            if (ok && !isFinishing() && refresh != null) refresh.run();
+                        }));
+            }
+            return;
+        }
+        Glide.with(iv).clear(iv);
+        iv.setImageTintList(ColorStateList.valueOf(iconTint));
+        iv.setImageResource(file.isDir() ? R.drawable.ic_folder : R.drawable.ic_file);
+    }
+
     private static class Crumb {
         final String cid;
         final String name;
@@ -1433,17 +1508,8 @@ public class CloudDriveActivity extends BaseActivity {
         }
 
         private void bindThumb(Holder h, CloudFile file) {
-            if (TextUtils.isEmpty(file.getThumbUrl())) {
-                h.binding.ivThumb.setImageTintList(ColorStateList.valueOf(Color.parseColor("#0C0E12")));
-                h.binding.ivThumb.setImageResource(file.isDir() ? R.drawable.ic_folder : R.drawable.ic_file);
-            } else {
-                h.binding.ivThumb.setImageTintList(null);
-                Glide.with(h.itemView)
-                        .load(file.getThumbUrl())
-                        .placeholder(file.isDir() ? R.drawable.ic_folder : R.drawable.ic_file)
-                        .error(file.isDir() ? R.drawable.ic_folder : R.drawable.ic_file)
-                        .into(h.binding.ivThumb);
-            }
+            bindRowCover(h.binding.ivThumb, file, Color.parseColor("#0C0E12"),
+                    () -> notifyDataSetChanged());
         }
 
         @Override

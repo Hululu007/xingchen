@@ -3,6 +3,7 @@ package com.fongmi.android.tv.api.music;
 import com.fongmi.android.tv.bean.music.LyricVersion;
 import com.fongmi.android.tv.bean.music.MusicLyric;
 import com.fongmi.android.tv.bean.music.MusicTrack;
+import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.net.OkHttp;
 
 import org.json.JSONArray;
@@ -27,7 +28,16 @@ public class CfLyricClient {
 
     public static final String DEFAULT_BASE_URL = "https://xc-lyric.1372659842.workers.dev/lyric";
 
+    /** 取数结局分类（诊断用）：拿到 JSON 应答 */
+    public static final String NOTE_OK = "ok";
+    /** 取数结局分类：两发都没拿到应答体（超时/连接失败，OkHttp.string 已把真因记进 SpiderDebug） */
+    public static final String NOTE_TRANSPORT = "transport";
+    /** 取数结局分类：拿到应答体但不是 JSON（边缘错误页/应答被截断等） */
+    public static final String NOTE_NON_JSON = "non-json";
+
     private String baseUrl = DEFAULT_BASE_URL;
+    /** 最近一次 fetch 的结局分类（NOTE_*），随 CfResponse.fetchNote 带出 */
+    private String lastNote;
 
     public void setBaseUrl(String baseUrl) {
         if (baseUrl != null && !baseUrl.trim().isEmpty()) this.baseUrl = baseUrl.trim();
@@ -55,34 +65,84 @@ public class CfLyricClient {
             return response;
         }
         String url = baseUrl + (baseUrl.contains("?") ? "&" : "?") + query;
+        // 熔断（真机日志实锤）：他的网络下 workers.dev 直连每次 25 秒超时、同会话
+        // 反复重试全灭，预取任务两次撞满 45 秒上限——同一端点刚以传输失败收场时，
+        // 窗口内后续调用直接按传输失败返回，不再逐条链重复烧 2×25 秒；端点恢复
+        // （迁移/换地址都会换 baseUrl）或窗口过后自动重试，拿到应答即解除。
+        if (breakerTripped()) {
+            response.fetchNote = NOTE_TRANSPORT;
+            SpiderDebug.log("music", "cf lyric breaker open url=%s", baseUrl);
+            return response;
+        }
         // 传输层没拿到应答（超时/非 200/空体）时重试一次：Worker 首发慢是常态，
         // 一发定生死会把面板阶段一长期卡在空。拿到应答（哪怕版本为空）不重试。
         for (int attempt = 1; attempt <= 2; attempt++) {
             String body = fetchOnce(url);
-            if (body != null) return parse(body);
+            if (body != null) {
+                CfResponse parsed = parse(body);
+                parsed.fetchNote = NOTE_OK;
+                clearBreaker();
+                return parsed;
+            }
             if (attempt < 2) {
                 try {
                     Thread.sleep(600);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
-                    return response;
+                    break;
                 }
             }
         }
+        response.fetchNote = lastNote == null ? NOTE_TRANSPORT : lastNote;
+        if (NOTE_TRANSPORT.equals(response.fetchNote)) tripBreaker();
+        SpiderDebug.log("music", "cf lyric fetch failed note=%s title=%s", response.fetchNote, title);
         return response;
     }
 
+    /** 熔断窗口：同端点传输失败后 2 分钟内快速失败（只认传输失败；拿到应答不触发） */
+    private static final long BREAKER_WINDOW_MS = 120_000L;
+    private static volatile long sTransportFailAt;
+    private static volatile String sTransportFailBase;
+
+    private boolean breakerTripped() {
+        String base = sTransportFailBase;
+        return base != null && base.equals(baseUrl)
+                && System.currentTimeMillis() - sTransportFailAt < BREAKER_WINDOW_MS;
+    }
+
+    private void tripBreaker() {
+        sTransportFailBase = baseUrl;
+        sTransportFailAt = System.currentTimeMillis();
+    }
+
+    private void clearBreaker() {
+        if (baseUrl.equals(sTransportFailBase)) {
+            sTransportFailBase = null;
+            sTransportFailAt = 0;
+        }
+    }
+
     /** 拿到像样的应答体返回原文；传输失败/空体/非 JSON（如边缘错误页）返回 null
-     * （与「应答了但没版本」区分，OkHttp.string 本身不分状态码、失败回空串）。 */
+     * （与「应答了但没版本」区分）。结局分类记进 lastNote 供诊断：OkHttp.string 的
+     * 契约是失败回空串，所以空体＝没拿到应答（transport）、有体非 JSON＝应答异常。 */
     private String fetchOnce(String url) {
         try {
             Map<String, String> headers = new HashMap<>();
             headers.put("Accept", "application/json");
             String body = OkHttp.string(url, headers, 25000);
-            if (body == null) return null;
+            if (body == null || body.trim().isEmpty()) {
+                lastNote = NOTE_TRANSPORT;
+                return null;
+            }
             String trimmed = body.trim();
-            return trimmed.startsWith("{") ? body : null;
+            if (!trimmed.startsWith("{")) {
+                lastNote = NOTE_NON_JSON;
+                return null;
+            }
+            lastNote = NOTE_OK;
+            return body;
         } catch (Throwable ignored) {
+            lastNote = NOTE_TRANSPORT;
             return null;
         }
     }
@@ -182,6 +242,8 @@ public class CfLyricClient {
     public static class CfResponse {
         public String title;
         public String artist;
+        /** 取数结局分类（NOTE_*）：面板空态据此显真因；null＝没走到取数（如标题为空） */
+        public String fetchNote;
         public List<CfVersion> versions = new ArrayList<>();
         public String bundleLyric;
         public String bundleYrc;

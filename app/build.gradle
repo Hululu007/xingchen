@@ -185,6 +185,7 @@ dependencies {
     implementation project(':chaquo')
     implementation project(':quickjs')
     implementation project(':thunder')
+    implementation project(':nodejs')
     implementation libs.rhino
     implementation libs.appcompat
     implementation libs.lifecycle.service

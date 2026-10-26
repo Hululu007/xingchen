@@ -71,6 +71,15 @@ public class MusicPluginsActivity extends BaseActivity {
 
     private View rootView;
     private RecyclerView recycler;
+    private boolean listIntroDone;
+
+    /** 列表首屏：数据第一次到达时整表淡入 200ms（统一口径），后续刷新不再重播。 */
+    private void fadeListInOnce() {
+        if (listIntroDone || recycler == null) return;
+        listIntroDone = true;
+        recycler.setAlpha(0f);
+        XcFadeTransition.fadeIn(recycler);
+    }
     private TextView empty;
     private View pluginHeaderCard;
     private ImageView pluginHeaderIcon;
@@ -236,6 +245,7 @@ public class MusicPluginsActivity extends BaseActivity {
                     cards.addAll(freeTrack);
                 }
                 adapter.notifyDataSetChanged();
+                fadeListInOnce();
                 refreshPluginHeader(sites);
                 refreshPluginSections();
                 // 空态改为空态卡，替代原 empty 文本；非空时两者都隐藏

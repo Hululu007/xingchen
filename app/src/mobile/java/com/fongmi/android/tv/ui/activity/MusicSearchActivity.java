@@ -78,6 +78,15 @@ public class MusicSearchActivity extends BaseActivity {
     private View rootView;
     private EditText etKeyword;
     private RecyclerView recycler;
+    private boolean listIntroDone;
+
+    /** 列表首屏：数据第一次到达时整表淡入 200ms（统一口径），后续刷新不再重播。 */
+    private void fadeListInOnce() {
+        if (listIntroDone || recycler == null) return;
+        listIntroDone = true;
+        recycler.setAlpha(0f);
+        XcFadeTransition.fadeIn(recycler);
+    }
     private TextView empty;
     private View historyBox;
     private com.fongmi.android.tv.ui.widget.FlowLayout historyFlow;
@@ -655,6 +664,7 @@ public class MusicSearchActivity extends BaseActivity {
             cards.add(new SearchGroupCard(type, e.getKey(), e.getValue().size()));
         }
         adapter.notifyDataSetChanged();
+        fadeListInOnce();
         updateEmptyState(cards.isEmpty(), allFailed, emptyCopy + "\n换一个歌名、歌手或专辑试试");
     }
 

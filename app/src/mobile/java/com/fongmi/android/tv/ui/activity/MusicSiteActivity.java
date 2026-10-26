@@ -79,6 +79,15 @@ public class MusicSiteActivity extends BaseActivity {
     private ImageView btnSort;
     private TextView tvSortCurrent;
     private RecyclerView recycler;
+    private boolean listIntroDone;
+
+    /** 列表首屏：数据第一次到达时整表淡入 200ms（统一口径），后续刷新不再重播。 */
+    private void fadeListInOnce() {
+        if (listIntroDone || recycler == null) return;
+        listIntroDone = true;
+        recycler.setAlpha(0f);
+        XcFadeTransition.fadeIn(recycler);
+    }
     private TextView empty;
 
     private final List<MusicTrack> tracks = new ArrayList<>();
@@ -257,6 +266,7 @@ public class MusicSiteActivity extends BaseActivity {
         tracks.addAll(list);
         runOnUiThread(() -> {
             adapter.notifyDataSetChanged();
+            fadeListInOnce();
             tvBigTitle.setText(bigTitle);
             tvBigCount.setText(tracks.size() + " " + getString(R.string.music_tracks));
             refreshSortLabel();

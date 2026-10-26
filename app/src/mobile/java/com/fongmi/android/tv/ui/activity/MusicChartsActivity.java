@@ -65,6 +65,15 @@ public class MusicChartsActivity extends BaseActivity {
     private ImageView btnSort;
     private TextView tvSortCurrent;
     private RecyclerView recycler;
+    private boolean listIntroDone;
+
+    /** 列表首屏：数据第一次到达时整表淡入 200ms（统一口径），后续刷新不再重播。 */
+    private void fadeListInOnce() {
+        if (listIntroDone || recycler == null) return;
+        listIntroDone = true;
+        recycler.setAlpha(0f);
+        XcFadeTransition.fadeIn(recycler);
+    }
     private TextView empty;
 
     private final List<MusicChart> charts = new ArrayList<>();
@@ -193,6 +202,7 @@ public class MusicChartsActivity extends BaseActivity {
                 charts.addAll(result);
                 chartPreviews.clear();
                 adapter.notifyDataSetChanged();
+                fadeListInOnce();
                 tvBigTitle.setText(bigTitle);
                 // 榜单列表双标题去重（瓜子单顶栏口径）：顶栏 26sp「榜单」已是标题，
                 // 大标题行 30sp 同名隐藏，只留「N 个榜单」计数＋刷新钮作副标题／工具行

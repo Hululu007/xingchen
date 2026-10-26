@@ -88,6 +88,15 @@ public class MusicHistoryActivity extends BaseActivity {
     private View btnPlaySeq;
     private ImageView btnSort;
     private RecyclerView recycler;
+    private boolean listIntroDone;
+
+    /** 列表首屏：数据第一次到达时整表淡入 200ms（统一口径），后续刷新不再重播。 */
+    private void fadeListInOnce() {
+        if (listIntroDone || recycler == null) return;
+        listIntroDone = true;
+        recycler.setAlpha(0f);
+        XcFadeTransition.fadeIn(recycler);
+    }
     private TextView empty;
 
     /** 显示列表（历史全量按页内搜索过滤＋排序后） */
@@ -392,6 +401,7 @@ public class MusicHistoryActivity extends BaseActivity {
                         : getString(R.string.wave2_section_search_result));
             }
         }
+        fadeListInOnce();
         if (tracks.isEmpty()) {
             XcFadeTransition.fadeIn(empty);
             // 搜不到时显 GZ 搜不到文案，不许套用历史空态

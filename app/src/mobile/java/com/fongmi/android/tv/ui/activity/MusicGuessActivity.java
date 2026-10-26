@@ -80,6 +80,15 @@ public class MusicGuessActivity extends BaseActivity {
 
     private View rootView;
     private RecyclerView recycler;
+    private boolean listIntroDone;
+
+    /** 列表首屏：数据第一次到达时整表淡入 200ms（统一口径），后续刷新不再重播。 */
+    private void fadeListInOnce() {
+        if (listIntroDone || recycler == null) return;
+        listIntroDone = true;
+        recycler.setAlpha(0f);
+        XcFadeTransition.fadeIn(recycler);
+    }
     private TextView empty;
     private GuessAdapter adapter;
     private final List<MusicTrack> tracks = new ArrayList<>();
@@ -179,6 +188,7 @@ public class MusicGuessActivity extends BaseActivity {
                 tracks.clear();
                 tracks.addAll(buildGuessPool(favs, recent, dls));
                 adapter.notifyDataSetChanged();
+                fadeListInOnce();
                 if (tracks.isEmpty()) {
                     empty.setText("熟悉的偏爱，也有意外的新发现\n多听几首，让推荐慢慢懂你");
                     XcFadeTransition.fadeIn(empty);

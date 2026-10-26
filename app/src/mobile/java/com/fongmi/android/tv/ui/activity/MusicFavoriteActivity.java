@@ -88,6 +88,15 @@ public class MusicFavoriteActivity extends BaseActivity {
     private View btnPlaySeq;
     private ImageView btnSort;
     private RecyclerView recycler;
+    private boolean listIntroDone;
+
+    /** 列表首屏：数据第一次到达时整表淡入 200ms（统一口径），后续刷新不再重播。 */
+    private void fadeListInOnce() {
+        if (listIntroDone || recycler == null) return;
+        listIntroDone = true;
+        recycler.setAlpha(0f);
+        XcFadeTransition.fadeIn(recycler);
+    }
     private TextView empty;
 
     /** 显示列表（收藏全量按页内搜索过滤＋排序后） */
@@ -375,6 +384,7 @@ public class MusicFavoriteActivity extends BaseActivity {
         tracks.clear();
         tracks.addAll(show);
         adapter.notifyDataSetChanged();
+        fadeListInOnce();
         // 列表区头（瓜子 SectionHeader：收藏「全部歌曲」／搜时「搜索结果」；
         // 区头放英雄卡块内静态行，不进 adapter——收藏列表无区头项，trackIndex 不动）
         if (tvFavHistSection != null) {

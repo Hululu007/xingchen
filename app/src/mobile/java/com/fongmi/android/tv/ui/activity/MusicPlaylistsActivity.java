@@ -97,6 +97,15 @@ public class MusicPlaylistsActivity extends BaseActivity {
     private TextView sheetsEmptyTitle;
     private TextView sheetsEmptySub;
     private RecyclerView recycler;
+    private boolean listIntroDone;
+
+    /** 列表首屏：数据第一次到达时整表淡入 200ms（统一口径），后续刷新不再重播。 */
+    private void fadeListInOnce() {
+        if (listIntroDone || recycler == null) return;
+        listIntroDone = true;
+        recycler.setAlpha(0f);
+        XcFadeTransition.fadeIn(recycler);
+    }
     private TextView empty;
 
     private final List<MusicPlaylist> cards = new ArrayList<>();
@@ -321,6 +330,7 @@ public class MusicPlaylistsActivity extends BaseActivity {
      * 搜索过滤无匹配时同块改纯文本态（无图标、副行“换个关键词试试”）；
      * 有歌单时整块藏。瓜子多选 pill 空列表时置灰禁用（enabled＝过滤后列表非空，禁用 alpha 0.4）。 */
     private void refreshSheetsEmpty() {
+        fadeListInOnce();
         sheetsEmpty.setVisibility(View.GONE);
         XcFadeTransition.fadeOutThenGone(empty);
         String q = etKeyword.getText() == null ? ""

@@ -73,6 +73,15 @@ public class MusicPlaylistActivity extends BaseActivity {
     private ImageView btnSort;
     private TextView tvSortCurrent;
     private RecyclerView recycler;
+    private boolean listIntroDone;
+
+    /** 列表首屏：数据第一次到达时整表淡入 200ms（统一口径），后续刷新不再重播。 */
+    private void fadeListInOnce() {
+        if (listIntroDone || recycler == null) return;
+        listIntroDone = true;
+        recycler.setAlpha(0f);
+        XcFadeTransition.fadeIn(recycler);
+    }
     private TextView empty;
 
     private final List<MusicTrack> tracks = new ArrayList<>();
@@ -295,6 +304,7 @@ public class MusicPlaylistActivity extends BaseActivity {
         tracks.clear();
         tracks.addAll(show);
         adapter.notifyDataSetChanged();
+        fadeListInOnce();
         if (tracks.isEmpty()) XcFadeTransition.fadeIn(empty);
         else XcFadeTransition.fadeOutThenGone(empty);
         if (tracks.isEmpty()) {

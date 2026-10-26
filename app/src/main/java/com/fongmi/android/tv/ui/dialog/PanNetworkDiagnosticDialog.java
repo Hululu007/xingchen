@@ -131,6 +131,7 @@ public final class PanNetworkDiagnosticDialog extends DialogFragment implements 
         resolveEndpoint();
         showConfig();
         Dialog dialog = new MaterialAlertDialogBuilder(requireActivity(), R.style.ThemeOverlay_WebHTV_LightDialog).setView(root).create();
+        if (dialog.getWindow() != null) dialog.getWindow().setWindowAnimations(R.style.HkDialogFade); // 统一淡入淡出 200ms
         dialog.setCanceledOnTouchOutside(false);
         return dialog;
     }

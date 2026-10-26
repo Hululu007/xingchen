@@ -204,6 +204,7 @@ public class EmbyQualityDialog extends DialogFragment {
         Dialog dialog = getDialog();
         if (dialog != null && dialog.getWindow() != null) {
             Window window = dialog.getWindow();
+            window.setWindowAnimations(R.style.HkDialogFade); // 统一淡入淡出 200ms
             WindowManager.LayoutParams params = window.getAttributes();
             boolean land = ResUtil.isLand(requireContext());
             int width = Math.min(Math.round(ResUtil.getScreenWidth(requireContext()) * (land ? 0.58f : 0.92f)), ResUtil.dp2px(560));

@@ -222,7 +222,7 @@ public class ConfigHistoryDialog extends DialogFragment {
      */
     private void onDelete(Config config) {
         boolean active = adapter != null && adapter.isActive(config);
-        new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+        androidx.appcompat.app.AlertDialog dialog = new androidx.appcompat.app.AlertDialog.Builder(requireContext())
             .setTitle("删除线路")
             .setMessage("确定要删除该线路吗？" + (active ? "\n（这是当前正在使用的线路）" : "") + "\n" + config.getDesc())
             .setPositiveButton("删除", (d, w) -> {
@@ -232,8 +232,9 @@ public class ConfigHistoryDialog extends DialogFragment {
                 else Notify.show("已删除");
             })
             .setNegativeButton("取消", null)
-            .create()
-            .show();
+            .create();
+        if (dialog.getWindow() != null) dialog.getWindow().setWindowAnimations(R.style.HkDialogFade); // 统一淡入淡出 200ms
+        dialog.show();
     }
 
     private boolean isCurrentVodConfig(Config config) {
@@ -380,6 +381,7 @@ public class ConfigHistoryDialog extends DialogFragment {
             })
             .setNegativeButton("取消", null)
             .create();
+        if (dialog.getWindow() != null) dialog.getWindow().setWindowAnimations(R.style.HkDialogFade); // 统一淡入淡出 200ms
         dialog.show();
         if (dialog.getWindow() != null) dialog.getWindow().setBackgroundDrawableResource(R.drawable.dialog_glass);
     }
@@ -396,6 +398,7 @@ public class ConfigHistoryDialog extends DialogFragment {
         Dialog dialog = getDialog();
         if (dialog != null && dialog.getWindow() != null) {
             Window window = dialog.getWindow();
+            window.setWindowAnimations(R.style.HkDialogFade); // 统一淡入淡出 200ms
             WindowManager.LayoutParams params = window.getAttributes();
             boolean land = ResUtil.isLand(requireContext());
             int width = Math.min(Math.round(ResUtil.getScreenWidth(requireContext()) * (land ? 0.58f : 0.92f)), ResUtil.dp2px(560));

@@ -9,6 +9,7 @@ import android.widget.RelativeLayout;
 
 import com.fongmi.android.tv.databinding.ViewEmptyBinding;
 import com.fongmi.android.tv.databinding.ViewProgressBinding;
+import com.fongmi.android.tv.utils.XcFadeTransition;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -109,20 +110,20 @@ public class ProgressLayout extends RelativeLayout {
         mState = state;
         switch (state) {
             case CONTENT:
-                if (mEmptyView != null) mEmptyView.setVisibility(GONE);
-                if (mProgressView != null) mProgressView.setVisibility(GONE);
+                if (mEmptyView != null) XcFadeTransition.fadeOutThenGone(mEmptyView);
+                if (mProgressView != null) XcFadeTransition.fadeOutThenGone(mProgressView);
                 setContentVisibility(true);
                 break;
             case PROGRESS:
                 ensureProgressView();
-                if (mEmptyView != null) mEmptyView.setVisibility(GONE);
-                mProgressView.setVisibility(VISIBLE);
+                if (mEmptyView != null) XcFadeTransition.fadeOutThenGone(mEmptyView);
+                XcFadeTransition.fadeIn(mProgressView);
                 setContentVisibility(false);
                 break;
             case EMPTY:
                 ensureEmptyView();
-                mEmptyView.setVisibility(VISIBLE);
-                if (mProgressView != null) mProgressView.setVisibility(GONE);
+                XcFadeTransition.fadeIn(mEmptyView);
+                if (mProgressView != null) XcFadeTransition.fadeOutThenGone(mProgressView);
                 // 空态保持内容可见（空列表仍可接收下拉手势触发 SwipeRefreshLayout），
                 // 之前 GONE/INVISIBLE 导致无数据时下拉无反应。
                 setContentVisibility(true);
@@ -138,9 +139,8 @@ public class ProgressLayout extends RelativeLayout {
     }
 
     private void showView(View view) {
-        view.setAlpha(0f);
-        view.setVisibility(VISIBLE);
-        view.animate().alpha(1f).setDuration(100);
+        // 内容出现统一走 XcFadeTransition 淡入 200ms 全应用口径（原自设 100ms 对齐过来）。
+        XcFadeTransition.fadeIn(view);
     }
 
     private void hideView(View view) {

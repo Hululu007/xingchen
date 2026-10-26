@@ -208,7 +208,8 @@ public class PlayUrlBuilder115 {
     /**
      * 组装播放清单（潇洒哥定案口径）：总共只出两条——
      * 原画（/files/video 的 origin_file_url 优先，chrome/downurl 兜底，排第一）
-     * ＋转码一条（接口多档里最高的那一档，其余档不列）。
+     * ＋转码一条（接口多档里最高的那一档，其余档不列；接口没挖出档时
+     * 按 PY 主路用 pickcode 构造 m3u8 地址、探活通过入列）。
      * 默认起播＝原画（2026-10-26 潇洒哥点定，推翻先前自定的默认转码）；
      * 没有原画条时回落转码条起播，不许一上来就报取址失败。
      * 什么都拿不到（无原画、无转码）走播放失败的既有报错路，不再回退「自动单条」。
@@ -261,9 +262,27 @@ public class PlayUrlBuilder115 {
                 bestName = tName;
             }
         }
+        boolean tierAdded = false;
         if (!TextUtils.isEmpty(bestUrl)) {
             String label = TextUtils.isEmpty(bestName) ? "转码" : ("转码 " + bestName);
             raw.add(new RawEntry(label, bestUrl, bestUrl.toLowerCase().contains(".m3u8")));
+            tierAdded = true;
+        }
+
+        // 转码兜底（对照 PY 转码主路）：/files/video 没挖出档时（回包档项只有
+        // definition 值没给地址、或档地址不带可播后缀，解析恒空——TierParser115
+        // 字段从未对真实回包验死），转码条改走 pickcode 构造地址
+        // （115.com/api/video/m3u8/{pc}.m3u8，与 PY API_M3U8 及 build() 既有
+        // m3u8 兜底同式），探活通过才入列，保证清单恢复原画＋转码两条。
+        if (!tierAdded) {
+            try {
+                String m3u8 = drive.m3u8Url(pc);
+                if (!TextUtils.isEmpty(m3u8) && probeM3u8(m3u8)) {
+                    raw.add(new RawEntry("转码", m3u8, true));
+                }
+            } catch (Exception e) {
+                Log.d(TAG, "转码构造兜底失败: " + e.getMessage());
+            }
         }
 
         if (raw.isEmpty()) {

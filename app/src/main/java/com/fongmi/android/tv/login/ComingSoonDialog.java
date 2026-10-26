@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.login;
 
+import com.fongmi.android.tv.R;
 import android.app.Dialog;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
@@ -38,6 +39,7 @@ public class ComingSoonDialog extends DialogFragment {
     @Override
     public Dialog onCreateDialog(@Nullable Bundle savedInstanceState) {
         Dialog dialog = new Dialog(requireContext());
+        if (dialog.getWindow() != null) dialog.getWindow().setWindowAnimations(R.style.HkDialogFade); // 统一淡入淡出 200ms
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         dialog.setContentView(createContentView());
         dialog.setCanceledOnTouchOutside(true);

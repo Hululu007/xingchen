@@ -455,15 +455,16 @@ public class MusicActivity extends BaseActivity {
         return row;
     }
 
-    /** 菜单行图标框：32dp、圆角 9dp、图标色 12% 底＋同色图标。 */
+    /** 菜单行图标框：32dp、圆角 9dp；底改同源玻璃片＋图标色 tone 留身份（原是图标色 12% 平铺糖果片，
+     *  与设置页图标片已改玻璃的先例对齐，2026-10-26 全扫），图标本身的同色 tint 不动。 */
     private final class FrameLayoutBox extends LinearLayout {
         FrameLayoutBox(Activity activity, int iconRes, int iconColor) {
             super(activity);
             setLayoutParams(new LinearLayout.LayoutParams(dp(32), dp(32)));
-            GradientDrawable bg = new GradientDrawable();
-            bg.setCornerRadius(dp(9));
-            bg.setColor(MusicHomeMood.alphaColor(iconColor, 0.12f));
-            setBackground(bg);
+            MusicGlassWire.glassifyView(this, 9f);
+            if (getBackground() instanceof MusicGlassDrawable) {
+                ((MusicGlassDrawable) getBackground()).setToneColor(iconColor, 0.25f);
+            }
             setGravity(Gravity.CENTER);
             ImageView iv = new ImageView(activity);
             iv.setImageResource(iconRes);

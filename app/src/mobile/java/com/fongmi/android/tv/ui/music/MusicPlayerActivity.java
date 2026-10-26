@@ -93,8 +93,6 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
     private ClassicScrubberView mScrubber;
     private MiniProgressView mMiniProgress;
     private View mMiniGroup;
-    private TextView mMiniChipQuality;
-    private TextView mMiniChipLyric;
 
 
     private MusicTrack mTrack;
@@ -162,8 +160,6 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
         mScrubber = findViewById(R.id.playerScrubber);
         mMiniProgress = findViewById(R.id.playerMiniProgress);
         mMiniGroup = findViewById(R.id.playerMiniGroup);
-        mMiniChipQuality = findViewById(R.id.miniChipQuality);
-        mMiniChipLyric = findViewById(R.id.miniChipLyric);
         // 进度区高度钉死为全栈高度：切换只在盒内交叉淡化，上面的封面/歌词一寸不动
         // （旧做法动画改盒高、整列跟着重排，他点名「切换时全屏都会动」）
         final View box = findViewById(R.id.playerScrubberBox);
@@ -176,20 +172,16 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
             box.setLayoutParams(lp);
             // 两态进度线同高（原地切换的几何前提）：全栈轨道中心在盒内
             // 28（顶盒）＋4＋18/2＝41dp；迷你组顶对齐＋顶距让迷你条中心落到同一 41dp。
-            // 迷你筹行已恢复显示（体检低·迷你态双筹：筹行曾被 aecba34b 设 gone、
-            // 接线与 refreshChips 全成死接线，与 onCreate「播放时筹不许消失」自相矛盾，
-            // 按恢复显示收口）：筹行 26dp 在组首，迷你条中心在组内 26＋12＝38dp，
-            // 顶距＝41−38＝3dp。筹行高度再变，此顶距与 setScrubberExpanded 的
-            // 迷你枢轴（38dp）必须同步重算。
+            // 迷你组只剩迷你条本体（筹行已按他的定案摘除——双筹只在全栈顶盒里）：
+            // 迷你条热区 24dp、视觉条中心在组内 12dp，顶距＝41−12＝29dp。
+            // 迷你条高度再变，此顶距与 setScrubberExpanded 的迷你枢轴（12dp）必须同步重算。
             android.widget.FrameLayout.LayoutParams glp =
                     (android.widget.FrameLayout.LayoutParams) mMiniGroup.getLayoutParams();
             glp.gravity = android.view.Gravity.TOP;
-            glp.topMargin = Math.round(dp(41) - dp(38));
+            glp.topMargin = Math.round(dp(41) - dp(12));
             mMiniGroup.setLayoutParams(glp);
         });
-        // 迷你态常驻筹与全栈筹同路（播放时筹在他点名下不许消失）
-        mMiniChipQuality.setOnClickListener(v -> showQualityPanel());
-        mMiniChipLyric.setOnClickListener(v -> showLyricVersions());
+        // 迷你态只有迷你条：整组点开全栈（双筹在全栈顶盒里，点筹开面板走全栈接线）
         mMiniGroup.setOnClickListener(v -> setScrubberExpanded(true));
 
         // 歌名 800 字重＋行高 24sp、歌手行高 18sp（API 28+；低版本退回粗体与默认行高）
@@ -337,7 +329,7 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
         // 左划进歌词页的手势在页级 dispatchTouchEvent 里（trackLyricSwipe），不在此处装配
     }
 
-    /** 音质筹（全栈与迷你常驻筹共用）：开音质面板 */
+    /** 音质筹（全栈顶盒）：开音质面板 */
     private void showQualityPanel() {
         if (mTrack == null) return;
         mScrubber.setMenuOpen(true);
@@ -349,7 +341,7 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
                 });
     }
 
-    /** 歌词筹（全栈与迷你常驻筹共用）：瓜子口径＝歌词版本面板（翻译显隐在设置页开关，不占筹） */
+    /** 歌词筹（全栈顶盒）：瓜子口径＝歌词版本面板（翻译显隐在设置页开关，不占筹） */
     private void showLyricVersions() {
         if (mTrack == null) return;
         mScrubber.setMenuOpen(true);
@@ -611,8 +603,8 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
         // 同位淡化＋绕线心微缩放：两条线已在装配时对齐同高（见盒钉高处），
         // 缩放锚点取各自轨道线高度，进 0.96→1、出 1→0.96，像同一根条原地长开/收拢，
         // 不再是两件东西生硬对换。
-        float inPivotY = expanded ? dp(41) : dp(38);
-        float outPivotY = expanded ? dp(38) : dp(41);
+        float inPivotY = expanded ? dp(41) : dp(12);
+        float outPivotY = expanded ? dp(12) : dp(41);
         if (in.getWidth() > 0) in.setPivotX(in.getWidth() / 2f);
         if (out.getWidth() > 0) out.setPivotX(out.getWidth() / 2f);
         in.setPivotY(inPivotY);
@@ -963,15 +955,6 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
         } catch (Throwable ignored) {
         }
         mScrubber.setChips(q, lyricChipLabel());
-        // 迷你常驻筹同步（与全栈筹同一份口径：音质取不到不显示、本地曲标「本地」不可点）
-        if (mMiniChipQuality != null) {
-            mMiniChipQuality.setText(local ? "本地" : q);
-            // 音质筹显隐走统一淡入淡出 200ms（状态不变时两个调用都是空操作，不重播）
-            if (local || !q.isEmpty()) XcFadeTransition.fadeIn(mMiniChipQuality);
-            else XcFadeTransition.fadeOutThenGone(mMiniChipQuality);
-            mMiniChipQuality.setEnabled(!local);
-        }
-        if (mMiniChipLyric != null) mMiniChipLyric.setText(lyricChipLabel());
     }
 
     private String mLyricChip = "无词";
@@ -1014,7 +997,9 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
                 }
             }
         }
-        if (!TextUtils.isEmpty(lyric.format)) mLyricChip = lyric.format;
+        // 歌词筹文案只认瓜子那套（AMLL/逐字/逐行/纯文本/无词）：格式名只留 AMLL，
+        // LRC/KRC/YRC 这类原始格式名不上筹，按结构归到逐行/逐字（他截图定罪过「LRC」筹）
+        if ("AMLL".equals(lyric.format)) mLyricChip = "AMLL";
         else if (hasWords) mLyricChip = "逐字";
         else if (main != null && !main.isEmpty() && main.get(0) != null && main.get(0).getTimeMs() > 0) mLyricChip = "逐行";
         else if (main != null && !main.isEmpty()) mLyricChip = "纯文本";

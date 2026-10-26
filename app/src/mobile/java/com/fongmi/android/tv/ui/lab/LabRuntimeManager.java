@@ -537,7 +537,9 @@ public final class LabRuntimeManager {
             File tmp = new File(ctx.getCacheDir(), "lab-rt-" + rt + "-" + System.currentTimeMillis() + ".zip");
             try {
                 copyUri(ctx, uri, tmp, token);
-                installFromFile(ctx.getApplicationContext(), rt, tmp, listener, token);
+                // 本地包文件名合仓包约定时回填版本号，免得登记留空、日后被误标「可更新」
+                String version = versionFromPackageName(displayName(ctx, uri), rt);
+                installFromFile(ctx.getApplicationContext(), rt, tmp, version, listener, token);
             } catch (InstallCancelledException cx) {
                 cancelled(listener);
             } catch (Exception e) {
@@ -565,7 +567,8 @@ public final class LabRuntimeManager {
                 progress(listener, "正在下载环境包…");
                 downloadRetry(candidates(url, PKG_SIZE.get(pkgKey(rt)) == null
                         ? 0 : PKG_SIZE.get(pkgKey(rt))), tmp, 2, token);
-                installFromFile(ctx.getApplicationContext(), rt, tmp, listener, token);
+                // 下载地址末段合仓包约定时回填版本号（同本地导入口径）
+                installFromFile(ctx.getApplicationContext(), rt, tmp, versionFromPackageName(url, rt), listener, token);
             } catch (InstallCancelledException cx) {
                 cancelled(listener);
             } catch (Exception e) {
@@ -585,6 +588,34 @@ public final class LabRuntimeManager {
     /** 环境包下载地址（公开仓未建，先留空；建好后填这里，全 App 只这一处） */
     public static String downloadUrl(String runtime) {
         return DOWNLOAD_URLS.get(pkgKey(runtime));
+    }
+
+    /** 从仓包文件名按约定 env-包id-版本号.zip 解析版本号；解析不出返回空串（登记留空、hasUpdate 按未知不提示）。 */
+    private static String versionFromPackageName(String name, String runtime) {
+        if (name == null) return "";
+        String base = name;
+        int slash = Math.max(base.lastIndexOf('/'), base.lastIndexOf('\\'));
+        if (slash >= 0) base = base.substring(slash + 1);
+        String prefix = "env-" + pkgKey(runtime) + "-";
+        if (!base.startsWith(prefix) || !base.endsWith(".zip")) return "";
+        String v = base.substring(prefix.length(), base.length() - 4);
+        return v.isEmpty() || !Character.isDigit(v.charAt(0)) ? "" : v;
+    }
+
+    /** 本地导入时取源文件显示名（解析版本号用）；取不到返回空串。 */
+    private static String displayName(Context ctx, Uri uri) {
+        try (android.database.Cursor cur = ctx.getContentResolver().query(
+                uri, new String[]{android.provider.OpenableColumns.DISPLAY_NAME}, null, null, null)) {
+            if (cur != null && cur.moveToFirst()) {
+                int idx = cur.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME);
+                if (idx >= 0) {
+                    String name = cur.getString(idx);
+                    return name == null ? "" : name;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return "";
     }
 
     /** 安装管线唯一入口：解压 → 755 → bin 校验 → 软链 → 登记注册表。在线/本地都走这里。 */
@@ -857,7 +888,11 @@ public final class LabRuntimeManager {
         if (!isInstalled(c, runtime)) return false;
         LabEnvCatalog.EnvEntry entry = LabEnvCatalog.entry(c, runtime);
         if (entry == null || entry.version.isEmpty()) return false;
-        return LabEnvCatalog.compareVersions(entry.version, installedVersion(c, runtime)) > 0;
+        String installed = installedVersion(c, runtime);
+        // 已装版本未知（登记为空）≠落后：本地 zip 导入/旧在线装等路径不写版本号，
+        // compareVersions 对空串恒判目录更新，曾让 Python/Node/PHP 三家齐标假「可更新」。
+        if (installed.isEmpty()) return false;
+        return LabEnvCatalog.compareVersions(entry.version, installed) > 0;
     }
 
     /** 目录里的版本号（更新确认框用） */

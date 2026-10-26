@@ -134,15 +134,19 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
         initNavigationInsets();
         PermissionUtil.requestFile(this, allGranted -> PermissionUtil.requestNotify(this));
         initFragment(savedInstanceState);
-        initConfig();
-        // Emby 盖子重挂：进程重启/recreate 后 active 标志还在但盖子视图随旧实例没了，
-        // 按 isActive 走 EmbyMode 同一条 attach 路重挂（失败会回滚标志，见 EmbyMode）。
-        EmbyMode.reattachIfActive(this);
-        // 实验室自启恢复：App 启动后延迟拉起（后台线程，不影响首页行为）
+        // 实验室自启登记必须抢在 initConfig 之前：schedule 的同步段先把
+        // LabNodeHost 宿主判据登记好（配置加载随时可能调 RuntimeModule
+        // .NODEJS.require，登记晚于首读会误判没装）；延迟 boot 段随后拉起
+        // 服务。此前排在 initConfig 之后，App.onCreate 的反射 kick 又被
+        // R8 改名打死（proguard 已补 LabBoot 保名），冷启只剩这条腿还迟到。
         try {
             com.fongmi.android.tv.ui.lab.LabBoot.schedule(this);
         } catch (Exception ignored) {
         }
+        initConfig();
+        // Emby 盖子重挂：进程重启/recreate 后 active 标志还在但盖子视图随旧实例没了，
+        // 按 isActive 走 EmbyMode 同一条 attach 路重挂（失败会回滚标志，见 EmbyMode）。
+        EmbyMode.reattachIfActive(this);
     }
 
     @Override

@@ -76,8 +76,6 @@ public class MusicSiteActivity extends BaseActivity {
     private TextView tvTitle;
     private TextView tvBigTitle;
     private TextView tvBigCount;
-    private ImageView btnSort;
-    private TextView tvSortCurrent;
     private RecyclerView recycler;
     private boolean listIntroDone;
 
@@ -164,8 +162,6 @@ public class MusicSiteActivity extends BaseActivity {
         tvTitle = findViewById(R.id.tvTitle);
         tvBigTitle = findViewById(R.id.tvBigTitle);
         tvBigCount = findViewById(R.id.tvBigCount);
-        btnSort = findViewById(R.id.btnSort);
-        tvSortCurrent = findViewById(R.id.tvSortCurrent);
         recycler = findViewById(R.id.recycler);
         empty = findViewById(R.id.empty);
         // 本页对照修：空态点击监听是共享 overlay 的口径，本页空态无点击行为，进页先清
@@ -185,7 +181,6 @@ public class MusicSiteActivity extends BaseActivity {
         findViewById(R.id.btnPlayAll).setOnClickListener(v -> shufflePlay());
         // 通用“播放全部”顺序入口
         findViewById(R.id.btnPlaySeq).setOnClickListener(v -> playAllSequential());
-        btnSort.setOnClickListener(v -> showGenericSortDialog());
         MusicController.get().addListener(controllerListener);
         load();
     }
@@ -269,7 +264,6 @@ public class MusicSiteActivity extends BaseActivity {
             fadeListInOnce();
             tvBigTitle.setText(bigTitle);
             tvBigCount.setText(tracks.size() + " " + getString(R.string.music_tracks));
-            refreshSortLabel();
             boolean showEmpty = tracks.isEmpty();
             if (showEmpty) XcFadeTransition.fadeIn(empty);
             else XcFadeTransition.fadeOutThenGone(empty);
@@ -285,41 +279,8 @@ public class MusicSiteActivity extends BaseActivity {
         if (MusicStore.isListSortDesc()) Collections.reverse(list);
     }
 
-    /** 通用排序改对话框（默认／标题／歌手／时长＋升降）；第二段弹层 post 随页销毁取消（见 onDestroy） */
-    private void showGenericSortDialog() {
-        String[] keys = {getString(R.string.music_sort_default), getString(R.string.music_sort_title),
-                getString(R.string.music_sort_artist), getString(R.string.music_sort_duration)};
-        MusicOptionsDialog.show(this, "排序", java.util.Arrays.asList(keys), MusicStore.getListSort(), idx -> {
-            MusicStore.setListSort(idx);
-            // 第一段落点即刷新档位文案并按新档重排，不等第二段升降序选完才动；
-            // 第二段弹窗延后一帧弹（第一段 dismiss 在回调返回后才走，同帧同 tag 再 show 会撞 FragmentManager）。
-            refreshSortLabel();
-            showTracks(new ArrayList<>(tracks));
-            sortDirRunnable = () -> {
-                if (isFinishing() || isDestroyed()) return;
-                MusicOptionsDialog.show(this, "升序 / 降序",
-                        java.util.Arrays.asList("升序", "降序"), MusicStore.isListSortDesc() ? 1 : 0, dir -> {
-                            MusicStore.setListSortDesc(dir == 1);
-                            refreshSortLabel();
-                            showTracks(new ArrayList<>(tracks));
-                        });
-            };
-            sortDialogHandler.post(sortDirRunnable);
-        });
-    }
-
-    /** 工具条旁常显当前通用排序档。 */
-    private void refreshSortLabel() {
-        if (tvSortCurrent == null) return;
-        String[] keys = {getString(R.string.music_sort_default), getString(R.string.music_sort_title),
-                getString(R.string.music_sort_artist), getString(R.string.music_sort_duration)};
-        int s = MusicStore.getListSort();
-        String label = keys[s < 0 || s >= keys.length ? 0 : s] + (MusicStore.isListSortDesc() ? " ↓" : " ↑");
-        tvSortCurrent.setText(label);
-        tvSortCurrent.setVisibility(View.VISIBLE);
-        btnSort.setContentDescription("排序：" + label);
-    }
-
+    
+    
     /** 通用“播放全部”——顺序入队从头播（与“随机播放”分开）。歌曲行在场时走 tracks，无行时不播。 */
     private void playAllSequential() {
         if (!tracks.isEmpty()) {

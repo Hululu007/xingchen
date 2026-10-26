@@ -70,8 +70,6 @@ public class MusicPlaylistActivity extends BaseActivity {
     private TextView tvTitle;
     private ImageView btnSheetMore;
     private EditText etSheetSearch;
-    private ImageView btnSort;
-    private TextView tvSortCurrent;
     private RecyclerView recycler;
     private boolean listIntroDone;
 
@@ -155,8 +153,6 @@ public class MusicPlaylistActivity extends BaseActivity {
         tvTitle = findViewById(R.id.tvTitle);
         btnSheetMore = findViewById(R.id.btnSheetMore);
         etSheetSearch = findViewById(R.id.etSheetSearch);
-        btnSort = findViewById(R.id.btnSort);
-        tvSortCurrent = findViewById(R.id.tvSortCurrent);
         recycler = findViewById(R.id.recycler);
         empty = findViewById(R.id.empty);
         empty.setOnClickListener(null);
@@ -181,11 +177,8 @@ public class MusicPlaylistActivity extends BaseActivity {
                 }
             });
         }
-        ImageView btnSearch = findViewById(R.id.btnSearch);
-        btnSearch.setOnClickListener(v -> MusicSearchActivity.startSearch(this, ""));
         findViewById(R.id.btnPlayAll).setOnClickListener(v -> shufflePlay());
         findViewById(R.id.btnPlaySeq).setOnClickListener(v -> playAllSequential());
-        btnSort.setOnClickListener(v -> showGenericSortDialog());
         recycler.setLayoutManager(new LinearLayoutManager(this));
         recycler.setAdapter(adapter = new SheetAdapter());
         MusicController.get().addListener(controllerListener);
@@ -505,18 +498,7 @@ public class MusicPlaylistActivity extends BaseActivity {
         if (MusicStore.isListSortDesc()) Collections.reverse(list);
     }
 
-    /** 工具条旁常显当前通用排序档 */
-    private void refreshSortLabel() {
-        if (tvSortCurrent == null) return;
-        String[] keys = {getString(R.string.music_sort_default), getString(R.string.music_sort_title),
-                getString(R.string.music_sort_artist), getString(R.string.music_sort_duration)};
-        int s = MusicStore.getListSort();
-        String label = keys[s < 0 || s >= keys.length ? 0 : s] + (MusicStore.isListSortDesc() ? " ↓" : " ↑");
-        tvSortCurrent.setText(label);
-        tvSortCurrent.setVisibility(View.VISIBLE);
-        btnSort.setContentDescription("排序：" + label);
-    }
-
+    
     /** 通用排序落点：按新档重排当前显示列（旧 showTracks 在 sheet 下的等价动作，不碰歌单原序数据） */
     private void applyGenericSort() {
         List<MusicTrack> list = new ArrayList<>(tracks);
@@ -524,33 +506,12 @@ public class MusicPlaylistActivity extends BaseActivity {
         tracks.clear();
         tracks.addAll(list);
         adapter.notifyDataSetChanged();
-        refreshSortLabel();
         if (tracks.isEmpty()) XcFadeTransition.fadeIn(empty);
         else XcFadeTransition.fadeOutThenGone(empty);
         if (tracks.isEmpty()) empty.setText(R.string.music_no_track);
     }
 
-    /** 通用排序改对话框（默认／标题／歌手／时长＋升降） */
-    private void showGenericSortDialog() {
-        String[] keys = {getString(R.string.music_sort_default), getString(R.string.music_sort_title),
-                getString(R.string.music_sort_artist), getString(R.string.music_sort_duration)};
-        MusicOptionsDialog.show(this, "排序", java.util.Arrays.asList(keys), MusicStore.getListSort(), idx -> {
-            MusicStore.setListSort(idx);
-            refreshSortLabel();
-            applyGenericSort();
-            sortDirRunnable = () -> {
-                if (isFinishing() || isDestroyed()) return;
-                MusicOptionsDialog.show(this, "升序 / 降序",
-                        java.util.Arrays.asList("升序", "降序"), MusicStore.isListSortDesc() ? 1 : 0, dir -> {
-                            MusicStore.setListSortDesc(dir == 1);
-                            refreshSortLabel();
-                            applyGenericSort();
-                        });
-            };
-            sortDialogHandler.post(sortDirRunnable);
-        });
-    }
-
+    
     // ================= 行菜单与行操作 =================
 
     /** 下载（每次询问档时先选档，否则直接下载） */

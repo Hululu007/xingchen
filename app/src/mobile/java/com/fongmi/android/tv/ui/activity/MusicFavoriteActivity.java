@@ -83,7 +83,6 @@ public class MusicFavoriteActivity extends BaseActivity {
     private View btnPlayAll;
     private TextView tvPlayAll;
     private View btnPlaySeq;
-    private ImageView btnSort;
     private RecyclerView recycler;
     private boolean listIntroDone;
 
@@ -172,7 +171,6 @@ public class MusicFavoriteActivity extends BaseActivity {
         btnPlayAll = findViewById(R.id.btnPlayAll);
         tvPlayAll = findViewById(R.id.tvPlayAll);
         btnPlaySeq = findViewById(R.id.btnPlaySeq);
-        btnSort = findViewById(R.id.btnSort);
         recycler = findViewById(R.id.recycler);
         empty = findViewById(R.id.empty);
 
@@ -222,7 +220,6 @@ public class MusicFavoriteActivity extends BaseActivity {
         // 工具栏：多选态外只留排序（播放／随机播在英雄卡操作行）；btnPlayAll 多选态复用作删除所选
         btnPlayAll.setOnClickListener(v -> shufflePlay());
         btnPlaySeq.setOnClickListener(v -> playAllSequential());
-        btnSort.setOnClickListener(v -> showFavoriteSortDialog());
         recycler.setLayoutManager(new LinearLayoutManager(this));
         recycler.setAdapter(adapter = new FavoriteAdapter());
         // 收藏行间分隔线（GZ：0.5dp 厚、起始偏移 76dp、末端 14dp，与 76dp 拼贴对齐）
@@ -399,21 +396,7 @@ public class MusicFavoriteActivity extends BaseActivity {
         refreshFavoriteMultiText();
     }
 
-    /** 收藏排序弹层（GZ：收藏 3 项＋当前项文案「当前：…」） */
-    private void showFavoriteSortDialog() {
-        String[] items = new String[]{"最近收藏", "最早收藏", "歌曲名称"};
-        new MusicGlassDialogBuilder(this)
-                .setTitle("收藏排序")
-                .setMessage("当前：" + items[favSort])
-                .setSingleChoiceItems(items, favSort, (d, which) -> {
-                    favSort = which;
-                    d.dismiss();
-                    refreshFavoriteDisplay();
-                })
-                .setNegativeButton(android.R.string.cancel, null)
-                .show();
-    }
-
+    
     /** 收藏多选态切换（GZ：选中圆圈 24dp＋「已选 N 首」；工具条复用口径：删除所选／取消） */
     private void setFavoriteMulti(boolean on) {
         favMulti = on;
@@ -421,12 +404,10 @@ public class MusicFavoriteActivity extends BaseActivity {
         btnFavHistMulti.setText(on ? "取消多选" : "多选");
         if (on) {
             btnPlayAll.setVisibility(View.VISIBLE);
-            btnSort.setVisibility(View.GONE);
             tvPlayAll.setText("删除所选 (" + favSelected.size() + ")");
             btnPlayAll.setOnClickListener(v -> deleteFavoriteSelected());
         } else {
             btnPlayAll.setVisibility(View.GONE);
-            btnSort.setVisibility(View.VISIBLE);
             btnPlayAll.setOnClickListener(v -> shufflePlay());
         }
         refreshFavoriteMultiText();

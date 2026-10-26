@@ -24,34 +24,6 @@
         android:paddingEnd="20dp"
         android:paddingBottom="16dp">
 
-        <RelativeLayout
-            android:id="@+id/headerBar"
-            android:layout_width="match_parent"
-            android:layout_height="64dp"
-            android:visibility="gone">
-
-            <TextView
-                android:id="@+id/tvTitle"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_alignParentStart="true"
-                android:layout_centerVertical="true"
-                android:text="@string/music_playlist"
-                android:textColor="#1C1C1E"
-                android:textSize="26sp"
-                android:textStyle="bold" />
-
-            <ImageView
-                android:id="@+id/btnSearch"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:layout_alignParentEnd="true"
-                android:layout_centerVertical="true"
-                android:contentDescription="@string/music_search"
-                android:padding="12dp"
-                android:src="@drawable/ic_music_search"
-                android:visibility="gone" />
-        </RelativeLayout>
 
         <!-- 收藏／历史英雄卡（GZ：封面拼贴 76dp＋大标题 28sp＋N 首 12sp＋
              播放全部／随机播放＋搜索框＋续播卡；历史页有清空全部按钮） -->
@@ -68,54 +40,10 @@
                 android:gravity="center_vertical"
                 android:orientation="horizontal">
 
-                <LinearLayout
-                    android:id="@+id/favHistMosaic"
-                    android:layout_width="76dp"
-                    android:layout_height="76dp"
-                    android:background="@drawable/card_music"
-                    android:orientation="vertical">
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="38dp"
-                        android:orientation="horizontal">
-
-                        <ImageView
-                            android:id="@+id/ivMosaic0"
-                            android:layout_width="38dp"
-                            android:layout_height="38dp"
-                            android:scaleType="centerCrop" />
-
-                        <ImageView
-                            android:id="@+id/ivMosaic1"
-                            android:layout_width="38dp"
-                            android:layout_height="38dp"
-                            android:scaleType="centerCrop" />
-                    </LinearLayout>
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="38dp"
-                        android:orientation="horizontal">
-
-                        <ImageView
-                            android:id="@+id/ivMosaic2"
-                            android:layout_width="38dp"
-                            android:layout_height="38dp"
-                            android:scaleType="centerCrop" />
-
-                        <ImageView
-                            android:id="@+id/ivMosaic3"
-                            android:layout_width="38dp"
-                            android:layout_height="38dp"
-                            android:scaleType="centerCrop" />
-                    </LinearLayout>
-                </LinearLayout>
 
                 <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="16dp"
                     android:layout_weight="1"
                     android:orientation="vertical">
 
@@ -290,7 +218,7 @@
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
+            android:layout_marginTop="4dp"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
@@ -354,21 +282,7 @@
                 android:layout_height="1dp"
                 android:layout_weight="1" />
 
-            <ImageView
-                android:id="@+id/btnSort"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:contentDescription="@string/music_sort_default"
-                android:padding="12dp"
-                android:src="@drawable/ic_music_sort" />
 
-            <TextView
-                android:id="@+id/tvSortCurrent"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:textColor="#9AA7B8"
-                android:textSize="12sp"
-                android:visibility="gone" />
         </LinearLayout>
 
         <androidx.recyclerview.widget.RecyclerView

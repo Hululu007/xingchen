@@ -23,39 +23,12 @@
         android:paddingEnd="20dp"
         android:paddingBottom="16dp">
 
-        <RelativeLayout
-            android:id="@+id/headerBar"
-            android:layout_width="match_parent"
-            android:layout_height="64dp">
-
-            <TextView
-                android:id="@+id/tvTitle"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_alignParentStart="true"
-                android:layout_centerVertical="true"
-                android:text="@string/music_playlist"
-                android:textColor="#1C1C1E"
-                android:textSize="26sp"
-                android:textStyle="bold" />
-
-            <ImageView
-                android:id="@+id/btnSearch"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:layout_alignParentEnd="true"
-                android:layout_centerVertical="true"
-                android:contentDescription="@string/music_search"
-                android:padding="12dp"
-                android:src="@drawable/ic_music_search"
-                android:visibility="gone" />
-        </RelativeLayout>
 
         <LinearLayout
             android:id="@+id/bigTitleRow"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
+            android:layout_marginTop="6dp"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
@@ -271,16 +244,17 @@
             <LinearLayout
                 android:id="@+id/btnPlayAll"
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
+                android:layout_height="52dp"
+                android:background="@drawable/bg_music_glass_chip"
                 android:gravity="center_vertical"
                 android:orientation="horizontal"
-                android:padding="8dp">
+                android:paddingStart="14dp"
+                android:paddingEnd="16dp">
 
                 <ImageView
                     android:id="@+id/ivPlayAllIcon"
                     android:layout_width="36dp"
                     android:layout_height="36dp"
-                    android:background="@drawable/card_music"
                     android:padding="8dp"
                     android:src="@drawable/ic_music_shuffle"
                     android:tint="#FA243C" />
@@ -291,23 +265,24 @@
                     android:layout_height="wrap_content"
                     android:layout_marginStart="12dp"
                     android:text="@string/music_shuffle_play"
-                    android:textColor="#9AA7B8"
+                    android:textColor="#F1F4F5"
                     android:textSize="16sp" />
             </LinearLayout>
 
             <LinearLayout
                 android:id="@+id/btnPlaySeq"
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="16dp"
+                android:layout_height="52dp"
+                android:layout_marginStart="12dp"
+                android:background="@drawable/bg_music_glass_chip"
                 android:gravity="center_vertical"
                 android:orientation="horizontal"
-                android:padding="8dp">
+                android:paddingStart="14dp"
+                android:paddingEnd="16dp">
 
                 <ImageView
                     android:layout_width="36dp"
                     android:layout_height="36dp"
-                    android:background="@drawable/card_music"
                     android:padding="8dp"
                     android:src="@drawable/ic_music_play"
                     android:tint="#FA243C" />
@@ -317,7 +292,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginStart="12dp"
                     android:text="@string/music_play_all_order"
-                    android:textColor="#9AA7B8"
+                    android:textColor="#F1F4F5"
                     android:textSize="16sp" />
             </LinearLayout>
 
@@ -326,22 +301,8 @@
                 android:layout_height="1dp"
                 android:layout_weight="1" />
 
-            <ImageView
-                android:id="@+id/btnSort"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:contentDescription="@string/music_sort_default"
-                android:padding="12dp"
-                android:src="@drawable/ic_music_sort" />
 
             <!-- 通用排序当前档常显（见 refreshSortLabel） -->
-            <TextView
-                android:id="@+id/tvSortCurrent"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:textColor="#9AA7B8"
-                android:textSize="12sp"
-                android:visibility="gone" />
         </LinearLayout>
 
         <androidx.recyclerview.widget.RecyclerView

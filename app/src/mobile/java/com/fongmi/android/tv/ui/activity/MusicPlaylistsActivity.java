@@ -92,8 +92,6 @@ public class MusicPlaylistsActivity extends BaseActivity {
     private View btnPlayAll;
     private ImageView ivPlayAllIcon;
     private TextView tvPlayAll;
-    private ImageView btnSort;
-    private TextView tvSortCurrent;
     private LinearLayout sheetsEmpty;
     private ImageView sheetsEmptyIcon;
     private TextView sheetsEmptyTitle;
@@ -160,8 +158,6 @@ public class MusicPlaylistsActivity extends BaseActivity {
         btnPlayAll = findViewById(R.id.btnPlayAll);
         ivPlayAllIcon = findViewById(R.id.ivPlayAllIcon);
         tvPlayAll = findViewById(R.id.tvPlayAll);
-        btnSort = findViewById(R.id.btnSort);
-        tvSortCurrent = findViewById(R.id.tvSortCurrent);
         sheetsEmpty = findViewById(R.id.sheetsEmpty);
         sheetsEmptyIcon = findViewById(R.id.sheetsEmptyIcon);
         sheetsEmptyTitle = findViewById(R.id.sheetsEmptyTitle);
@@ -178,7 +174,6 @@ public class MusicPlaylistsActivity extends BaseActivity {
         recycler.setAdapter(adapter = new PlaylistsAdapter());
         btnPlayAll.setOnClickListener(v -> shufflePlay());
         findViewById(R.id.btnPlaySeq).setOnClickListener(v -> playAllSequential());
-        btnSort.setOnClickListener(v -> showGenericSortDialog());
         // 歌单页头／操作行
         findViewById(R.id.btnSheetsNew).setOnClickListener(v -> inputPlaylistName(name ->
                 MusicLibrary.createPlaylist(name, p -> loadSheets())));
@@ -364,7 +359,6 @@ public class MusicPlaylistsActivity extends BaseActivity {
         btnSheetsMulti.setText(on ? "取消多选" : "多选");
         btnSheetsMulti.setTextColor(on ? 0xFFFA243C : 0xFFF1F4F5);
         toolbar.setVisibility(on ? View.VISIBLE : View.GONE);
-        btnSort.setVisibility(on ? View.GONE : View.VISIBLE);
         tvPlayAll.setText("删除所选 (" + sheetsSelected.size() + ")");
         ivPlayAllIcon.setImageResource(on ? R.drawable.ic_music_delete
                 : R.drawable.ic_music_shuffle);
@@ -395,39 +389,8 @@ public class MusicPlaylistsActivity extends BaseActivity {
         Notify.show(R.string.music_no_track);
     }
 
-    /** 通用排序档常显（工具条旁） */
-    private void refreshSortLabel() {
-        if (tvSortCurrent == null) return;
-        String[] keys = {getString(R.string.music_sort_default), getString(R.string.music_sort_title),
-                getString(R.string.music_sort_artist), getString(R.string.music_sort_duration)};
-        int s = MusicStore.getListSort();
-        String label = keys[s < 0 || s >= keys.length ? 0 : s] + (MusicStore.isListSortDesc() ? " ↓" : " ↑");
-        tvSortCurrent.setText(label);
-        tvSortCurrent.setVisibility(View.VISIBLE);
-        btnSort.setContentDescription("排序：" + label);
-    }
-
-    /** 通用排序改对话框（默认／标题／歌手／时长＋升降）；歌单页是卡片页，落点即重拉本页（同旧 isCardMode 支） */
-    private void showGenericSortDialog() {
-        String[] keys = {getString(R.string.music_sort_default), getString(R.string.music_sort_title),
-                getString(R.string.music_sort_artist), getString(R.string.music_sort_duration)};
-        MusicOptionsDialog.show(this, "排序", java.util.Arrays.asList(keys), MusicStore.getListSort(), idx -> {
-            MusicStore.setListSort(idx);
-            refreshSortLabel();
-            loadSheets();
-            sortDirRunnable = () -> {
-                if (isFinishing() || isDestroyed()) return;
-                MusicOptionsDialog.show(this, "升序 / 降序",
-                        java.util.Arrays.asList("升序", "降序"), MusicStore.isListSortDesc() ? 1 : 0, dir -> {
-                            MusicStore.setListSortDesc(dir == 1);
-                            refreshSortLabel();
-                            loadSheets();
-                        });
-            };
-            sortDialogHandler.post(sortDirRunnable);
-        });
-    }
-
+    
+    
     /** 行内整单播放的入队来源参数：播的是歌单 p 本人，身份照歌单详情页口径
      * （mode=sheet＋playlistId=p 的 id＋title=p 名）——旧写法报 mode=sheets＋
      * playlistId=-1，队列来源跳转只能落歌单列表、落不回该歌单（扫查待裁 3）。

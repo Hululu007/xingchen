@@ -41,16 +41,6 @@
                 android:textSize="26sp"
                 android:textStyle="bold" />
 
-            <ImageView
-                android:id="@+id/btnSearch"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:layout_alignParentEnd="true"
-                android:layout_centerVertical="true"
-                android:contentDescription="@string/music_search"
-                android:padding="12dp"
-                android:src="@drawable/ic_music_search"
-                android:visibility="gone" />
 
             <!-- 歌单详情页顶栏 ⋮：刷新歌单／随机播放／搜索歌曲／排序歌曲／分享歌单／多选 -->
             <ImageView
@@ -58,7 +48,7 @@
                 android:layout_width="48dp"
                 android:layout_height="48dp"
                 android:layout_centerVertical="true"
-                android:layout_toStartOf="@id/btnSearch"
+                android:layout_alignParentEnd="true"
                 android:contentDescription="@string/player_more"
                 android:padding="12dp"
                 android:src="@drawable/ic_music_more"
@@ -162,21 +152,7 @@
                 android:textSize="12sp"
                 android:visibility="gone" />
 
-            <ImageView
-                android:id="@+id/btnSort"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:contentDescription="@string/music_sort_default"
-                android:padding="12dp"
-                android:src="@drawable/ic_music_sort" />
 
-            <TextView
-                android:id="@+id/tvSortCurrent"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:textColor="#9AA7B8"
-                android:textSize="12sp"
-                android:visibility="gone" />
         </LinearLayout>
 
         <androidx.recyclerview.widget.RecyclerView

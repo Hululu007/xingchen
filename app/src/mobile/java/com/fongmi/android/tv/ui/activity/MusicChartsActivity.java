@@ -56,14 +56,11 @@ public class MusicChartsActivity extends BaseActivity {
     }
 
     private View rootView;
-    private TextView tvTitle;
     private TextView tvBigTitle;
     private TextView tvBigCount;
     private ImageView btnChartsRefresh;
     private View btnPlayAll;
     private View btnPlaySeq;
-    private ImageView btnSort;
-    private TextView tvSortCurrent;
     private RecyclerView recycler;
     private boolean listIntroDone;
 
@@ -109,19 +106,15 @@ public class MusicChartsActivity extends BaseActivity {
         if (savedInstanceState != null) {
             pendingListState = savedInstanceState.getParcelable("ml_listState");
         }
-        tvTitle = findViewById(R.id.tvTitle);
         tvBigTitle = findViewById(R.id.tvBigTitle);
         tvBigCount = findViewById(R.id.tvBigCount);
         btnChartsRefresh = findViewById(R.id.btnChartsRefresh);
         btnPlayAll = findViewById(R.id.btnPlayAll);
         btnPlaySeq = findViewById(R.id.btnPlaySeq);
-        btnSort = findViewById(R.id.btnSort);
-        tvSortCurrent = findViewById(R.id.tvSortCurrent);
         recycler = findViewById(R.id.recycler);
         empty = findViewById(R.id.empty);
 
         bigTitle = getString(R.string.music_charts);
-        tvTitle.setText(R.string.music_charts);
         btnChartsRefresh.setVisibility(View.VISIBLE);
         btnChartsRefresh.setOnClickListener(v -> loadCharts());
         // 顶栏搜索钮照旧落点：壳搜索模式（搜索页尚未拆）
@@ -130,7 +123,6 @@ public class MusicChartsActivity extends BaseActivity {
         // 榜单模式只有榜卡、没有歌曲行：顺序播放／随机播放钮点了只弹空提示，照旧隐藏
         btnPlaySeq.setVisibility(View.GONE);
         btnPlayAll.setVisibility(View.GONE);
-        btnSort.setOnClickListener(v -> showGenericSortDialog());
         recycler.setLayoutManager(new LinearLayoutManager(this));
         recycler.setAdapter(adapter = new ChartsAdapter());
         loadCharts();
@@ -248,38 +240,8 @@ public class MusicChartsActivity extends BaseActivity {
 
     // ================= 通用排序（工具栏排序键照旧口径） =================
 
-    private void refreshSortLabel() {
-        if (tvSortCurrent == null) return;
-        String[] keys = {getString(R.string.music_sort_default), getString(R.string.music_sort_title),
-                getString(R.string.music_sort_artist), getString(R.string.music_sort_duration)};
-        int s = MusicStore.getListSort();
-        String label = keys[s < 0 || s >= keys.length ? 0 : s] + (MusicStore.isListSortDesc() ? " ↓" : " ↑");
-        tvSortCurrent.setText(label);
-        tvSortCurrent.setVisibility(View.VISIBLE);
-        btnSort.setContentDescription("排序：" + label);
-    }
 
-    /** 通用排序改对话框（默认／标题／歌手／时长＋升降）；榜单是卡片模式，落点即重拉本页。 */
-    private void showGenericSortDialog() {
-        String[] keys = {getString(R.string.music_sort_default), getString(R.string.music_sort_title),
-                getString(R.string.music_sort_artist), getString(R.string.music_sort_duration)};
-        MusicOptionsDialog.show(this, "排序", java.util.Arrays.asList(keys), MusicStore.getListSort(), idx -> {
-            MusicStore.setListSort(idx);
-            refreshSortLabel();
-            loadCharts();
-            sortDirRunnable = () -> {
-                if (isFinishing() || isDestroyed()) return;
-                MusicOptionsDialog.show(this, "升序 / 降序",
-                        java.util.Arrays.asList("升序", "降序"), MusicStore.isListSortDesc() ? 1 : 0, dir -> {
-                            MusicStore.setListSortDesc(dir == 1);
-                            refreshSortLabel();
-                            loadCharts();
-                        });
-            };
-            sortDialogHandler.post(sortDirRunnable);
-        });
-    }
-
+    
     // ================= 取色与封面 =================
 
     /** 榜单卡玻璃色调（跟随封面取色：主色向白混 85% 成淡染，走玻璃 tone 不换底；

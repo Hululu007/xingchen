@@ -64,7 +64,6 @@ public class MusicHistoryActivity extends BaseActivity {
     }
 
     private View rootView;
-    private TextView tvTitle;
     private View favHistHero;
     private TextView tvFavHistLabel;
     private TextView tvFavHistTitle;
@@ -75,10 +74,6 @@ public class MusicHistoryActivity extends BaseActivity {
     private TextView btnFavHistClear;
     private EditText etFavHistSearch;
     private ImageView btnFavHistClearSearch;
-    private ImageView ivMosaic0;
-    private ImageView ivMosaic1;
-    private ImageView ivMosaic2;
-    private ImageView ivMosaic3;
     private View favHistResume;
     private TextView tvFavHistResumeTitle;
     private TextView tvFavHistResumeState;
@@ -86,7 +81,6 @@ public class MusicHistoryActivity extends BaseActivity {
     private View btnPlayAll;
     private TextView tvPlayAll;
     private View btnPlaySeq;
-    private ImageView btnSort;
     private RecyclerView recycler;
     private boolean listIntroDone;
 
@@ -152,7 +146,6 @@ public class MusicHistoryActivity extends BaseActivity {
         if (savedInstanceState != null) {
             pendingListState = savedInstanceState.getParcelable("ml_listState");
         }
-        tvTitle = findViewById(R.id.tvTitle);
         favHistHero = findViewById(R.id.favHistHero);
         tvFavHistLabel = findViewById(R.id.tvFavHistLabel);
         tvFavHistTitle = findViewById(R.id.tvFavHistTitle);
@@ -163,10 +156,6 @@ public class MusicHistoryActivity extends BaseActivity {
         btnFavHistClear = findViewById(R.id.btnFavHistClear);
         etFavHistSearch = findViewById(R.id.etFavHistSearch);
         btnFavHistClearSearch = findViewById(R.id.btnFavHistClearSearch);
-        ivMosaic0 = findViewById(R.id.ivMosaic0);
-        ivMosaic1 = findViewById(R.id.ivMosaic1);
-        ivMosaic2 = findViewById(R.id.ivMosaic2);
-        ivMosaic3 = findViewById(R.id.ivMosaic3);
         favHistResume = findViewById(R.id.favHistResume);
         tvFavHistResumeTitle = findViewById(R.id.tvFavHistResumeTitle);
         tvFavHistResumeState = findViewById(R.id.tvFavHistResumeState);
@@ -174,12 +163,10 @@ public class MusicHistoryActivity extends BaseActivity {
         btnPlayAll = findViewById(R.id.btnPlayAll);
         tvPlayAll = findViewById(R.id.tvPlayAll);
         btnPlaySeq = findViewById(R.id.btnPlaySeq);
-        btnSort = findViewById(R.id.btnSort);
         recycler = findViewById(R.id.recycler);
         empty = findViewById(R.id.empty);
 
         bigTitle = getString(R.string.music_history);
-        tvTitle.setText(R.string.music_history);
         // 英雄卡操作行
         btnFavHistPlayAll.setOnClickListener(v -> {
             if (tracks.isEmpty()) Notify.show(R.string.music_no_track);
@@ -236,7 +223,6 @@ public class MusicHistoryActivity extends BaseActivity {
         // 工具栏：多选态外只留排序（播放／随机播在英雄卡操作行）；btnPlayAll 多选态复用作删除所选
         btnPlayAll.setOnClickListener(v -> shufflePlay());
         btnPlaySeq.setOnClickListener(v -> playAllSequential());
-        btnSort.setOnClickListener(v -> showHistorySortDialog());
         recycler.setLayoutManager(new LinearLayoutManager(this));
         recycler.setAdapter(adapter = new HistoryAdapter());
         // 历史行间分隔线（GZ：0.5dp 厚、起始偏移 76dp、末端 14dp，与 76dp 拼贴对齐）
@@ -330,23 +316,6 @@ public class MusicHistoryActivity extends BaseActivity {
         btnFavHistClear.setVisibility(View.VISIBLE);
         btnFavHistMulti.setText(histMulti ? "取消多选" : "多选");
         etFavHistSearch.setHint("搜索历史歌曲");
-        // 拼贴：前 4 首的封面（没封面的格子留灰底）
-        ImageView[] cells = {ivMosaic0, ivMosaic1, ivMosaic2, ivMosaic3};
-        for (int i = 0; i < cells.length; i++) {
-            ImageView iv = cells[i];
-            String cover = i < histAll.size() ? histAll.get(i).cover : null;
-            if (cover == null || cover.isEmpty()) {
-                try {
-                    com.bumptech.glide.Glide.with(iv).clear(iv);
-                } catch (Throwable ignored) {
-                }
-                iv.setImageDrawable(null);
-                iv.setBackgroundColor(0xFFE5E5EA);
-            } else {
-                iv.setBackgroundColor(0x00000000);
-                ImgUtil.loadRounded(histAll.get(i).displayTitle(), cover, iv);
-            }
-        }
         // 续播卡：历史页＝最近播放第一首（无则不显）
         histResume = null;
         try {
@@ -416,21 +385,7 @@ public class MusicHistoryActivity extends BaseActivity {
         refreshHistoryMultiText();
     }
 
-    /** 历史排序弹层（GZ：历史 3 项＋当前项文案「当前：…」） */
-    private void showHistorySortDialog() {
-        String[] items = new String[]{"最近播放", "最早播放", "歌曲名称"};
-        new MusicGlassDialogBuilder(this)
-                .setTitle("历史排序")
-                .setMessage("当前：" + items[histSort])
-                .setSingleChoiceItems(items, histSort, (d, which) -> {
-                    histSort = which;
-                    d.dismiss();
-                    refreshHistoryDisplay();
-                })
-                .setNegativeButton(android.R.string.cancel, null)
-                .show();
-    }
-
+    
     /** 历史多选态切换（GZ：选中圆圈 24dp＋「已选 N 首」；工具条复用口径：删除所选／取消） */
     private void setHistoryMulti(boolean on) {
         histMulti = on;
@@ -438,12 +393,10 @@ public class MusicHistoryActivity extends BaseActivity {
         btnFavHistMulti.setText(on ? "取消多选" : "多选");
         if (on) {
             btnPlayAll.setVisibility(View.VISIBLE);
-            btnSort.setVisibility(View.GONE);
             tvPlayAll.setText("删除所选 (" + histSelected.size() + ")");
             btnPlayAll.setOnClickListener(v -> deleteHistorySelected());
         } else {
             btnPlayAll.setVisibility(View.GONE);
-            btnSort.setVisibility(View.VISIBLE);
             btnPlayAll.setOnClickListener(v -> shufflePlay());
         }
         refreshHistoryMultiText();

@@ -66,8 +66,6 @@ public class MusicDownloadActivity extends BaseActivity {
     }
 
     private View rootView;
-    private TextView tvTitle;
-    private ImageView btnSearch;
     private TextView tvBigTitle;
     private TextView tvBigCount;
     private View downloadStatsCard;
@@ -85,8 +83,6 @@ public class MusicDownloadActivity extends BaseActivity {
     private EditText etDlSearch;
     private View btnPlayAll;
     private View btnPlaySeq;
-    private ImageView btnSort;
-    private TextView tvSortCurrent;
     private RecyclerView recycler;
     private boolean listIntroDone;
 
@@ -167,8 +163,6 @@ public class MusicDownloadActivity extends BaseActivity {
         if (savedInstanceState != null) {
             pendingListState = savedInstanceState.getParcelable("ml_listState");
         }
-        tvTitle = findViewById(R.id.tvTitle);
-        btnSearch = findViewById(R.id.btnSearch);
         tvBigTitle = findViewById(R.id.tvBigTitle);
         tvBigCount = findViewById(R.id.tvBigCount);
         downloadStatsCard = findViewById(R.id.downloadStatsCard);
@@ -186,15 +180,10 @@ public class MusicDownloadActivity extends BaseActivity {
         etDlSearch = findViewById(R.id.etDlSearch);
         btnPlayAll = findViewById(R.id.btnPlayAll);
         btnPlaySeq = findViewById(R.id.btnPlaySeq);
-        btnSort = findViewById(R.id.btnSort);
-        tvSortCurrent = findViewById(R.id.tvSortCurrent);
         recycler = findViewById(R.id.recycler);
         empty = findViewById(R.id.empty);
 
         bigTitle = getString(R.string.music_downloaded);
-        tvTitle.setText(R.string.wave2_download_manage);
-        btnSearch.setVisibility(View.VISIBLE);
-        btnSearch.setOnClickListener(v -> MusicSearchActivity.startSearch(this, ""));
         // 下载批量管理条（随机播放走通用工具条的 shuffle，不在这里重复造入口）
         btnDlSelect.setOnClickListener(v -> toggleDlSelect());
         btnDlPauseAll.setOnClickListener(v -> {
@@ -228,7 +217,6 @@ public class MusicDownloadActivity extends BaseActivity {
         });
         btnPlayAll.setOnClickListener(v -> shufflePlay());
         btnPlaySeq.setOnClickListener(v -> playAllSequential());
-        btnSort.setOnClickListener(v -> showGenericSortDialog());
         recycler.setLayoutManager(new LinearLayoutManager(this));
         recycler.setAdapter(adapter = new DownloadAdapter());
         MusicController.get().addListener(controllerListener);
@@ -414,7 +402,6 @@ public class MusicDownloadActivity extends BaseActivity {
             fadeListInOnce();
             tvBigTitle.setText(bigTitle);
             tvBigCount.setText(tracks.size() + " " + getString(R.string.music_tracks));
-            refreshSortLabel();
             // 有进行中任务时不显空态（已完成为空不等于没内容）
             boolean showEmpty = tracks.isEmpty() && dlTasks.isEmpty();
             if (showEmpty) XcFadeTransition.fadeIn(empty);
@@ -620,41 +607,8 @@ public class MusicDownloadActivity extends BaseActivity {
 
     // ================= 排序 =================
 
-    /** 通用排序对话框（默认／标题／歌手／时长＋升降）；当前档常显在工具条 tvSortCurrent 与 btnSort 无障碍文案上。 */
-    private void showGenericSortDialog() {
-        String[] keys = {getString(R.string.music_sort_default), getString(R.string.music_sort_title),
-                getString(R.string.music_sort_artist), getString(R.string.music_sort_duration)};
-        MusicOptionsDialog.show(this, "排序", java.util.Arrays.asList(keys), MusicStore.getListSort(), idx -> {
-            MusicStore.setListSort(idx);
-            // 第一段落点即刷新档位文案并按新档重排，不等第二段升降序选完才动；
-            // 第二段弹窗延后一帧弹（第一段 dismiss 在回调返回后才走，同帧再 show 会撞）。
-            refreshSortLabel();
-            showTracks(new ArrayList<>(tracks));
-            sortDirRunnable = () -> {
-                if (isFinishing() || isDestroyed()) return;
-                MusicOptionsDialog.show(this, "升序 / 降序",
-                        java.util.Arrays.asList("升序", "降序"), MusicStore.isListSortDesc() ? 1 : 0, dir -> {
-                            MusicStore.setListSortDesc(dir == 1);
-                            refreshSortLabel();
-                            showTracks(new ArrayList<>(tracks));
-                        });
-            };
-            sortDialogHandler.post(sortDirRunnable);
-        });
-    }
-
-    /** 工具条旁常显当前通用排序档。 */
-    private void refreshSortLabel() {
-        if (tvSortCurrent == null) return;
-        String[] keys = {getString(R.string.music_sort_default), getString(R.string.music_sort_title),
-                getString(R.string.music_sort_artist), getString(R.string.music_sort_duration)};
-        int s = MusicStore.getListSort();
-        String label = keys[s < 0 || s >= keys.length ? 0 : s] + (MusicStore.isListSortDesc() ? " ↓" : " ↑");
-        tvSortCurrent.setText(label);
-        tvSortCurrent.setVisibility(View.VISIBLE);
-        btnSort.setContentDescription("排序：" + label);
-    }
-
+    
+    
     // ================= 播放 =================
 
     private java.util.Map<String, String> listRouteParams() {

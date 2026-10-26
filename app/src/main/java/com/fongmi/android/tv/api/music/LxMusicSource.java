@@ -421,6 +421,13 @@ public class LxMusicSource implements MusicSource {
                 return null;
             }
             String url = extractUrl(r);
+            if (!TextUtils.isEmpty(url) && LxPlatformSearch.QQ.equals(p.platform) && isFilelessUrl(url)) {
+                // QQ 幻影链（与 playUrl 同口径，扫描 M13 指派路漏了这道）：只有域名无
+                // 文件段的模板拼链 GET 首页回 200、probe-dead 拦不住，当空链处理，
+                // 返回 null 交仓库回落官方 vkey 兜底
+                SpiderDebug.log("music", "lx playUrlWithPlugin qq fileless url dropped plugin=%s", target.name);
+                url = null;
+            }
             if (!TextUtils.isEmpty(url) && isProbeDeadUrl(url, probeCache)) {
                 // 实测验链定罪的死链（同 playUrl 口径）：当空链处理，返回 null 交仓库回落
                 SpiderDebug.log("music", "lx playUrlWithPlugin probe-dead url dropped plugin=%s", target.name);

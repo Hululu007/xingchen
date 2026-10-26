@@ -344,6 +344,11 @@ public class LxPlatformSearch {
             JsonObject item = new JsonObject();
             item.addProperty("hash", hash);
             item.addProperty("albumId", albumId);
+            // 歌词候选校验的参照（lyricKg 用）：歌名/歌手/时长（秒）随条目存下，
+            // 没有参照时酷狗歌词候选只能盲取第一个、串版无从拦（扫描 M14）。
+            item.addProperty("name", t.title);
+            item.addProperty("singer", t.artist);
+            if (t.duration > 0) item.addProperty("duration", t.duration / 1000);
             item.addProperty("songmid", hash);
             // 每档真实大小：酷狗搜索回包带 filesize（128k）/320filesize/sqfilesize（FLAC），字节，
             // 2026-10-26 本机实测；键名与 QQ 侧统一成 size128/size320/sizeFlac 供音质面板同口径读。
@@ -537,19 +542,57 @@ public class LxPlatformSearch {
         return null;
     }
 
-    /** 酷狗歌词两步：搜索候选 -> 下载 LRC（base64）。按公开方案实现，未逐条本机验通，见类注释 */
+    /** 版本标记（与 cf-lyric-worker 的 hasVersionMarker 同集）：候选歌名带这些标记而原曲不带，多半是改版 */
+    private static boolean hasVersionMarker(String s) {
+        if (s == null || s.isEmpty()) return false;
+        String t = s.toLowerCase(java.util.Locale.ROOT);
+        return t.matches(".*\\bdj\\b.*") || t.contains("dj版") || t.contains("remix")
+                || t.contains("翻唱") || t.contains("伴奏");
+    }
+
+    /**
+     * 酷狗歌词两步：搜索候选 -> 下载 LRC（base64）。
+     * 候选校验照 cf-lyric-worker 同口径（扫描 M14：旧实现 candidates.get(0) 盲取，
+     * 首位是现场/翻唱/剪辑版就直接串版、还短路掉后面的脚本回落）：
+     * 时长差超 12 秒的候选跳过；候选名带版本标记而原曲不带的降为兜底；
+     * 最多实下 3 个候选，全灭才用兜底。参照（歌名/时长）取条目里的 name/duration，
+     * 存量条目没存时相应校验自动跳过（无参照不误杀）。
+     */
     private static String lyricKg(JsonObject item) throws Exception {
         String hash = optStr(item, "hash");
         if (hash.isEmpty()) return null;
+        String refName = optStr(item, "name");
+        long refDurSec = optLong(item, "duration");
         String search = httpGet("https://lyrics.kugou.com/search?ver=1&man=yes&client=pc&keyword=&hash=" + enc(hash), null);
         JsonObject root = JsonParser.parseString(search).getAsJsonObject();
         JsonArray candidates = root.has("candidates") && root.get("candidates").isJsonArray()
                 ? root.getAsJsonArray("candidates") : null;
-        if (candidates == null || candidates.size() == 0 || !candidates.get(0).isJsonObject()) return null;
-        JsonObject first = candidates.get(0).getAsJsonObject();
-        String id = optStr(first, "id");
-        String accesskey = optStr(first, "accesskey");
-        if (id.isEmpty() || accesskey.isEmpty()) return null;
+        if (candidates == null || candidates.size() == 0) return null;
+        String markedFallback = null;
+        int downloaded = 0;
+        for (JsonElement el : candidates) {
+            if (!el.isJsonObject() || downloaded >= 3) break;
+            JsonObject cand = el.getAsJsonObject();
+            String id = optStr(cand, "id");
+            String accesskey = optStr(cand, "accesskey");
+            if (id.isEmpty() || accesskey.isEmpty()) continue;
+            long candDurSec = optLong(cand, "duration") / 1000;
+            if (candDurSec > 0 && refDurSec > 0 && Math.abs(candDurSec - refDurSec) > 12) continue;
+            String lyric = downloadKgLyric(id, accesskey);
+            downloaded++;
+            if (lyric == null) continue;
+            boolean marked = !hasVersionMarker(refName) && hasVersionMarker(optStr(cand, "song"));
+            if (marked) {
+                if (markedFallback == null) markedFallback = lyric;
+                continue;
+            }
+            return lyric;
+        }
+        return markedFallback;
+    }
+
+    /** 酷狗歌词下载一发：id+accesskey -> LRC 文本，失败返回 null */
+    private static String downloadKgLyric(String id, String accesskey) throws Exception {
         String dl = httpGet("https://lyrics.kugou.com/download?ver=1&client=pc&id=" + enc(id)
                 + "&accesskey=" + enc(accesskey) + "&fmt=lrc&charset=utf8", null);
         JsonObject dlRoot = JsonParser.parseString(dl).getAsJsonObject();

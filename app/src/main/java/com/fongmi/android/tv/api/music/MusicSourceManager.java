@@ -1200,14 +1200,21 @@ public class MusicSourceManager {
                     if (!r.audioOk) r.playMessage = "取不到播放地址";
                     if (r.audioOk) MusicStore.notePluginLatency(site.platform, site.srcUrl, took, true);
                 }
+                // 扫描 M18：lyricCapable 是「插件有没有歌词能力」，必须取自声明/导出，
+                // 不能赋成检测结果 lyricOk——旧写法使终判 (lyricOk || !lyricCapable)
+                // 恒等价于只看 audioOk，歌词已坏的插件永远测不出 FAILED。
+                try {
+                    r.lyricCapable = b.hasFunction("getLyric");
+                } catch (Throwable ignored) {
+                    r.lyricCapable = true; // 能力探不到时按有能力处理，让取词结果说话
+                }
                 try {
                     com.fongmi.android.tv.bean.music.MusicLyric lyric = b.getLyric(first);
                     r.lyricOk = lyric != null && !TextUtils.isEmpty(lyric.rawLrc);
-                    r.lyricCapable = r.lyricOk;
                     if (r.lyricOk) r.preview = previewOf(lyric.rawLrc);
                     else if (!lyricOnly) r.lyricMessage = "歌词为空";
                 } catch (Throwable ignored) {
-                    r.lyricCapable = false;
+                    r.lyricOk = false;
                 }
             }
             if (lyricOnly) {

@@ -35,7 +35,7 @@ import com.fongmi.android.tv.ui.dialog.MusicOptionsDialog;
 import com.fongmi.android.tv.ui.music.MusicGlassDrawable;
 import com.fongmi.android.tv.ui.music.MusicGlassWire;
 import com.fongmi.android.tv.utils.Notify;
-import com.fongmi.android.tv.utils.SpiderDebug;
+import com.github.catvod.crawler.SpiderDebug;
 import com.fongmi.android.tv.utils.XcFadeTransition;
 import com.fongmi.android.tv.utils.Task;
 import com.fongmi.android.tv.ui.music.MusicGlassDialogBuilder;

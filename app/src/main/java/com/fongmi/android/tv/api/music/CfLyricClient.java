@@ -35,6 +35,14 @@ public class CfLyricClient {
     /** 备用端点：原 workers.dev 上的 xc-lyric（主端点传输失败时单发兜底） */
     public static final String FALLBACK_BASE_URL = "https://xc-lyric.1372659842.workers.dev/lyric";
 
+    /** 单发超时（F2 超时收口）：旧 25 秒×（主两发＋备一发）≈76 秒，超过共享链
+     * 等待 75 秒与预取 await 45 秒两层上限，迟到结果与回空竞态、收口不确定。
+     * 改单发 8 秒：fetch 一次的最坏总时长＝主两发 8s×2＋间隔 0.6s＋备一发 8s
+     * ≈24.6 秒（FETCH_WORST_MS），确定小于上层两道封顶（45/75 秒），层级收口。 */
+    static final int FETCH_TIMEOUT_MS = 8000;
+    /** fetch（含重试与备用端点）的最坏总时长上界，供上层定 await 封顶时对账 */
+    public static final long FETCH_WORST_MS = 25_000L;
+
     /** 取数结局分类（诊断用）：拿到 JSON 应答 */
     public static final String NOTE_OK = "ok";
     /** 取数结局分类：两发都没拿到应答体（超时/连接失败，OkHttp.string 已把真因记进 SpiderDebug） */
@@ -61,9 +69,25 @@ public class CfLyricClient {
     }
 
     public CfResponse fetch(String title, String artist, int durationSec) {
-        CfResponse response = fetchPrimary(title, artist, durationSec);
+        return fetchLegs(title, artist, durationSec, "fast");
+    }
+
+    /**
+     * 慢腿补取（提速⑥阶段二）：只问酷我／咪咕两条慢腿——主路（fetch）已按 Worker
+     * 收口只回快腿（酷狗／网易／QQ＋AMLL），慢腿版本由版本面板阶段二的全量聚合
+     * 经本入口补回（MusicRepository cfLyricVersionsAll 的 includeSlow 支）。
+     * 老 Worker 不认 legs 参数会回全量，调用方按既有去重合并、不重复入列。
+     */
+    public CfResponse fetchSlowLegs(MusicTrack track) {
+        if (track == null) return new CfResponse();
+        int durationSec = track.duration > 0 ? (int) (track.duration / 1000) : 0;
+        return fetchLegs(track.title, track.artist, durationSec, "slow");
+    }
+
+    private CfResponse fetchLegs(String title, String artist, int durationSec, String legs) {
+        CfResponse response = fetchPrimary(title, artist, durationSec, legs);
         if (NOTE_TRANSPORT.equals(response.fetchNote)) {
-            CfResponse fallback = fetchFallbackOnce(title, artist, durationSec);
+            CfResponse fallback = fetchFallbackOnce(title, artist, durationSec, legs);
             if (fallback != null) return fallback;
         }
         return response;
@@ -72,13 +96,14 @@ public class CfLyricClient {
     /** 备用端点单发兜底：只在主端点传输失败（超时/连不上）时走，一发定生死、
      * 不重试、不碰熔断（熔断只管主端点，键仍是 baseUrl）；拿到像样应答才算数，
      * 否则回 null 让调用方用主端点的结局分类。 */
-    private CfResponse fetchFallbackOnce(String title, String artist, int durationSec) {
+    private CfResponse fetchFallbackOnce(String title, String artist, int durationSec, String legs) {
         if (FALLBACK_BASE_URL.equals(baseUrl)) return null;
         String query;
         try {
             query = "title=" + URLEncoder.encode(title == null ? "" : title.trim(), "UTF-8")
                     + "&artist=" + URLEncoder.encode(artist == null ? "" : artist.trim(), "UTF-8")
-                    + "&duration=" + Math.max(0, durationSec);
+                    + "&duration=" + Math.max(0, durationSec)
+                    + "&legs=" + legs;
         } catch (Throwable ignored) {
             return null;
         }
@@ -90,21 +115,22 @@ public class CfLyricClient {
         return parsed;
     }
 
-    private CfResponse fetchPrimary(String title, String artist, int durationSec) {
+    private CfResponse fetchPrimary(String title, String artist, int durationSec, String legs) {
         CfResponse response = new CfResponse();
         if (title == null || title.trim().isEmpty()) return response;
         String query;
         try {
             query = "title=" + URLEncoder.encode(title.trim(), "UTF-8")
                     + "&artist=" + URLEncoder.encode(artist == null ? "" : artist.trim(), "UTF-8")
-                    + "&duration=" + Math.max(0, durationSec);
+                    + "&duration=" + Math.max(0, durationSec)
+                    + "&legs=" + legs;
         } catch (Throwable ignored) {
             return response;
         }
         String url = baseUrl + (baseUrl.contains("?") ? "&" : "?") + query;
-        // 熔断（真机日志实锤）：他的网络下 workers.dev 直连每次 25 秒超时、同会话
+        // 熔断（真机日志实锤）：他的网络下 workers.dev 直连每次超时、同会话
         // 反复重试全灭，预取任务两次撞满 45 秒上限——同一端点刚以传输失败收场时，
-        // 窗口内后续调用直接按传输失败返回，不再逐条链重复烧 2×25 秒；端点恢复
+        // 窗口内后续调用直接按传输失败返回，不再逐条链重复烧整段超时；端点恢复
         // （迁移/换地址都会换 baseUrl）或窗口过后自动重试，拿到应答即解除。
         if (breakerTripped()) {
             response.fetchNote = NOTE_TRANSPORT;
@@ -166,7 +192,7 @@ public class CfLyricClient {
         try {
             Map<String, String> headers = new HashMap<>();
             headers.put("Accept", "application/json");
-            String body = OkHttp.string(url, headers, 25000);
+            String body = OkHttp.string(url, headers, FETCH_TIMEOUT_MS);
             if (body == null || body.trim().isEmpty()) {
                 lastNote = NOTE_TRANSPORT;
                 return null;
@@ -227,6 +253,13 @@ public class CfLyricClient {
                     String value = errors.optString(key);
                     if (value != null && !value.isEmpty()) response.errors.put(key, value);
                 }
+            }
+            // errors 消费（F2 低项）：此前解析完无人读——平台级失败原因（哪家
+            // no-match／timeout）到不了定案面。这里统一落一条日志，面板/排障按
+            // 平台名 grep 即知哪条腿为什么空；只记有错的平台，成功腿不刷屏。
+            if (!response.errors.isEmpty()) {
+                SpiderDebug.log("music", "cf lyric platform errors title=%s errors=%s",
+                        response.title, response.errors.toString());
             }
         } catch (Throwable ignored) {
         }

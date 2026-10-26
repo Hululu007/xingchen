@@ -106,6 +106,15 @@ public class MusicPlaybackService extends MediaSessionService {
     private static final int FG_NOTIFICATION_ID = 1004;
 
     /**
+     * 媒体通知已由 provider 发出过标记：provider 的媒体卡一上岗，占位起播路径
+     * （startForegroundWithTrack）不许再拿素条盖它——每首起播都会调
+     * startForegroundNow，顺序在播放器事件之后时就把媒体卡顶成素条且整首不再
+     * 刷新（真机症状：通知栏没有播放器卡、灵动岛也不出）。provider 的回调里
+     * 置真、demoteForeground 降前台时清假（降了前台通知已撤、下一首要重新顶）。
+     */
+    private static volatile boolean sMediaNotificationPosted;
+
+    /**
      * 失败停机通知 id：与媒体通知 1004、通用 Notify 9527 都不同，
      * 失败停机时单独发一条、点开回播放器；恢复播放时按此 id 撤掉。
      */
@@ -410,6 +419,11 @@ public class MusicPlaybackService extends MediaSessionService {
      * restoreBreakpoint 撤掉，不常驻）。不自动播的口径不变（见 restoreBreakpoint）。
      */
     private void startForegroundWithTrack(MusicTrack track) {
+        if (sMediaNotificationPosted) {
+            // 媒体卡已在岗：占位不许盖（见 sMediaNotificationPosted 注释）
+            foregroundFailed = false;
+            return;
+        }
         try {
             NotificationCompat.Builder builder = new NotificationCompat.Builder(this, Notify.DEFAULT)
                     .setSmallIcon(R.drawable.ic_notification)
@@ -2154,6 +2168,7 @@ public class MusicPlaybackService extends MediaSessionService {
 
     /** 不起播收口（对差清单 D5）：停播后撤前台，别把通知空挂着 */
     private void demoteForeground() {
+        sMediaNotificationPosted = false;
         try {
             stopForeground(true);
         } catch (Throwable ignored) {
@@ -2581,6 +2596,7 @@ public class MusicPlaybackService extends MediaSessionService {
         @Override
         public MediaNotification createNotification(MediaSession mediaSession, ImmutableList<CommandButton> mediaButtonPreferences, MediaNotification.ActionFactory actionFactory, Callback onNotificationChangedCallback) {
             MediaNotification result = delegate.createNotification(mediaSession, mediaButtonPreferences, actionFactory, notification -> {
+                sMediaNotificationPosted = true;
                 SpiderDebug.log("music", "notifDiag changed id=" + notification.notificationId);
                 onNotificationChangedCallback.onNotificationChanged(notification);
             });

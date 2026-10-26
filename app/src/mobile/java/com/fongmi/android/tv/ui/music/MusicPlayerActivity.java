@@ -843,14 +843,14 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
         boolean local = mTrack != null
                 && com.fongmi.android.tv.music.MusicDownloadStore.isLocal(mTrack);
         mScrubber.setLocalTrack(local);
-        // 音质筹只报真实音质（他的口径：取不到就不显示，永不拿所选档名垫场）
+        // 音质筹只报真实音质（他的口径：取不到就不显示，永不拿所选档名垫场）：
+        // 拼串只走 MusicAudioInfo.describe() 单一口径——无损只显编码名、有损显编码＋真实码率、
+        // 有损码率取不到回 null 整格不露面。旧写法门用 shortCode、正文自拼：有损码率未知时
+        // 只剩一个编码名照样上桌，违「实测不到不露面」。
         String q = "";
         try {
             com.fongmi.android.tv.music.MusicAudioInfo info = MusicController.get().audioInfo();
-            if (info != null && info.shortCode() != null && !info.shortCode().isEmpty()) {
-                q = info.lossless ? info.codec : info.codec + " " + (info.bitrateKbps > 0 ? info.bitrateKbps + "kbps" : "");
-                q = q.trim();
-            }
+            if (info != null && info.describe() != null) q = info.describe();
         } catch (Throwable ignored) {
         }
         mScrubber.setChips(q, lyricChipLabel());

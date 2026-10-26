@@ -599,7 +599,13 @@ public class LxMusicSource implements MusicSource {
         for (int i = wantIdx + 1; i < order.length; i++) {
             if (s.qualitys.contains(order[i])) return order[i];
         }
-        return s.qualitys.get(0);
+        // 扫描 H13：回落取「声明的最低档」要按档位阶梯算，不取声明顺序首位——
+        // 此前 get(0) 在脚本非升序声明（如 [flac, 320k]）时把最高档当最低档喂出去。
+        // 走到这里说明 want 以下无声明，剩下的都在 want 以上，取阶梯最低的那个。
+        for (int i = order.length - 1; i >= 0; i--) {
+            if (s.qualitys.contains(order[i])) return order[i];
+        }
+        return s.qualitys.get(0); // 声明里全是阶梯外的值：无从判高低，按原顺序首位
     }
 
     private int indexOf(String[] arr, String v) {

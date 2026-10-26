@@ -163,6 +163,7 @@ public class MusicLyricVersionsDialog extends BaseBottomSheetDialog {
             } catch (Throwable ignored) {
             }
             if (first != null && !first.isEmpty()) publishVersions(t, first, false);
+            else publishStageFallback(t);
             // 阶段二：全量聚合（与自动恢复同一条链，口径不动），收完替换为全量结果。
             List<LyricVersion> full = null;
             try {
@@ -172,6 +173,17 @@ public class MusicLyricVersionsDialog extends BaseBottomSheetDialog {
             List<LyricVersion> vs = full == null ? new ArrayList<>() : full;
             if (first != null && vs.size() < first.size()) vs = first;
             publishVersions(t, vs, true);
+        });
+    }
+
+    /** 阶段一（主来源 Worker）没回来时的中间态：把状态说清，别与「还在搜」同形无信息，
+     * 免得主来源慢/堵时面板看着像死在「正在搜索歌词候选」（1.4.44 真机实证）。 */
+    private void publishStageFallback(final MusicTrack t) {
+        if (getActivity() == null) return;
+        getActivity().runOnUiThread(() -> {
+            if (!isAdded() || track != t || loaded) return;
+            if (subView != null) subView.setText("主来源没回来，正在从其它来源找");
+            if (statusView != null) statusView.setText("正在从其它来源找歌词");
         });
     }
 

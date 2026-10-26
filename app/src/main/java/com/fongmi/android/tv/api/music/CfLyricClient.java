@@ -3,15 +3,11 @@ package com.fongmi.android.tv.api.music;
 import com.fongmi.android.tv.bean.music.LyricVersion;
 import com.fongmi.android.tv.bean.music.MusicLyric;
 import com.fongmi.android.tv.bean.music.MusicTrack;
+import com.github.catvod.net.OkHttp;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.io.BufferedReader;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -23,6 +19,9 @@ import java.util.Map;
  * 只做请求与解析，不改任何现有取词链；接线由词级链统一做。
  * Worker 回包版本平台值与瓜子一致：kugou、netease、qq、kuwo、migu、amll；
  * 本地版本不走 Worker，手机侧自己有。
+ * 传输走 catvod OkHttp（与全 App 取数同待遇：DoH／代理选择器／拦截器）——
+ * 此前是全 App 唯一裸 HttpURLConnection 的取数口，代理与分应用 VPN 场景下
+ * 直连 workers.dev 慢/超时，面板阶段一长期回空（1.4.44 真机实证）。
  */
 public class CfLyricClient {
 
@@ -47,30 +46,44 @@ public class CfLyricClient {
     public CfResponse fetch(String title, String artist, int durationSec) {
         CfResponse response = new CfResponse();
         if (title == null || title.trim().isEmpty()) return response;
-        HttpURLConnection connection = null;
+        String query;
         try {
-            String query = "title=" + URLEncoder.encode(title.trim(), "UTF-8")
+            query = "title=" + URLEncoder.encode(title.trim(), "UTF-8")
                     + "&artist=" + URLEncoder.encode(artist == null ? "" : artist.trim(), "UTF-8")
                     + "&duration=" + Math.max(0, durationSec);
-            URL url = new URL(baseUrl + (baseUrl.contains("?") ? "&" : "?") + query);
-            connection = (HttpURLConnection) url.openConnection();
-            connection.setRequestMethod("GET");
-            connection.setConnectTimeout(10000);
-            connection.setReadTimeout(25000);
-            connection.setRequestProperty("Accept", "application/json");
-            int code = connection.getResponseCode();
-            if (code != 200) return response;
-            InputStream input = connection.getInputStream();
-            BufferedReader reader = new BufferedReader(new InputStreamReader(input, "UTF-8"));
-            StringBuilder builder = new StringBuilder();
-            String line;
-            while ((line = reader.readLine()) != null) builder.append(line).append('\n');
-            reader.close();
-            return parse(builder.toString());
         } catch (Throwable ignored) {
             return response;
-        } finally {
-            if (connection != null) connection.disconnect();
+        }
+        String url = baseUrl + (baseUrl.contains("?") ? "&" : "?") + query;
+        // 传输层没拿到应答（超时/非 200/空体）时重试一次：Worker 首发慢是常态，
+        // 一发定生死会把面板阶段一长期卡在空。拿到应答（哪怕版本为空）不重试。
+        for (int attempt = 1; attempt <= 2; attempt++) {
+            String body = fetchOnce(url);
+            if (body != null) return parse(body);
+            if (attempt < 2) {
+                try {
+                    Thread.sleep(600);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return response;
+                }
+            }
+        }
+        return response;
+    }
+
+    /** 拿到像样的应答体返回原文；传输失败/空体/非 JSON（如边缘错误页）返回 null
+     * （与「应答了但没版本」区分，OkHttp.string 本身不分状态码、失败回空串）。 */
+    private String fetchOnce(String url) {
+        try {
+            Map<String, String> headers = new HashMap<>();
+            headers.put("Accept", "application/json");
+            String body = OkHttp.string(url, headers, 25000);
+            if (body == null) return null;
+            String trimmed = body.trim();
+            return trimmed.startsWith("{") ? body : null;
+        } catch (Throwable ignored) {
+            return null;
         }
     }
 

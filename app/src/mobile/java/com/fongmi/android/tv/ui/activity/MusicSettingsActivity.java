@@ -147,8 +147,6 @@ public class MusicSettingsActivity extends BaseActivity {
         binding.rowSpeed.setOnClickListener(v -> showSpeedDialog());
         binding.rowEqSystem.setOnClickListener(v -> MusicFxDialog.show(this));
         binding.rowEqParam.setOnClickListener(v -> ParametricEqDialog.show(this));
-        refreshThemeText();
-        binding.rowPlayerTheme.setOnClickListener(v -> showThemeDialog());
         initSwitch(binding.swFluidBg, MusicStore.isFluidBg(), MusicStore::setFluidBg);
         binding.rowFluidBg.setOnClickListener(v -> binding.swFluidBg.toggle());
         initSwitch(binding.swKeepScreen, MusicStore.isPlayerKeepScreenOn(), MusicStore::setPlayerKeepScreenOn);
@@ -179,7 +177,6 @@ public class MusicSettingsActivity extends BaseActivity {
         refreshBatteryText();
         refreshPlayModeText();
         refreshSpeedText();
-        refreshThemeText();
         refreshMobileQualityText();
         refreshDlEmbedText();
         refreshDlEmbedFailText();
@@ -353,25 +350,6 @@ public class MusicSettingsActivity extends BaseActivity {
             }
             MusicStore.setSpeed(speeds[idx]);
             refreshSpeedText();
-        });
-    }
-
-    /** 播放页主题行（2026-10-26 他令摘除未建成选项）：主题只留已建成的经典——其余六个
-     * 选项（封面卡片／Apple Music／流光 CD 三变体／黑胶唱片架）设置页与工具面板两处一并
-     * 摘除；流光 CD 盘面行整行已摘（布局＋本类两方法＋全部调用点）。存量里若存过非经典
-     * 主题值，MusicPlayerSettings.getTheme 一律回落经典，不报错不白屏。五主题本体属批二，
-     * 做完一个再把选项加回一个，本批不开工。 */
-    private void refreshThemeText() {
-        binding.tvPlayerTheme.setText(R.string.music_theme_classic);
-    }
-
-    private void showThemeDialog() {
-        String[] ids = {com.fongmi.android.tv.ui.music.MusicPlayerSettings.THEME_CLASSIC};
-        List<String> opts = new ArrayList<>();
-        opts.add(getString(R.string.music_theme_classic));
-        MusicOptionsDialog.show(this, "播放页主题", opts, 0, idx -> {
-            com.fongmi.android.tv.ui.music.MusicPlayerSettings.setTheme(ids[idx]);
-            refreshThemeText();
         });
     }
 

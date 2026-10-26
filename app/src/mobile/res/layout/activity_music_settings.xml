@@ -330,38 +330,6 @@
                     </LinearLayout>
                 </LinearLayout>
 
-                <!-- 主题与外观 -->
-                <TextView
-                    style="@style/MusicSettingSection"
-                    android:text="主题与外观" />
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:background="@drawable/bg_music_glass_card"
-                    android:orientation="vertical">
-
-                    <LinearLayout
-                        android:id="@+id/rowPlayerTheme"
-                        style="@style/MusicSettingRow">
-
-                        <ImageView
-                            style="@style/MusicSettingIcon"
-                            android:backgroundTint="#F48FB1"
-                            android:contentDescription="@null"
-                            android:src="@drawable/ic_music_palette" />
-
-                        <TextView
-                            style="@style/MusicSettingName"
-                            android:text="播放页主题" />
-
-                        <TextView
-                            android:id="@+id/tvPlayerTheme"
-                            style="@style/MusicSettingValue" />
-                    </LinearLayout>
-
-                </LinearLayout>
-
                 <!-- 播放器视觉 -->
                 <TextView
                     style="@style/MusicSettingSection"

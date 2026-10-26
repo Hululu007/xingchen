@@ -253,6 +253,8 @@ public class MusicPlaybackService extends MediaSessionService {
     private boolean endedConsumed;
     /** 越界看门狗计时：播放头首次越过标称时长的时刻（elapsedRealtime）；条件不成立的 tick 清零 */
     private long overrunSinceElapsed;
+    /** 卡尾兜底的持续判定起点（H5）：条件连续满足满 1000ms 才判曲终，单 tick 缓冲不算 */
+    private long tailStuckSinceElapsed;
     private volatile MusicAudioInfo audioInfo;
     /**
      * 当前曲实际起播直链（setMediaItem 处记、停播／取链为空时清）：只供在线位深
@@ -490,6 +492,12 @@ public class MusicPlaybackService extends MediaSessionService {
             stopForeground(true);
         } catch (Throwable ignored) {
         }
+        // 扫描 H3：静态标记跨实例复位——它只在 provider 回调置 true、demoteForeground
+        // 置 false，定时停机/onTaskRemoved 的 stopSelf 都不走 demote；不复位的话服务
+        // 重建后 startForegroundNow 恒被「已在岗」短路，新实例可能永不调 startForeground。
+        sMediaNotificationPosted = false;
+        // 扫描 H4：销毁时取消在途取链，不让僵尸任务继续占音乐池打源
+        cancelPrepareFuture();
         saveBreakpoint(); // M4：failedStopNoBreakpoint 为 true 时内部直接返回，断点保持此前好歌
         cancelSleep();
         releaseFx();
@@ -1922,6 +1930,9 @@ public class MusicPlaybackService extends MediaSessionService {
                 && !new File(track.localPath).isFile()
                 && (MusicDownloadStore.isLocal(track)
                 || com.fongmi.android.tv.music.DeviceMusicSource.PLATFORM.equals(track.platform));
+        // 扫描 H4：覆写前先取消上一首的在途取链——seq 只让旧结果作废、不释放任务，
+        // 连点切歌时旧任务继续占 4 线程音乐池并打源，新歌取链排队越来越慢。
+        cancelPrepareFuture();
         prepareFuture = Task.submitMusic(() -> {
             // 移动网络播放开关：关了、当前是流量、且是需要联网的歌（本地/已下载/设备歌曲不受影响）
             boolean blocked = !MusicStore.isMobilePlay() && !MusicDownloadStore.isLocal(track)
@@ -2028,11 +2039,16 @@ public class MusicPlaybackService extends MediaSessionService {
                 // 下面 saveBreakpoint 存的就是新歌，此后断点写盘恢复正常。
                 failedStopNoBreakpoint = false;
                 saveBreakpoint();
-                MusicStore.pushRecent(track);
+                // 扫描 T2：记最近播放与预取下一首只在真起播（autoplay）时做——
+                // 暂停态装载队列（loadQueuePaused，autoplay=false）全程没出声，
+                // 此前无条件执行让没听过的歌进历史、还替它预取下一首耗流量。
+                if (autoplay) {
+                    MusicStore.pushRecent(track);
+                    maybePreloadNext(); // 本首起播后，下一首的链先取好（预加载下一首，默认开）
+                }
                 listeners.forEach(l -> l.onTrackChanged(track));
                 // W-E 落位信号：装载成功即发，页内以本事件为准，不靠计次
                 listeners.forEach(l -> l.onTrackReady(track));
-                maybePreloadNext(); // 本首起播后，下一首的链先取好（预加载下一首，默认开）
             });
         });
     }
@@ -2501,15 +2517,24 @@ public class MusicPlaybackService extends MediaSessionService {
                     }
                     // 卡尾兜底：ENDED 没到、但播放器想播却停在曲尾（厂商吞回调／尾字节挂住），
                     // 直接按曲终决策推进；用户手动暂停（playWhenReady=false）不触发。
+                    // 扫描 H5：加持续判定（与越界兜底同口径满 1000ms）——此前单个 tick
+                    // 满足即判曲终，弱网下最后 500ms 内一次缓冲就会被误判、吃掉尾奏。
                     if (player != null && !preparing && !endedConsumed
                             && player.getPlayWhenReady() && !player.isPlaying()
                             && player.getPlaybackState() != Player.STATE_IDLE
                             && player.getPlaybackState() != Player.STATE_ENDED
                             && player.getDuration() > 0
                             && player.getCurrentPosition() >= player.getDuration() - 500) {
-                        endedConsumed = true;
-                        SpiderDebug.log("music", "trackEnded via tail watchdog mode=%d", queue.getMode());
-                        onTrackEnded();
+                        long nowTail = android.os.SystemClock.elapsedRealtime();
+                        if (tailStuckSinceElapsed == 0) tailStuckSinceElapsed = nowTail;
+                        if (nowTail - tailStuckSinceElapsed >= 1000) {
+                            endedConsumed = true;
+                            tailStuckSinceElapsed = 0;
+                            SpiderDebug.log("music", "trackEnded via tail watchdog mode=%d", queue.getMode());
+                            onTrackEnded();
+                        }
+                    } else {
+                        tailStuckSinceElapsed = 0;
                     }
                     // 越界兜底（与上面卡尾兜底互补的另一半）：播放头已越过标称时长却仍停在
                     // READY 结不掉——isPlaying() 仍为真，上面那条永远轮不到；media3 要等 60 秒

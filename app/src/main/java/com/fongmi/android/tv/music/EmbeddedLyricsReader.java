@@ -58,8 +58,8 @@ public final class EmbeddedLyricsReader {
             raf.seek(10);
             raf.readFully(tag);
             if (unsync) tag = deunsync(tag);
-            if (major == 2) return scanId3v2(tag, true);
-            return scanId3v2(tag, false);
+            if (major == 2) return scanId3v2(tag, true, false);
+            return scanId3v2(tag, false, major == 4);
         }
     }
 
@@ -90,7 +90,7 @@ public final class EmbeddedLyricsReader {
     }
 
     /** 帧头校验滑动扫描：扩展头／填充／垃圾字节都滑过去，只认合法帧头；目标帧按优先级收齐再定。 */
-    private static String scanId3v2(byte[] tag, boolean v22) throws Exception {
+    private static String scanId3v2(byte[] tag, boolean v22, boolean v24) throws Exception {
         String uslt = null;
         String sylt = null;
         String txxx = null;
@@ -115,7 +115,11 @@ public final class EmbeddedLyricsReader {
                     continue;
                 }
                 if (off + 10 > tag.length) break;
-                int size = ((tag[off + 4] & 0xFF) << 24) | ((tag[off + 5] & 0xFF) << 16)
+                // 扫描 M12：v2.4 帧长是 synchsafe 整数（每字节 7 位），与 v2.3 的普通
+                // 大端整数不同——旧实现 3/4 共用大端解析，v2.4 下歌词帧（≥128 字节）
+                // 长度被放大数十倍、整表扫描直接 break，内嵌词基本读不到。
+                int size = v24 ? synchsafe(tag, off + 4)
+                        : ((tag[off + 4] & 0xFF) << 24) | ((tag[off + 5] & 0xFF) << 16)
                         | ((tag[off + 6] & 0xFF) << 8) | (tag[off + 7] & 0xFF);
                 if (size <= 0 || off + 10 + size > tag.length) break;
                 String id = new String(tag, off, 4, StandardCharsets.ISO_8859_1);
@@ -167,7 +171,11 @@ public final class EmbeddedLyricsReader {
             int tsPos = tEnd + (enc == 0 || enc == 3 ? 1 : 2);
             long ts = ((tag[tsPos] & 0xFFL) << 24) | ((tag[tsPos + 1] & 0xFFL) << 16)
                     | ((tag[tsPos + 2] & 0xFFL) << 8) | (tag[tsPos + 3] & 0xFFL);
-            if (tsFormat == 2) ts = ts * 1000 / 44100;
+            // 扫描 M11：SYLT 格式字节 2＝毫秒（本就是毫秒，旧实现却按采样数换算、
+            // 时间被压到约 1/22）；1＝MPEG 帧为单位，帧长取决于音频流参数、SYLT
+            // 本身不带，只能按最常见的 MPEG1 Layer3（1152 采样/帧、44.1kHz）近似
+            // 换算——原样当毫秒用会差约 26 倍，近似换算后至少量级正确。
+            if (tsFormat == 1) ts = ts * 1152 * 1000 / 44100;
             if (!text.trim().isEmpty()) {
                 entries.add(new long[]{ts});
                 texts.add(text.trim());

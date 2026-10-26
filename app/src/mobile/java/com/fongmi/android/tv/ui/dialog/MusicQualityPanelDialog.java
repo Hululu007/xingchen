@@ -62,7 +62,7 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
     }
 
     private static final int RED = 0xFFFA243C;
-    private static final int NAME = 0xFF1C1C1E;
+    private static final int NAME = 0xFFF1F4F5;
     private static final int GRAY = 0xFF8E8E93;
 
     private static class Row {
@@ -80,7 +80,7 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
     }
 
     private static final Row[] ROWS = {
-            new Row(MusicStore.QUALITY_SUPER, R.drawable.ic_quality_hires, "母带", "24bit / 192kHz · FLAC"),
+            new Row(MusicStore.QUALITY_SUPER, R.drawable.ic_quality_hires, "母带", "FLAC"),
             new Row(MusicStore.QUALITY_HIGH, R.drawable.ic_quality_lossless, "FLAC", "FLAC"),
             new Row(MusicStore.QUALITY_STANDARD, R.drawable.ic_quality_high, "320k", "320 kbps"),
             new Row(MusicStore.QUALITY_LOW, R.drawable.ic_quality_standard, "128k", "128 kbps"),
@@ -286,6 +286,8 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
         for (int i = 0; i < rows.size(); i++) {
             View row = inflater.inflate(R.layout.item_music_quality_row, rowsContainer, false);
             MusicGlassWire.glassify(row); // 音质行一框：液态玻璃（原 bg_music_quality_row 半透渐变）
+            View iconBox0 = row.findViewById(R.id.qr_icon_box);
+            if (iconBox0 != null) MusicGlassWire.glassify(iconBox0); // 图标盒同换玻璃（识别表已登记）
             if (i > 0) {
                 LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) row.getLayoutParams();
                 if (lp != null) lp.topMargin = dp(8);
@@ -301,10 +303,18 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
     }
 
     private void bindRow(View row, Row r, boolean selected) {
-        row.setBackgroundResource(selected ? R.drawable.bg_music_quality_row_sel : R.drawable.bg_music_quality_row);
+        // 背景归玻璃（buildRows 已 glassify）：这里只切 tone——选中＝红 tone 玻璃行，
+        // 不许再 setBackgroundResource 把白板/粉板盖回来（1.4.42 真机就是这么被盖掉的）。
+        if (row.getBackground() instanceof MusicGlassDrawable) {
+            MusicGlassDrawable g = (MusicGlassDrawable) row.getBackground();
+            if (selected) g.setToneColor(RED, 0.16f);
+            else g.setToneColor(0, 0f);
+        }
         View iconBox = row.findViewById(R.id.qr_icon_box);
-        if (iconBox != null) {
-            iconBox.setBackgroundResource(selected ? R.drawable.bg_music_quality_icon_sel : R.drawable.bg_music_quality_icon);
+        if (iconBox != null && iconBox.getBackground() instanceof MusicGlassDrawable) {
+            MusicGlassDrawable g = (MusicGlassDrawable) iconBox.getBackground();
+            if (selected) g.setToneColor(RED, 0.20f);
+            else g.setToneColor(0, 0f);
         }
         ImageView icon = row.findViewById(R.id.qr_icon);
         if (icon != null) {

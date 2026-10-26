@@ -18,7 +18,7 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="播放音质"
-            android:textColor="#1C1C1E"
+            android:textColor="#F1F4F5"
             android:textSize="20sp"
             android:textStyle="bold" />
 
@@ -58,7 +58,7 @@
                 android:id="@+id/qp_title"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textColor="#1C1C1E"
+                android:textColor="#F1F4F5"
                 android:textSize="16sp"
                 android:textStyle="bold" />
 
@@ -67,7 +67,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="1dp"
-                android:textColor="#8E8E93"
+                android:textColor="#99FFFFFF"
                 android:textSize="13sp" />
 
             <TextView
@@ -75,7 +75,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="1dp"
-                android:textColor="#8E8E93"
+                android:textColor="#99FFFFFF"
                 android:textSize="12sp" />
         </LinearLayout>
     </LinearLayout>

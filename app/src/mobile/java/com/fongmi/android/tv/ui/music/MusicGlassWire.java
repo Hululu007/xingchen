@@ -61,6 +61,28 @@ public final class MusicGlassWire {
             R.drawable.home_bg_card_pink,
             R.drawable.home_bg_card_teal,
             R.drawable.home_bg_card_lime,
+            // 2026-10-26 全扫补登：他点名「很多地方还是普通框」——音乐面在用却没进识别表的框全补
+            R.drawable.bg_chart_card,
+            R.drawable.bg_chart_focus,
+            R.drawable.bg_guess_hero,
+            R.drawable.bg_import_cloud,
+            R.drawable.bg_inset_row,
+            R.drawable.bg_login_row,
+            R.drawable.bg_platform_cell,
+            R.drawable.bg_music_quality_close,
+            R.drawable.bg_music_quality_row,
+            R.drawable.bg_music_quality_icon,
+            R.drawable.bg_music_setting_icon,
+            R.drawable.bg_pill_dark,
+            R.drawable.bg_pill_light22,
+            R.drawable.bg_pill_sheets_new,
+            R.drawable.bg_pill_chart_play,
+            R.drawable.bg_plugin_add_link,
+            R.drawable.bg_plugin_add_local,
+            R.drawable.bg_plugin_stats_icon,
+            R.drawable.bg_circle_light,
+            R.drawable.bg_circle_white,
+            R.drawable.bg_sheet_source,
     };
     private static final float[] RADII_DP = {
             16f,   // bg_music_glass_card
@@ -87,6 +109,27 @@ public final class MusicGlassWire {
             20f,   // home_bg_card_pink（三彩卡·猜你喜欢，与原 shape 圆角一致；不带 tone——他 10-25 23:02 令颜色不必留、跟其它卡一套玻璃）
             20f,   // home_bg_card_teal（三彩卡·排行榜）
             20f,   // home_bg_card_lime（三彩卡·随心听）
+            16f,   // bg_chart_card
+            20f,   // bg_chart_focus
+            20f,   // bg_guess_hero
+            16f,   // bg_import_cloud
+            10f,   // bg_inset_row
+            10f,   // bg_login_row
+            12f,   // bg_platform_cell
+            16f,   // bg_music_quality_close
+            14f,   // bg_music_quality_row
+            10f,   // bg_music_quality_icon
+            10f,   // bg_music_setting_icon（设置页图标片：脱糖果色、成玻璃片）
+            999f,  // bg_pill_dark（胶囊全圆）
+            999f,  // bg_pill_light22
+            999f,  // bg_pill_sheets_new
+            14f,   // bg_pill_chart_play
+            8f,    // bg_plugin_add_link
+            8f,    // bg_plugin_add_local
+            12f,   // bg_plugin_stats_icon
+            999f,  // bg_circle_light
+            999f,  // bg_circle_white
+            10f,   // bg_sheet_source（队列来源行）
     };
 
     private static Map<Drawable.ConstantState, Float> sTable; // 懒建（ConstantState → 圆角 dp）

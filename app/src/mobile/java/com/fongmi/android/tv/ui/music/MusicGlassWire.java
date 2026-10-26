@@ -116,8 +116,8 @@ public final class MusicGlassWire {
             10f,   // bg_inset_row
             10f,   // bg_login_row
             12f,   // bg_platform_cell
-            16f,   // bg_music_quality_close
-            14f,   // bg_music_quality_row
+            999f,  // bg_music_quality_close（36 圆钮）
+            16f,   // bg_music_quality_row（瓜子版本卡圆角 16）
             10f,   // bg_music_quality_icon
             10f,   // bg_music_setting_icon（设置页图标片：脱糖果色、成玻璃片）
             999f,  // bg_pill_dark（胶囊全圆）

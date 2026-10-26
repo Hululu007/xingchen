@@ -142,6 +142,19 @@ public class Migrations {
         }
     };
 
+    public static final Migration MIGRATION_44_45 = new Migration(44, 45) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase database) {
+            // 已下载音质标回显＋歌词写入失败留痕：MusicDownload 补两列——qualityTag
+            // 存下载当下的音质标（重启回读列表回显，存量行留 null 不显、不冒充）；
+            // lyric 存「封面与歌词」写入失败且策略为写入字段时取到的歌词原文
+            // （回读兜底见 MusicDownloadStore.readSidecarLyric，存量行留 null）。
+            // 两列都是纯追加，存量行一行不丢、不改值。
+            database.execSQL("ALTER TABLE MusicDownload ADD COLUMN qualityTag TEXT");
+            database.execSQL("ALTER TABLE MusicDownload ADD COLUMN lyric TEXT");
+        }
+    };
+
     public static final Migration MIGRATION_42_43 = new Migration(42, 43) {
         @Override
         public void migrate(@NonNull SupportSQLiteDatabase database) {

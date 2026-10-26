@@ -20,6 +20,10 @@ public class MusicDownload {
     private String cover;
     private String filePath;
     private long createTime;
+    /** 下载当下那首歌的音质标（快照 qualityTag，如 FLAC／320k）：重启回读已下载列表时回显用，旧行留空不显 */
+    private String qualityTag;
+    /** 歌词旁路／内嵌写入失败且策略为「写入字段」时存下的歌词原文（回读兜底，见 MusicDownloadStore.readSidecarLyric） */
+    private String lyric;
 
     public long getId() {
         return id;
@@ -91,5 +95,21 @@ public class MusicDownload {
 
     public void setCreateTime(long createTime) {
         this.createTime = createTime;
+    }
+
+    public String getQualityTag() {
+        return qualityTag;
+    }
+
+    public void setQualityTag(String qualityTag) {
+        this.qualityTag = qualityTag;
+    }
+
+    public String getLyric() {
+        return lyric;
+    }
+
+    public void setLyric(String lyric) {
+        this.lyric = lyric;
     }
 }

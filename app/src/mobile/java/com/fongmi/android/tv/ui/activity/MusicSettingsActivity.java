@@ -649,11 +649,11 @@ public class MusicSettingsActivity extends BaseActivity {
         });
     }
 
-    /** 第三波 S-A3：封面与歌词行值（内嵌档后附“未接线”不冒充已实现，见 MusicStore 注释）。 */
+    /** 第三波 S-A3：封面与歌词行值（内嵌档已接真写入，行值与行为一致，不再挂未接线）。 */
     private void refreshDlEmbedText() {
         int m = MusicStore.getDlEmbed();
-        binding.tvDlEmbed.setText(m == MusicStore.DL_EMBED_EMBEDDED ? "内嵌到音频文件（未接线）"
-                : m == MusicStore.DL_EMBED_BOTH ? "两者（内嵌未接线）" : "旁路同名文件");
+        binding.tvDlEmbed.setText(m == MusicStore.DL_EMBED_EMBEDDED ? "内嵌到音频文件"
+                : m == MusicStore.DL_EMBED_BOTH ? "两者" : "旁路同名文件");
     }
 
     private void showDlEmbedDialog() {

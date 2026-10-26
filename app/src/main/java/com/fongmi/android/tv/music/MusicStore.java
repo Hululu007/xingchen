@@ -1142,10 +1142,9 @@ public class MusicStore {
     }
 
     /** 第三波 S-A3：封面与歌词写盘方式（新任务生效，已下载文件不动）：
-     * 0 旁路同名文件（默认＝现行可落地口径）、1 内嵌到音频文件、2 两者。
-     * 内嵌档目前无写码位置：树内无音频标签写入库（无 jaudiotagger 之类），
-     * 内嵌／两者档的内嵌部分本波未接线（见 MusicDownloadStore.downloadSidecars），
-     * 旁路部分照常写；不要把内嵌档报成已实现。 */
+     * 0 旁路同名文件（默认）、1 内嵌到音频文件、2 两者。内嵌路由
+     * EmbeddedTagWriter 按格式原文真写（ID3v2.3／FLAC），不支持的格式回失败、
+     * 按写入失败策略分流（见 MusicDownloadStore.downloadSidecars），不冒充已内嵌。 */
     public static final int DL_EMBED_SIDECAR = 0;
     public static final int DL_EMBED_EMBEDDED = 1;
     public static final int DL_EMBED_BOTH = 2;
@@ -1160,8 +1159,9 @@ public class MusicStore {
         Prefers.put(K_DL_EMBED, mode >= DL_EMBED_SIDECAR && mode <= DL_EMBED_BOTH ? mode : DL_EMBED_SIDECAR);
     }
 
-    /** 第三波 S-A3：写入失败策略（新任务生效）：0 跳过不写（默认）、1 写入 URL 字段
-     * （封面 URL 已存在下载记录 cover 字段里，即该字段本身；歌词无 URL 字段可写，失败即跳过）。 */
+    /** 第三波 S-A3：写入失败策略（新任务生效，封面与歌词同一口径）：0 跳过不写（默认）、
+     * 1 写入下载记录字段——封面写 cover 字段（URL 本身），歌词写 lyric 字段（原文，
+     * readSidecarLyric 旁路缺失时回读兜底）。 */
     public static final int DL_EMBED_FAIL_SKIP = 0;
     public static final int DL_EMBED_FAIL_URL = 1;
     private static final String K_DL_EMBED_FAIL = "music_dl_embed_fail";

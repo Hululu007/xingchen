@@ -16,6 +16,7 @@ import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.Task;
 import com.fongmi.android.tv.utils.download.DownloadManager;
 import com.fongmi.android.tv.utils.download.DownloadTask;
+import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.utils.Prefers;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
@@ -76,6 +77,7 @@ public class MusicDownloadStore {
         t.album = d.getAlbum();
         t.duration = d.getDuration();
         t.cover = d.getCover();
+        t.qualityTag = d.getQualityTag();
         t.platform = LocalMusicSource.PLATFORM;
         t.localPath = d.getFilePath();
         // 第三波 P-8c：已下载歌首次加载（列表／队列取数即到这里）时，记录封面为空才
@@ -140,29 +142,43 @@ public class MusicDownloadStore {
     /** 第三波 G-C1：已下载歌同名旁路歌词文本（离线优先读旁路，见播放页 loadLyric）；
      * 文件不存在／空时返回 null，走原在线链。 */
     public static String readSidecarLyric(MusicTrack track) {
-        if (track == null || track.localPath == null || track.localPath.isEmpty()) return null;
-        try {
-            File audio = new File(track.localPath);
-            if (!audio.isFile()) return null;
-            String name = audio.getName();
-            int dot = name.lastIndexOf('.');
-            String base = dot > 0 ? name.substring(0, dot) : name;
-            File parent = audio.getParentFile();
-            if (parent == null) return null;
-            File lrc = new File(parent, base + ".lrc");
-            if (!lrc.isFile() || lrc.length() == 0) return null;
-            byte[] bytes = new byte[(int) Math.min(lrc.length(), 2L * 1024 * 1024)];
-            java.io.FileInputStream fis = new java.io.FileInputStream(lrc);
+        if (track == null) return null;
+        if (track.localPath != null && !track.localPath.isEmpty()) {
             try {
-                int read = fis.read(bytes);
-                if (read <= 0) return null;
-                return new String(bytes, 0, read, java.nio.charset.StandardCharsets.UTF_8);
-            } finally {
-                fis.close();
+                File audio = new File(track.localPath);
+                if (audio.isFile()) {
+                    String name = audio.getName();
+                    int dot = name.lastIndexOf('.');
+                    String base = dot > 0 ? name.substring(0, dot) : name;
+                    File parent = audio.getParentFile();
+                    if (parent != null) {
+                        File lrc = new File(parent, base + ".lrc");
+                        if (lrc.isFile() && lrc.length() > 0) {
+                            byte[] bytes = new byte[(int) Math.min(lrc.length(), 2L * 1024 * 1024)];
+                            java.io.FileInputStream fis = new java.io.FileInputStream(lrc);
+                            try {
+                                int read = fis.read(bytes);
+                                if (read > 0) {
+                                    return new String(bytes, 0, read, java.nio.charset.StandardCharsets.UTF_8);
+                                }
+                            } finally {
+                                fis.close();
+                            }
+                        }
+                    }
+                }
+            } catch (Throwable ignored) {
             }
-        } catch (Throwable ignored) {
-            return null;
         }
+        // 旁路文件不在时的兜底：下载时歌词写入失败、策略为「写入字段」而存进记录的
+        // 歌词原文（downloadSidecars 落的 lyric 列）——没有这层，策略存了也读不回来。
+        try {
+            if (track.id == null || track.id.isEmpty()) return null;
+            MusicDownload d = AppDatabase.get().getMusicDownloadDao().findByTrackId(track.id);
+            if (d != null && d.getLyric() != null && !d.getLyric().trim().isEmpty()) return d.getLyric();
+        } catch (Throwable ignored) {
+        }
+        return null;
     }
 
     /** 第三波 P-8d：在线补图命中后写回下载记录（播放页 maybeFetchOnlineCover 调用）；
@@ -206,7 +222,21 @@ public class MusicDownloadStore {
             reconcilePending();
             List<MusicTrack> list = new ArrayList<>();
             try {
-                for (MusicDownload d : AppDatabase.get().getMusicDownloadDao().findAll()) list.add(toTrack(d));
+                MusicDownloadDao dao = AppDatabase.get().getMusicDownloadDao();
+                for (MusicDownload d : dao.findAll()) {
+                    // 幽灵记录清理：文件被外部删掉后记录还回读成「已下载」、大小 0、
+                    // 点播无链——回读时验文件存在，不在的当场删记录不再回读。
+                    String fp = d.getFilePath();
+                    if (fp == null || fp.isEmpty() || !new File(fp).isFile()) {
+                        SpiderDebug.log("music", "download ghost record cleaned trackId=%s path=%s", d.getTrackId(), fp);
+                        try {
+                            dao.deleteByTrackId(d.getTrackId());
+                        } catch (Throwable ignored) {
+                        }
+                        continue;
+                    }
+                    list.add(toTrack(d));
+                }
             } catch (Throwable ignored) {
             }
             post(() -> cb.onResult(list));
@@ -518,8 +548,11 @@ public class MusicDownloadStore {
             }
             persistPending();
             for (DownloadTask t : DownloadManager.get().getTasks()) {
+                // 去重含已暂停态：旧口径只查 WAITING/DOWNLOADING，PAUSED 的同 URL 再发起
+                // 会再建一个任务、两任务同目标文件并发写。
                 if (url.equals(t.getUrl()) && (t.getStatus() == DownloadTask.STATUS_DOWNLOADING
-                        || t.getStatus() == DownloadTask.STATUS_WAITING)) {
+                        || t.getStatus() == DownloadTask.STATUS_WAITING
+                        || t.getStatus() == DownloadTask.STATUS_PAUSED)) {
                     post(() -> Notify.show(R.string.music_downloading));
                     return;
                 }
@@ -542,9 +575,11 @@ public class MusicDownloadStore {
         });
     }
 
-    /** 下载完成登记：静默入库（DownloadManager 已提示"下载完成"） */
+    /** 下载完成登记：入库（DownloadManager 已提示"下载完成"）。登记失败不许静默吞：
+     * 留痕＋明面提示「完成但没登记上」，不许用户只见完成、列表里没歌还无从知道。 */
     private static void save(MusicTrack track, String filePath) {
         Task.execute(() -> {
+            boolean saved = false;
             try {
                 MusicDownloadDao dao = AppDatabase.get().getMusicDownloadDao();
                 MusicDownload d = dao.findByTrackId(track.id);
@@ -564,88 +599,189 @@ public class MusicDownloadStore {
                     d.setCreateTime(System.currentTimeMillis());
                 }
                 d.setFilePath(filePath);
+                // 音质标落存：下载当下快照的 qualityTag 存进记录，重启回读已下载列表才回显（toTrack 回填）
+                if (track.qualityTag != null && !track.qualityTag.isEmpty()) d.setQualityTag(track.qualityTag);
                 if (d.getId() == 0) dao.insert(d);
                 else dao.update(d);
-            } catch (Throwable ignored) {
+                saved = true;
+            } catch (Throwable t) {
+                SpiderDebug.log("music", "download save failed trackId=%s path=%s error=%s",
+                        track == null ? "" : track.id, filePath, t.getMessage());
             }
-            // 第三波 S-A3／G-C1：下载完成时同下封面＋歌词旁路（只针对本次新任务，旧任务不动）。
+            if (!saved) {
+                post(() -> Notify.show("下载完成，但登记失败，列表里可能看不到这首歌"));
+                return;
+            }
+            // 第三波 S-A3／G-C1：下载完成时同下封面＋歌词（只针对本次新任务，旧任务不动）。
             downloadSidecars(track, filePath);
         });
     }
 
-    /** 第三波 S-A3／G-C1：下载完成时同下封面＋歌词旁路。
-     * 写盘方式：旁路档与两者档写同名旁路文件（封面 stem.jpg、歌词 stem.lrc，与
-     * deleteLocal 的同删后缀一致）；内嵌档不写旁路、内嵌写入本身未接线（树内无音频
-     * 标签写入库），该档下完成时只留音频文件，设置行已标注“未接线”。
+    /** 第三波 S-A3／G-C1：下载完成时同下封面＋歌词，按「封面与歌词」档位真写：
+     * 旁路档＝同名旁路文件（封面 stem.jpg、歌词 stem.lrc，与 deleteLocal 同删后缀一致）；
+     * 内嵌档＝EmbeddedTagWriter 真写进音频文件（ID3v2.3／FLAC 两格式，不支持的格式回失败）；
+     * 两者档＝两路都写。素材只取一次（封面字节／歌词原文），两路共用。
      * 歌词来源：快照曲目走 MusicRepository.lyric 跨源回退（快照已是本地平台副本，
-     * 本源 lyric 为空时按歌名＋歌手跨源找）。失败时按写入失败策略分流（必-12 已接线）：
-     * 封面失败——跳过档不留占位，URL 档把封面 URL 写入下载记录 cover 字段（save() 已有记录时
-     * 只更新 filePath 不刷新 cover，此处补写才对老记录生效）；歌词失败——两档都跳过不留占位，
-     * 因歌词无 URL 字段可写（下载记录无歌词 URL 列），URL 档亦无法把歌词失败转成字段写入。 */
+     * 本源 lyric 为空时按歌名＋歌手跨源找）；取不到词＝这首歌本来就没词，不算写入失败。
+     * 写入失败策略（封面与歌词一致）：某项两路（档位要求的那一路／两路）全失败才算该项
+     * 失败——跳过档只留痕；URL 档把可回读的引用写入下载记录：封面写 cover 字段（URL），
+     * 歌词写 lyric 字段（原文，readSidecarLyric 回读兜底消费）。 */
     private static void downloadSidecars(MusicTrack track, String filePath) {
-        int mode = MusicStore.getDlEmbed();
-        if (mode == MusicStore.DL_EMBED_EMBEDDED) return;
         if (track == null || filePath == null || filePath.isEmpty()) return;
         File audio = new File(filePath);
         if (!audio.isFile()) return;
+        int mode = MusicStore.getDlEmbed();
+        boolean wantSidecar = mode == MusicStore.DL_EMBED_SIDECAR || mode == MusicStore.DL_EMBED_BOTH;
+        boolean wantEmbed = mode == MusicStore.DL_EMBED_EMBEDDED || mode == MusicStore.DL_EMBED_BOTH;
+        if (!wantSidecar && !wantEmbed) return;
         String name = audio.getName();
         int dot = name.lastIndexOf('.');
         String base = dot > 0 ? name.substring(0, dot) : name;
         File parent = audio.getParentFile();
         if (parent == null) return;
-        // 必-12：封面旁路失败分流。downloadUrlToFile 在非 2xx 时静默返回、空文件会自删，
-        // 故失败判定以“旁路文件最终是否存在且非空”为准，不以是否抛异常为准。
-        boolean coverOk = true;
-        try {
-            if (track.cover != null && (track.cover.startsWith("http://") || track.cover.startsWith("https://"))) {
-                File coverFile = new File(parent, base + ".jpg");
-                if (coverFile.isFile()) {
-                    coverOk = true;
+        File coverFile = new File(parent, base + ".jpg");
+        File lrcFile = new File(parent, base + ".lrc");
+        boolean hasCoverUrl = track.cover != null
+                && (track.cover.startsWith("http://") || track.cover.startsWith("https://"));
+        // 素材：封面字节（内嵌要字节、旁路要落文件，一次下载两路共用）／歌词原文（取一次）。
+        byte[] coverBytes = null;
+        if (hasCoverUrl && (wantEmbed || (wantSidecar && !coverFile.isFile()))) {
+            try {
+                coverBytes = downloadUrlToBytes(track.cover);
+            } catch (Throwable ignored) {
+            }
+        }
+        String lrc = null;
+        boolean lrcWanted = wantEmbed || (wantSidecar && !lrcFile.isFile());
+        if (lrcWanted) {
+            try {
+                lrc = MusicRepository.lyric(track);
+            } catch (Throwable ignored) {
+            }
+            if (lrc != null && lrc.trim().isEmpty()) lrc = null;
+        }
+        // 内嵌路：封面与歌词一次写（写入器按项收素材，null 的项不碰）。
+        boolean coverEmbedOk = false;
+        boolean lyricEmbedOk = false;
+        if (wantEmbed) {
+            boolean needCover = hasCoverUrl;
+            boolean needLyric = lrc != null;
+            if (!needCover && !needLyric) {
+                coverEmbedOk = true;
+                lyricEmbedOk = true;
+            } else {
+                boolean ok = false;
+                try {
+                    ok = EmbeddedTagWriter.embed(audio, needCover ? coverBytes : null, needLyric ? lrc : null);
+                } catch (Throwable ignored) {
+                }
+                if (needCover) coverEmbedOk = ok && coverBytes != null;
+                if (needLyric) lyricEmbedOk = ok;
+                if (!needCover) coverEmbedOk = true;
+                if (!needLyric) lyricEmbedOk = true;
+            }
+        }
+        // 旁路路：失败判定以“文件最终是否存在且非空”为准，不以是否抛异常为准。
+        boolean coverSideOk = false;
+        if (wantSidecar && hasCoverUrl) {
+            try {
+                if (coverFile.isFile() && coverFile.length() > 0) {
+                    coverSideOk = true;
+                } else if (coverBytes != null && coverBytes.length > 0) {
+                    writeBytesToFile(coverBytes, coverFile);
+                    coverSideOk = coverFile.isFile() && coverFile.length() > 0;
                 } else {
                     downloadUrlToFile(track.cover, coverFile);
-                    coverOk = coverFile.isFile() && coverFile.length() > 0;
+                    coverSideOk = coverFile.isFile() && coverFile.length() > 0;
                 }
+            } catch (Throwable ignored) {
+                coverSideOk = false;
             }
-        } catch (Throwable ignored) {
-            coverOk = false;
+        } else if (wantSidecar) {
+            coverSideOk = true;
         }
-        if (!coverOk) {
-            if (MusicStore.getDlEmbedFail() == MusicStore.DL_EMBED_FAIL_URL
-                    && track.cover != null && (track.cover.startsWith("http://") || track.cover.startsWith("https://"))) {
-                // URL 档：把封面 URL 写入下载记录 cover 字段（本方法跑在 save() 的后台任务里，
-                // 与 save() 同线程模型；save() 已有记录只更新 filePath，此处补写才对老记录生效）。
-                try {
-                    MusicDownloadDao dao = AppDatabase.get().getMusicDownloadDao();
-                    MusicDownload d = dao.findByTrackId(track.id);
-                    if (d != null && !track.cover.equals(d.getCover())) {
-                        d.setCover(track.cover);
-                        dao.update(d);
-                    }
-                } catch (Throwable ignored) {
+        boolean lyricSideOk = false;
+        if (wantSidecar) {
+            try {
+                if (lrcFile.isFile() && lrcFile.length() > 0) {
+                    lyricSideOk = true;
+                } else if (lrc != null) {
+                    writeBytesToFile(lrc.getBytes(java.nio.charset.StandardCharsets.UTF_8), lrcFile);
+                    lyricSideOk = lrcFile.isFile() && lrcFile.length() > 0;
+                } else {
+                    lyricSideOk = true; // 没取到词＝无词可写，不算失败
                 }
+            } catch (Throwable ignored) {
+                lyricSideOk = false;
             }
-            // 跳过档：不留占位、不写字段。
         }
-        // 歌词旁路失败：两档都跳过不留占位——歌词无 URL 字段可写（下载记录无歌词 URL 列），
-        // URL 档亦无法把歌词失败转成字段写入，与封面分流不同，此处不读策略、不写库。
+        // 失败策略：某项在档位要求的每一路都没送达才走策略，封面与歌词同一口径
+        //（未被档位要求的那一路不算送达，见各路 Ok 的置位点）。
+        boolean coverFailed = hasCoverUrl
+                && !((wantEmbed && coverEmbedOk) || (wantSidecar && coverSideOk));
+        boolean lyricFailed = lrc != null
+                && !((wantEmbed && lyricEmbedOk) || (wantSidecar && lyricSideOk));
+        if (coverFailed || lyricFailed) applyEmbedFailPolicy(track, coverFailed, lyricFailed, lrc);
+    }
+
+    /** 写入失败策略分流（封面与歌词同走）：跳过档只留痕；URL 档把引用写入下载记录——
+     * 封面写 cover（URL 本身），歌词写 lyric（原文；歌词没有 URL 可写，原文就是可回读的留存，
+     * readSidecarLyric 旁路文件缺失时回读它）。本方法跑在 save() 的后台任务里，与 save 同线程模型。 */
+    private static void applyEmbedFailPolicy(MusicTrack track, boolean coverFailed, boolean lyricFailed, String lrc) {
+        SpiderDebug.log("music", "download sidecar write failed cover=%s lyric=%s policy=%s trackId=%s",
+                coverFailed, lyricFailed, MusicStore.getDlEmbedFail(), track == null ? "" : track.id);
+        if (MusicStore.getDlEmbedFail() != MusicStore.DL_EMBED_FAIL_URL) return;
         try {
-            File lrcFile = new File(parent, base + ".lrc");
-            if (!lrcFile.isFile()) {
-                String lrc = null;
-                try {
-                    lrc = MusicRepository.lyric(track);
-                } catch (Throwable ignored) {
-                }
-                if (lrc != null && !lrc.trim().isEmpty()) {
-                    java.io.FileOutputStream fos = new java.io.FileOutputStream(lrcFile);
-                    try {
-                        fos.write(lrc.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-                    } finally {
-                        fos.close();
-                    }
-                }
+            MusicDownloadDao dao = AppDatabase.get().getMusicDownloadDao();
+            MusicDownload d = dao.findByTrackId(track.id);
+            if (d == null) return;
+            boolean dirty = false;
+            if (coverFailed && track.cover != null && !track.cover.equals(d.getCover())) {
+                d.setCover(track.cover);
+                dirty = true;
             }
+            if (lyricFailed && lrc != null && !lrc.equals(d.getLyric())) {
+                d.setLyric(lrc);
+                dirty = true;
+            }
+            if (dirty) dao.update(d);
         } catch (Throwable ignored) {
+        }
+    }
+
+    private static void writeBytesToFile(byte[] bytes, File out) throws Exception {
+        java.io.FileOutputStream fos = new java.io.FileOutputStream(out);
+        try {
+            fos.write(bytes);
+        } finally {
+            fos.close();
+        }
+        if (out.length() == 0) out.delete();
+    }
+
+    /** 下载到内存（封面素材，内嵌与旁路共用一次下载）：非 2xx／超 10MB／异常返回 null */
+    private static byte[] downloadUrlToBytes(String url) throws Exception {
+        java.net.HttpURLConnection conn = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+        conn.setConnectTimeout(15000);
+        conn.setReadTimeout(15000);
+        conn.setInstanceFollowRedirects(true);
+        try {
+            if (conn.getResponseCode() < 200 || conn.getResponseCode() >= 400) return null;
+            java.io.InputStream in = conn.getInputStream();
+            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+            try {
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) >= 0) {
+                    bos.write(buf, 0, n);
+                    if (bos.size() > 10L * 1024 * 1024) return null;
+                }
+            } finally {
+                in.close();
+            }
+            return bos.size() == 0 ? null : bos.toByteArray();
+        } finally {
+            conn.disconnect();
         }
     }
 
@@ -674,20 +810,34 @@ public class MusicDownloadStore {
 
     /** 删除本地歌曲：删登记＋删文件（GZ「删除本地文件」口径：音频、封面、歌词一并删除，同名旁路文件同删） */
     public static void deleteLocal(MusicTrack track, Runnable done) {
+        deleteLocal(track, ok -> {
+            if (done != null) done.run();
+        });
+    }
+
+    /** 删除本地歌曲（真结果版）：音频文件删不动（被占用／分区存储无权）时不删记录、
+     * 回 false，调用方据实提示，不许照旧报「已删除」——旧实现弃 delete() 返回值，
+     * 记录先删、文件成孤儿，还会被本地库当设备歌扫回来。无记录且无文件＝本就不存在，回 false。 */
+    public static void deleteLocal(MusicTrack track, DataCallback<Boolean> done) {
         if (track == null || !isLocal(track)) {
-            if (done != null) post(done);
+            if (done != null) post(() -> done.onResult(false));
             return;
         }
         Task.execute(() -> {
+            boolean ok = false;
             try {
                 MusicDownloadDao dao = AppDatabase.get().getMusicDownloadDao();
                 MusicDownload d = dao.findByTrackId(track.id);
-                if (d != null) {
-                    dao.deleteByTrackId(track.id);
-                    if (d.getFilePath() != null && !d.getFilePath().isEmpty()) {
-                        File audio = new File(d.getFilePath());
-                        audio.delete();
-                        // 同名旁路：封面图与歌词文件同删（只删同名文件，不碰其它歌的）
+                String path = d != null && d.getFilePath() != null && !d.getFilePath().isEmpty()
+                        ? d.getFilePath() : track.localPath;
+                File audio = path == null || path.isEmpty() ? null : new File(path);
+                if (audio != null && audio.isFile() && !audio.delete()) {
+                    SpiderDebug.log("music", "deleteLocal file delete failed trackId=%s path=%s", track.id, path);
+                } else {
+                    if (d != null) dao.deleteByTrackId(track.id);
+                    ok = d != null || audio != null;
+                    // 同名旁路：封面图与歌词文件同删（只删同名文件，不碰其它歌的）
+                    if (audio != null) {
                         String name = audio.getName();
                         int dot = name.lastIndexOf('.');
                         if (dot > 0) {
@@ -701,27 +851,44 @@ public class MusicDownloadStore {
                         }
                     }
                 }
-            } catch (Throwable ignored) {
+            } catch (Throwable t) {
+                SpiderDebug.log("music", "deleteLocal failed trackId=%s error=%s", track.id, t.getMessage());
             }
+            boolean result = ok;
             post(() -> {
-                if (done != null) done.run();
+                if (done != null) done.onResult(result);
             });
         });
     }
 
     /** 删除二选一之“仅删除记录”：删登记，文件留着 */
     public static void deleteRecordOnly(MusicTrack track, Runnable done) {
+        deleteRecordOnly(track, ok -> {
+            if (done != null) done.run();
+        });
+    }
+
+    /** 仅删除记录（真结果版）：记录确实删掉（或本就没有记录可删时按不存在回 false）才回 true */
+    public static void deleteRecordOnly(MusicTrack track, DataCallback<Boolean> done) {
         if (track == null || !isLocal(track)) {
-            if (done != null) post(done);
+            if (done != null) post(() -> done.onResult(false));
             return;
         }
         Task.execute(() -> {
+            boolean ok = false;
             try {
-                AppDatabase.get().getMusicDownloadDao().deleteByTrackId(track.id);
-            } catch (Throwable ignored) {
+                MusicDownloadDao dao = AppDatabase.get().getMusicDownloadDao();
+                MusicDownload d = dao.findByTrackId(track.id);
+                if (d != null) {
+                    dao.deleteByTrackId(track.id);
+                    ok = dao.findByTrackId(track.id) == null;
+                }
+            } catch (Throwable t) {
+                SpiderDebug.log("music", "deleteRecordOnly failed trackId=%s error=%s", track.id, t.getMessage());
             }
+            boolean result = ok;
             post(() -> {
-                if (done != null) done.run();
+                if (done != null) done.onResult(result);
             });
         });
     }

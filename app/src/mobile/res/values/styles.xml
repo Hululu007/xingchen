@@ -270,12 +270,14 @@
          v1 稿落码：行不再各自成卡，改由分组卡包行（卡皮见布局内分组容器）；
          行背景透明、行高由 36dp 图标块＋12dp 上下内边距撑到 60dp。
          分组标题间距留足：上 28dp、下 10dp，标题不许压上一张卡的底边、不许两行挤。 -->
+    <!-- 设置页文字色口径（2026-10-26 黑字全扫）：名字全白、区头/值走副字白 .60，
+         与 MusicGlassWire 的 FG_MAIN/FG_SUB 同一套，不许再回旧浅色口径的黑/中灰。 -->
     <style name="MusicSettingSection">
         <item name="android:layout_width">wrap_content</item>
         <item name="android:layout_height">wrap_content</item>
         <item name="android:layout_marginTop">28dp</item>
         <item name="android:layout_marginBottom">10dp</item>
-        <item name="android:textColor">#8E8E93</item>
+        <item name="android:textColor">#99FFFFFF</item>
         <item name="android:textSize">13sp</item>
         <item name="android:textStyle">bold</item>
     </style>
@@ -317,7 +319,7 @@
         <item name="android:layout_width">0dp</item>
         <item name="android:layout_height">wrap_content</item>
         <item name="android:layout_weight">1</item>
-        <item name="android:textColor">#1C1C1E</item>
+        <item name="android:textColor">#FFF1F4F5</item>
         <item name="android:textSize">16sp</item>
     </style>
 
@@ -325,7 +327,7 @@
         <item name="android:layout_width">wrap_content</item>
         <item name="android:layout_height">wrap_content</item>
         <item name="android:layout_marginStart">16dp</item>
-        <item name="android:textColor">#8E8E93</item>
+        <item name="android:textColor">#99FFFFFF</item>
         <item name="android:textSize">15sp</item>
     </style>
 

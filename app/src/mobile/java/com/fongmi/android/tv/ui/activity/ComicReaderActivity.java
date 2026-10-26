@@ -569,8 +569,14 @@ public class ComicReaderActivity extends AppCompatActivity {
     /** 切章：取图（懒取）→ 换列表 → 回顶 → 存进度。 */
     private void loadChapter(int index, int startPage) {
         if (loading) return;
-        if (index < 0 || (session.chapters.size() > 1 && index >= session.chapters.size())) {
-            ToastUtil.show(this, index < 0 ? "已经是第一章" : "已经是最后一章", Toast.LENGTH_SHORT);
+        // 越界守卫（与小说侧同口径）：旧写法「size()>1 && index>=size」对单章会话
+        // 放行 index=1，随后 currentChapter() 的 fallback 拿本章地址重解析——转圈
+        // 半天还是本章，还把 chapterIndex=1 写进进度记录。这里直接拦掉并明示。
+        // size==0 时 index=0 仍放行（fallback 靠 chapterUrl 取图，老口径不变）。
+        int maxIndex = (session.chapters == null || session.chapters.isEmpty())
+                ? 0 : session.chapters.size() - 1;
+        if (index < 0 || index > maxIndex) {
+            ToastUtil.show(this, index < 0 ? "已经是第一话" : "已经是最后一话", Toast.LENGTH_SHORT);
             return;
         }
         loading = true;
@@ -632,6 +638,39 @@ public class ComicReaderActivity extends AppCompatActivity {
         // 2. py：章节 url 本身就是图片串
         List<String> fromUrl = ReadingGate.imagesOfChapter(ch);
         if (!fromUrl.isEmpty()) return fromUrl;
+        // 2b. py 单图章：章节地址本身就是一张图（图串口径要 ≥2 段，单图漏网）
+        if (ReadingGate.isImageUrl(ch.url)) {
+            List<String> one = new ArrayList<>();
+            one.add(ch.url.trim());
+            return one;
+        }
+        // 2c. py 漫画：章节地址需再解析才出图的，切章重跑 playerContent（与小说侧
+        // resolveText 按章重跑同型，不再只认「地址即图串」约定）；判别层段数门槛
+        // （≥3 段）没命中的，重跑产出按图串口径拆，1~2 图的章也能出图。
+        // 海阔/书源会话各有自己的懒取路（下面 3/4），不进此分支。
+        if (!TextUtils.isEmpty(session.siteKey) && TextUtils.isEmpty(session.ruleTitle)
+                && TextUtils.isEmpty(session.legadoKey) && !TextUtils.isEmpty(ch.url)) {
+            try {
+                com.fongmi.android.tv.bean.Result r =
+                        SiteApi.playerContentParseOnly(session.siteKey, "", ch.url);
+                ReadingSession rs = ReadingGate.extract(r);
+                if (rs != null && rs.kind == ReadingSession.Kind.COMIC
+                        && rs.images != null && !rs.images.isEmpty()) {
+                    return new ArrayList<>(rs.images);
+                }
+                String raw = r == null || r.getUrl() == null ? "" : r.getUrl().v();
+                List<String> segs = ReadingGate.splitImages(raw);
+                boolean allImage = !segs.isEmpty();
+                for (String u : segs) {
+                    if (!ReadingGate.isImageUrl(u)) {
+                        allImage = false;
+                        break;
+                    }
+                }
+                if (allImage) return segs;
+            } catch (Throwable ignored) {
+            }
+        }
         // 3. 海阔：router.play 取 pics
         if (!TextUtils.isEmpty(session.ruleTitle) && !TextUtils.isEmpty(ch.url)) {
             try {

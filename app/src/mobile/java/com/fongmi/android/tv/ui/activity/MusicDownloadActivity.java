@@ -1010,9 +1010,11 @@ public class MusicDownloadActivity extends BaseActivity {
             // 共用行口径：歌名 15sp 粗 #1A1A1A，在播行红名
             h.title.setTextColor(isCurrent ? 0xFFFA243C : 0xFF1A1A1A);
             MusicGlassWire.frameRow(h.itemView); // 行一框：液态玻璃（原口径非当前行裸底、当前行白卡；当前行另有红名＋在播字样作标识）
-            // 下载多选态（选中行同正在播行的底）
+            // 下载多选态：选中只留字色变化（扫描 M24）——旧实现在 frameRow 之后又把
+            // 玻璃整件换成粉色实底 card_music_current，字已翻白、白字压浅粉看不清，
+            // 也违反「选中行粉红底撤掉」明令；选中行歌名改红字（在 frameRow 翻字之后写，防被翻回）
             boolean dlSel = t.id != null && dlSelected.contains(t.id);
-            if (dlSel) h.itemView.setBackgroundResource(R.drawable.card_music_current);
+            if (dlSel) h.title.setTextColor(0xFFFA243C);
             if (t.qualityTag != null && !t.qualityTag.isEmpty()) {
                 h.badge.setVisibility(View.VISIBLE);
                 h.badge.setText(t.qualityTag);

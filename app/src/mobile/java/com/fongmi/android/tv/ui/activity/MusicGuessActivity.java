@@ -637,12 +637,10 @@ public class MusicGuessActivity extends BaseActivity {
         } catch (Throwable ignored) {
         }
         h.title.setTextColor(current ? 0xFFFA243C : 0xFF1A1A1A);
-        if (current) {
-            h.itemView.setBackgroundResource(R.drawable.card_music_current);
-        } else {
-            h.itemView.setBackgroundResource(R.drawable.bg_music_glass_row);
-            MusicGlassWire.glassifyView(h.itemView);
-        }
+        // 扫描 M23：当前行也走玻璃——旧实现当前行整行换粉色实底 card_music_current，
+        // 违反他明令的「选中行粉红底撤掉、只留字色变化」（字色已在上一行给了红色）。
+        h.itemView.setBackgroundResource(R.drawable.bg_music_glass_row);
+        MusicGlassWire.glassifyView(h.itemView);
         if (t.cover == null || t.cover.isEmpty()) {
             h.cover.setImageDrawable(new CoverTextDrawable(t.displayTitle(), false, 8));
         } else {

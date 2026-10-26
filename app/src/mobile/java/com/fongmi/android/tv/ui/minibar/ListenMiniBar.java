@@ -852,17 +852,28 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
     }
 
     /**
-     * 条身回播放页（spec §5.5）：反射 Intent 直开播放页。有宿主 Activity 就用宿主的上下文
-     * 在同一任务里打开（不许带 NEW_TASK——带了会把播放页分到独立任务，最近任务里多一张星辰卡，
-     * 2026-10-26 他真机点名）；只有退化到 app 上下文时才补 NEW_TASK（非 Activity 上下文的硬性要求，
-     * 与 MusicPlayerActivity.start 的收口口径一致）。
+     * 条身回播放页（spec §5.5）：反射 Intent 直开播放页。上下文三级回落：
+     * ①条的宿主 Activity——同一任务里打开、零标志（不许带 NEW_TASK，它会向系统「要一个
+     * 任务」、落点靠厂商任务匹配，他真机分出过第二张星辰卡，2026-10-26 点名）；
+     * ②宿主引用已失（detach/淡出途中 hostRef 被置空）时回落 App 维护的当前 resumed
+     * Activity（currentHost，本类挂条决策同源）——仍是 Activity 上下文、零标志；
+     * ③真没有任何活 Activity 才退 app 上下文：NEW_TASK 是非 Activity 上下文起
+     * Activity 的硬性要求、只能保留，但必须同补 CLEAR_TOP|SINGLE_TOP 并回既有任务
+     * （有既有星辰任务就清顶复用栈内播放页，与服务 buildPlayerIntent 的提份口径一致；
+     * 清单 documentLaunchMode=never 已在位堵文档式另根）——任务卡单转派 A 片收口，
+     * 此前本支只有裸 NEW_TASK、落点无约束，与 e02c822a 摘掉的无条件 NEW_TASK 同型。
      */
     private void openMusicPlayer() {
         try {
             Activity host = hostRef == null ? null : hostRef.get();
+            if (host == null) host = currentHost();
             Context ctx = host != null ? host : app;
             Intent it = new Intent(ctx, Class.forName("com.fongmi.android.tv.ui.music.MusicPlayerActivity"));
-            if (!(ctx instanceof Activity)) it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            if (!(ctx instanceof Activity)) {
+                it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                        | Intent.FLAG_ACTIVITY_CLEAR_TOP
+                        | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            }
             ctx.startActivity(it);
         } catch (Throwable ignored) {
         }

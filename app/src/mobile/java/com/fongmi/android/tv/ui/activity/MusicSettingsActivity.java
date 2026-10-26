@@ -442,9 +442,10 @@ public class MusicSettingsActivity extends BaseActivity {
         });
     }
 
-    /** 歌词字号行：步进编辑框（±2sp，范围由 setLyricFontSize 钳制 16–40，默认 24sp） */
+    /** 歌词字号行：步进编辑框（±2sp，与渲染器同一正本键 music_lyric_font_size_cover，
+     * 由 setCoverLyricFontSize 钳制 14–32，默认 22sp；与播放页工具面板同键互通） */
     private void refreshLyricFontSizeText() {
-        binding.tvLyricFontSize.setText(((int) MusicStore.getLyricFontSize()) + "sp");
+        binding.tvLyricFontSize.setText(((int) MusicStore.getCoverLyricFontSize()) + "sp");
     }
 
     private void showFontSizeDialog() {
@@ -456,7 +457,7 @@ public class MusicSettingsActivity extends BaseActivity {
         value.setTextSize(22);
         value.setTextColor(0xFF1C1C1E);
         value.setGravity(Gravity.CENTER);
-        value.setText(((int) MusicStore.getLyricFontSize()) + "sp");
+        value.setText(((int) MusicStore.getCoverLyricFontSize()) + "sp");
         box.addView(value, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         LinearLayout row = new LinearLayout(this);
@@ -470,27 +471,27 @@ public class MusicSettingsActivity extends BaseActivity {
         Button plus = new Button(this);
         plus.setText("+2sp");
         Runnable apply = () -> {
-            value.setText(((int) MusicStore.getLyricFontSize()) + "sp");
+            value.setText(((int) MusicStore.getCoverLyricFontSize()) + "sp");
             refreshLyricFontSizeText();
         };
         minus.setOnClickListener(v -> {
-            MusicStore.setLyricFontSize(MusicStore.getLyricFontSize() - 2);
+            MusicStore.setCoverLyricFontSize(MusicStore.getCoverLyricFontSize() - 2);
             apply.run();
         });
         plus.setOnClickListener(v -> {
-            MusicStore.setLyricFontSize(MusicStore.getLyricFontSize() + 2);
+            MusicStore.setCoverLyricFontSize(MusicStore.getCoverLyricFontSize() + 2);
             apply.run();
         });
         row.addView(minus);
         row.addView(plus);
         box.addView(row, rowLp);
         Button reset = new Button(this);
-        reset.setText("恢复 24sp");
+        reset.setText("恢复 22sp");
         LinearLayout.LayoutParams resetLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         resetLp.topMargin = pad / 2;
         reset.setOnClickListener(v -> {
-            MusicStore.setLyricFontSize(24);
+            MusicStore.setCoverLyricFontSize(22f);
             apply.run();
         });
         box.addView(reset, resetLp);

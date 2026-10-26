@@ -1,57 +1,27 @@
 package com.fongmi.android.tv.ui.music.view;
 
 import android.content.Context;
-import android.graphics.Canvas;
-import android.graphics.LinearGradient;
-import android.graphics.Paint;
-import android.graphics.PorterDuff;
-import android.graphics.PorterDuffXfermode;
-import android.graphics.Shader;
 import android.util.AttributeSet;
 
 import androidx.appcompat.widget.AppCompatImageView;
 
 /**
- * 播放页封面（经典）：底部渐隐融进氛围层——瓜子的封面与背景是一个栈：封面在底层
- * （zIndex −2），氛围的糊封面＋明度渐变罩（停点 0/0.4/0.78/1、明度 +0.05/−0.04、
- * alpha 基数 0.8，CoverAmbientKt 亲读）盖在上面，封面下段就是这样被溶掉的。
- * 星辰栈是氛围在下、封面盒在上，等价做法：封面自带软件层，画完用 DST_OUT 线性
- * 渐变把下段擦透——0.78（罩的第三停点、罩在此到达基值）起擦、到底全透，露出
- * 下方同图的糊化氛围，完成同一件溶合。交叉淡化的一对封面（进/出）同口径。
+ * 播放页封面（经典）：就是封面图本体，不带任何渐隐。
+ * 此前这里有一条自编的底部 DST_OUT 溶带（0.78 起擦），依据是「瓜子封面在底层、
+ * 氛围盖在上面溶掉下段」的误读——2026-10-26 回瓜子源码复核订正：PlayerScreen 的
+ * 栈序是氛围在下、内容列在上（氛围先于内容列发射）；CoverArt 静态图路径里没有
+ * 任何底部渐隐/罩（zIndex −2 是封面内部兜底层、与页面栈无关）。瓜子的「一体感」
+ * 来自氛围层本身：同图糊化＋三团色洗＋取色罩在封面盒下方连续延展，封面下缘是
+ * 图像自身的硬边。溶带已摘除，与 CoverAmbientView 的氛围口径配套。
+ * 交叉淡化的一对封面（进/出）同用本类。
  */
 public class FadingCoverView extends AppCompatImageView {
 
-    private static final float FADE_START = 0.78f;
-
-    private final Paint fadePaint = new Paint();
-
     public FadingCoverView(Context context) {
         super(context);
-        init();
     }
 
     public FadingCoverView(Context context, AttributeSet attrs) {
         super(context, attrs);
-        init();
-    }
-
-    private void init() {
-        setLayerType(LAYER_TYPE_SOFTWARE, null);
-        fadePaint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.DST_OUT));
-    }
-
-    @Override
-    protected void onSizeChanged(int w, int h, int oldw, int oldh) {
-        super.onSizeChanged(w, h, oldw, oldh);
-        if (w > 0 && h > 0) {
-            fadePaint.setShader(new LinearGradient(0, h * FADE_START, 0, h,
-                    0x00000000, 0xFF000000, Shader.TileMode.CLAMP));
-        }
-    }
-
-    @Override
-    protected void onDraw(Canvas canvas) {
-        super.onDraw(canvas);
-        if (getHeight() > 0) canvas.drawRect(0, getHeight() * FADE_START, getWidth(), getHeight(), fadePaint);
     }
 }

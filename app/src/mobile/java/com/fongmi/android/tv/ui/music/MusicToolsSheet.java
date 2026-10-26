@@ -155,7 +155,8 @@ public class MusicToolsSheet {
         tv.setText(title);
         tv.setTextColor(TEXT_HIGH);
         tv.setTextSize(17);
-        tv.setGravity(Gravity.CENTER);
+        // 扫描 T5：子面板标题改左对齐（此前 Gravity.CENTER 居中，违他的标题左对齐铁律）
+        tv.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
         tv.setLetterSpacing(-0.3f / 17f);
         row.addView(tv, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         ImageView close = circleButton(R.drawable.ic_music_close);

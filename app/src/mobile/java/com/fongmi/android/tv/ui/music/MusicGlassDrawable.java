@@ -28,7 +28,8 @@ import android.view.View;
  * 1) colorControls：saturation 1.5、brightness (0.5−t)·0.12、contrast 1−(0.5−t)·0.25，
  *    t=translucency 取 0.35（AVBox 默认 0.5；星辰字全白、底更亮，收一档保证对比），
  *    矩阵照 backdrop 的 colorControlsColorFilter 逐项（亮度权重 .213/.715/.072、
- *    偏移 t=(0.5−c·0.5+b)·255）；
+ *    偏移 t=(0.5−c·0.5+b)·255）；2026-10-26 抗卡改：矩阵由 MusicGlassBackgroundView
+ *    一次性烤进处理缓冲，本类裁处理缓冲、不再每件每帧过一遍滤镜（外部滤镜另设时例外）；
  * 2) blur：采样缓冲 1/4 缩放自带糊度（AVBox blur 5dp 的等效量级，不再另叠）；
  * 3) lens 折射：AGSL 圆角矩形折射着色器（backdrop 的 RoundedRectRefraction +
  *    色散版逐字移植），refractionHeight/Amount = AVBox distortion 默认 30dp
@@ -45,26 +46,6 @@ import android.view.View;
  * 取样为空/未就绪时走下限面（深色渐变满铺），任何底上都成形。
  */
 public class MusicGlassDrawable extends Drawable {
-
-    // AVBox translucency=0.35 派生：brightness .018 / contrast .9625 / saturation 1.5
-    private static final float CC_BRIGHTNESS = 0.018f;
-    private static final float CC_CONTRAST = 0.9625f;
-    private static final float CC_SATURATION = 1.5f;
-    private static final ColorFilter CC_FILTER = buildColorControlsFilter();
-
-    private static ColorFilter buildColorControlsFilter() {
-        float invSat = 1f - CC_SATURATION;
-        float r = 0.213f * invSat, g = 0.715f * invSat, b = 0.072f * invSat;
-        float c = CC_CONTRAST;
-        float t = (0.5f - c * 0.5f + CC_BRIGHTNESS) * 255f;
-        float cr = c * r, cg = c * g, cb = c * b, cs = c * CC_SATURATION;
-        android.graphics.ColorMatrix cm = new android.graphics.ColorMatrix(new float[]{
-                cr + cs, cg, cb, 0, t,
-                cr, cg + cs, cb, 0, t,
-                cr, cg, cb + cs, 0, t,
-                0, 0, 0, 1, 0});
-        return new android.graphics.ColorMatrixColorFilter(cm);
-    }
 
     // 容器 tint：#1E2023 @ .40 平铺（2026-10-26 他点「玻璃一直是那个颜色」后由 .52 收一档：
     // tint 只压底保证白字，颜色主体让位给取样——取样变它就变，不许 tint 一家独大定格成色）
@@ -194,9 +175,10 @@ public class MusicGlassDrawable extends Drawable {
         return ok;
     }
 
-    // 无着色器时的回落环线（旧定版近似）：基础环纵向 {顶 .30, 中 .20, 底 .14}＋顶镜面线 .85
-    private static final int[] STROKE = {0x4DFFFFFF, 0x33FFFFFF, 0x24FFFFFF};
-    private static final int[] STROKE_PRESSED = {0x66FFFFFF, 0x40FFFFFF, 0x2EFFFFFF};
+    // 无着色器时的回落环线（2026-10-26 显形轮提亮：样张口径＝整圈连续亮边、顶边最亮勾住整颗；
+    // 旧值 {顶 .30, 中 .20, 底 .14} 在暖底上读不出，提为 {顶 .55, 中 .34, 底 .22}＋顶镜面线 .85）
+    private static final int[] STROKE = {0x8CFFFFFF, 0x57FFFFFF, 0x38FFFFFF};
+    private static final int[] STROKE_PRESSED = {0xB3FFFFFF, 0x75FFFFFF, 0x4DFFFFFF};
     private static final float[] STROKE_STOPS = {0f, 0.55f, 1f};
     private static final int SPEC_COLOR = 0xD9FFFFFF;
     private static final int SPEC_COLOR_PRESSED = 0xF2FFFFFF;
@@ -207,6 +189,14 @@ public class MusicGlassDrawable extends Drawable {
     /** 列表滚动等宿主位置变化场景调用：令全部玻璃件下一帧重裁糊底。 */
     public static void noteScrollChanged() {
         sEpoch++;
+    }
+
+    // 滚动进行中标记（接线层滚动钩子喂）：滚动中暂停折射/高光两道全幅着色器——
+    // 那是每帧最贵的部分；取样重裁照常实时跟随（他 00:17 令），停下钩子复位后下一帧恢复。
+    private static volatile boolean sScrollActive = false;
+
+    public static void noteScrollActive(boolean active) {
+        sScrollActive = active;
     }
 
     private final float mRadiusPx;
@@ -224,15 +214,18 @@ public class MusicGlassDrawable extends Drawable {
     private final Paint mStrokePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint mSpecPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint mHighlightPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint mSheenPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint mPressPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint mTonePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
     private RuntimeShader mLensShader;
     private RuntimeShader mHighlightShader;
     private boolean mLensDead;
+    private boolean mHighlightDead;
 
     private Bitmap mProcessed;
     private int mProcessedW, mProcessedH;
+    private ColorFilter mExternalFilter;
 
     private int mToneColor = 0;
 
@@ -267,10 +260,10 @@ public class MusicGlassDrawable extends Drawable {
         mSpecPaint.setColor(SPEC_COLOR);
         mPressPaint.setColor(0x2EFFFFFF);
         mTintPaint.setColor(TINT_COLOR);
-        mBitmapPaint.setColorFilter(CC_FILTER);
+        // 取样画笔不再挂 colorControls：已由背景缓冲预烤（见类头注 1）；外部滤镜经 setColorFilter 另设
         mHighlightPaint.setStyle(Paint.Style.STROKE);
-        mHighlightPaint.setStrokeWidth(0.5f * mDensity);
-        mHighlightPaint.setAlpha(128);
+        mHighlightPaint.setStrokeWidth(0.75f * mDensity);
+        mHighlightPaint.setAlpha(204);
         mHighlightPaint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.ADD));
     }
 
@@ -329,6 +322,13 @@ public class MusicGlassDrawable extends Drawable {
         float ch = 4f * mDensity;
         mContactPaint.setShader(new LinearGradient(0, bounds.bottom - ch, 0, bounds.bottom,
                 new int[]{0x00000000, 0x47000000}, null, Shader.TileMode.CLAMP));
+        // 顶部流光带（样张「顶部流光」：一道自顶边向下衰减的镜面光，面状、不是线）：
+        // 高度取件高 30%、封顶 28dp，白 .18 → 0
+        float sheenH = Math.min(bounds.height() * 0.30f, 28f * mDensity);
+        if (sheenH > 0) {
+            mSheenPaint.setShader(new LinearGradient(0, bounds.top, 0, bounds.top + sheenH,
+                    new int[]{0x2EFFFFFF, 0x00000000}, null, Shader.TileMode.CLAMP));
+        }
         rebuildStrokeShader(bounds);
     }
 
@@ -415,7 +415,7 @@ public class MusicGlassDrawable extends Drawable {
     }
 
     private boolean drawHighlightShader(Canvas canvas, Rect b) {
-        if (mLensDead || !shaderSupported()) return false;
+        if (mHighlightDead || !shaderSupported()) return false;
         try {
             if (mHighlightShader == null) mHighlightShader = new RuntimeShader(HIGHLIGHT_AGSL);
             mHighlightShader.setFloatUniform("size", (float) b.width(), (float) b.height());
@@ -431,7 +431,9 @@ public class MusicGlassDrawable extends Drawable {
             mHighlightPaint.setShader(null);
             return true;
         } catch (Throwable t) {
-            mLensDead = true;
+            // 只关高光自己：旧实现与折射共用 mLensDead，高光一次构造失败把折射一起杀掉、
+            // 只剩最弱回落环——「玻璃不明显」的一条暗因，拆开互不连坐
+            mHighlightDead = true;
             mHighlightPaint.setShader(null);
             return false;
         }
@@ -465,10 +467,15 @@ public class MusicGlassDrawable extends Drawable {
         canvas.clipPath(buildClip(mTmp));
         boolean lensDrawn = false;
         if (mLastOk) {
-            Bitmap buf = MusicGlassBackgroundView.getBuffer();
+            // 取样源：无外部滤镜时用已烤 colorControls 的处理缓冲（免每帧滤镜整图重渲）；
+            // 外部滤镜在场时回原图＋滤镜（与旧行为一致：外部滤镜取代 colorControls）
+            Bitmap buf = null;
+            if (mExternalFilter == null) buf = MusicGlassBackgroundView.getProcessedBuffer();
+            if (buf == null) buf = MusicGlassBackgroundView.getBuffer();
             if (buf != null && !buf.isRecycled()) {
                 ensureProcessed(b, buf);
-                lensDrawn = drawLensBackdrop(canvas, b);
+                // 滚动中不跑折射着色器（全幅 AGSL 是每帧最贵的一道），停下自动恢复
+                if (!sScrollActive) lensDrawn = drawLensBackdrop(canvas, b);
                 if (!lensDrawn && mProcessed != null) {
                     canvas.drawBitmap(mProcessed, b.left, b.top, mProcessedPaint);
                 }
@@ -480,6 +487,7 @@ public class MusicGlassDrawable extends Drawable {
         }
         canvas.drawRect(mTmp, mTintPaint);             // 容器 tint（AVBox 面色 @ .52）
         if (mToneColor != 0) canvas.drawRect(mTmp, mTonePaint);
+        canvas.drawRect(mTmp, mSheenPaint);            // 顶部流光带（着色器按件高封顶 28dp，余下为 0）
         if (!mCircle) {
             canvas.drawRect(mTmp, mShadowPaint);       // 底部内软影（大件分层）
         }
@@ -487,15 +495,16 @@ public class MusicGlassDrawable extends Drawable {
         if (mPressed) canvas.drawRect(mTmp, mPressPaint);
         canvas.restore();
 
-        // Highlight.Default 着色器描边（Plus 叠加）；无着色器时回落旧环线＋顶镜面线
-        if (!drawHighlightShader(canvas, b)) {
+        // Highlight.Default 着色器描边（Plus 叠加）；无着色器/滚动中回落环线。
+        // 顶镜面线两条路都画（样张顶边最亮、近白勾边）：裁在顶带内只露环的顶部一段
+        if (sScrollActive || !drawHighlightShader(canvas, b)) {
             drawRing(canvas, b, mStrokePaint, mStrokePaint.getStrokeWidth() / 2f);
-            float band = Math.min(mRadiusPx + mSpecPaint.getStrokeWidth(), b.height() * 0.45f);
-            canvas.save();
-            canvas.clipRect(b.left, b.top, b.right, b.top + band);
-            drawRing(canvas, b, mSpecPaint, mSpecPaint.getStrokeWidth() / 2f);
-            canvas.restore();
         }
+        float band = Math.min(mRadiusPx + mSpecPaint.getStrokeWidth(), b.height() * 0.45f);
+        canvas.save();
+        canvas.clipRect(b.left, b.top, b.right, b.top + band);
+        drawRing(canvas, b, mSpecPaint, mSpecPaint.getStrokeWidth() / 2f);
+        canvas.restore();
     }
 
     /**
@@ -561,12 +570,15 @@ public class MusicGlassDrawable extends Drawable {
         mStrokePaint.setAlpha(alpha);
         mSpecPaint.setAlpha(alpha);
         mPressPaint.setAlpha(alpha);
+        mSheenPaint.setAlpha(alpha);
     }
 
     @Override
     public void setColorFilter(ColorFilter colorFilter) {
-        // 糊底画笔：外部滤镜非空以外部为准，清空时回 AVBox colorControls
-        mBitmapPaint.setColorFilter(colorFilter != null ? colorFilter : CC_FILTER);
+        // 糊底画笔：外部滤镜非空以外部为准（取样回原图）；清空时用预烤处理缓冲（colorControls 在缓冲里）
+        mExternalFilter = colorFilter;
+        mBitmapPaint.setColorFilter(colorFilter);
+        mProcessedDirty = true;
         mFallbackPaint.setColorFilter(colorFilter);
         mTintPaint.setColorFilter(colorFilter);
         mShadowPaint.setColorFilter(colorFilter);
@@ -575,6 +587,7 @@ public class MusicGlassDrawable extends Drawable {
         mSpecPaint.setColorFilter(colorFilter);
         mPressPaint.setColorFilter(colorFilter);
         mTonePaint.setColorFilter(colorFilter);
+        mSheenPaint.setColorFilter(colorFilter);
     }
 
     @Override

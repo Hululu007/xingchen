@@ -64,6 +64,7 @@ public class MusicGlassBackgroundView extends View {
     // ---------- 共享缓冲（进程单例态） ----------
     private static final Object LOCK = new Object();
     private static Bitmap sBuffer;
+    private static Bitmap sProcessedBuffer;
     private static int sBufferW, sBufferH;
     private static int sBufferVersion = 0;
 
@@ -94,6 +95,32 @@ public class MusicGlassBackgroundView extends View {
         synchronized (LOCK) {
             return sBuffer;
         }
+    }
+
+    /**
+     * 已烤入 colorControls 的场景缓冲（与原图同尺寸、同版本）：玻璃件裁这张就不用
+     * 每件每帧再过一遍颜色矩阵滤镜整图重渲——那是滑动卡顿的一条主因（2026-10-26 他点名卡）。
+     * 矩阵与 MusicGlassDrawable 的 AVBox 链同值（sat 1.5 / brightness .018 / contrast .9625）。
+     */
+    public static Bitmap getProcessedBuffer() {
+        synchronized (LOCK) {
+            return sProcessedBuffer;
+        }
+    }
+
+    private static final android.graphics.ColorFilter CC_FILTER = buildCcFilter();
+
+    private static android.graphics.ColorFilter buildCcFilter() {
+        float sat = 1.5f, bri = 0.018f, con = 0.9625f;
+        float invSat = 1f - sat;
+        float r = 0.213f * invSat, g = 0.715f * invSat, b = 0.072f * invSat;
+        float t = (0.5f - con * 0.5f + bri) * 255f;
+        float cr = con * r, cg = con * g, cb = con * b, cs = con * sat;
+        return new android.graphics.ColorMatrixColorFilter(new android.graphics.ColorMatrix(new float[]{
+                cr + cs, cg, cb, 0, t,
+                cr, cg + cs, cb, 0, t,
+                cr, cg, cb + cs, 0, t,
+                0, 0, 0, 1, 0}));
     }
 
     public static int getBufferVersion() {
@@ -156,6 +183,14 @@ public class MusicGlassBackgroundView extends View {
             float density = getResources().getDisplayMetrics().density / DOWNSAMPLE;
             Canvas c = new Canvas(sBuffer);
             drawScene(c, bw, bh, density);
+            // colorControls 一次性烤进处理缓冲（缓冲只在尺寸变化时重渲，烤一次全件共用）
+            Bitmap oldP = sProcessedBuffer;
+            sProcessedBuffer = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888);
+            Canvas pc = new Canvas(sProcessedBuffer);
+            Paint pp = new Paint(Paint.FILTER_BITMAP_FLAG);
+            pp.setColorFilter(CC_FILTER);
+            pc.drawBitmap(sBuffer, 0, 0, pp);
+            if (oldP != null && oldP != sProcessedBuffer) oldP.recycle();
             sBufferVersion++;
             if (old != null && old != sBuffer) old.recycle();
         }

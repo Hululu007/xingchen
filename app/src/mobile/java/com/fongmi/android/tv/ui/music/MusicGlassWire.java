@@ -126,15 +126,39 @@ public final class MusicGlassWire {
         }
     }
 
-    /** 滚动回调里调：令全部已登记玻璃件重画（位置变了、取样跟着身后变）。 */
+    /** 滚动回调里调：令全部已登记玻璃件重画（位置变了、取样跟着身后变）。
+     *  只刷当前可见的件：不可见/别的页面的件跟着刷是纯浪费——滑动卡顿的一条来源（2026-10-26）。 */
     static void refreshGlassViews() {
         java.util.List<View> copy;
         synchronized (sGlassViews) {
             copy = new java.util.ArrayList<>(sGlassViews);
         }
         for (View v : copy) {
-            if (v.isAttachedToWindow()) v.invalidate();
+            if (v.isAttachedToWindow() && v.isShown()) v.invalidate();
         }
+    }
+
+    /**
+     * 真外投影（分层）：背景 Drawable 画不出界外，柔影只能在宿主层给——
+     * 圆角 outline 与玻璃同半径＋elevation 分档（圆键 5／大卡 8／中卡 6／行与小件 2.5，单位 dp）。
+     * 没有这层时玻璃件是「贴」在底上的、不浮——他点名「不明显」的一条结构因（2026-10-26）。
+     */
+    private static void applyFloatShadow(View v, final float radiusDp) {
+        final float density = v.getResources().getDisplayMetrics().density;
+        final float rPx = radiusDp >= 999f ? Float.MAX_VALUE : radiusDp * density;
+        v.setOutlineProvider(new android.view.ViewOutlineProvider() {
+            @Override
+            public void getOutline(View view, android.graphics.Outline outline) {
+                int w = view.getWidth(), h = view.getHeight();
+                if (w <= 0 || h <= 0) {
+                    outline.setEmpty();
+                    return;
+                }
+                outline.setRoundRect(0, 0, w, h, Math.min(rPx, Math.min(w, h) / 2f));
+            }
+        });
+        float elevDp = radiusDp >= 999f ? 5f : radiusDp >= 20f ? 8f : radiusDp >= 16f ? 6f : 2.5f;
+        v.setElevation(elevDp * density);
     }
 
     private static synchronized Map<Drawable.ConstantState, Float> table(Context ctx) {
@@ -164,6 +188,7 @@ public final class MusicGlassWire {
         Integer tone = toneTable(v.getContext()).get(bg.getConstantState());
         if (tone != null) glass.setToneColor(tone, SELECTED_TONE_ALPHA);
         v.setBackground(glass);
+        applyFloatShadow(v, r);
         registerGlass(v);
         flipForeground(v);
         return true;
@@ -173,6 +198,7 @@ public final class MusicGlassWire {
     public static void glassifyView(View v, float radiusDp) {
         if (v == null || v.getBackground() instanceof MusicGlassDrawable) return;
         v.setBackground(new MusicGlassDrawable(v.getContext(), radiusDp));
+        applyFloatShadow(v, radiusDp);
         registerGlass(v);
         flipForeground(v);
     }
@@ -244,6 +270,8 @@ public final class MusicGlassWire {
     public static void glassifyPanel(View root, float radiusDp) {
         if (root == null) return;
         root.setBackground(new MusicGlassDrawable(root.getContext(), radiusDp, true));
+        applyFloatShadow(root, radiusDp);
+        root.setElevation(10f * root.getResources().getDisplayMetrics().density);
         registerGlass(root);
         flipForeground(root);
         if (root instanceof ViewGroup) glassifyChildren((ViewGroup) root);
@@ -330,6 +358,13 @@ public final class MusicGlassWire {
                 refreshGlassViews();
                 recyclerView.invalidate();
             }
+
+            @Override
+            public void onScrollStateChanged(RecyclerView recyclerView, int newState) {
+                boolean active = newState != RecyclerView.SCROLL_STATE_IDLE;
+                MusicGlassDrawable.noteScrollActive(active);
+                if (!active) refreshGlassViews();
+            }
         });
     }
 
@@ -339,9 +374,16 @@ public final class MusicGlassWire {
         synchronized (sScrollViewHooked) {
             if (!sScrollViewHooked.add(sv)) return;
         }
+        final Runnable idle = () -> {
+            MusicGlassDrawable.noteScrollActive(false);
+            refreshGlassViews();
+        };
         sv.getViewTreeObserver().addOnScrollChangedListener(() -> {
             MusicGlassDrawable.noteScrollChanged();
+            MusicGlassDrawable.noteScrollActive(true);
             refreshGlassViews();
+            sv.removeCallbacks(idle);
+            sv.postDelayed(idle, 130);
         });
     }
 }

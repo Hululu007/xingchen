@@ -50,22 +50,27 @@ public class MusicAudioInfo {
      * 24bit 分流是星辰侧判定（GZ 码内无实测分流公式）：24bit＋192kHz → 24bit（GZ FLAC_24BIT 规格
      * “24bit 192kHz FLAC”）、24bit＋96kHz 档（≥88200）→ Hi-Res（GZ HIRES 规格“24bit 96kHz”）、
      * 24bit＋低／未知采样率 → 24bit；但 P-2c 例外：编码是 FLAC 的 24bit 一律照瓜子名
-     * “Hi-Res Lossless”（GZ FLAC_24BIT 的 label），不再出 24bit／Hi-Res；16bit＋高采样率（≥88200、位深未知或 <24）
-     * → Hi-Res（GZ 本地徽标口径：采样率 ≥88200 即 HIRES）。
+     * “Hi-Res Lossless”（GZ FLAC_24BIT 的 label），不再出 24bit／Hi-Res。
+     * 2026-10-26 收紧（他的口径盖过 GZ 徽标口径）：Hi-Res 家族标签（Hi-Res／Hi-Res Lossless）
+     * 只给实测位深 ≥24 且采样率高于 CD 的 44100 的真无损——44.1kHz 的文件就是无损档，
+     * 24bit 容器只标事实位深“24bit”，不许冒 Hi-Res 名（《来不及爱你》案：44.1k FLAC
+     * 被标 Hi-Res）；位深没实测到时不许凭采样率单独贴 Hi-Res（旧“采样率 ≥88200 即
+     * HIRES”的 GZ 本地徽标口径作废）。注：播放页音质格现行走 describe()，本短码暂无
+     * 界面调用方，收紧是为口径一致、防日后复用再冒领。
      */
     public String shortCode() {
         if (codec == null || codec.isEmpty()) return null;
         if (lossless) {
-            // P-2c：实测位深≥24 的 FLAC（在线真 24bit 属此档）照瓜子名显示，不再出 24bit／Hi-Res；
-            // 瓜子 FLAC_24BIT 的 label 是“Hi-Res Lossless”（规格“24bit 192kHz FLAC”）。
-            // 其它编码的 24bit 仍走下面原口径，不动。
-            if (bitDepth >= 24 && "FLAC".equals(codec)) return "Hi-Res Lossless";
             if (bitDepth >= 24) {
-                if (sampleRateHz >= 192000) return "24bit";
-                if (sampleRateHz >= 88200) return "Hi-Res";
+                if (sampleRateHz > 44100) {
+                    // P-2c：实测位深≥24 且采样率高于 CD 的 FLAC 照瓜子名“Hi-Res Lossless”
+                    //（GZ FLAC_24BIT 的 label，规格“24bit 192kHz FLAC”）。
+                    if ("FLAC".equals(codec)) return "Hi-Res Lossless";
+                    if (sampleRateHz >= 192000) return "24bit";
+                    if (sampleRateHz >= 88200) return "Hi-Res";
+                }
                 return "24bit";
             }
-            if (sampleRateHz >= 88200) return "Hi-Res";
             return "SQ";
         }
         if (bitrateKbps >= 192) return "HQ";

@@ -45,8 +45,13 @@ import java.util.Set;
  * 档行自上而下（高→低），每行带图标，选中行粉底红字。
  * Q2：行名不在本类硬编码——一律走共享定义 MusicStore.qualityName（Hi-Res／无损／极高／标准，照瓜子面板），
  * 面板与设置等处同源同名，不许两套并存；
- * SUPER 行规格按本批指令为“24bit / 192kHz · FLAC”（不要贴 HIRES 的 96kHz）；无损行规格只写编码名“FLAC”，
- * 采样率（赫兹）按已定口径不另列一行；播放页音质格口径不动（本面板只改面板内行名与规格）。
+ * 副标口径（2026-10-26 他亲定，盖过早先照瓜子全规格的写法）：只写位深＋编码，采样率（赫兹）
+ * 在面板同样不许出现（与播放页音质格同一禁令）——Hi-Res 行只写“24bit”，无损行写“16bit · FLAC”，
+ * 极高／标准仍写码率。瓜子副标的“24bit 96kHz”那截采样率按此口径砍掉，不许再贴回来。
+ * 请求档冒领实测的处置：用户选的请求档（current）与实测归类（actualTier）不一致时，
+ * 请求档那一行的副标改写为在播文件的实测规格（“实测 16bit · FLAC”式，位深＋编码、无采样率），
+ * 不许让它顶着档位定义副标装作真有该档——《来不及爱你》案：歌本身只有无损 FLAC
+ * （平台目录 hr 档不存在、maxBrLevel=lossless），请求 Hi-Res 回来的还是这份 FLAC。
  * 按歌列档（不许写死 4 行）：只列当前歌／源实际提供的档——落雪取各启用插件声明的 qualitys 并集
  * （桥加载阻塞，走后台线程，算出前先以 4 档占位、算出后刷新）；FreeJS 取条目 qualities 键；
  * 本地／已下载／未知来源无源档信息，保持 4 档（选档仍走请求上限回落，不冒充源档）。
@@ -57,7 +62,7 @@ import java.util.Set;
  * 此前拿请求档标“当前播放”就是面板说谎的根——实际播的是回落后的低档文件）。
  * Q3 文件大小：不再用时长×标称码率估算（1000／2500 标称值作废）——只用源真返回的每档数据：
  * ①源数据直带：QQ／酷狗搜索回包本身带每档字节数，解析时已存进条目 _item（size128/size320/sizeFlac），
- * 面板开即有数；②QQ 详情补：QQ 歌再拉一次歌曲详情 file 对象，补 Hi-Res 档大小与位深／采样率规格；
+ * 面板开即有数；②QQ 详情补：QQ 歌再拉一次歌曲详情 file 对象，补 Hi-Res 档大小与位深规格；
  * ③本地／已下载曲：在播文件就是磁盘上这一个文件，其长度只填在播档行。
  * 原第③层“取链＋HEAD”已删：取链对未声明档会静默回落低档（LxMusicSource.pickQuality），
  * HEAD 到的是回落文件的长度、不是该档的数据——曾把 128k 文件的 3.7MB 贴到 Hi-Res 行。
@@ -90,8 +95,8 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
     }
 
     private static final Row[] ROWS = {
-            new Row(MusicStore.QUALITY_SUPER, R.drawable.ic_quality_hires, MusicStore.qualityName(MusicStore.QUALITY_SUPER), "FLAC"),
-            new Row(MusicStore.QUALITY_HIGH, R.drawable.ic_quality_lossless, MusicStore.qualityName(MusicStore.QUALITY_HIGH), "FLAC"),
+            new Row(MusicStore.QUALITY_SUPER, R.drawable.ic_quality_hires, MusicStore.qualityName(MusicStore.QUALITY_SUPER), "24bit"),
+            new Row(MusicStore.QUALITY_HIGH, R.drawable.ic_quality_lossless, MusicStore.qualityName(MusicStore.QUALITY_HIGH), "16bit · FLAC"),
             new Row(MusicStore.QUALITY_STANDARD, R.drawable.ic_quality_high, MusicStore.qualityName(MusicStore.QUALITY_STANDARD), "320 kbps"),
             new Row(MusicStore.QUALITY_LOW, R.drawable.ic_quality_standard, MusicStore.qualityName(MusicStore.QUALITY_LOW), "128 kbps"),
     };
@@ -118,6 +123,12 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
     private int current = MusicStore.QUALITY_STANDARD;
     /** 在播档（实测真值归类，-1＝实测不到）：只有它配标“当前播放”与头部“当前 X”。 */
     private int actualTier = -1;
+    /** 请求档行的实测注记（请求档与实测归类不一致时贴在请求档行副标处），null＝不注记。 */
+    private String measuredSpec;
+    /** 副标已被实测注记锁定的行下标（与 shownRows 同序）：QQ 详情规格不许盖掉实测注记。 */
+    private boolean[] specLocks = new boolean[0];
+    /** 在播实测监听：位深探针异步回填，面板开着时实测一变就重算归类，不许拿打开瞬间的旧值标到底。 */
+    private MusicController.Listener audioInfoListener;
     private OnQualityPick callback;
     private List<Row> shownRows = new ArrayList<>();
     private List<TextView> sizeViews = new ArrayList<>();
@@ -165,7 +176,10 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
                 else artist.setText(track.artist);
             }
         }
-        actualTier = actualTierOf(currentAudioInfo());
+        MusicAudioInfo info0 = currentAudioInfo();
+        actualTier = actualTierOf(info0);
+        measuredSpec = measuredSpecOf(info0);
+        registerAudioInfoListener();
         List<Row> initial = resolveTiersSync();
         if (initial == null) {
             // 落雪需后台算档：先铺 4 档占位、算出后刷新，不空着面板等
@@ -174,6 +188,39 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
         } else {
             buildRows(initial);
         }
+    }
+
+    /** 订阅在播实测变化：位深探针回填／换歌都会走这里，归类或注记变了就整行重画。 */
+    private void registerAudioInfoListener() {
+        audioInfoListener = new MusicController.Listener() {
+            @Override
+            public void onAudioInfoChanged() {
+                if (!isAdded() || rowsContainer == null) return;
+                MusicAudioInfo info = currentAudioInfo();
+                int tier = actualTierOf(info);
+                String spec = measuredSpecOf(info);
+                if (tier == actualTier && (spec == null ? measuredSpec == null : spec.equals(measuredSpec))) return;
+                actualTier = tier;
+                measuredSpec = spec;
+                if (!shownRows.isEmpty()) buildRows(new ArrayList<>(shownRows));
+            }
+        };
+        try {
+            MusicController.get().addListener(audioInfoListener);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    @Override
+    public void onDismiss(@NonNull android.content.DialogInterface dialog) {
+        if (audioInfoListener != null) {
+            try {
+                MusicController.get().removeListener(audioInfoListener);
+            } catch (Throwable ignored) {
+            }
+            audioInfoListener = null;
+        }
+        super.onDismiss(dialog);
     }
 
     /**
@@ -302,19 +349,32 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
     }
 
     /**
-     * 实测参数 → 在播所属档（阈值与 MusicAudioInfo.shortCode 同口径）：无损按位深／采样率
-     * 分 Hi-Res／无损，有损按真实码率分极高（≥192k）／标准；实测不到（无信息、
-     * 有损码率未知）返回 -1——面板不标当前播放、头部不写当前档，请求档不许顶上。
+     * 实测参数 → 在播所属档（阈值与 MusicAudioInfo.shortCode 同口径）：Hi-Res 只认
+     * 实测位深 ≥24 且采样率高于 CD 的 44100——44.1kHz 是 CD 采样率，这个采样率的
+     * 文件就是无损档，容器位深再高也不是 Hi-Res（瓜子 HIRES 规格 24bit/96kHz、
+     * 平台 hr 档同理不设在 44.1k；《来不及爱你》案就是 44.1k FLAC 被冒领 Hi-Res）；
+     * 位深没实测到（-1）不许凭采样率单独升 Hi-Res。有损按真实码率分极高（≥192k）
+     * ／标准；实测不到（无信息、有损码率未知）返回 -1——面板不标当前播放、
+     * 头部不写当前档，请求档不许顶上。
      */
     private static int actualTierOf(MusicAudioInfo info) {
         if (info == null || info.codec == null || info.codec.isEmpty()) return -1;
         if (info.lossless) {
-            return (info.bitDepth >= 24 || info.sampleRateHz >= 88200)
+            return (info.bitDepth >= 24 && info.sampleRateHz > 44100)
                     ? MusicStore.QUALITY_SUPER : MusicStore.QUALITY_HIGH;
         }
         if (info.bitrateKbps >= 192) return MusicStore.QUALITY_STANDARD;
         if (info.bitrateKbps > 0) return MusicStore.QUALITY_LOW;
         return -1;
+    }
+
+    /**
+     * 在播文件的实测规格串（请求档冒领时贴到请求档行）：位深＋编码，无采样率
+     * （禁显口径）；位深未知就只写编码。实测不到返回 null（不注记、不编数）。
+     */
+    private static String measuredSpecOf(MusicAudioInfo info) {
+        if (info == null || info.codec == null || info.codec.isEmpty()) return null;
+        return "实测 " + (info.bitDepth > 0 ? info.bitDepth + "bit · " : "") + info.codec;
     }
 
     private void buildRows(List<Row> rows) {
@@ -323,6 +383,7 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
         shownRows = rows;
         sizeViews = new ArrayList<>();
         specViews = new ArrayList<>();
+        specLocks = new boolean[rows.size()];
         LayoutInflater inflater = LayoutInflater.from(rowsContainer.getContext());
         for (int i = 0; i < rows.size(); i++) {
             View row = inflater.inflate(R.layout.item_music_quality_row, rowsContainer, false);
@@ -335,7 +396,14 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
                 row.setLayoutParams(lp);
             }
             rowsContainer.addView(row);
-            bindRow(row, rows.get(i), rows.get(i).quality == actualTier);
+            // 请求档与实测归类不一致：请求档行副标改贴实测注记并锁定，不许它顶着档位定义装真档。
+            String specOverride = null;
+            if (measuredSpec != null && actualTier >= 0 && current != actualTier
+                    && rows.get(i).quality == current) {
+                specOverride = measuredSpec;
+                specLocks[i] = true;
+            }
+            bindRow(row, rows.get(i), rows.get(i).quality == actualTier, specOverride);
         }
         if (subView != null && track != null) {
             // 头部同标真值：在播档实测不到就不写“当前 X”，请求档不许垫场。
@@ -346,8 +414,9 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
         loadSizesAsync();
     }
 
-    /** playing＝该行就是实测在播档：红字红 tone＋亮“当前播放”签，只认真值不认请求档。 */
-    private void bindRow(View row, Row r, boolean playing) {
+    /** playing＝该行就是实测在播档：红字红 tone＋亮“当前播放”签，只认真值不认请求档。
+     * specOverride＝请求档行的实测注记（非 null 时盖掉档位定义副标）。 */
+    private void bindRow(View row, Row r, boolean playing, String specOverride) {
         // 背景归玻璃（buildRows 已 glassify）：这里只切 tone——在播行＝红 tone 玻璃行，
         // 不许再 setBackgroundResource 把白板/粉板盖回来（1.4.42 真机就是这么被盖掉的）。
         if (row.getBackground() instanceof MusicGlassDrawable) {
@@ -373,9 +442,9 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
         }
         TextView spec = row.findViewById(R.id.qr_spec);
         if (spec != null) {
-            spec.setText(r.spec);
+            spec.setText(specOverride != null ? specOverride : r.spec);
             spec.setTextColor(playing ? 0xB8FFFFFF : 0x85FFFFFF); // 瓜子 QualityRow 码率色 .72/.52
-            specViews.add(spec); // 与 sizeViews 同序登记，供后台按真数据改规格（QQ Hi-Res 位深/采样率）
+            specViews.add(spec); // 与 sizeViews 同序登记，供后台按真数据改规格（QQ Hi-Res 位深）
         }
         TextView currentTag = row.findViewById(R.id.qr_current);
         if (currentTag != null) currentTag.setVisibility(playing ? View.VISIBLE : View.GONE);
@@ -437,7 +506,7 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
                     postSize(views, i, formatSize(len));
                 }
             }
-            // 第二层：QQ 详情补 Hi-Res 档大小＋位深/采样率规格（其余档大小与第一层同源同值，只补缺）。
+            // 第二层：QQ 详情补 Hi-Res 档大小＋位深规格（其余档大小与第一层同源同值，只补缺）。
             if ("tx".equals(lxPlatformKey(t))) {
                 try {
                     String mid = null;
@@ -492,6 +561,8 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
         if (getActivity() == null) return;
         getActivity().runOnUiThread(() -> {
             if (!isAdded() || sizeViews != views) return;
+            // 实测注记锁定的行不许被源目录规格盖掉（在播实测优先于目录标称）
+            if (idx < specLocks.length && specLocks[idx]) return;
             if (idx < specs.size() && specs.get(idx) != null) specs.get(idx).setText(text);
         });
     }
@@ -554,30 +625,17 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
         }
     }
 
-    /** QQ 详情的 Hi-Res 真规格：位深＋采样率拼瓜子式“24bit / 96kHz”；两样都没有返回 null（不编）。 */
+    /** QQ 详情的 Hi-Res 真规格：只取位深（“24bit”式）；采样率不进面板（禁显口径，
+     * hires_sample 不再读），位深没有返回 null（不编）。 */
     private static String hiresSpecOf(JsonObject file) {
         try {
-            long bit = 0, sample = 0;
             JsonElement b = file.get("hires_bitdepth");
-            if (b != null && b.isJsonPrimitive()) bit = b.getAsLong();
-            JsonElement s = file.get("hires_sample");
-            if (s != null && s.isJsonPrimitive()) sample = s.getAsLong();
-            if (bit <= 0 && sample <= 0) return null;
-            StringBuilder sb = new StringBuilder();
-            if (bit > 0) sb.append(bit).append("bit");
-            if (sample > 0) {
-                if (sb.length() > 0) sb.append(" / ");
-                sb.append(khz(sample));
-            }
-            return sb.toString();
+            if (b == null || !b.isJsonPrimitive()) return null;
+            long bit = b.getAsLong();
+            return bit > 0 ? bit + "bit" : null;
         } catch (Throwable ignored) {
             return null;
         }
-    }
-
-    private static String khz(long hz) {
-        if (hz % 1000 == 0) return (hz / 1000) + "kHz";
-        return String.format(Locale.US, "%.1f", hz / 1000.0) + "kHz";
     }
 
     private static String formatSize(double bytes) {

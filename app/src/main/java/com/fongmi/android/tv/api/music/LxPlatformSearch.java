@@ -221,6 +221,12 @@ public class LxPlatformSearch {
         if (v > 0) item.addProperty(itemKey, v);
     }
 
+    /** wy 子对象（l/h/sq/hr）里的 size → _item 每档大小键；子对象不存在就不写（面板保持“未知”）。 */
+    private static void putNestedSizeIfPositive(JsonObject item, String itemKey, JsonObject src, String subKey) {
+        if (src == null || !src.has(subKey) || !src.get(subKey).isJsonObject()) return;
+        putSizeIfPositive(item, itemKey, src.getAsJsonObject(subKey), "size");
+    }
+
     /** QQ 解析要 strMediaMid：搜索接口不给，取链前用歌曲详情接口补（单首一次请求） */
     public static String qqMediaMid(String songmid) {
         JsonObject file = qqFileInfo(songmid);
@@ -321,6 +327,13 @@ public class LxPlatformSearch {
             JsonObject item = new JsonObject();
             item.addProperty("songmid", id);
             item.addProperty("id", id);
+            // 每档真实大小：回包 l/h/sq/hr 子对象自带 size（字节，2026-10-26 本机实测
+            // 《来不及爱你》l=3285621/h=8213987/sq=40834025、hr 不存在），原样带进 _item
+            // 供音质面板同口径读——此前 wy 解析没存，网易歌四档大小全“未知”。
+            putNestedSizeIfPositive(item, "size128", o, "l");
+            putNestedSizeIfPositive(item, "size320", o, "h");
+            putNestedSizeIfPositive(item, "sizeFlac", o, "sq");
+            putNestedSizeIfPositive(item, "sizeHires", o, "hr");
             finish(t, item);
             out.add(t);
         }

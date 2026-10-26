@@ -730,8 +730,8 @@ public class MusicActivity extends BaseActivity {
         homeMoodName.setText(mood.name);
         homeMoodDesc.setText(mood.desc);
         homeMoodWave.setWaveColor(mood.tone);
-        // 卡底染色：tone 经玻璃地基平铺一层（每次切心情都刷，含首次默认选中同一路）
-        MusicGlassWire.setTone(findViewById(R.id.homeMoodCard), mood.tone);
+        // 卡面不再平铺心情色（2026-10-26 他发截图点名）：tone 0.16 压在深区取样上把整卡染成
+        // 墨绿实底、看不出玻璃——卡面保持纯玻璃，心情色只活在选中片/波形/播放钮上。
         // 播放钮：tone→向白混 0.22 的圆形渐变（点缀钮，心情色）
         GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
                 new int[]{mood.tone, MusicHomeMood.mixWhite(mood.tone, 0.22f)});
@@ -743,12 +743,16 @@ public class MusicActivity extends BaseActivity {
             GradientDrawable pb = new GradientDrawable();
             pb.setCornerRadius(dp(999));
             if (i == idx) {
-                pb.setColor(MusicHomeMood.alphaColor(m.tone, 0.18f));
-                pill.setTextColor(m.tone);
+                // 选中片＝带色玻璃（他的样张口径：选中态是一颗带颜色的玻璃）＋白字
+                pb.setColor(MusicHomeMood.alphaColor(m.tone, 0.45f));
+                pb.setStroke(dp(1), MusicHomeMood.alphaColor(m.tone, 0.65f));
+                pill.setTextColor(0xFFFFFFFF);
                 pill.getPaint().setFakeBoldText(true);
             } else {
-                pb.setColor(0x80FFFFFF);
-                pill.setTextColor(0xFF3A3A3C);
+                // 未选片同走玻璃：白半透＋亮边＋白字（此前是实灰片＋黑字，整片不是玻璃）
+                pb.setColor(0x29FFFFFF);
+                pb.setStroke(dp(1), 0x40FFFFFF);
+                pill.setTextColor(0xD9FFFFFF);
                 pill.getPaint().setFakeBoldText(false);
             }
             pill.setBackground(pb);

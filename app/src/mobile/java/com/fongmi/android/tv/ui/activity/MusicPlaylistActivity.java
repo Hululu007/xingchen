@@ -103,11 +103,6 @@ public class MusicPlaylistActivity extends BaseActivity {
     /** onResume 首过标记：首次由 initView 的 loadSheetTracks 负责，之后回页才重拉。 */
     private boolean resumedOnce = false;
 
-    /** 通用排序第二段升降序弹层的 post（页销毁取消，见 onDestroy） */
-    private final android.os.Handler sortDialogHandler =
-            new android.os.Handler(android.os.Looper.getMainLooper());
-    private Runnable sortDirRunnable;
-
     public static void startSheet(Activity activity, long playlistId, String name) {
         Intent i = new Intent(activity, MusicPlaylistActivity.class);
         i.putExtra("playlistId", playlistId);
@@ -225,7 +220,6 @@ public class MusicPlaylistActivity extends BaseActivity {
     protected void onDestroy() {
         MusicController.get().removeListener(controllerListener);
         MusicController.get().unbind();
-        if (sortDialogHandler != null) sortDialogHandler.removeCallbacksAndMessages(null);
         super.onDestroy();
     }
 
@@ -327,7 +321,9 @@ public class MusicPlaylistActivity extends BaseActivity {
             else if (idx == 1) shufflePlay();
             else if (idx == 2) {
                 sheetSearchShown = !sheetSearchShown;
-                etSheetSearch.setVisibility(sheetSearchShown ? View.VISIBLE : View.GONE);
+                // 搜索框开合走统一淡入淡出 200ms（显隐语义仍以 sheetSearchShown 旗为准）
+                if (sheetSearchShown) XcFadeTransition.fadeIn(etSheetSearch);
+                else XcFadeTransition.fadeOutThenGone(etSheetSearch);
                 if (!sheetSearchShown) {
                     sheetSearchKw = "";
                     etSheetSearch.setText("");
@@ -398,19 +394,40 @@ public class MusicPlaylistActivity extends BaseActivity {
         }
         java.util.Set<String> keys = new java.util.HashSet<>(sheetSelected);
         Task.execute(() -> {
+            int failed = 0;
+            // 与 removeFromSheet 同一正确口径：按 trackId＋platform＋插件戳三段身份定位到行、
+            // 按行主键 deleteById。旧实现走三参 SQL 等值删，platform 为 null 的存量行
+            // 「= NULL」永不命中、删不掉还静默吞错，用户删完歌还在且没原因。
             try {
-                // 待裁4：按复合身份逐行删（trackId＋platform 三参 delete），
-                // 只按 trackId 的两参 delete 会把同 id 异源行一并删掉
+                com.fongmi.android.tv.db.dao.MusicPlaylistItemDao dao =
+                        com.fongmi.android.tv.db.AppDatabase.get().getMusicPlaylistItemDao();
+                java.util.List<com.fongmi.android.tv.bean.MusicPlaylistItem> items = dao.findByPlaylist(playlistId);
                 for (MusicTrack t : new java.util.ArrayList<>(sheetAll)) {
                     if (t.id == null || !keys.contains(MusicQueue.trackKey(t))) continue;
-                    com.fongmi.android.tv.db.AppDatabase.get().getMusicPlaylistItemDao()
-                            .delete(playlistId, t.id, t.platform);
+                    boolean deleted = false;
+                    for (com.fongmi.android.tv.bean.MusicPlaylistItem item : items) {
+                        if (item != null && t.id.equals(item.getTrackId())
+                                && java.util.Objects.equals(t.platform, item.getPlatform())
+                                && java.util.Objects.equals(
+                                        com.fongmi.android.tv.music.MusicIdentity.pluginOf(t.rawJson),
+                                        com.fongmi.android.tv.music.MusicIdentity.pluginOf(item.getRawJson()))) {
+                            dao.deleteById(item.getId());
+                            deleted = true;
+                            break;
+                        }
+                    }
+                    if (!deleted) failed++;
                 }
-            } catch (Throwable ignored) {
+            } catch (Throwable t) {
+                failed = -1;
             }
+            int f = failed;
             runOnUiThread(() -> {
                 setSheetMulti(false);
                 loadSheetTracks();
+                // 失败要提示：整段失败与逐行没删中都如实报，不许吞错装删完
+                if (f < 0) Notify.show("删除失败，请重试");
+                else if (f > 0) Notify.show("有 " + f + " 首没删掉，请重试");
             });
         });
     }
@@ -488,30 +505,11 @@ public class MusicPlaylistActivity extends BaseActivity {
         return -1;
     }
 
-    // ================= 通用排序（工具条排序键照旧口径） =================
+    // 通用排序死接线已摘除（2026-10-26 体检 C 片）：sortTracks/applyGenericSort 与
+    // sortDialogHandler/sortDirRunnable 全树无调用点（grep 复核），本页真排序入口是
+    // ⋮ 菜单的 6 档弹层（showSheetSortDialog→sheetSort→refreshSheetDisplay）。
 
-    private void sortTracks(List<MusicTrack> list) {
-        int sort = MusicStore.getListSort();
-        if (sort == 1) Collections.sort(list, Comparator.comparing(t -> t.title == null ? "" : t.title));
-        else if (sort == 2) Collections.sort(list, Comparator.comparing(t -> t.artist == null ? "" : t.artist));
-        else if (sort == 3) Collections.sort(list, Comparator.comparingLong(t -> t.duration));
-        if (MusicStore.isListSortDesc()) Collections.reverse(list);
-    }
 
-    
-    /** 通用排序落点：按新档重排当前显示列（旧 showTracks 在 sheet 下的等价动作，不碰歌单原序数据） */
-    private void applyGenericSort() {
-        List<MusicTrack> list = new ArrayList<>(tracks);
-        sortTracks(list);
-        tracks.clear();
-        tracks.addAll(list);
-        adapter.notifyDataSetChanged();
-        if (tracks.isEmpty()) XcFadeTransition.fadeIn(empty);
-        else XcFadeTransition.fadeOutThenGone(empty);
-        if (tracks.isEmpty()) empty.setText(R.string.music_no_track);
-    }
-
-    
     // ================= 行菜单与行操作 =================
 
     /** 下载（每次询问档时先选档，否则直接下载） */
@@ -1050,6 +1048,11 @@ public class MusicPlaylistActivity extends BaseActivity {
 
             SheetSectionHolder(View v) {
                 super(v);
+                // 区头补玻璃/翻字接线：同页操作行有 glassifyTree、歌曲行有 frameRow，
+                // 唯区头漏网——「歌曲」#1C1C1E 黑字＋计数 #8E8E93 直接压深底。
+                // 本件无玻璃底可换，走 glassifyTree 的页面级翻字把不在玻璃件内的
+                // 中性深色字按字号翻白系（标题主字、计数副字白 .60）。
+                MusicGlassWire.glassifyTree(v);
                 count = v.findViewById(R.id.count);
             }
         }

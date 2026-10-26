@@ -1,10 +1,11 @@
 package com.fongmi.android.tv.ui.activity;
 
-import com.fongmi.android.tv.ui.music.MusicGlassWire;
 import android.animation.ObjectAnimator;
 import android.app.Activity;
 import android.content.Intent;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.animation.LinearInterpolator;
@@ -49,7 +50,16 @@ import java.util.Map;
  * 取链期目标歌被删／移位的队列编辑回滚（Q3③）只发 onTrackChanged（已装载旧歌），
  * 不是失败：页内不清失败态、不进失败态，显示回真正装着的旧歌；null 宣告（停播）
  * 也不反推失败，已有失败态时保持失败显示、无失败态时显空态。
- * 黑胶转速 20 秒／圈、外圈屏宽×0.7 上限 320dp 均为星辰侧自定，瓜子侧未抠到，不写成瓜子值。
+ * 整页照瓜子重做（他亲点，2026-10-26）：浅色底＋唱片卡（瓜子 disc_bg 原图）＋刻度尺＋卡内口号
+ * ＋23sp 歌名＋3dp tone 渐变进度＋72dp 黑圆播放钮＋两颗 #F0F0F4 丸子键，数值逐项见布局头注释与
+ * 分片报告对照表；盘径改瓜子公式 min(可用宽， 300dp／矮屏 260dp）、转速改瓜子 24000ms／圈线性；
+ * 本页不再走 MusicGlassWire 玻璃接线（瓜子此页是浅色发现面，玻璃化会把深字与钮底改坏）。
+ * 卡住定根（他截图实证：选歌中＋盘心纯黑＋00:00）：封面只在落位 showTrack 里加载、
+ * fallback 图标初始 GONE 也只在 showTrack／showEmptyTrack 点亮，落位宣告不到就全黑；
+ * 页内状态机只等 onTrackReady／onTrackFailed，取链迟迟不落位又不失败时没有任何超时出口、
+ * 无限期冻在选歌中（服务侧 isPlaying 已是 playWhenReady 真，更坐实卡在取链未落位，不是封面加载坏）。
+ * 与模式泄漏不同根（那是离页写回）。修法：找歌／取链态挂 15 秒看门狗（星辰侧自定值），
+ * 到期先复查服务当前曲是否已装载（宣告丢失时直接显示），仍未落位转失败态给重试出口。
  */
 public class MusicRandomActivity extends BaseActivity {
 
@@ -92,6 +102,13 @@ public class MusicRandomActivity extends BaseActivity {
     /** 本页实际播过的随机队列（洗后顺序），恢复时用它判定服务队列是否仍是本页的队 */
     private List<MusicTrack> randomQueue;
     private boolean randomReplacedQueue;
+
+    /** 取链看门狗：找歌／取链超过此时长仍未落位，转失败态给重试出口（星辰侧自定 15 秒，瓜子无此值） */
+    private static final long RESOLVE_WATCHDOG_MS = 15000;
+    private final Handler watchdogHandler = new Handler(Looper.getMainLooper());
+    private final Runnable watchdogRun = this::onResolveWatchdog;
+    /** 当前封面 tone 的 accent（tone 向黑混 0.28，瓜子 discoveryAccent 口径）；无封面时为 textHigh */
+    private int toneAccent = 0xFF1C1C1E;
 
     private final MusicController.Listener listener = new MusicController.Listener() {
         @Override
@@ -142,10 +159,10 @@ public class MusicRandomActivity extends BaseActivity {
         activity.startActivity(new Intent(activity, MusicRandomActivity.class));
     }
 
-    // 随心听沉浸页底 #0A0E16 深色，白色图标（BaseActivity 默认已改深色图标，这里盖回）。
+    // 随心听页已照瓜子改浅色底，深色系统图标（与浅底对比得上）
     @Override
     protected boolean useDarkSystemIcons() {
-        return false;
+        return true;
     }
 
     protected ViewBinding getBinding() {
@@ -155,29 +172,50 @@ public class MusicRandomActivity extends BaseActivity {
 
     @Override
     protected void initView(Bundle savedInstanceState) {
-        MusicGlassWire.glassifyTree(getBinding().getRoot()); // 全页玻璃件同源接线：共用件按资源识别统一换液态玻璃（MusicGlassWire）
         pageAlive = true;
-        // 黑胶尺寸：外圈＝屏宽×0.7、上限 320dp（GZ 绝对 dp 未抠到）；内圈封面 0.68f、中心黑点 0.053f、fallback 图标 0.24f
+        // 盘径照瓜子公式：min(卡内可用宽， 300dp)，矮屏（高 <740dp）走紧凑支：上限 260、
+        // 卡横内距 16／底内距 12、唱片区顶距 10、口号隐藏、卡与面板间距 14、面板块间距 12。
+        float density = getResources().getDisplayMetrics().density;
         int sw = getResources().getDisplayMetrics().widthPixels;
-        int d = (int) Math.min(sw * 0.7f, dp(320));
+        int sh = getResources().getDisplayMetrics().heightPixels;
+        boolean compact = sh / density < 740f;
+        int cardPadH = compact ? 16 : 24;
+        binding.cardRoot.setPadding(dp(cardPadH), binding.cardRoot.getPaddingTop(),
+                dp(cardPadH), dp(compact ? 12 : 20));
+        if (compact) binding.tvSlogan.setVisibility(View.GONE);
+        ViewGroup.MarginLayoutParams gapLp = (ViewGroup.MarginLayoutParams) binding.gapCardPanel.getLayoutParams();
+        gapLp.height = dp(compact ? 14 : 20);
+        binding.gapCardPanel.setLayoutParams(gapLp);
+        int panelGap = dp(compact ? 12 : 16);
+        setTopMargin(binding.progressBlock, panelGap);
+        setTopMargin(binding.transportRow, panelGap);
+        setTopMargin(binding.prefsRow, panelGap);
+        int innerW = sw - dp(16 * 2) - dp(cardPadH * 2);
+        int d = Math.min(innerW, dp(compact ? 260 : 300));
         ViewGroup.LayoutParams lp = binding.discWrap.getLayoutParams();
         lp.width = d;
         lp.height = d;
+        ViewGroup.MarginLayoutParams discLp = (ViewGroup.MarginLayoutParams) lp;
+        discLp.topMargin = dp(compact ? 10 : 16);
         binding.discWrap.setLayoutParams(lp);
         setSize(binding.ivDiscCover, (int) (d * 0.68f));
         setSize(binding.discDot, (int) (d * 0.053f));
         setSize(binding.ivDiscFallback, (int) (d * 0.24f));
-        binding.btnPrev.setImageTintList(android.content.res.ColorStateList.valueOf(0xFFFFFFFF));
-        binding.btnNext.setImageTintList(android.content.res.ColorStateList.valueOf(0xFFFFFFFF));
-        binding.ivDiscFallback.setImageTintList(android.content.res.ColorStateList.valueOf(0xFFFFFFFF));
+        binding.btnPrev.setImageTintList(android.content.res.ColorStateList.valueOf(0xFF1C1C1E));
+        binding.btnNext.setImageTintList(android.content.res.ColorStateList.valueOf(0xFF1C1C1E));
+        // 无封面 fallback 图标：瓜子口径白 @0.85
+        binding.ivDiscFallback.setImageTintList(android.content.res.ColorStateList.valueOf(0xD9FFFFFF));
+        applySeekTone(0xFF1C1C1E);
         discAnim = ObjectAnimator.ofFloat(binding.discWrap, "rotation", 0f, 360f);
-        discAnim.setDuration(20000);
+        discAnim.setDuration(24000);
         discAnim.setInterpolator(new LinearInterpolator());
         discAnim.setRepeatCount(ObjectAnimator.INFINITE);
         binding.btnPrev.setOnClickListener(v -> manualSwitch(() -> MusicController.get().prev()));
         binding.btnNext.setOnClickListener(v -> manualSwitch(() -> MusicController.get().next()));
         binding.btnPlayPause.setOnClickListener(v -> MusicController.get().toggle());
-        // 跳过这首＝切下一首（星辰无偏好学习引擎，钮名只许诺真实行为，不许叫「不合口味」假装学习）
+        // 「不合口味」照瓜子原键名落码（他亲点整页照瓜子）；星辰无偏好学习引擎，点击行为仍是
+        // 切下一首；此前被定为假许诺的是「正在结合你的收藏与听歌足迹…由你的偏好决定」那段
+        // 说明文案——那段不恢复，页内副文案只写星辰真实来源链
         binding.btnDislike.setOnClickListener(v -> manualSwitch(() -> MusicController.get().next()));
         binding.btnFav.setOnClickListener(v -> toggleFav());
         binding.tvRediscover.setOnClickListener(v -> buildQueue());
@@ -252,6 +290,7 @@ public class MusicRandomActivity extends BaseActivity {
     @Override
     protected void onDestroy() {
         pageAlive = false;
+        watchdogHandler.removeCallbacks(watchdogRun);
         detachListener();
         MusicController.get().unbind();
         restorePreviousQueue();
@@ -512,7 +551,12 @@ public class MusicRandomActivity extends BaseActivity {
     }
 
     private void retryFailed() {
-        if (failedTrack == null || failedTrack.id == null) return;
+        if (failedTrack == null || failedTrack.id == null) {
+            // 看门狗转的无目标失败态：没有可重试的曲目，整池重洗重新选歌
+            clearFailedState();
+            buildQueue();
+            return;
+        }
         // 重试受理宣告不是 stopAtFailed 回声：先清守卫，playAt 的受理宣告走失败态受理分支
         failedEchoExpected = false;
         List<MusicTrack> q = null;
@@ -532,6 +576,7 @@ public class MusicRandomActivity extends BaseActivity {
     }
 
     private void enterFailedState(MusicTrack failed) {
+        cancelWatchdog();
         failedTrack = failed;
         failedState = true;
         setFinding(false);
@@ -565,7 +610,9 @@ public class MusicRandomActivity extends BaseActivity {
     }
 
     private void showTrack(MusicTrack track) {
+        cancelWatchdog();
         setFinding(false);
+        XcFadeTransition.fadeOutThenGone(binding.findingSkeleton);
         displayedTrack = track;
         if (failedState) {
             failedState = false;
@@ -587,9 +634,14 @@ public class MusicRandomActivity extends BaseActivity {
             }
             binding.ivDiscCover.setImageDrawable(null);
             binding.ivDiscFallback.setVisibility(View.VISIBLE);
+            applySeekTone(0xFF1C1C1E);
+            toneAccent = 0xFF1C1C1E;
+            binding.ruler.setToneColor(0x8C8E8E93);
+            refreshStateDot();
         } else {
             binding.ivDiscFallback.setVisibility(View.GONE);
             ImgUtil.loadCircleFade(track.displayTitle(), track.cover, binding.ivDiscCover);
+            fetchCoverTone(track);
         }
         refreshFavButton();
         unfreezeProgress();
@@ -598,6 +650,7 @@ public class MusicRandomActivity extends BaseActivity {
     }
 
     private void showEmptyTrack() {
+        cancelWatchdog();
         binding.tvShuffleTitle.setText("");
         XcFadeTransition.fadeIn(binding.tvShuffleTitle);
         XcFadeTransition.fadeOutThenGone(binding.tvShuffleMeta);
@@ -659,9 +712,8 @@ public class MusicRandomActivity extends BaseActivity {
     private void updatePlaying(boolean playing) {
         if (!pageAlive) return;
         binding.btnPlayPause.setImageResource(playing ? R.drawable.ic_music_pause : R.drawable.ic_music_play);
-        // 图标必须白：btnPlayPause 的白圆底已被 glassifyTree 换成深玻璃，此前每次都把 tint
-        // 写回深墨 #1C1C1E＝深压深、主控制键图标看不见（体检 A 片高危）；按玻璃白字口径给白
-        binding.btnPlayPause.setImageTintList(android.content.res.ColorStateList.valueOf(0xFFFFFFFF));
+        // 中央钮已照瓜子改 #1C1C1E 黑圆底，图标用 contentSurface #FAFAFC（深底浅图标，对比得上）
+        binding.btnPlayPause.setImageTintList(android.content.res.ColorStateList.valueOf(0xFFFAFAFC));
         binding.btnPlayPause.setContentDescription(playing ? "暂停" : "播放");
         if (discAnim == null) {
             updateState();
@@ -688,18 +740,23 @@ public class MusicRandomActivity extends BaseActivity {
         else if (finding || MusicController.get().current() == null) state = "选歌中";
         else state = MusicController.get().isPlaying() ? "正在播放" : "等待聆听";
         binding.tvShuffleState.setText(state);
+        refreshStateDot();
     }
 
     private void setFinding(boolean on) {
         finding = on;
         if (on) XcFadeTransition.fadeIn(binding.tvShuffleFinding); else XcFadeTransition.fadeOutThenGone(binding.tvShuffleFinding);
+        // 找歌态照瓜子 TrackIdentity：骨架条与找歌文案同显同隐
+        if (on) XcFadeTransition.fadeIn(binding.findingSkeleton); else XcFadeTransition.fadeOutThenGone(binding.findingSkeleton);
         if (on) {
             binding.tvShuffleFinding.setText(R.string.random_finding);
             XcFadeTransition.fadeOutThenGone(binding.tvShuffleTitle);
             XcFadeTransition.fadeOutThenGone(binding.tvShuffleMeta);
             XcFadeTransition.fadeOutThenGone(binding.tvShuffleSub);
             freezeProgress();
+            scheduleWatchdog();
         } else {
+            cancelWatchdog();
             if (!failedState) unfreezeProgress();
         }
         if (on) updateState();
@@ -709,8 +766,110 @@ public class MusicRandomActivity extends BaseActivity {
     private void applyResolvingUi() {
         XcFadeTransition.fadeIn(binding.tvShuffleFinding);
         binding.tvShuffleFinding.setText(R.string.random_loading);
+        XcFadeTransition.fadeIn(binding.findingSkeleton);
         freezeProgress();
+        scheduleWatchdog();
         updateState();
+    }
+
+    // ---- 取链看门狗：找歌／取链迟迟不落位时先复查装载态，仍未落位转失败态（定根见类头） ----
+    private void scheduleWatchdog() {
+        watchdogHandler.removeCallbacks(watchdogRun);
+        watchdogHandler.postDelayed(watchdogRun, RESOLVE_WATCHDOG_MS);
+    }
+
+    private void cancelWatchdog() {
+        watchdogHandler.removeCallbacks(watchdogRun);
+    }
+
+    private void onResolveWatchdog() {
+        if (!pageAlive || failedState) return;
+        if (!finding && !resolving) return;
+        MusicTrack cur = null;
+        try {
+            cur = MusicController.get().current();
+        } catch (Throwable ignored) {
+        }
+        if (cur != null && isLoadedTrack(cur)) {
+            // 宣告丢失但服务其实已装载：直接显示，不误报失败
+            pendingTrack = null;
+            resolving = false;
+            showTrack(cur);
+            return;
+        }
+        if (pendingTrack != null) {
+            enterFailedState(pendingTrack);
+            return;
+        }
+        // 首曲找歌链卡住、无目标曲目：转无目标失败态，重试钮改走整池重洗（见 retryFailed）
+        setFinding(false);
+        failedState = true;
+        failedTrack = null;
+        freezeProgress();
+        binding.tvFailedHint.setText(R.string.random_failed_hint);
+        XcFadeTransition.fadeIn(binding.failedBlock);
+        updateState();
+        updatePlaying(MusicController.get().isPlaying());
+    }
+
+    /** 封面 tone：进度填充渐变（tone → 向白混 0.22）、状态点与刻度尺的 accent（tone 向黑混 0.28）都从这里出 */
+    private void fetchCoverTone(MusicTrack track) {
+        final MusicTrack target = track;
+        ImgUtil.load(track.cover, new com.fongmi.android.tv.impl.CustomTarget<android.graphics.Bitmap>() {
+            @Override
+            public void onResourceReady(@androidx.annotation.NonNull android.graphics.Bitmap bmp,
+                                        com.bumptech.glide.request.transition.Transition<? super android.graphics.Bitmap> transition) {
+                Task.execute(() -> {
+                    int dom = com.fongmi.android.tv.utils.CoverColor.dominantColor(bmp);
+                    runOnUiThread(() -> {
+                        if (!pageAlive || displayedTrack != target) return;
+                        toneAccent = androidx.core.graphics.ColorUtils.blendARGB(dom, 0xFF000000, 0.28f);
+                        applySeekTone(dom);
+                        binding.ruler.setToneColor(androidx.core.graphics.ColorUtils.setAlphaComponent(toneAccent, 140));
+                        refreshStateDot();
+                    });
+                });
+            }
+
+            @Override
+            public void onLoadCleared(android.graphics.drawable.Drawable placeholder) {
+            }
+        });
+    }
+
+    /** 进度条填充按瓜子：封面 tone 渐变（tone → 向白混 0.22）；无 tone 时退 textHigh 实色渐变 */
+    private void applySeekTone(int tone) {
+        try {
+            android.graphics.drawable.GradientDrawable track = new android.graphics.drawable.GradientDrawable();
+            track.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
+            track.setColor(0x2E8E8E93);
+            track.setCornerRadius(dp(2));
+            int light = androidx.core.graphics.ColorUtils.blendARGB(tone, 0xFFFFFFFF, 0.22f);
+            android.graphics.drawable.GradientDrawable fill = new android.graphics.drawable.GradientDrawable(
+                    android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT, new int[]{tone, light});
+            fill.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
+            fill.setCornerRadius(dp(2));
+            android.graphics.drawable.ClipDrawable clip = new android.graphics.drawable.ClipDrawable(
+                    fill, android.view.Gravity.START, android.graphics.drawable.ClipDrawable.HORIZONTAL);
+            android.graphics.drawable.LayerDrawable ld = new android.graphics.drawable.LayerDrawable(
+                    new android.graphics.drawable.Drawable[]{track, clip});
+            ld.setId(0, android.R.id.background);
+            ld.setId(1, android.R.id.progress);
+            int p = binding.seekBar.getProgress();
+            int m = binding.seekBar.getMax();
+            binding.seekBar.setProgressDrawable(ld);
+            binding.seekBar.setMax(m);
+            binding.seekBar.setProgress(p);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 状态点：播放且已落位时染封面 accent，其余回默认灰（瓜子口径 accent/默认二态） */
+    private void refreshStateDot() {
+        boolean active = !failedState && !finding && !resolving && displayedTrack != null
+                && MusicController.get().isPlaying();
+        binding.dotState.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                active ? toneAccent : 0xFFC7C7CC));
     }
 
     private void freezeProgress() {
@@ -727,13 +886,20 @@ public class MusicRandomActivity extends BaseActivity {
         MusicTrack cur = MusicController.get().current();
         if (cur == null || cur.id == null) {
             binding.btnFav.setText("收藏这首");
-            binding.btnFav.setTextColor(0xFFFFFFFF);
+            binding.btnFav.setTextColor(0xFF1C1C1E);
+            binding.btnFav.setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_music_heart, 0, 0, 0);
+            binding.btnFav.setCompoundDrawableTintList(android.content.res.ColorStateList.valueOf(0xFF1C1C1E));
             return;
         }
         MusicLibrary.isFavorite(cur, fav -> {
             if (!pageAlive) return;
             binding.btnFav.setText(fav ? "已收藏这首" : "收藏这首");
-            binding.btnFav.setTextColor(fav ? 0xFFFA243C : 0xFFFFFFFF);
+            // 浅底丸子键：未收藏 textHigh、已收藏红（星辰既有口径色 #FA243C 保留）
+            binding.btnFav.setTextColor(fav ? 0xFFFA243C : 0xFF1C1C1E);
+            binding.btnFav.setCompoundDrawablesRelativeWithIntrinsicBounds(
+                    fav ? R.drawable.ic_music_heart_fill : R.drawable.ic_music_heart, 0, 0, 0);
+            binding.btnFav.setCompoundDrawableTintList(android.content.res.ColorStateList.valueOf(
+                    fav ? 0xFFFA243C : 0xFF1C1C1E));
         });
     }
 
@@ -767,6 +933,12 @@ public class MusicRandomActivity extends BaseActivity {
             if (!sameTrackId(a.get(i), b.get(i))) return false;
         }
         return true;
+    }
+
+    private void setTopMargin(View v, int top) {
+        ViewGroup.MarginLayoutParams lp = (ViewGroup.MarginLayoutParams) v.getLayoutParams();
+        lp.topMargin = top;
+        v.setLayoutParams(lp);
     }
 
     private void setSize(View v, int size) {

@@ -149,6 +149,9 @@ public class MusicLyricActivity extends AppCompatActivity implements MusicContro
         super.onResume();
         mTickHandler.removeCallbacks(mTick);
         mTickHandler.post(mTick);
+        // 与播放页同口径（转派接缝）：别处改选了歌词版本、回本页也要重读缓存，
+        // 不靠切歌才刷新。
+        if (mTrack != null) tryLoadLyric(mTrack);
     }
 
     @Override

@@ -61,7 +61,10 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
     public static void start(Context context) {
         if (context == null) return;
         Intent intent = new Intent(context, MusicPlayerActivity.class);
-        if (!(context instanceof Activity)) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        // 非 Activity 上下文（通知/服务拉起）硬性要 NEW_TASK（任务卡单口径 e02c822a）；
+        // 同补 CLEAR_TOP|SINGLE_TOP：已有播放页时回既有任务并复用实例，不再叠新页。
+        if (!(context instanceof Activity)) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         context.startActivity(intent);
     }
 
@@ -172,13 +175,16 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
             lp.height = mScrubber.getMeasuredHeight();
             box.setLayoutParams(lp);
             // 两态进度线同高（原地切换的几何前提）：全栈轨道中心在盒内
-            // 28（顶盒）＋4＋18/2＝41dp；迷你组原靠盒底、条中心只在盒内约 54dp 处，
-            // 切换时线凭空跳 13dp——改顶对齐＋顶距 41−12＝29dp（迷你条 24dp 热区、条居中），
-            // 两条线严丝合缝同位。迷你筹行当前是 gone，若日后恢复显示要同步重算此顶距。
+            // 28（顶盒）＋4＋18/2＝41dp；迷你组顶对齐＋顶距让迷你条中心落到同一 41dp。
+            // 迷你筹行已恢复显示（体检低·迷你态双筹：筹行曾被 aecba34b 设 gone、
+            // 接线与 refreshChips 全成死接线，与 onCreate「播放时筹不许消失」自相矛盾，
+            // 按恢复显示收口）：筹行 26dp 在组首，迷你条中心在组内 26＋12＝38dp，
+            // 顶距＝41−38＝3dp。筹行高度再变，此顶距与 setScrubberExpanded 的
+            // 迷你枢轴（38dp）必须同步重算。
             android.widget.FrameLayout.LayoutParams glp =
                     (android.widget.FrameLayout.LayoutParams) mMiniGroup.getLayoutParams();
             glp.gravity = android.view.Gravity.TOP;
-            glp.topMargin = Math.round(dp(41) - dp(12));
+            glp.topMargin = Math.round(dp(41) - dp(38));
             mMiniGroup.setLayoutParams(glp);
         });
         // 迷你态常驻筹与全栈筹同路（播放时筹在他点名下不许消失）
@@ -228,6 +234,9 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
         // 先摘再挂：与 onCreate 的首挂不叠，链永远只有一条
         mTickHandler.removeCallbacks(mTick);
         mTickHandler.post(mTick);
+        // 转派接缝：在歌词页改选版本写的是共享缓存，回播放页必须重读——此前
+        // onResume 只重启 tick，页内词恒停在进歌词页前的版本，要等切歌才更新。
+        if (mTrack != null) tryLoadLyric(mTrack);
     }
 
     @Override
@@ -359,12 +368,13 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
         final GestureDetector gd = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
             @Override
             public boolean onDoubleTap(MotionEvent e) {
-                // 瓜子封面双击：震动＋把「!当前收藏态」传给粒子（变已收藏 8 颗／取消 5 颗，种子＝触发计数）
-                boolean target = !mFavorite;
-                mCoverBox.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK);
-                mFavTriggerCount++;
-                mBurst.burst(e.getX(), e.getY(), target, mFavTriggerCount);
-                animateCoverFavPulse();
+                // 体检低：无曲不爆、反馈与落盘结果挂钩——此前无曲也爆粒子、落盘失败
+                // 也爆（toggleFavorite 无曲直接 return、失败回调不跑，粒子却已先放）。
+                // 改：坐标先存，粒子/震动/脉冲全挪进 setFavorite 的成功回调里放。
+                if (mTrack == null) return true;
+                mPendingBurstX = e.getX();
+                mPendingBurstY = e.getY();
+                mPendingBurst = true;
                 toggleFavorite();
                 return true;
             }
@@ -601,8 +611,8 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
         // 同位淡化＋绕线心微缩放：两条线已在装配时对齐同高（见盒钉高处），
         // 缩放锚点取各自轨道线高度，进 0.96→1、出 1→0.96，像同一根条原地长开/收拢，
         // 不再是两件东西生硬对换。
-        float inPivotY = expanded ? dp(41) : dp(12);
-        float outPivotY = expanded ? dp(12) : dp(41);
+        float inPivotY = expanded ? dp(41) : dp(38);
+        float outPivotY = expanded ? dp(38) : dp(41);
         if (in.getWidth() > 0) in.setPivotX(in.getWidth() / 2f);
         if (out.getWidth() > 0) out.setPivotX(out.getWidth() / 2f);
         in.setPivotY(inPivotY);
@@ -866,12 +876,28 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
         mBtnFav.setColorFilter(0xFFFFFFFF);
     }
 
+    private boolean mPendingBurst;
+    private float mPendingBurstX;
+    private float mPendingBurstY;
+
     private void toggleFavorite() {
-        if (mTrack == null) return;
+        if (mTrack == null) {
+            mPendingBurst = false;
+            return;
+        }
         boolean target = !mFavorite;
         MusicLibrary.setFavorite(mTrack, target, () -> {
             mFavorite = target;
             applyFavUi();
+            // 双击收藏的粒子反馈只在落盘成功后放（本回调只在真落盘时跑，
+            // 失败路径走错误提示、不跑到这里）；单键收藏（歌手行爱心）不带 pending、不爆。
+            if (mPendingBurst) {
+                mPendingBurst = false;
+                mCoverBox.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK);
+                mFavTriggerCount++;
+                mBurst.burst(mPendingBurstX, mPendingBurstY, target, mFavTriggerCount);
+                animateCoverFavPulse();
+            }
         });
     }
 

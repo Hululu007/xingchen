@@ -81,7 +81,7 @@ public class LxMusicSource implements MusicSource {
                     }
                 }
             } catch (Throwable t) {
-                SpiderDebug.log("music", "lx searchable site error site=%s %s", plugin.name, t.getMessage());
+                SpiderDebug.log("music", "lx searchable site error site=%s %s", plugin.name, errText(t));
             }
         }
         return result;
@@ -95,7 +95,7 @@ public class LxMusicSource implements MusicSource {
             try {
                 all.addAll(searchBySite(s, keyword));
             } catch (Throwable t) {
-                SpiderDebug.log("music", "lx search error site=%s %s", s.name, t.getMessage());
+                SpiderDebug.log("music", "lx search error site=%s %s", s.name, errText(t));
             }
         }
         return all;
@@ -281,7 +281,7 @@ public class LxMusicSource implements MusicSource {
             } catch (Throwable t) {
                 if (!probe) markDeadPlugin(deadKey, plugin.srcUrl, want);
                 rethrowKeyIssue(t);
-                SpiderDebug.log("music", "lx playUrl error plugin=%s %s", plugin.name, t.getMessage());
+                SpiderDebug.log("music", "lx playUrl error plugin=%s %s", plugin.name, errText(t));
             }
         }
         if (LxPlatformSearch.QQ.equals(p.platform)) {
@@ -435,7 +435,7 @@ public class LxMusicSource implements MusicSource {
         } catch (Throwable t) {
             if (!probe) markDeadPlugin(deadKey, srcUrl, want);
             rethrowKeyIssue(t);
-            SpiderDebug.log("music", "lx playUrlWithPlugin error plugin=%s %s", target.name, t.getMessage());
+            SpiderDebug.log("music", "lx playUrlWithPlugin error plugin=%s %s", target.name, errText(t));
         }
         return null;
     }
@@ -463,7 +463,7 @@ public class LxMusicSource implements MusicSource {
                 if (!TextUtils.isEmpty(text)) return text;
             } catch (Throwable t) {
                 rethrowKeyIssue(t);
-                SpiderDebug.log("music", "lx lyric error plugin=%s %s", plugin.name, t.getMessage());
+                SpiderDebug.log("music", "lx lyric error plugin=%s %s", plugin.name, errText(t));
             }
         }
         return null;
@@ -500,7 +500,7 @@ public class LxMusicSource implements MusicSource {
                 if (lyric != null && lyric.hasLyric() && romajiOnly == null) romajiOnly = lyric;
             } catch (Throwable t) {
                 rethrowKeyIssue(t);
-                SpiderDebug.log("music", "lx lyricRich error plugin=%s %s", plugin.name, t.getMessage());
+                SpiderDebug.log("music", "lx lyricRich error plugin=%s %s", plugin.name, errText(t));
             }
         }
         return romajiOnly;
@@ -531,13 +531,26 @@ public class LxMusicSource implements MusicSource {
                 }
             } catch (Throwable t) {
                 rethrowKeyIssue(t);
-                SpiderDebug.log("music", "lx lyricPluginAllRich error plugin=%s %s", plugin.name, t.getMessage());
+                SpiderDebug.log("music", "lx lyricPluginAllRich error plugin=%s %s", plugin.name, errText(t));
             }
         }
         return out;
     }
 
     /* ---------------- 内部 ---------------- */
+
+    /** 错误日志文本：解包到根因再取消息；根因没消息（如 Future 的 TimeoutException
+     * 本身 getMessage 恒为 null）时记类名——旧写法直接打成了 "error ... null"，
+     * 2026-10-26 落雪全灭那次日志因此全盲，只能靠 8.0 秒间隔反推是超时。 */
+    private static String errText(Throwable t) {
+        Throwable root = t;
+        while ((root instanceof java.util.concurrent.ExecutionException
+                || root instanceof CompletionException) && root.getCause() != null) {
+            root = root.getCause();
+        }
+        String m = root.getMessage();
+        return m != null ? m : root.getClass().getSimpleName();
+    }
 
     /** B4：把包在 ExecutionException／CompletionException 里的密钥问题错误解出来重抛；其余原样记日志 */
     private static void rethrowKeyIssue(Throwable t) {

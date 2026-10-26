@@ -230,7 +230,11 @@ public class MusicStore {
     }
 
     public static int getMode() {
-        return Prefers.getInt(K_MODE, MusicQueue.MODE_SEQUENTIAL);
+        // 扫描 H6：合法值钳制（与同文件 getMobileQuality/getDlNaming 同口径）——
+        // 存档越界（跨版本残留/损坏）时回落顺序播，不让队列按未知值走 default 分支
+        int mode = Prefers.getInt(K_MODE, MusicQueue.MODE_SEQUENTIAL);
+        return mode >= MusicQueue.MODE_SEQUENTIAL && mode <= MusicQueue.MODE_SHUFFLE
+                ? mode : MusicQueue.MODE_SEQUENTIAL;
     }
 
     public static void setMode(int mode) {
@@ -238,7 +242,10 @@ public class MusicStore {
     }
 
     public static int getQuality() {
-        return Prefers.getInt(K_QUALITY, QUALITY_STANDARD);
+        // 扫描 H6：合法值钳制（同 getMode 口径）——越界值会让取链从越界档逐档
+        // 往下白试多轮源请求才轮到真档，单首取链平白变慢
+        int q = Prefers.getInt(K_QUALITY, QUALITY_STANDARD);
+        return q >= QUALITY_LOW && q <= QUALITY_SUPER ? q : QUALITY_STANDARD;
     }
 
     public static void setQuality(int quality) {
@@ -663,33 +670,9 @@ public class MusicStore {
         saveStringMap(K_SHEET_COVER, map);
     }
 
-    // ===== 歌曲自定义封面（播放页大封面＋背景；本地相册选图，只保存在本机，不上传、不登录） =====
-    private static final String K_SONG_COVER = "music_song_custom_cover";
-
-    /** 歌曲自定义封面键：id 有则 platform|id，否则 platform|title|artist；都空返回空 */
-    public static String songCoverKey(MusicTrack track) {
-        if (track == null) return null;
-        String platform = track.platform == null ? "" : track.platform;
-        if (track.id != null && !track.id.isEmpty()) return platform + "|" + track.id;
-        String title = track.title == null ? "" : track.title;
-        String artist = track.artist == null ? "" : track.artist;
-        if (title.isEmpty() && artist.isEmpty()) return null;
-        return platform + "|" + title + "|" + artist;
-    }
-
-    /** 歌曲自定义封面：应用文件目录里图的 file:// 地址（空 = 没自定义） */
-    public static String getSongCover(String key) {
-        if (key == null) return null;
-        return loadStringMap(K_SONG_COVER).get(key);
-    }
-
-    public static void setSongCover(String key, String fileUri) {
-        if (key == null) return;
-        java.util.Map<String, String> map = loadStringMap(K_SONG_COVER);
-        if (fileUri == null || fileUri.isEmpty()) map.remove(key);
-        else map.put(key, fileUri);
-        saveStringMap(K_SONG_COVER, map);
-    }
+    // 扫描 H7：歌曲自定义封面存取三件套（songCoverKey/getSongCover/setSongCover＋
+    // K_SONG_COVER 键）全树零调用——能力悬空、存档键存在但功能不存在，已删除防误接。
+    // （歌单封面 getSheetCover/setSheetCover 有真实消费点，不在此列。）
 
     /** 歌单简介（空 = 没写简介，英雄卡不显示简介行） */
     public static String getSheetDesc(long playlistId) {

@@ -38,7 +38,8 @@ import java.util.List;
 /**
  * 榜单列表独立页（拆页 p5）：焦点卡＋分区头＋普通卡；
  * 数据源＝MusicRepository 榜单（只留酷我＋QQ 的站点），卡内预览逐榜拉取，
- * 卡面跟随封面取色淡染；点卡进榜单详情独立页 MusicChartDetailActivity。
+ * 卡面统一玻璃本色、不跟封面染色（2026-10-26 收口，见 neutralChartCard）；
+ * 点卡进榜单详情独立页 MusicChartDetailActivity。
  * 顶栏无返回箭头，走系统返回。2026-10-26 他亲点：计数行/刷新钮/排序箭头整带已删，
  * 本页只在进页时加载一次（无任何刷新入口），标题行保持他截图的样子不增不减。
  */
@@ -249,49 +250,20 @@ public class MusicChartsActivity extends BaseActivity {
 
     // ================= 取色与封面 =================
 
-    /** 榜单卡玻璃色调（跟随封面取色：主色向白混 85% 成淡染，走玻璃 tone 不换底；
-     *  原写法取色回来整卡 setBackground 成浅色实底，把 Holder 已接的玻璃盖掉了（2026-10-26 全扫漏网） */
-    private void tintChartCard(View cardRoot, MusicChart chart, int cornerDp) {
-        String key = chart.platform + ":" + chart.id;
-        cardRoot.setTag(key);
-        // 复用行先清上一张的 tone，无封面/取色失败就保持中性玻璃
+    /** 榜单卡面统一玻璃本色（2026-10-26 他亲点收口）：卡面不许跟封面染色——
+     * 此前 tintChartCard 把 CoverColor.dominantColor 的主色向白混 85% 成近白淡染，
+     * 以 tone 0.45 平铺进卡面（染色），背景不是玻璃时还整卡换成近白实底
+     * GradientDrawable（变白），且该实底在复用绑定时从不清、串到下一张卡。
+     * 染色链整条已摘：绑定时只做两件事——卡底还不是玻璃就按识别表补换玻璃
+     * （Holder 构造已接一遍，这里是绑定口兜底，赶在上屏前）；已是玻璃就清 tone
+     * 回本色。封面没到/取色失败没有任何卡面分支，回落恒为玻璃本色。
+     * accent 文字与平台胶囊的语气色不是卡面染色，不在此列（仍照旧）。 */
+    private void neutralChartCard(View cardRoot) {
+        if (cardRoot == null) return;
+        MusicGlassWire.glassifyView(cardRoot);
         if (cardRoot.getBackground() instanceof com.fongmi.android.tv.ui.music.MusicGlassDrawable) {
             ((com.fongmi.android.tv.ui.music.MusicGlassDrawable) cardRoot.getBackground()).setToneColor(0);
         }
-        if (chart.cover == null || chart.cover.isEmpty()) return;
-        ImgUtil.load(chart.cover, new com.fongmi.android.tv.impl.CustomTarget<android.graphics.Bitmap>() {
-            @Override
-            public void onResourceReady(@NonNull android.graphics.Bitmap bmp,
-                                        com.bumptech.glide.request.transition.Transition<? super android.graphics.Bitmap> transition) {
-                if (!key.equals(cardRoot.getTag())) return;
-                Task.execute(() -> {
-                    int dom = com.fongmi.android.tv.utils.CoverColor.dominantColor(bmp);
-                    int r = (int) (android.graphics.Color.red(dom) * 0.15f + 255 * 0.85f);
-                    int g = (int) (android.graphics.Color.green(dom) * 0.15f + 255 * 0.85f);
-                    int b = (int) (android.graphics.Color.blue(dom) * 0.15f + 255 * 0.85f);
-                    int tinted = android.graphics.Color.rgb(r, g, b);
-                    runOnUiThread(() -> {
-                        if (!key.equals(cardRoot.getTag())) return;
-                        if (cardRoot.getBackground() instanceof com.fongmi.android.tv.ui.music.MusicGlassDrawable) {
-                            // 玻璃在位：淡染只作 tone 平铺，不许再整卡盖成实底
-                            ((com.fongmi.android.tv.ui.music.MusicGlassDrawable) cardRoot.getBackground())
-                                    .setToneColor(tinted, 0.45f);
-                            return;
-                        }
-                        android.graphics.drawable.GradientDrawable d = new android.graphics.drawable.GradientDrawable();
-                        d.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
-                        d.setColor(tinted);
-                        d.setStroke(dp(1), 0x14000000);
-                        d.setCornerRadius(dp(cornerDp));
-                        cardRoot.setBackground(d);
-                    });
-                });
-            }
-
-            @Override
-            public void onLoadCleared(android.graphics.drawable.Drawable placeholder) {
-            }
-        });
     }
 
     /** 榜单 accent 色（封面语气色；取色失败回落红 #FA243C；holder 复用以 tag 守卫） */
@@ -542,7 +514,7 @@ public class MusicChartsActivity extends BaseActivity {
                 h.cover.setBackgroundColor(0x00000000);
                 loadCoverRounded(chart.name, chart.cover, h.cover, 14);
             }
-            tintChartCard(h.cardRoot, chart, 20);
+            neutralChartCard(h.cardRoot);
             // 标签行顺序照瓜子（「此刻焦点」accent 色在前＋弹性空位＋「CHART SPOTLIGHT」在后）；
             // 更新频率行 12sp 仅源给了值才显，无源留空不编。
             if (h.focusLabel != null) {
@@ -595,7 +567,7 @@ public class MusicChartsActivity extends BaseActivity {
                 h.cover.setBackgroundColor(0x00000000);
                 loadCoverRounded(chart.name, chart.cover, h.cover, 14);
             }
-            tintChartCard(h.cardRoot, chart, 16);
+            neutralChartCard(h.cardRoot);
             List<MusicTrack> prev = chartPreviews.get(chart.platform + ":" + chart.id);
             TextView[] views = {h.preview0, h.preview1};
             for (int i = 0; i < views.length; i++) {

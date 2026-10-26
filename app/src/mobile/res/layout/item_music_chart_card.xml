@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 第 3 项：榜单普通卡（GZ TopListCard：玻璃色调卡圆角 16dp、内边距横 14dp 竖 18dp、封面 88dp、榜名 17sp、卡内前 2 条预览 11sp；
-     玻璃色调＝封面取色淡染，见代码 tintChartCard；取色失败回落白卡） -->
+<!-- 第 3 项：榜单普通卡（GZ TopListCard：玻璃卡圆角 16dp、内边距横 14dp 竖 18dp、封面 88dp、榜名 17sp、卡内前 2 条预览 11sp；
+     卡面统一玻璃本色、不跟封面染色（2026-10-26 收口，见代码 neutralChartCard；旧「取色淡染／回落白卡」口径作废） -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/chartCardRoot"
     android:layout_width="match_parent"

@@ -3,9 +3,6 @@ package com.fongmi.android.tv.ui.activity;
 import android.app.Activity;
 import com.fongmi.android.tv.ui.music.MusicGlassDialogBuilder;
 import android.content.Intent;
-import android.graphics.Bitmap;
-import android.graphics.Color;
-import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -15,13 +12,10 @@ import android.widget.ImageView;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.viewbinding.ViewBinding;
 
-import com.bumptech.glide.request.transition.Transition;
-import com.fongmi.android.tv.impl.CustomTarget;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.bean.MusicPlaylist;
 import com.fongmi.android.tv.bean.music.MusicTrack;
@@ -463,52 +457,17 @@ public class MusicGuessActivity extends BaseActivity {
                 })));
     }
 
-    // ================= 英雄卡取色 =================
+    // ================= 英雄卡本色 =================
 
-    /** 首首封面取色只作玻璃 tone（与榜单卡 tintChartCard 同口径 0.45），不许整卡换实染面：
-     * 此前这里把根背景整块换成浅色 GradientDrawable，英雄卡根本不是玻璃（体检 A 片）。
-     * tag 守卫防迟到串色；根不是玻璃时先补 glassify（bindGuessHero 已接，这里兜底）。 */
-    private void tintGuessHero(View heroRoot, String cover) {
-        if (heroRoot == null || cover == null || cover.isEmpty()) return;
-        heroRoot.setTag(cover);
-        ImgUtil.load(cover, new CustomTarget<Bitmap>() {
-            @Override
-            public void onResourceReady(Bitmap resource, @Nullable Transition<? super Bitmap> transition) {
-                int main = averageColor(resource);
-                runOnUiThread(() -> {
-                    if (!cover.equals(heroRoot.getTag())) return;
-                    if (!(heroRoot.getBackground() instanceof com.fongmi.android.tv.ui.music.MusicGlassDrawable)) {
-                        MusicGlassWire.glassifyView(heroRoot, 20f);
-                    }
-                    if (heroRoot.getBackground() instanceof com.fongmi.android.tv.ui.music.MusicGlassDrawable) {
-                        ((com.fongmi.android.tv.ui.music.MusicGlassDrawable) heroRoot.getBackground())
-                                .setToneColor(main, 0.45f);
-                    }
-                });
-            }
-
-            @Override
-            public void onLoadCleared(@Nullable Drawable placeholder) {
-            }
-        });
-    }
-
-    private static int averageColor(Bitmap bmp) {
-        if (bmp == null || bmp.getWidth() <= 0 || bmp.getHeight() <= 0) return 0xFF8E8E93;
-        int w = bmp.getWidth(), h = bmp.getHeight();
-        long r = 0, g = 0, b = 0, n = 0;
-        int step = Math.max(1, Math.min(w, h) / 12);
-        for (int y = 0; y < h; y += step) {
-            for (int x = 0; x < w; x += step) {
-                int p = bmp.getPixel(x, y);
-                r += Color.red(p);
-                g += Color.green(p);
-                b += Color.blue(p);
-                n++;
-            }
+    /** 英雄卡回统一玻璃本色（2026-10-26 他点：跟榜单卡同口径摘封面染色）：此前按
+     * 首首封面均色 setToneColor 0.45 把卡面染成封面色，与榜单卡旧 tintChartCard
+     * 同型（榜单已摘，见 MusicChartsActivity.neutralChartCard）；现绑定时只清 tone，
+     * 玻璃由 bindGuessHero 的 glassifyView(20f) 兜底，封面到不到都不动卡面。 */
+    private void neutralGuessHero(View heroRoot) {
+        if (heroRoot == null) return;
+        if (heroRoot.getBackground() instanceof com.fongmi.android.tv.ui.music.MusicGlassDrawable) {
+            ((com.fongmi.android.tv.ui.music.MusicGlassDrawable) heroRoot.getBackground()).setToneColor(0);
         }
-        if (n == 0) return 0xFF8E8E93;
-        return Color.rgb((int) (r / n), (int) (g / n), (int) (b / n));
     }
 
     // ================= Adapter =================
@@ -612,9 +571,8 @@ public class MusicGuessActivity extends BaseActivity {
         loadDeckCover(h.deckBack2, 2);
         h.countNum.setText(String.valueOf(tracks.size()));
         h.clue.setText("来自收藏与最近播放的 " + guessClueCount + " 条线索\n越常听，越懂你");
-        if (!tracks.isEmpty() && tracks.get(0) != null) {
-            tintGuessHero(h.root, tracks.get(0).cover);
-        }
+        // 每次绑定都清一次 tone：Holder 复用时上一池的残色不能串到这一池
+        neutralGuessHero(h.root);
         h.itemView.findViewById(R.id.btnGuessPlayAll).setOnClickListener(v -> playAll());
         h.itemView.findViewById(R.id.btnGuessShuffle).setOnClickListener(v -> shufflePlay());
         h.itemView.findViewById(R.id.btnGuessSave).setOnClickListener(v -> savePoolAsPlaylist());

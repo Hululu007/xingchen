@@ -62,6 +62,10 @@ import java.util.List;
  * bg_sheet_panel（GZ sheetPanelBg #F3F3F3，布局侧）；模式筹批 4 曾改常显全名，与头部注的
  * 「随机筹（仅随机模式）」自相冲突——本单对照 PlayQueueSheetKt.java:708 已改回仅随机出筹、文案「随机」；
  * 数值补抠（:131-132 行高 56／pitch 58、GlassBottomSheetKt:158 上圆角 16）与现行一致；面板高 2026-10-26 他亲口改定固定半屏（原 0.68 钳高＋内容自适应作废）。
+ * 首开乱跳修复（2026-10-26 真机点名）：旧版初始定位在 initView 里用 recycler.post 抢跑，彼时根高未定版
+ * （wrap_content）、定版拍（setBehavior→updateSheetHeight）晚一到两拍改高重布局，位置被拉回一次——
+ * 冷路径下间隔成帧即乱跳、二开挤进同帧就无感。现定位收成一拍：positionToCurrent 只在定版拍触发
+ * （首次布局兜底 behavior 降级路），守卫保证全局一次；列表另开 setHasFixedSize。规格数值未动。
  */
 public class MusicQueueDialog extends BaseBottomSheetDialog {
 
@@ -189,6 +193,8 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
         }
         // 队列面板最大高度＝屏高 0.68（GZ PlayQueueSheet 口径：钳整面板，不是只钳列表；内容短时不留白，空态时整面板撑到 0.68 以便空态 weight 1f 居中）
         binding.recycler.setLayoutManager(new LinearLayoutManager(getContext()));
+        // 行高写死 56dp、列表高由面板根高减固定头部决定、不随内容变——开固定尺寸免多余测算
+        binding.recycler.setHasFixedSize(true);
         // 沉浸后末行不藏手势区后：列表底垫导航栏高（clipToPadding 关，末行可滑进垫区看全）
         try {
             int navH = 0;
@@ -290,16 +296,40 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
         });
         touchHelper.attachToRecyclerView(binding.recycler);
         refresh();
-        // 列表初始滚动（GZ：current−3，clamp 到 [0, size−1]）
-        binding.recycler.post(() -> {
-            if (binding == null || tracks.isEmpty()) return;
-            int idx = MusicController.get().index();
-            int target = Math.min(Math.max(idx - 3, 0), tracks.size() - 1);
-            RecyclerView.LayoutManager lm = binding.recycler.getLayoutManager();
-            if (lm instanceof LinearLayoutManager) {
-                ((LinearLayoutManager) lm).scrollToPositionWithOffset(target, 0);
+        // 初始定位不在这里抢跑：旧版在此 recycler.post 一发，view 未 attach、根高还是
+        // wrap_content 未定版（半屏定版在 setBehavior 的 updateSheetHeight 里、晚一到两拍），
+        // 定位先按错高落位、定版拍再改高重布局把位置拉回——首开冷路径下两拍间隔成帧，
+        // 就是真机「第一次打开乱跳」。定位收成一拍：见 positionToCurrent（定版拍触发），
+        // 这里只留一条首次布局兜底（behavior 降级、定版拍永不来时才用），共用一次守卫。
+        binding.recycler.addOnLayoutChangeListener(new android.view.View.OnLayoutChangeListener() {
+            @Override
+            public void onLayoutChange(View v, int l, int t, int r, int b,
+                                       int ol, int ot, int orr, int ob) {
+                if (binding == null || b - t <= 0) return;
+                binding.recycler.removeOnLayoutChangeListener(this);
+                positionToCurrent();
             }
         });
+    }
+
+    /**
+     * 初始定位（全局只许一次）：落在当前曲（GZ：current−3，clamp 到 [0, size−1]），
+     * 由 updateSheetHeight 的定版拍在根高写死＋偏移定版之后同拍触发——scrollToPositionWithOffset
+     * 作为 pending-scroll 在紧随其后的同一次布局里以定版高度一步落位；行为降级（拿不到
+     * behavior、定版拍永不触发）时由 initView 的首次布局兜底触发同一方法。
+     * 切歌／队列变化的 refresh 不定位（红行跟随靠重绑，滚动位置不动）。
+     */
+    private boolean queuePositioned;
+
+    private void positionToCurrent() {
+        if (queuePositioned || binding == null || tracks.isEmpty()) return;
+        queuePositioned = true;
+        int idx = MusicController.get().index();
+        int target = Math.min(Math.max(idx - 3, 0), tracks.size() - 1);
+        RecyclerView.LayoutManager lm = binding.recycler.getLayoutManager();
+        if (lm instanceof LinearLayoutManager) {
+            ((LinearLayoutManager) lm).scrollToPositionWithOffset(target, 0);
+        }
     }
 
     @Override
@@ -327,6 +357,9 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
             }
             // 列表吃满剩余高度（XML 侧 0dp＋weight 1）；不再按内容量缩面板
             setSheetOffsets(halfH, screenH);
+            // 定版同拍做初始定位（仅第一次，见 positionToCurrent）：根高改动已请求布局，
+            // 定位作为 pending-scroll 在随后的同一次布局里以定版高度一步到位
+            positionToCurrent();
         });
     }
 

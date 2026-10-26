@@ -207,3 +207,21 @@
 -keep class com.fongmi.nodejs.RuntimeEntry {
     public <init>();
 }
+
+# AI 语音/问答反射口（全应用扫描 O8，与 LabBoot 同型）：AiActionExecutor /
+# AiQaHelper 靠 getMethod 按字面名调播放页与阅读页的 ai* 方法（aiNext /
+# aiSeekBy / aiGetVodName / aiBookmarks 等共 23 个名），这些方法除反射外无
+# 任何代码引用，此前全套无保名——R8 成品里方法名被改，语音操控与 AI 问答
+# 取元信息全部静默失效。声明这批方法的类只有四个，只保 ai* 成员名。
+-keepclassmembers class com.fongmi.android.tv.ui.activity.PlaybackActivity {
+    public *** ai*(...);
+}
+-keepclassmembers class com.fongmi.android.tv.ui.activity.VideoActivity {
+    public *** ai*(...);
+}
+-keepclassmembers class com.fongmi.android.tv.ui.activity.NovelReaderActivity {
+    public *** ai*(...);
+}
+-keepclassmembers class com.fongmi.android.tv.ui.activity.ComicReaderActivity {
+    public *** ai*(...);
+}

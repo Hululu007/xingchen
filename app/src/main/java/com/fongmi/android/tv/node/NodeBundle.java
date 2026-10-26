@@ -475,7 +475,7 @@ public final class NodeBundle {
      */
     private static String ensureRemoteOffline(File dir, String url) {
         String installed = read(sourceStamp(dir));
-        if (!installedIsRemoteOf(installed, url)) return "猫源校验值不可用，且没有该地址的本地缓存：" + url;
+        if (!installedIsRemoteOf(installed, url)) return "猫源校验值获取失败（网络不通或超时），且没有该地址的本地缓存：" + url;
         String[] digests = installedDigests(installed);
         boolean bundleCached = isCached(file(dir), stamp(dir), sourceStamp(dir), installed, digests[0]);
         boolean configCached = isCached(config(dir), configStamp(dir), sourceStamp(dir), installed, digests[1]);
@@ -483,7 +483,7 @@ public final class NodeBundle {
             SpiderDebug.log("node", "remote md5 unavailable, keeping verified cache for %s", url);
             return null;
         }
-        return "猫源校验值不可用，本地缓存也不完整，无法安全启动：" + url;
+        return "猫源校验值获取失败（网络不通或超时），本地缓存也不完整，无法安全启动：" + url;
     }
 
     private static String[] remoteMd5Pair(String url) {
@@ -508,7 +508,9 @@ public final class NodeBundle {
         bundleThread.start();
         configThread.start();
         try {
-            done.await(METADATA_TIMEOUT_MS + 500L, java.util.concurrent.TimeUnit.MILLISECONDS);
+            // 等待上限要盖住 remoteMd5 内部的全部重试（单次超时×次数＋间隔），
+            // 否则重试还没跑完就被 latch 掐断、等于没重试。
+            done.await((METADATA_TIMEOUT_MS + MD5_RETRY_GAP_MS) * MD5_ATTEMPTS + 1000L, java.util.concurrent.TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
@@ -517,21 +519,52 @@ public final class NodeBundle {
         return result;
     }
 
+    /** 校验值取数尝试次数（首次＋重试）：这类小文件失败几乎都卡在连接建立
+     * （目标站多为 Cloudflare 边缘，直连握手抖动是常态），单发定生死太脆。 */
+    private static final int MD5_ATTEMPTS = 3;
+    private static final long MD5_RETRY_GAP_MS = 700L;
+
     private static String remoteMd5(String url) {
+        String target = md5Url(url);
+        for (int attempt = 1; attempt <= MD5_ATTEMPTS; attempt++) {
+            String value = remoteMd5Once(target);
+            if (!value.isEmpty()) return value;
+            if (attempt < MD5_ATTEMPTS) {
+                try {
+                    Thread.sleep(MD5_RETRY_GAP_MS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return "";
+                }
+            }
+        }
+        return "";
+    }
+
+    private static String remoteMd5Once(String target) {
         okhttp3.OkHttpClient client = OkHttp.client().newBuilder()
                 .connectTimeout(METADATA_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
                 .readTimeout(METADATA_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
                 .writeTimeout(METADATA_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
                 .callTimeout(METADATA_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
                 .build();
-        try (Response response = OkHttp.newCall(client, md5Url(url), "node-bundle").execute()) {
-            if (!response.isSuccessful() || response.body() == null) return "";
+        try (Response response = OkHttp.newCall(client, target, "node-bundle").execute()) {
+            if (!response.isSuccessful() || response.body() == null) {
+                // 真因留痕：旧写法把网络失败/HTTP 码/内容不对全部吞成空串，
+                // 上层只能报一句误导性的「校验值不可用」，无从定案。
+                SpiderDebug.log("node", "remote md5 http %s url=%s", response.code(), target);
+                return "";
+            }
             if (response.body().contentLength() > MAX_METADATA_BYTES) return "";
             try (InputStream in = response.body().byteStream()) {
                 String value = readLimited(in, MAX_METADATA_BYTES).trim();
-                return isMd5(value) ? value : "";
+                if (isMd5(value)) return value;
+                SpiderDebug.log("node", "remote md5 bad content url=%s", target);
+                return "";
             }
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            SpiderDebug.log("node", "remote md5 failed url=%s error=%s", target,
+                    e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
             return "";
         }
     }
@@ -561,13 +594,43 @@ public final class NodeBundle {
         }
     }
 
+    /** 网络级失败重试两次（连接/读流中断/HTTP 非 200）；校验失败是内容问题、
+     * 重试同一地址不会变，不重试、立即上抛。 */
     private static PreparedFile download(String url, File target, String expected) throws IOException {
+        IOException last = null;
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            try {
+                return downloadOnce(url, target, expected);
+            } catch (BundleChecksumException e) {
+                throw e;
+            } catch (IOException e) {
+                last = e;
+                if (attempt < 3) {
+                    try {
+                        Thread.sleep(MD5_RETRY_GAP_MS);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw new IOException("bundle 下载被中断", ie);
+                    }
+                }
+            }
+        }
+        throw last != null ? last : new IOException("bundle 下载失败");
+    }
+
+    private static final class BundleChecksumException extends IOException {
+        BundleChecksumException(String message) {
+            super(message);
+        }
+    }
+
+    private static PreparedFile downloadOnce(String url, File target, String expected) throws IOException {
         if (!isMd5(expected)) throw new IOException("bundle 校验值不可用");
         try (Response response = OkHttp.newCall(OkHttp.client(NodeRuntime.TRANSFER_TIMEOUT_MS), url, "node-bundle").execute()) {
             if (!response.isSuccessful() || response.body() == null) throw new IOException("bundle 下载失败 HTTP " + response.code());
             try (InputStream in = response.body().byteStream()) {
                 String actual = copyAndDigest(in, target);
-                if (isMd5(expected) && !expected.equalsIgnoreCase(actual)) throw new IOException("bundle 校验失败");
+                if (isMd5(expected) && !expected.equalsIgnoreCase(actual)) throw new BundleChecksumException("bundle 校验失败");
                 return new PreparedFile(target, actual);
             }
         }

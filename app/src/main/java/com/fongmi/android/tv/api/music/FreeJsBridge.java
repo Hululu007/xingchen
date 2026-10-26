@@ -8,7 +8,10 @@ import com.fongmi.android.tv.bean.music.MusicMediaSource;
 import com.fongmi.android.tv.bean.music.MusicQuality;
 import com.fongmi.android.tv.bean.music.MusicSearchResult;
 import com.fongmi.android.tv.bean.music.MusicSite;
+import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.bean.music.MusicTrack;
+import com.fongmi.android.tv.clash.MihomoManager;
+import com.fongmi.android.tv.clash.SourceProxyPolicy;
 import com.fongmi.android.tv.login.LoginManager;
 import com.fongmi.quickjs.bean.Req;
 import com.fongmi.quickjs.method.Console;
@@ -16,6 +19,7 @@ import com.fongmi.quickjs.utils.Async;
 import com.fongmi.quickjs.utils.Connect;
 import com.fongmi.android.tv.music.MusicQueue;
 import com.github.catvod.crawler.SpiderDebug;
+import com.github.catvod.net.SourceGate;
 import com.github.catvod.utils.Asset;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -38,7 +42,11 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.PriorityBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 import okhttp3.Response;
 
@@ -61,7 +69,37 @@ public class FreeJsBridge {
     /** 取链（getMediaSource）单步上限：起播路径总预算 20 秒，这里压到 15 秒留出余量 */
     private static final long SOURCE_TIMEOUT_MS = 15000;
 
-    private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    /**
+     * 桥内单线程（QuickJS 上下文只能串行）改优先队列：取链（getMediaSource）的
+     * 提交优先于取词/搜索——点歌受理那一刻，服务侧与页面侧的取词同刻涌进同一
+     * 座桥排队，取链若老实排在慢取词后面（酷我取词接口间歇回空还要整段重试），
+     * 点→声白白多等几秒，重启首播时桥刚建好、队列最挤、最明显。优先只调排队
+     * 顺序，不抢占正在跑的那条（JS 不可抢占，是单线程桥的固有限制）。
+     */
+    private static final int PRIO_NORMAL = 0;
+    private static final int PRIO_HIGH = 1;
+    private static final AtomicLong TASK_SEQ = new AtomicLong();
+
+    private static final class PrioTask<T> extends FutureTask<T> implements Comparable<PrioTask<?>> {
+        private final int prio;
+        private final long seq;
+
+        PrioTask(Callable<T> callable, int prio, long seq) {
+            super(callable);
+            this.prio = prio;
+            this.seq = seq;
+        }
+
+        @Override
+        public int compareTo(PrioTask<?> other) {
+            int byPrio = Integer.compare(other.prio, prio);
+            return byPrio != 0 ? byPrio : Long.compare(seq, other.seq);
+        }
+    }
+
+    private final ExecutorService executor = new ThreadPoolExecutor(1, 1,
+            0L, TimeUnit.MILLISECONDS, new PriorityBlockingQueue<>(),
+            Executors.defaultThreadFactory());
     private final MusicSite site;
     private final String pluginJs;
 
@@ -98,7 +136,18 @@ public class FreeJsBridge {
     }
 
     private <T> Future<T> submit(Callable<T> callable) {
-        return executor.submit(callable);
+        return submitPrio(callable, PRIO_NORMAL);
+    }
+
+    /** 取链专用高优先提交：排在已排队的取词/搜索前面（正在跑的那条不抢占） */
+    private <T> Future<T> submitHigh(Callable<T> callable) {
+        return submitPrio(callable, PRIO_HIGH);
+    }
+
+    private <T> Future<T> submitPrio(Callable<T> callable, int prio) {
+        PrioTask<T> task = new PrioTask<>(callable, prio, TASK_SEQ.incrementAndGet());
+        executor.execute(task);
+        return task;
     }
 
     public void init() throws Exception {
@@ -303,10 +352,21 @@ public class FreeJsBridge {
     }
 
     private Object callTimed(String func, long timeoutMs, Object... args) throws Exception {
+        return callTimed(func, timeoutMs, false, args);
+    }
+
+    /** 取链专用：桥内排队时优先于取词/搜索（见 executor 注释） */
+    private Object callTimedHigh(String func, long timeoutMs, Object... args) throws Exception {
+        return callTimed(func, timeoutMs, true, args);
+    }
+
+    private Object callTimed(String func, long timeoutMs, boolean high, Object... args) throws Exception {
         // P3：两段等待到点都必须取消底层任务，不只放弃等待——调用线程（音乐专用池）
         // 不许被挂死的插件拖住；桥是单线程，取消发中断信号，插件内同步网络等待会响应，
         // 插件本身死循环则仍占桥线程至其返回（单线程桥的固有限制，见交卷清单）
-        Future<CompletableFuture<Object>> outer = submit(() -> Async.run(exports, func, args));
+        Future<CompletableFuture<Object>> outer = high
+                ? submitHigh(() -> Async.run(exports, func, args))
+                : submit(() -> Async.run(exports, func, args));
         CompletableFuture<Object> stage;
         try {
             stage = outer.get(timeoutMs, TimeUnit.MILLISECONDS);
@@ -324,11 +384,20 @@ public class FreeJsBridge {
     }
 
     private String toJson(Object result) throws Exception {
+        return toJson(result, false);
+    }
+
+    /** 取链专用：结果序列化也走高优先（见 executor 注释） */
+    private String toJsonHigh(Object result) throws Exception {
+        return toJson(result, true);
+    }
+
+    private String toJson(Object result, boolean high) throws Exception {
         if (result == null) return null;
-        if (result instanceof JSObject)
+        if (result instanceof JSObject) {
             // 扫查待裁 23：调用结果对象 stringify 后即在桥线程 release；全部调用方
             // 只用返回的 JSON 串、不再碰 result 本体，释放不影响后续。
-            return submit(() -> {
+            Callable<String> stringify = () -> {
                 try {
                     return ((JSObject) result).stringify();
                 } finally {
@@ -337,7 +406,10 @@ public class FreeJsBridge {
                     } catch (Throwable ignored) {
                     }
                 }
-            }).get(CALL_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+            };
+            return (high ? submitHigh(stringify) : submit(stringify))
+                    .get(CALL_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+        }
         return String.valueOf(result);
     }
 
@@ -443,7 +515,7 @@ public class FreeJsBridge {
     private MusicMediaSource getMediaSourceInner(MusicTrack track, MusicQuality quality) throws Exception {
         JsonObject item = unwrapItem(track);
         if (item == null) return null;
-        Future<Object> argFuture = submit(() -> ctx.parse(item.toString()));
+        Future<Object> argFuture = submitHigh(() -> ctx.parse(item.toString()));
         Object arg;
         try {
             arg = argFuture.get(SOURCE_TIMEOUT_MS, TimeUnit.MILLISECONDS);
@@ -451,8 +523,8 @@ public class FreeJsBridge {
             argFuture.cancel(true);
             throw te;
         }
-        Object result = callTimed("getMediaSource", SOURCE_TIMEOUT_MS, arg, quality.getKey());
-        String json = toJson(result);
+        Object result = callTimedHigh("getMediaSource", SOURCE_TIMEOUT_MS, arg, quality.getKey());
+        String json = toJsonHigh(result);
         if (TextUtils.isEmpty(json)) return null;
         json = json.trim();
         MusicMediaSource ms = new MusicMediaSource();
@@ -589,7 +661,8 @@ public class FreeJsBridge {
 
     public void destroy() {
         try {
-            submit(() -> {
+            // 拆桥走高优先：别在排队的取词/搜索后面干等（后面还有 5 秒兜底与 shutdownNow）
+            submitHigh(() -> {
                 if (exports != null) {
                     try {
                         exports.release();
@@ -737,12 +810,48 @@ public class FreeJsBridge {
         return "";
     }
 
+    /** 内核按需拉起失败的重试节流：拉起含最长 10 秒健康检查，失败后每个请求都重试会把桥拖死 */
+    private static final long NODE_START_RETRY_MS = 60_000L;
+    private static volatile long nodeStartFailedAt = 0L;
+
+    /**
+     * 本源在策略表里开了「走节点」、而内核没在跑时，发请求前同步把内核拉起来
+     * （EmbyApi.ensureNodeForServer 同款口径：单源开了即生效，不要求总开关先开）。
+     * 本方法跑在桥的单线程上（后台线程，ensureRunning 的同步阻塞可接受）。
+     * 拉起失败不堵请求：照常发（门控会判直连），但留一条 clash 日志说明本次为什么
+     * 没走成节点，不许静默直连挂死（内核未下载时 startSync 抛错、ensureRunning 回 false）。
+     */
+    private void ensureNodeForMusic() {
+        try {
+            String id = key();
+            if (id.isEmpty()) return;
+            App app = App.get();
+            if (app == null) return;
+            if (!SourceProxyPolicy.isEnabled(app, SourceProxyPolicy.KIND_MUSIC, id)) return;
+            if (MihomoManager.get().isRunning()) return;
+            long now = System.currentTimeMillis();
+            if (now - nodeStartFailedAt < NODE_START_RETRY_MS) return;
+            if (!MihomoManager.get().ensureRunning(app)) {
+                nodeStartFailedAt = now;
+                SpiderDebug.log("clash", "gate music node-start-failed id=%s （内核没拉起来，本次请求直连）", id);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
     /**
      * 插件网络出口：复用 quickjs 模块的 Connect（壳子 OkHttp，吃代理/DoH/节点定向），不直连。
      * 返回 {status, headers, text} 的 JSON；失败返回 {error}。
      */
     private String nativeRequest(String method, String url, String optsJson) {
         JSONObject out = new JSONObject();
+        // 节点定向接线（2026-10-26）：桥是插件唯一的网络出口，在此给当前线程打源归属点
+        // （kind=music、id=srcUrl，与 SiteApi/EmbyApi 的 push/pop 同口径），壳子 OkHttp 的
+        // SourceGate 选择器才看得见「这是哪个音乐源的请求」，按策略表决定走节点还是直连。
+        // 此前音乐侧从不打点：油管请求一律 gate direct reason=no-mark、直连 youtube 挂死，
+        // 源名里的「需代理」只是展示名、不改任何路由。打点前先按需拉内核（见上）。
+        ensureNodeForMusic();
+        SourceGate.Mark prev = SourceGate.push(SourceProxyPolicy.KIND_MUSIC, key());
         try {
             Req req = Req.objectFrom(buildReqJson(method, optsJson));
             try (Response res = Connect.to(url, req).execute()) {
@@ -761,6 +870,8 @@ public class FreeJsBridge {
                 out.put("error", String.valueOf(t.getMessage()));
             } catch (Exception ignored) {
             }
+        } finally {
+            SourceGate.pop(prev);
         }
         return out.toString();
     }

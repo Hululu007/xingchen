@@ -63,7 +63,7 @@ public class ClassicScrubberView extends View {
     private float mTimeAlpha;
     private ValueAnimator mAlphaAnim;
 
-    private boolean mRevealed;
+    private boolean mRevealed = true;
     private boolean mPlaying;
     private float mRevealA;
     private ValueAnimator mRevealAnim;
@@ -83,10 +83,7 @@ public class ClassicScrubberView extends View {
     private boolean mDownOnChip;
 
     private final Runnable mIdleClear = () -> {
-        if (!mDragging && mPreviewMs == null) {
-            mRevealed = false;
-            updateRevealTarget();
-        }
+        // 唤出态不再闲置清除：双筹常驻口径下 mRevealed 恒真（2026-10-26 改）
     };
 
     public ClassicScrubberView(Context context) {
@@ -164,10 +161,9 @@ public class ClassicScrubberView extends View {
         mShrinkAnim.start();
     }
 
-    /** 切歌：清唤出态与预览（瓜子：切歌且无预览时唤出态归假）。 */
+    /** 切歌：只清预览（唤出态常驻口径下不清，见 updateChipTarget 注）。 */
     public void resetForTrack() {
         mPreviewMs = null;
-        mRevealed = false;
         mDispFraction = 0f;
         updateRevealTarget();
         updateChipTarget();
@@ -209,7 +205,10 @@ public class ClassicScrubberView extends View {
     }
 
     private void updateChipTarget() {
-        float target = (mDragging ? 0.28f : 0.55f) * mRevealA;
+        // 双筹常驻可见（2026-10-26 他点名后改）：mChipA 在本件是透明度乘子（瓜子原值
+        // 字 .72/面 .10→.04/描边 .14 都是 A=1 的数），静止给足 1、拖动收半；
+        // 旧口径乘唤出动画值，不摸进度条就永远看不见音质/逐字筹
+        float target = mDragging ? 0.55f : 1.0f;
         if (mChipAnim != null) mChipAnim.cancel();
         if (Math.abs(mChipA - target) < 0.001f) {
             mChipA = target;
@@ -409,8 +408,8 @@ public class ClassicScrubberView extends View {
         float x = e.getX(), y = e.getY();
         switch (e.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
-                // 筹可点门（瓜子 z52/z54）：唤出动画值 >0.5 才算启用；音质筹另有本地旗（本地时不可点）
-                mDownOnChip = mRevealed && mRevealA > 0.5f && y <= mChipBottom + dp(4)
+                // 筹可点门：常驻口径下只剩本地旗（瓜子 z52 的本地条件）；唤出值门已随常驻撤掉
+                mDownOnChip = mRevealed && y <= mChipBottom + dp(4)
                         && (((x >= mQualityChipL && x <= mQualityChipR && mQualityChipR > 0) && !mLocalTrack)
                         || (x >= mLyricChipL && x <= mLyricChipR && mLyricChipR > 0));
                 if (mDownOnChip) return true;

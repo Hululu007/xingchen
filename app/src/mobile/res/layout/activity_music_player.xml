@@ -95,7 +95,8 @@
                         android:layout_height="40dp"
                         android:contentDescription="@string/player_queue"
                         android:padding="10dp"
-                        android:src="@drawable/ic_music_queue" />
+                        android:src="@drawable/ic_music_queue"
+                        android:tint="#FFFFFF" />
 
                     <ImageView
                         android:id="@+id/playerBtnPlay"
@@ -103,7 +104,8 @@
                         android:layout_height="40dp"
                         android:contentDescription="@string/player_play_pause"
                         android:padding="6dp"
-                        android:src="@drawable/ic_music_pause" />
+                        android:src="@drawable/ic_music_pause"
+                        android:tint="#FFFFFF" />
                 </LinearLayout>
             </LinearLayout>
 

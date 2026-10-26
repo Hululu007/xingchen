@@ -87,8 +87,7 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
     private InPageLyricsView mLyrics;
     private ClassicScrubberView mScrubber;
     private MiniProgressView mMiniProgress;
-    private boolean mScrubberExpanded;
-    private long mLastScrubberTouchMs;
+
 
     private MusicTrack mTrack;
     private String mTrackKey;
@@ -107,8 +106,10 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
             MusicController ctl = MusicController.get();
             if (!mScrubber.isDragging()) mScrubber.setProgress(ctl.position(), ctl.duration());
             mMiniProgress.setProgress(ctl.position(), ctl.duration());
-            // 迷你进度条闲置缩回：展开后 3 秒无操作且正在播放才缩（暂停保持展开）
-            if (mScrubberExpanded && ctl.isPlaying()
+            // 瓜子口径：暂停→完整进度栈出来（音质/逐字筹在栈里）；播放→闲置 3 秒缩回迷你条
+            if (!ctl.isPlaying() && !mScrubberExpanded) {
+                setScrubberExpanded(true);
+            } else if (mScrubberExpanded && ctl.isPlaying()
                     && System.currentTimeMillis() - mLastScrubberTouchMs > 3000) {
                 setScrubberExpanded(false);
             }
@@ -232,7 +233,7 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
             com.fongmi.android.tv.ui.activity.MusicSearchActivity.startSearch(this, album);
         });
         mLyrics.setListener(timeMs -> MusicController.get().seekTo(timeMs));
-        // 迷你进度条：点开完整进度栈；展开后交互刷新闲置计时（点栈任意处都算）
+        // 迷你条点开全栈；全栈上的交互刷新闲置计时
         mMiniProgress.setOnClickListener(v -> setScrubberExpanded(true));
         mScrubber.setOnTouchListener((v, e) -> {
             mLastScrubberTouchMs = System.currentTimeMillis();
@@ -287,68 +288,100 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
                 return true;
             }
         });
-        mCoverBox.setOnTouchListener(new View.OnTouchListener() {
-            private float downX, downY, totalDy, totalDx;
-            private boolean axisLocked, deadZone;
-            private boolean hapticDone;
-            private VelocityTracker vt;
-
-            @Override
-            public boolean onTouch(View v, MotionEvent e) {
-                gd.onTouchEvent(e);
-                switch (e.getActionMasked()) {
-                    case MotionEvent.ACTION_DOWN:
-                        mCoverBackSpring.cancel();
-                        mCoverBox.animate().cancel();
-                        downX = e.getRawX();
-                        downY = e.getRawY();
-                        totalDy = 0;
-                        totalDx = 0;
-                        axisLocked = false;
-                        hapticDone = false;
-                        deadZone = downY < dp(24); // 顶部状态栏死区：dy>0 不触发
-                        vt = VelocityTracker.obtain();
-                        vt.addMovement(e);
-                        return true;
-                    case MotionEvent.ACTION_MOVE:
-                        if (vt != null) vt.addMovement(e);
-                        totalDx = e.getRawX() - downX;
-                        totalDy = e.getRawY() - downY;
-                        if (!axisLocked && Math.abs(totalDy) > dp(8)) {
-                            axisLocked = Math.abs(totalDy) > Math.abs(totalDx) * 1.5f;
-                            if (!axisLocked) return true;
-                        }
-                        if (axisLocked && !(deadZone && totalDy > 0)) {
-                            float anchor = anchorDistancePx();
-                            float clamped = Math.max(-anchor, Math.min(anchor, totalDy));
-                            mCoverBox.setTranslationY(clamped);
-                            if (!hapticDone && Math.abs(totalDy) > dp(36)) {
-                                hapticDone = true;
-                                v.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK);
-                            }
-                        }
-                        return true;
-                    case MotionEvent.ACTION_UP:
-                    case MotionEvent.ACTION_CANCEL:
-                        if (vt != null) {
-                            vt.addMovement(e);
-                            vt.computeCurrentVelocity(1000);
-                        }
-                        float vy = vt != null ? vt.getYVelocity() : 0;
-                        if (vt != null) vt.recycle();
-                        vt = null;
-                        if (axisLocked && !(deadZone && totalDy > 0)
-                                && (Math.abs(totalDy) > dp(36) || Math.abs(vy) > dp(600))) {
-                            commitSwipe(totalDy < 0 ? 1 : -1);
-                        } else {
-                            animateCoverBack();
-                        }
-                        return true;
-                    default:
-                        return true;
-                }
-            }
+        // 竖滑切歌已收口到页级 dispatchTouchEvent（全屏可滑，见 trackPageSwipe）；
+        // 封面盒这里只留双击收藏，触摸全消费（不让点穿到下层）
+        mCoverBox.setOnTouchListener((v, e) -> {
+            gd.onTouchEvent(e);
+            return true;
         });
+    }
+
+    // ---------- 全屏竖滑切歌（瓜子封面竖滑的页级收口：封面/歌词/空白处起滑都算） ----------
+    // 点按（歌词点行快进、筹、按钮）与横向拖动（进度条）不接管；竖向轴锁定后补发 CANCEL 收走子视图事件流。
+    private float mSwipeDownX, mSwipeDownY, mSwipeDy, mSwipeDx;
+    private boolean mSwipeLocked, mSwipeDeadZone, mSwipeHaptic, mSwipeTaken, mSwipeInjecting;
+    private VelocityTracker mSwipeVt;
+
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent e) {
+        if (!mSwipeInjecting && trackPageSwipe(e)) return true;
+        return super.dispatchTouchEvent(e);
+    }
+
+    private boolean trackPageSwipe(MotionEvent e) {
+        switch (e.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                mCoverBackSpring.cancel();
+                mCoverBox.animate().cancel();
+                mSwipeDownX = e.getRawX();
+                mSwipeDownY = e.getRawY();
+                mSwipeDy = 0;
+                mSwipeDx = 0;
+                mSwipeLocked = false;
+                mSwipeTaken = false;
+                mSwipeHaptic = false;
+                mSwipeDeadZone = mSwipeDownY < dp(24);
+                if (mSwipeVt != null) mSwipeVt.recycle();
+                mSwipeVt = VelocityTracker.obtain();
+                mSwipeVt.addMovement(e);
+                return false;
+            case MotionEvent.ACTION_MOVE:
+                if (mSwipeVt != null) mSwipeVt.addMovement(e);
+                mSwipeDx = e.getRawX() - mSwipeDownX;
+                mSwipeDy = e.getRawY() - mSwipeDownY;
+                if (!mSwipeLocked && Math.abs(mSwipeDy) > dp(8)) {
+                    mSwipeLocked = Math.abs(mSwipeDy) > Math.abs(mSwipeDx) * 1.5f
+                            && !(mSwipeDeadZone && mSwipeDy > 0);
+                    if (mSwipeLocked) {
+                        mSwipeTaken = true;
+                        MotionEvent cancel = MotionEvent.obtain(e);
+                        cancel.setAction(MotionEvent.ACTION_CANCEL);
+                        mSwipeInjecting = true;
+                        try {
+                            super.dispatchTouchEvent(cancel);
+                        } finally {
+                            mSwipeInjecting = false;
+                        }
+                        cancel.recycle();
+                    }
+                }
+                if (mSwipeTaken) {
+                    float anchor = anchorDistancePx();
+                    float clamped = Math.max(-anchor, Math.min(anchor, mSwipeDy));
+                    mCoverBox.setTranslationY(clamped);
+                    if (!mSwipeHaptic && Math.abs(mSwipeDy) > dp(36)) {
+                        mSwipeHaptic = true;
+                        mCoverBox.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK);
+                    }
+                    return true;
+                }
+                return false;
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL: {
+                boolean was = mSwipeTaken;
+                float vy = 0;
+                if (mSwipeVt != null) {
+                    mSwipeVt.addMovement(e);
+                    mSwipeVt.computeCurrentVelocity(1000);
+                    vy = mSwipeVt.getYVelocity();
+                    mSwipeVt.recycle();
+                    mSwipeVt = null;
+                }
+                mSwipeTaken = false;
+                mSwipeLocked = false;
+                if (was) {
+                    if (Math.abs(mSwipeDy) > dp(36) || Math.abs(vy) > dp(600)) {
+                        commitSwipe(mSwipeDy < 0 ? 1 : -1);
+                    } else {
+                        animateCoverBack();
+                    }
+                    return true;
+                }
+                return false;
+            }
+            default:
+                return false;
+        }
     }
 
     /** 竖滑锚点距（瓜子口径）：clamp(屏高×0.42, 240dp, 400dp)；拖动钳制与提交目标都走它。 */
@@ -419,12 +452,55 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
         }
     }
 
-    /** 迷你进度条 ↔ 完整进度栈切换（星辰自有件口径：平时短条、点开全栈、闲置 3 秒缩回、暂停保持）。 */
+    private boolean mScrubberExpanded;
+    private long mLastScrubberTouchMs;
+    private android.animation.ValueAnimator mStackAnim;
+
+    /** 迷你进度条 ↔ 完整进度栈（瓜子口径 2026-10-26 他亲口：暂停进度条就出来、播放就变迷你条；
+     *  另保留点开全栈、播放中闲置 3 秒缩回的自有口径）。
+     *  切换不许生硬（他同日点名）：容器高度 250ms/bs4.a 形变＋两件交叉淡化，不再瞬间显隐。 */
     private void setScrubberExpanded(boolean expanded) {
         mScrubberExpanded = expanded;
         mLastScrubberTouchMs = System.currentTimeMillis();
-        mScrubber.setVisibility(expanded ? View.VISIBLE : View.GONE);
-        mMiniProgress.setVisibility(expanded ? View.GONE : View.VISIBLE);
+        final View in = expanded ? mScrubber : mMiniProgress;
+        final View out = expanded ? mMiniProgress : mScrubber;
+        final android.view.ViewGroup box = (android.view.ViewGroup) mScrubber.getParent();
+        if (mStackAnim != null) mStackAnim.cancel();
+        in.animate().cancel();
+        out.animate().cancel();
+        int widthSpec = View.MeasureSpec.makeMeasureSpec(box.getWidth(), View.MeasureSpec.EXACTLY);
+        int heightSpec = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED);
+        in.measure(widthSpec, heightSpec);
+        final int fromH = box.getHeight();
+        final int toH = in.getMeasuredHeight();
+        in.setAlpha(0f);
+        in.setVisibility(View.VISIBLE);
+        out.setVisibility(View.VISIBLE);
+        if (fromH > 0 && toH > 0 && fromH != toH) {
+            mStackAnim = android.animation.ValueAnimator.ofInt(fromH, toH);
+            mStackAnim.setDuration(250);
+            mStackAnim.setInterpolator(BS4_A);
+            mStackAnim.addUpdateListener(a -> {
+                android.view.ViewGroup.LayoutParams lp = box.getLayoutParams();
+                lp.height = (int) a.getAnimatedValue();
+                box.setLayoutParams(lp);
+            });
+            mStackAnim.addListener(new android.animation.AnimatorListenerAdapter() {
+                @Override
+                public void onAnimationEnd(android.animation.Animator animation) {
+                    android.view.ViewGroup.LayoutParams lp = box.getLayoutParams();
+                    lp.height = android.view.ViewGroup.LayoutParams.WRAP_CONTENT;
+                    box.setLayoutParams(lp);
+                }
+            });
+            mStackAnim.start();
+        }
+        in.animate().alpha(1f).setDuration(250).setInterpolator(BS4_A).start();
+        out.animate().alpha(0f).setDuration(200).setInterpolator(BS4_A)
+                .withEndAction(() -> {
+                    out.setVisibility(View.GONE);
+                    out.setAlpha(1f);
+                }).start();
     }
 
     // ---------- 数据绑定 ----------

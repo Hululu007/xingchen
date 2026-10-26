@@ -181,7 +181,10 @@ public class CoverAmbientView extends View {
     /** 糊封面层：小图铺满录入节点，整层挂 24dp 图形模糊（RenderEffect），alpha 基数 0.8 走节点。 */
     private void drawBlurredViaNode(Canvas canvas, int w, int h) {
         if (mBlurNode == null) mBlurNode = new RenderNode("coverAmbientBlur");
-        if (mBlurNodeBitmap != mBlurBitmap || mBlurNodeW != w || mBlurNodeH != h) {
+        // 切后台回来录制内容被系统丢弃（hasDisplayList=false）：位图/尺寸都没变、旧守卫不重录，
+        // 糊层从此画空——他真机「切个后台再进来背景变没」的定因（2026-10-26）。丢了就重录。
+        if (mBlurNodeBitmap != mBlurBitmap || mBlurNodeW != w || mBlurNodeH != h
+                || !mBlurNode.hasDisplayList()) {
             mBlurNodeBitmap = mBlurBitmap;
             mBlurNodeW = w;
             mBlurNodeH = h;

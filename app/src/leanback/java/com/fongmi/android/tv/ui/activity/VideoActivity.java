@@ -415,6 +415,8 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     }
 
     public static void start(Activity activity, String key, String id, String name, String pic, String mark, boolean collect, boolean cast, String wallPic, String content) {
+        // 猫源配置站点的动作项：点击的本意是开网页，直接开页，详情页压根不创建（默影视靠主源集的 CatActionContentHandler 分流，星辰无该框架，落在开始点总口，与手机版同口径）
+        if (com.fongmi.android.tv.api.CatAction.openWebsite(key, id, pic)) return;
         long launch = System.currentTimeMillis();
         SpiderDebug.log("video-flow", "launch request key=%s id=%s name=%s collect=%s cast=%s", key, id, name, collect, cast);
         ImgUtil.preload(activity, pic);
@@ -1112,6 +1114,16 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
         long cost = System.currentTimeMillis() - detailStartTime;
         SpiderDebug.log("video-flow", "detail finish cost=%dms empty=%s msg=%s", cost, result.getList().isEmpty(), result.getMsg());
         recordDetailHealth(result, cost);
+        // 猫源设置项：点击的本意是开网页，detail 只是副产物。留在这儿会让内嵌页背后压着空白播放页，
+        // 也不能走 setEmpty——它在 intent 带 name 时会拿动作名去别的站搜索。
+        //
+        // 必须排在等播放服务之前：既然不打算播放，就没有等它的理由；等下去还会让判定所依赖的
+        // 时间关联窗口过期，重投时反而露出空白页。
+        if (com.fongmi.android.tv.api.CatAction.shouldYieldDetail(getKey(), detailStartTime, result)) {
+            SpiderDebug.log("video-flow", "detail yield to cat webview key=%s id=%s", getKey(), getId());
+            finish();
+            return;
+        }
         if (service() == null) {
             mPendingDetail = result;
             SpiderDebug.log("video-flow", "detail pending service key=%s id=%s", getKey(), getId());
@@ -5675,6 +5687,19 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
     public void onConfigEvent(ConfigEvent event) {
         if (isRedirect() || !event.isVod() || mParseAdapter == null) return;
         mParseAdapter.addAll(VodConfig.get().getParses());
+    }
+
+    /**
+     * 猫源开了内嵌设置页：这次点击的本意就是开网页，本页立刻退场。
+     *
+     * <p>不能等 detail 结果再判定——那份结果可能被主线程堵住好几秒，这段时间里按返回就会
+     * 落回本页（空白播放页）。用请求时刻和本次 detail 起始时间比，确认是自己触发的才退。
+     */
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    public void onCatWebEvent(com.fongmi.android.tv.event.CatWebEvent event) {
+        if (isRedirect() || !event.after(detailStartTime)) return;
+        SpiderDebug.log("video-flow", "detail yield to cat webview (event) key=%s id=%s", getKey(), getId());
+        finish();
     }
 
     private void setPosition() {

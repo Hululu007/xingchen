@@ -716,6 +716,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     public static void start(Activity activity, String key, String id, String name, String pic, String mark, boolean collect, String wallPic, String content) {
         if (MusicVodRouter.routeVod(activity, key, id, name, pic)) return;
+        // 猫源配置站点的动作项：点击的本意是开网页，直接开页，详情页压根不创建（默影视 CatActionContentHandler 同口径，星辰无该分发框架，落在开始点总口）
+        if (com.fongmi.android.tv.api.CatAction.openWebsite(key, id, pic)) return;
         ImgUtil.preload(activity, pic);
         if (Setting.isPlaybackArtworkWall() && !TextUtils.isEmpty(wallPic) && !TextUtils.equals(wallPic, pic)) ImgUtil.preload(activity, wallPic);
         Intent intent = new Intent(activity, VideoActivity.class);
@@ -1863,6 +1865,13 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         if (SiteApi.isActionStub(getKey(), getId())) {
             // 动作条目桩（旧代 jar 包已在 detail 调用内弹自有 UI）：不渲染空详情，直接退回列表。
             SpiderDebug.log("video-flow", "action stub detail, finish key=%s id=%s", getKey(), getId());
+            finish();
+            return;
+        }
+        // 猫源设置项：点击的本意是开网页，detail 只是副产物。留在这儿会让内嵌页背后压着空白播放页，
+        // 也不能走 setEmpty——它在 intent 带 name 时会拿动作名去别的站搜索。
+        if (com.fongmi.android.tv.api.CatAction.shouldYieldDetail(getKey(), detailStartTime, result)) {
+            SpiderDebug.log("video-flow", "detail yield to cat webview key=%s id=%s", getKey(), getId());
             finish();
             return;
         }
@@ -8365,6 +8374,19 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     public void onConfigEvent(ConfigEvent event) {
         if (isRedirect() || !event.isVod() || mParseAdapter == null) return;
         mParseAdapter.reload();
+    }
+
+    /**
+     * 猫源开了内嵌设置页：这次点击的本意就是开网页，本页立刻退场。
+     *
+     * <p>不能等 detail 结果再判定——那份结果可能被主线程堵住好几秒，这段时间里按返回就会
+     * 落回本页（空白播放页）。用请求时刻和本次 detail 起始时间比，确认是自己触发的才退。
+     */
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    public void onCatWebEvent(com.fongmi.android.tv.event.CatWebEvent event) {
+        if (isRedirect() || !event.after(detailStartTime)) return;
+        SpiderDebug.log("video-flow", "detail yield to cat webview (event) key=%s id=%s", getKey(), getId());
+        finish();
     }
 
     /**

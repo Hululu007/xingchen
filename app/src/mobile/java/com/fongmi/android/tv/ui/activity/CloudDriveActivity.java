@@ -28,6 +28,7 @@ import com.fongmi.android.tv.cloud.CloudDrive;
 import com.fongmi.android.tv.cloud.CloudFile;
 import com.fongmi.android.tv.cloud.CloudTask;
 import com.fongmi.android.tv.cloud.drive115.Drive115;
+import com.fongmi.android.tv.cloud.drive115.PlayUrlBuilder115;
 import com.fongmi.android.tv.cloud.drivepikpak.DrivePikPak;
 import com.fongmi.android.tv.cloud.drivequark.DriveQuark;
 import com.fongmi.android.tv.databinding.ActivityCloudDriveBinding;
@@ -273,6 +274,17 @@ public class CloudDriveActivity extends BaseActivity {
                             .getInstance(d115.getClient(), d115.getCookieJar())
                             .startProxy();
                 }
+                if (Drive115.ID.equals(drive.getId()) && drive instanceof Drive115) {
+                    // 115 走网盘自己的播放会话：清单（原画＋转码多档＋自动画质）组装成
+                    // 直达选集载荷，线路归「115网盘」，不再把地址交进推送链合成详情。
+                    PlayUrlBuilder115.PlayList pl = ((Drive115) drive).playList(file);
+                    if (pl == null || pl.entries.isEmpty()) throw new Exception("取播放地址失败");
+                    String episodesJson = pan115EpisodesJson(pl);
+                    String firstUrl = pl.entries.get(pl.defaultIndex).proxyUrl;
+                    int selIdx = pl.defaultIndex;
+                    runOnUiThread(() -> VideoActivity.startPan115(this, firstUrl, file.getName(), episodesJson, selIdx));
+                    return;
+                }
                 String url = drive.getPlayUrl(file);
                 runOnUiThread(() -> {
                     if (!TextUtils.isEmpty(url)) {
@@ -297,6 +309,23 @@ public class CloudDriveActivity extends BaseActivity {
                 runOnUiThread(() -> Notify.show(ft));
             }
         }).start();
+    }
+
+    /** 115 播放清单 → 直达选集载荷（单线路「115网盘」，选集即画质档，形态同 startLocal） */
+    private static String pan115EpisodesJson(PlayUrlBuilder115.PlayList pl) throws Exception {
+        org.json.JSONArray eps = new org.json.JSONArray();
+        for (PlayUrlBuilder115.PlayEntry e : pl.entries) {
+            JSONObject ep = new JSONObject();
+            ep.put("name", e.label);
+            ep.put("url", e.proxyUrl);
+            eps.put(ep);
+        }
+        JSONObject flag = new JSONObject();
+        flag.put("name", "115网盘");
+        flag.put("episodes", eps);
+        JSONObject root = new JSONObject();
+        root.put("flags", new org.json.JSONArray().put(flag));
+        return root.toString();
     }
 
     private void confirmDelete(CloudFile file) {

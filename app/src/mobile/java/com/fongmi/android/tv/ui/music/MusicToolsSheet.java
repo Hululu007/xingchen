@@ -94,10 +94,9 @@ public class MusicToolsSheet {
         mPanelBox = new LinearLayout(mActivity);
         mPanelBox.setOrientation(LinearLayout.VERTICAL);
         mPanelBox.setPadding(dp(16), dp(8), dp(16), dp(10));
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(PANEL_BG);
-        bg.setCornerRadii(new float[]{dp(16), dp(16), dp(16), dp(16), 0, 0, 0, 0});
-        mPanelBox.setBackground(bg);
+        // 面板本体＝液态玻璃（2026-10-26 他点名「工具面板没做好」：此前整张是深灰实底、没走玻璃）
+        mPanelBox.setBackground(new MusicGlassDrawable(mActivity, 16, true));
+        mPanelBox.setElevation(dp(10));
         scroll.addView(mPanelBox, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         mDialog.setContentView(scroll);
@@ -170,10 +169,7 @@ public class MusicToolsSheet {
         iv.setImageResource(iconRes);
         iv.setColorFilter(0xFFFFFFFF);
         iv.setPadding(dp(10), dp(10), dp(10), dp(10));
-        GradientDrawable bg = new GradientDrawable();
-        bg.setShape(GradientDrawable.OVAL);
-        bg.setColor(0x1AFFFFFF);
-        iv.setBackground(bg);
+        iv.setBackground(new MusicGlassDrawable(mActivity, 999));
         iv.setLayoutParams(new LinearLayout.LayoutParams(dp(40), dp(40)));
         return iv;
     }
@@ -201,11 +197,9 @@ public class MusicToolsSheet {
         tv.setPadding(dp(10), 0, dp(10), 0);
         tv.setTextColor(selected ? 0xFFFFFFFF : 0xA6FFFFFF);
         tv.setTypeface(selected ? android.graphics.Typeface.DEFAULT_BOLD : android.graphics.Typeface.DEFAULT);
-        GradientDrawable bg = new GradientDrawable();
-        bg.setCornerRadius(dp(8));
-        bg.setColor(selected ? 0x2EFFFFFF : 0x0AFFFFFF);
-        bg.setStroke(Math.max(1, dp(1)), selected ? 0x52FFFFFF : 0x14FFFFFF);
-        tv.setBackground(bg);
+        MusicGlassDrawable chipBg = new MusicGlassDrawable(mActivity, 8);
+        if (selected) chipBg.setToneColor(0xFFFFFF, 0.20f);
+        tv.setBackground(chipBg);
         tv.setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, dp(34)));
         return tv;
@@ -275,11 +269,23 @@ public class MusicToolsSheet {
         protected void onDraw(Canvas canvas) {
             float d = getResources().getDisplayMetrics().density;
             float w = getWidth(), h = getHeight();
-            mPaint.setColor(mOn ? 0xFFFA243C : 0x29FFFFFF);
-            android.graphics.RectF rf = new android.graphics.RectF(0, 0, w, h);
+            // 开关也走液态玻璃口径（他的开关全玻璃令）：半透色面＋整圈亮边＋顶部流光，不再实色填充
+            android.graphics.RectF rf = new android.graphics.RectF(0.5f * d, 0.5f * d, w - 0.5f * d, h - 0.5f * d);
+            mPaint.setStyle(android.graphics.Paint.Style.FILL);
+            mPaint.setColor(mOn ? 0x59FA243C : 0x29FFFFFF);
             canvas.drawRoundRect(rf, h / 2f, h / 2f, mPaint);
+            mPaint.setStyle(android.graphics.Paint.Style.STROKE);
+            mPaint.setStrokeWidth(Math.max(1f, 0.75f * d));
+            mPaint.setColor(mOn ? 0x66FFFFFF : 0x40FFFFFF);
+            canvas.drawRoundRect(rf, h / 2f, h / 2f, mPaint);
+            mPaint.setStyle(android.graphics.Paint.Style.FILL);
+            mPaint.setColor(0x30FFFFFF);
+            android.graphics.RectF sheen = new android.graphics.RectF(3 * d, 1.5f * d, w - 3 * d, h * 0.42f);
+            canvas.drawRoundRect(sheen, h * 0.21f, h * 0.21f, mPaint);
             float knob = 20 * d;
             float x = 2 * d + mKnobX * (w - knob - 4 * d);
+            mPaint.setColor(0x33000000);
+            canvas.drawCircle(x + knob / 2f, h / 2f + 1 * d, knob / 2f, mPaint);
             mPaint.setColor(0xFFFFFFFF);
             canvas.drawCircle(x + knob / 2f, h / 2f, knob / 2f, mPaint);
         }
@@ -288,10 +294,8 @@ public class MusicToolsSheet {
     private LinearLayout cardBox() {
         LinearLayout card = new LinearLayout(mActivity);
         card.setOrientation(LinearLayout.VERTICAL);
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(CARD_BG);
-        bg.setCornerRadius(dp(16));
-        card.setBackground(bg);
+        card.setBackground(new MusicGlassDrawable(mActivity, 16));
+        MusicGlassWire.applyFloatShadow(card, 16);
         return card;
     }
 
@@ -453,10 +457,8 @@ public class MusicToolsSheet {
         blp.rightMargin = dp(4);
         box.setLayoutParams(blp);
         FrameLayout iconBox = new FrameLayout(mActivity);
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(CARD_BG);
-        bg.setCornerRadius(dp(16));
-        iconBox.setBackground(bg);
+        iconBox.setBackground(new MusicGlassDrawable(mActivity, 16));
+        MusicGlassWire.applyFloatShadow(iconBox, 16);
         iconBox.setLayoutParams(new LinearLayout.LayoutParams(dp(56), dp(56)));
         ImageView iv = new ImageView(mActivity);
         iv.setImageResource(iconRes);
@@ -493,11 +495,8 @@ public class MusicToolsSheet {
 
     private View buildModeSegmented() {
         FrameLayout box = new FrameLayout(mActivity);
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(0xFF2C2C2E);
-        bg.setCornerRadius(dp(14));
-        bg.setStroke(Math.max(1, dp(1) / 2), 0x0D000000);
-        box.setBackground(bg);
+        box.setBackground(new MusicGlassDrawable(mActivity, 14));
+        MusicGlassWire.applyFloatShadow(box, 14);
         box.setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(56)));
         final View indicator = new View(mActivity);
@@ -642,10 +641,7 @@ public class MusicToolsSheet {
             LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(dp(112), ViewGroup.LayoutParams.WRAP_CONTENT);
             if (i > 0) clp.leftMargin = dp(12);
             card.setLayoutParams(clp);
-            GradientDrawable cbg = new GradientDrawable();
-            cbg.setColor(CARD_BG);
-            cbg.setCornerRadius(dp(16));
-            card.setBackground(cbg);
+            card.setBackground(new MusicGlassDrawable(mActivity, 16));
             card.setPadding(dp(8), dp(8), dp(8), dp(4));
 
             FrameLayout previewBox = new FrameLayout(mActivity);
@@ -797,11 +793,7 @@ public class MusicToolsSheet {
             status.setOrientation(LinearLayout.HORIZONTAL);
             status.setGravity(Gravity.CENTER_VERTICAL);
             status.setPadding(dp(14), dp(12), dp(14), dp(12));
-            GradientDrawable sb = new GradientDrawable();
-            sb.setColor(0x1AFFFFFF);
-            sb.setCornerRadius(dp(14));
-            sb.setStroke(Math.max(1, dp(1)), 0x38FFFFFF);
-            status.setBackground(sb);
+            status.setBackground(new MusicGlassDrawable(mActivity, 14));
             LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             slp.topMargin = dp(14);
@@ -827,10 +819,7 @@ public class MusicToolsSheet {
             off.setTextSize(12);
             off.setGravity(Gravity.CENTER);
             off.setPadding(dp(12), dp(7), dp(12), dp(7));
-            GradientDrawable ob = new GradientDrawable();
-            ob.setColor(CARD_BG);
-            ob.setCornerRadius(dp(8));
-            off.setBackground(ob);
+            off.setBackground(new MusicGlassDrawable(mActivity, 8));
             off.setOnClickListener(v -> {
                 MusicController.get().setSleep(MusicPlaybackService.SLEEP_OFF);
                 showSleep();
@@ -880,11 +869,7 @@ public class MusicToolsSheet {
         custom.setOrientation(LinearLayout.HORIZONTAL);
         custom.setGravity(Gravity.CENTER_VERTICAL);
         custom.setPadding(dp(14), dp(10), dp(14), dp(10));
-        GradientDrawable cub = new GradientDrawable();
-        cub.setColor(CARD_BG);
-        cub.setCornerRadius(dp(10));
-        cub.setStroke(Math.max(1, dp(1)), 0x24FFFFFF);
-        custom.setBackground(cub);
+        custom.setBackground(new MusicGlassDrawable(mActivity, 10));
         LinearLayout.LayoutParams culp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         culp.topMargin = dp(8);
@@ -1154,10 +1139,7 @@ public class MusicToolsSheet {
         LinearLayout hero = new LinearLayout(mActivity);
         hero.setOrientation(LinearLayout.HORIZONTAL);
         hero.setGravity(Gravity.CENTER_VERTICAL);
-        GradientDrawable hb = new GradientDrawable();
-        hb.setColor(0x14FFFFFF);
-        hb.setCornerRadius(dp(20));
-        hero.setBackground(hb);
+        hero.setBackground(new MusicGlassDrawable(mActivity, 20));
         hero.setPadding(dp(16), dp(16), dp(16), dp(16));
         LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);

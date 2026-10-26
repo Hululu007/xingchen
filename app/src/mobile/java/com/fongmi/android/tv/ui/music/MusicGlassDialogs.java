@@ -17,6 +17,8 @@ import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.TextView;
 
+import com.fongmi.android.tv.R;
+
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -33,7 +35,7 @@ import java.util.Set;
  * 1) Material 构造点走 MusicGlassDialogBuilder（create 时调 attach）；
  * 2) 自带 OnShowListener 的站点在自己的监听里手动调 apply（attach 的监听会被它覆盖）。
  *
- * attach 只换窗底与挂显示回调，不动任何交互（按钮监听/取消口径/列表回调原样）。
+ * attach 只换窗底、挂显示回调与窗口淡入淡出动画，不动任何交互（按钮监听/取消口径/列表回调原样）。
  */
 public final class MusicGlassDialogs {
 
@@ -54,6 +56,8 @@ public final class MusicGlassDialogs {
         Window window = dialog.getWindow();
         if (window != null) {
             window.setBackgroundDrawable(new MusicGlassDrawable(dialog.getContext(), RADIUS_DP));
+            // 进出统一淡入淡出 200ms，与海阔/阅读弹窗同口径（HkDialogFade），进出双向。
+            window.setWindowAnimations(R.style.HkDialogFade);
         }
         dialog.setOnShowListener(d -> apply(dialog));
     }

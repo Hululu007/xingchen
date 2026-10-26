@@ -88,14 +88,16 @@ public class MiniBarPolicy {
         st.session = s;
         st.playing = true;
         st.pauseStartMs = -1;
-        timer.cancel();
+        // 扫描 H9：不再无条件 cancel 共享定时器——那会把另一会话（如听书）已武装的
+        // 「暂停 10 秒自动关闭」计时打掉且无人再补；改走统一补武装（见 rearmEarliestPausedLocked）
+        rearmEarliestPausedLocked();
         updateVisible();
     }
 
     /** 注销会话（真关闭后调用；不触发 onCloseSession，避免递归）。 */
     public synchronized void unregister(String id) {
         if (sessions.remove(id) == null) return;
-        if (id.equals(visibleId)) timer.cancel();
+        rearmEarliestPausedLocked();
         updateVisible();
     }
 
@@ -114,7 +116,7 @@ public class MiniBarPolicy {
         if (st == null) return;
         st.pageForeground = true;
         st.pauseStartMs = -1;
-        timer.cancel();
+        rearmEarliestPausedLocked(); // 本会话计时取消，但别连坐其它会话（H9）
         updateVisible();
     }
 
@@ -125,7 +127,7 @@ public class MiniBarPolicy {
         st.playing = playing;
         if (playing) {
             st.pauseStartMs = -1;
-            if (id.equals(visibleId)) timer.cancel();
+            rearmEarliestPausedLocked(); // 同 pageResumed：只撤自己的计时（H9）
         } else {
             if (st.pauseStartMs < 0) st.pauseStartMs = clock.now();
             armPauseTimerLocked(st);
@@ -141,7 +143,7 @@ public class MiniBarPolicy {
         String id = visibleId;
         // 先注销再回调，避免 onCloseSession 里重入
         sessions.remove(id);
-        timer.cancel();
+        rearmEarliestPausedLocked();
         updateVisible();
         actions.onCloseSession(id);
     }
@@ -153,7 +155,7 @@ public class MiniBarPolicy {
     public synchronized void closeSession(String id) {
         if (!sessions.containsKey(id)) return;
         sessions.remove(id);
-        if (id.equals(visibleId)) timer.cancel();
+        rearmEarliestPausedLocked();
         updateVisible();
         actions.onCloseSession(id);
     }
@@ -171,22 +173,46 @@ public class MiniBarPolicy {
         }
         sessions.remove(id);
         updateVisible();
+        // 关掉一个后，其余仍在暂停计时的会话要接上单定时器（H9）
+        rearmEarliestPausedLocked();
         actions.onCloseSession(id);
     }
 
     /** 按「暂停起始时刻」起 10 秒计时；只在「别处暂停」时跑。 */
     private void armPauseTimerLocked(State st) {
-        timer.cancel();
         if (!st.session.autoCloseOnPause()) return;
         if (st.playing || st.pageForeground || st.pauseStartMs < 0) return;
-        long elapsed = clock.now() - st.pauseStartMs;
-        long remain = AUTO_CLOSE_MS - elapsed;
-        if (remain <= 0) {
-            onTimerFire(st.session.id());
+        rearmEarliestPausedLocked();
+    }
+
+    /**
+     * 共享单定时器的统一武装口（扫描 H9）：先取消现挂任务，再在全部会话里挑
+     * 「别处暂停中（已暂停、不在前台、吃自动关闭）」且最早到期的一家挂上。
+     * 单 Timer 同一时刻只能挂一个任务——挂最早到期者不会漏关：到期回调
+     * onTimerFire 按 id 复核自家状态、关掉后本方法会被再调一次接上下一家；
+     * 任何 cancel 点（注册/回页/恢复播放/注销/关闭）都改走这里，别家的计时
+     * 不再被连坐打掉。已过期的直接走 onTimerFire 收口。
+     */
+    private void rearmEarliestPausedLocked() {
+        timer.cancel();
+        State best = null;
+        long bestRemain = Long.MAX_VALUE;
+        for (State st : sessions.values()) {
+            if (st.session == null || !st.session.autoCloseOnPause()) continue;
+            if (st.playing || st.pageForeground || st.pauseStartMs < 0) continue;
+            long remain = AUTO_CLOSE_MS - (clock.now() - st.pauseStartMs);
+            if (remain < bestRemain) {
+                bestRemain = remain;
+                best = st;
+            }
+        }
+        if (best == null) return;
+        if (bestRemain <= 0) {
+            onTimerFire(best.session.id());
             return;
         }
-        final String id = st.session.id();
-        timer.schedule(remain, () -> onTimerFire(id));
+        final String id = best.session.id();
+        timer.schedule(bestRemain, () -> onTimerFire(id));
     }
 
     /**

@@ -248,7 +248,7 @@ public class MusicSettingsActivity extends BaseActivity {
         box.setPadding(pad, pad, pad, pad);
         TextView value = new TextView(this);
         value.setTextSize(22);
-        value.setTextColor(0xFFFFFFFF);
+        value.setTextColor(0xFF1C1C1E);
         value.setGravity(Gravity.CENTER);
         value.setText(offsetText(MusicStore.getLyricOffsetMs()));
         box.addView(value, new LinearLayout.LayoutParams(
@@ -453,7 +453,7 @@ public class MusicSettingsActivity extends BaseActivity {
         box.setPadding(pad, pad, pad, pad);
         TextView value = new TextView(this);
         value.setTextSize(22);
-        value.setTextColor(0xFFFFFFFF);
+        value.setTextColor(0xFF1C1C1E);
         value.setGravity(Gravity.CENTER);
         value.setText(((int) MusicStore.getLyricFontSize()) + "sp");
         box.addView(value, new LinearLayout.LayoutParams(
@@ -611,14 +611,14 @@ public class MusicSettingsActivity extends BaseActivity {
             row.addView(icon);
             TextView name = new TextView(this);
             name.setText("在线歌词优先级");
-            name.setTextColor(0xFF1C1C1E);
+            name.setTextColor(0xFFF1F4F5);
             name.setTextSize(16);
             LinearLayout.LayoutParams nameLp = new LinearLayout.LayoutParams(0,
                     ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
             name.setLayoutParams(nameLp);
             row.addView(name);
             tvLyricPriority = new TextView(this);
-            tvLyricPriority.setTextColor(0xFF8E8E93);
+            tvLyricPriority.setTextColor(0x99FFFFFF);
             tvLyricPriority.setTextSize(15);
             LinearLayout.LayoutParams valueLp = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);

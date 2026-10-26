@@ -1337,7 +1337,7 @@ public class MusicPluginsActivity extends BaseActivity {
                 row.addView(dot, new LinearLayout.LayoutParams(dp(8), dp(8)));
                 TextView tv = new TextView(parent.getContext());
                 tv.setTextSize(14);
-                tv.setTextColor(0xFF1C1C1E);
+                tv.setTextColor(0xFFF1F4F5);
                 LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
                 tlp.leftMargin = dp(8);
@@ -1346,7 +1346,7 @@ public class MusicPluginsActivity extends BaseActivity {
                         new LinearLayout.LayoutParams(0, 0, 1f));
                 TextView count = new TextView(parent.getContext());
                 count.setTextSize(13);
-                count.setTextColor(0xFF8E8E93);
+                count.setTextColor(0x99FFFFFF);
                 row.addView(count, new LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
                 RecyclerView.LayoutParams lp = new RecyclerView.LayoutParams(
@@ -1453,7 +1453,7 @@ public class MusicPluginsActivity extends BaseActivity {
             MusicPluginTest test = MusicSourceManager.get().loadPluginTest(s.srcUrl);
             if (MusicSourceManager.get().isTesting(s.srcUrl)) {
                 h.testStatus.setText("检测中…");
-                h.testStatus.setTextColor(0xFF8E8E93);
+                h.testStatus.setTextColor(0x99FFFFFF);
                 if (h.statusDot != null) setStatusDot(h.statusDot, 0xFF8E8E93);
                 h.pluginTest.setText("检测中…");
                 h.pluginTest.setEnabled(false);

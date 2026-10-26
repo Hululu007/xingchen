@@ -8,10 +8,12 @@ import android.os.Bundle;
 import android.text.TextUtils;
 import android.util.Log;
 import android.view.Gravity;
-import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
+import android.view.WindowManager;
+import android.view.inputmethod.EditorInfo;
+import android.widget.AbsListView;
 import android.widget.BaseAdapter;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -60,8 +62,8 @@ public class CloudDriveActivity extends BaseActivity {
     private static final String EXTRA_DRIVE_ID = "drive_id";
     private static final String EXTRA_OPEN_CID = "open_cid";
     private static final String EXTRA_OPEN_NAME = "open_name";
-    private static final int MENU_SEARCH = 0x1155;
     private static final int PAGE_LIMIT = 100;
+    private static final int SEARCH_LIMIT = 50;
 
     public static void start(Activity activity, String driveId) {
         Intent intent = new Intent(activity, CloudDriveActivity.class);
@@ -91,8 +93,6 @@ public class CloudDriveActivity extends BaseActivity {
     /** onResume 刷新守门：initView 成功走完才置真；紧跟 initView 的首个 onResume 跳过，避免同一次进页重复拉取。 */
     private boolean viewReady;
     private boolean firstResume = true;
-    /** 115 全盘搜索模式：非空＝正在看搜索结果（列表数据源切到 Drive115.searchFiles，目录面包屑保持不动，退出即回原目录）。 */
-    private String searchKeyword = "";
 
     @Override
     protected ViewBinding getBinding() {
@@ -143,49 +143,274 @@ public class CloudDriveActivity extends BaseActivity {
             String openName = getIntent().getStringExtra(EXTRA_OPEN_NAME);
             crumbs.add(new Crumb(openCid, TextUtils.isEmpty(openName) ? "目录" : openName));
         }
-        if (drive instanceof Drive115) setupSearchMenu();
+        // 搜索入口：三家都有，右上角明面按钮（布局里的 btn_search），不藏菜单
+        binding.btnSearch.setOnClickListener(v -> showSearchDialog());
         viewReady = true;
         fetchFiles();
     }
 
-    /** 搜索入口只给 115（他定的口径：只有 115 网盘的东西要能搜），挂工具栏右侧，形态与本页工具栏一致。 */
-    private void setupSearchMenu() {
-        MenuItem item = binding.toolbar.getMenu().add(0, MENU_SEARCH, 0, "搜网盘");
-        item.setIcon(R.drawable.ic_action_search);
-        item.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS);
-        item.setOnMenuItemClickListener(menuItem -> {
-            showSearchDialog();
-            return true;
-        });
+    /** 搜索弹窗会话状态：结果（只含文件夹＋视频，过滤在组装处做）、已取原始条数（分页 offset 按原始条数走）、代次（换词重搜时旧请求作废）。 */
+    private static class SearchState {
+        final List<CloudFile> results = new ArrayList<>();
+        String keyword = "";
+        int fetched;
+        boolean loading;
+        boolean hasMore;
+        int gen;
     }
 
+    /**
+     * 搜索弹窗（他定的口径）：点右上角按钮在屏幕中间弹，不另开搜索页、不切本页列表；
+     * 弹窗不大不小（宽留边、高封顶约七成），输词后结果直接在弹窗里出、列表在弹窗内滑动续拉。
+     * 搜的是当前这家网盘自己的文件（drive.searchFiles）；形态走本页既有深面玻璃口径。
+     */
     private void showSearchDialog() {
-        EditText input = makeInput("搜索115网盘文件");
+        SearchState st = new SearchState();
+        float density = getResources().getDisplayMetrics().density;
+        int pad = (int) (8 * density);
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(pad, pad, pad, pad);
+        EditText input = makeInput("搜索" + drive.getName() + "文件");
+        input.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
+        layout.addView(input);
+        TextView status = new TextView(this);
+        status.setTextColor(0x99FFFFFF);
+        status.setTextSize(13);
+        int padH = (int) (16 * density);
+        int padV = (int) (8 * density);
+        status.setPadding(padH, padV, padH, 0);
+        status.setVisibility(View.GONE);
+        layout.addView(status);
+        ListView list = new ListView(this);
+        SearchAdapter adapter = new SearchAdapter(st);
+        list.setAdapter(adapter);
+        int listHeight = (int) (getResources().getDisplayMetrics().heightPixels * 0.46f);
+        layout.addView(list, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, listHeight));
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("搜网盘")
-                .setView(input)
-                .setPositiveButton("搜索", (d, w) -> {
-                    String kw = input.getText().toString().trim();
-                    if (kw.isEmpty()) {
-                        Notify.show("关键词不能为空");
-                        return;
-                    }
-                    searchKeyword = kw;
-                    fetchFiles();
-                })
-                .setNegativeButton("取消", null)
+                .setView(layout)
+                .setPositiveButton("搜索", null)
+                .setNegativeButton("关闭", null)
                 .create();
+        // 覆盖「搜索」的默认点击（默认会关弹窗）：改成不关弹窗、就地在弹窗里出结果
+        dialog.setOnShowListener(d -> {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                    .setOnClickListener(v -> runSearch(st, input, adapter, status));
+            if (dialog.getWindow() != null) {
+                dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE);
+            }
+            input.requestFocus();
+        });
+        input.setOnEditorActionListener((v, actionId, event) -> {
+            if (actionId == EditorInfo.IME_ACTION_SEARCH) {
+                runSearch(st, input, adapter, status);
+                return true;
+            }
+            return false;
+        });
+        list.setOnScrollListener(new AbsListView.OnScrollListener() {
+            @Override
+            public void onScrollStateChanged(AbsListView view, int scrollState) {
+            }
+
+            @Override
+            public void onScroll(AbsListView view, int firstVisibleItem, int visibleItemCount, int totalItemCount) {
+                if (st.loading || !st.hasMore || totalItemCount == 0) return;
+                if (firstVisibleItem + visibleItemCount >= totalItemCount - 3) {
+                    fetchSearchPage(st, adapter, status, dialog);
+                }
+            }
+        });
+        list.setOnItemClickListener((parent, view, position, id) -> {
+            CloudFile file = st.results.get(position);
+            dialog.dismiss();
+            if (file.isDir()) openDirFromSearch(file);
+            else if (file.isVideo()) playFile(file);
+            else gotoParentDir(file);
+        });
         MusicGlassDialogs.attach(dialog);
         dialog.show();
+        shrinkSearchDialog(dialog);
     }
 
-    private boolean isSearching() {
-        return !searchKeyword.isEmpty();
+    private void runSearch(SearchState st, EditText input, SearchAdapter adapter, TextView status) {
+        String kw = input.getText().toString().trim();
+        if (kw.isEmpty()) {
+            Notify.show("关键词不能为空");
+            return;
+        }
+        st.keyword = kw;
+        st.gen++;
+        st.fetched = 0;
+        st.hasMore = false;
+        st.results.clear();
+        adapter.notifyDataSetChanged();
+        fetchSearchPage(st, adapter, status, null);
     }
 
-    private void exitSearch() {
-        searchKeyword = "";
+    /** 拉一页搜索结果往弹窗里拼；dialog 非空时（滚动续拉）顺带校验弹窗还开着。 */
+    private void fetchSearchPage(SearchState st, SearchAdapter adapter, TextView status, AlertDialog dialog) {
+        if (st.loading) return;
+        st.loading = true;
+        status.setVisibility(View.VISIBLE);
+        status.setText("正在搜索…");
+        int gen = st.gen;
+        int offset = st.fetched;
+        String kw = st.keyword;
+        new Thread(() -> {
+            List<CloudFile> page = null;
+            Exception error = null;
+            try {
+                page = drive.searchFiles(kw, offset, SEARCH_LIMIT);
+            } catch (Exception e) {
+                error = e;
+            }
+            List<CloudFile> raw = page;
+            Exception err = error;
+            runOnUiThread(() -> {
+                if (gen != st.gen) return;
+                if (dialog != null && !dialog.isShowing()) return;
+                st.loading = false;
+                if (err != null) {
+                    Log.e(TAG, "搜索失败 kw=" + kw, err); // 真因进日志，脸上只给人话
+                    st.hasMore = false;
+                    if (st.results.isEmpty()) {
+                        status.setVisibility(View.VISIBLE);
+                        status.setText(humanSearchError(err));
+                    } else {
+                        status.setVisibility(View.GONE);
+                        Notify.show("加载更多失败，请稍后再试");
+                    }
+                    return;
+                }
+                if (raw != null) {
+                    st.fetched += raw.size();
+                    // 搜索结果同文件列表口径：只出文件夹＋视频（过滤在组装处做，分页 offset 按原始条数走）
+                    for (CloudFile f : raw) if (f.isDir() || f.isVideo()) st.results.add(f);
+                    st.hasMore = raw.size() >= SEARCH_LIMIT;
+                } else {
+                    st.hasMore = false;
+                }
+                adapter.notifyDataSetChanged();
+                if (st.results.isEmpty()) {
+                    status.setVisibility(View.VISIBLE);
+                    status.setText("没找到「" + kw + "」");
+                } else {
+                    status.setVisibility(View.GONE);
+                }
+            });
+        }).start();
+    }
+
+    /** 搜索失败的人话：驱动层已给人话的短消息直接用，空的/带 JSON 的/过长的统一兜底。 */
+    private static String humanSearchError(Exception e) {
+        String m = msg(e);
+        if (m.isEmpty() || m.contains("{") || m.length() > 60) return "搜索失败，请稍后再试";
+        return m;
+    }
+
+    /** 搜索结果点文件夹：关弹窗后本页直达该文件夹（面包屑＝根目录＋该文件夹）。 */
+    private void openDirFromSearch(CloudFile dir) {
+        while (crumbs.size() > 1) crumbs.remove(crumbs.size() - 1);
+        crumbs.add(new Crumb(dir.getId(), dir.getName()));
         fetchFiles();
+    }
+
+    /** 搜索结果点其它文件：跳到它所在目录（目录名服务端没给，面包屑用「所在目录」占位）。 */
+    private void gotoParentDir(CloudFile file) {
+        String parent = file.getParentCid();
+        while (crumbs.size() > 1) crumbs.remove(crumbs.size() - 1);
+        if (!isRootCid(parent)) crumbs.add(new Crumb(parent, "所在目录"));
+        fetchFiles();
+    }
+
+    /** 各家根目录 id 不一：115 是 "0"，夸克/PikPak 的根在本页 crumbs 里是 ""（夸克条目 parentCid 仍可能回 "0"）。 */
+    private boolean isRootCid(String cid) {
+        if (TextUtils.isEmpty(cid)) return true;
+        if (cid.equals(rootCid)) return true;
+        return "0".equals(cid) && rootCid.isEmpty();
+    }
+
+    /** 搜索结果行：一行一条——文件名在左（单行省略），右侧小字（文件夹/大小）。字色与离线任务行同套。 */
+    private class SearchAdapter extends BaseAdapter {
+
+        private final SearchState st;
+
+        SearchAdapter(SearchState st) {
+            this.st = st;
+        }
+
+        @Override
+        public int getCount() {
+            return st.results.size();
+        }
+
+        @Override
+        public CloudFile getItem(int position) {
+            return st.results.get(position);
+        }
+
+        @Override
+        public long getItemId(int position) {
+            return position;
+        }
+
+        @Override
+        public View getView(int position, View convertView, ViewGroup parent) {
+            LinearLayout row;
+            TextView tvName;
+            TextView tvMeta;
+            if (convertView instanceof LinearLayout) {
+                row = (LinearLayout) convertView;
+                tvName = (TextView) row.getChildAt(0);
+                tvMeta = (TextView) row.getChildAt(1);
+            } else {
+                float density = getResources().getDisplayMetrics().density;
+                row = new LinearLayout(CloudDriveActivity.this);
+                row.setOrientation(LinearLayout.HORIZONTAL);
+                row.setGravity(Gravity.CENTER_VERTICAL);
+                int padH = (int) (16 * density);
+                int padV = (int) (11 * density);
+                row.setPadding(padH, padV, padH, padV);
+                tvName = new TextView(CloudDriveActivity.this);
+                tvName.setSingleLine(true);
+                tvName.setEllipsize(TextUtils.TruncateAt.END);
+                tvName.setTextColor(0xFFF1F4F5);
+                tvName.setTextSize(14);
+                row.addView(tvName, new LinearLayout.LayoutParams(
+                        0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+                tvMeta = new TextView(CloudDriveActivity.this);
+                tvMeta.setSingleLine(true);
+                tvMeta.setTextColor(0x99FFFFFF);
+                tvMeta.setTextSize(13);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                lp.setMarginStart((int) (12 * density));
+                row.addView(tvMeta, lp);
+            }
+            CloudFile f = st.results.get(position);
+            tvName.setText(f.getName());
+            tvMeta.setText(f.isDir() ? "文件夹" : f.getFormatSize());
+            return row;
+        }
+    }
+
+    /** 搜索弹窗尺寸（他定的口径）：不大不小——宽度两侧留边，高度封顶在屏幕约七成，结果在框内滚动。 */
+    private void shrinkSearchDialog(AlertDialog dialog) {
+        Window window = dialog.getWindow();
+        if (window == null) return;
+        View decor = window.getDecorView();
+        if (decor == null) return;
+        decor.post(() -> {
+            if (!dialog.isShowing()) return;
+            android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+            int width = dm.widthPixels - (int) (48 * dm.density);
+            int maxHeight = (int) (dm.heightPixels * 0.7f);
+            int height = Math.min(decor.getHeight(), maxHeight);
+            if (width > 0 && height > 0) window.setLayout(width, height);
+        });
     }
 
     @Override
@@ -229,9 +454,7 @@ public class CloudDriveActivity extends BaseActivity {
 
     @Override
     protected void onBackInvoked() {
-        if (isSearching()) {
-            exitSearch();
-        } else if (crumbs.size() > 1) {
+        if (crumbs.size() > 1) {
             crumbs.remove(crumbs.size() - 1);
             fetchFiles();
         } else {
@@ -261,19 +484,15 @@ public class CloudDriveActivity extends BaseActivity {
         fetchPage(files.size(), true, fetchGen);
     }
 
-    /** 分页续取：offset 翻页；PikPak 的 listDir 内部用 page_token 兑 offset（见 DrivePikPak）。搜索模式下数据源是 115 全盘搜索、与当前目录无关，过期判定只认代次不认 cid。 */
+    /** 分页续取：offset 翻页；PikPak 的 listDir 内部用 page_token 兑 offset（见 DrivePikPak）。 */
     private void fetchPage(int offset, boolean append, int gen) {
         if (!append) setLoading(true);
         String cid = currentCid();
-        boolean searching = isSearching();
-        String kw = searchKeyword;
         new Thread(() -> {
             try {
-                List<CloudFile> result = searching && drive instanceof Drive115
-                        ? ((Drive115) drive).searchFiles(kw, offset, PAGE_LIMIT)
-                        : drive.listDir(cid, offset, PAGE_LIMIT);
+                List<CloudFile> result = drive.listDir(cid, offset, PAGE_LIMIT);
                 runOnUiThread(() -> {
-                    if (gen != fetchGen || (!searching && !cid.equals(currentCid()))) return;
+                    if (gen != fetchGen || !cid.equals(currentCid())) return;
                     if (!append) setLoading(false);
                     loadingMore = false;
                     if (!append) files.clear();
@@ -286,7 +505,7 @@ public class CloudDriveActivity extends BaseActivity {
             } catch (Exception e) {
                 runOnUiThread(() -> {
                     // A5：失败分支补与成功路同款 gen／cid 丢弃校验，过期请求失败不误弹“加载失败”。
-                    if (gen != fetchGen || (!searching && !cid.equals(currentCid()))) return;
+                    if (gen != fetchGen || !cid.equals(currentCid())) return;
                     if (!append) setLoading(false);
                     loadingMore = false;
                     if (!append) Notify.show("加载失败：" + msg(e));
@@ -298,26 +517,6 @@ public class CloudDriveActivity extends BaseActivity {
 
     private void renderBreadcrumb() {
         binding.breadcrumb.removeAllViews();
-        if (isSearching()) {
-            // 搜索模式：根目录（点它退出搜索回原目录）＋「搜索：关键词」当前位
-            TextView root = new TextView(this);
-            root.setText(crumbs.get(0).name);
-            root.setTextSize(13);
-            root.setSingleLine(true);
-            root.setTextColor(0xFF5A6675);
-            root.setClickable(true);
-            root.setFocusable(true);
-            root.setOnClickListener(v -> exitSearch());
-            binding.breadcrumb.addView(root);
-            addCrumbSeparator();
-            TextView cur = new TextView(this);
-            cur.setText("搜索：" + searchKeyword);
-            cur.setTextSize(13);
-            cur.setSingleLine(true);
-            cur.setTextColor(0xFF0C0E12);
-            binding.breadcrumb.addView(cur);
-            return;
-        }
         for (int i = 0; i < crumbs.size(); i++) {
             Crumb c = crumbs.get(i);
             if (i > 0) addCrumbSeparator();
@@ -349,11 +548,6 @@ public class CloudDriveActivity extends BaseActivity {
     }
 
     private void openDir(CloudFile dir) {
-        if (isSearching()) {
-            // 搜索结果里的文件夹不在当前目录路径上：退出搜索，面包屑重置为根目录＋该文件夹直达
-            searchKeyword = "";
-            while (crumbs.size() > 1) crumbs.remove(crumbs.size() - 1);
-        }
         crumbs.add(new Crumb(dir.getId(), dir.getName()));
         fetchFiles();
     }

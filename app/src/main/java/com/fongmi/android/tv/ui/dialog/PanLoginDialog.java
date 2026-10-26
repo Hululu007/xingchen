@@ -3,6 +3,7 @@ package com.fongmi.android.tv.ui.dialog;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.text.TextUtils;
 import android.view.Gravity;
@@ -19,6 +20,7 @@ import androidx.fragment.app.FragmentActivity;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.databinding.DialogPanLoginBinding;
+import com.fongmi.android.tv.login.LoginGlassDrawable;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.WebViewUtil;
@@ -157,8 +159,27 @@ public class PanLoginDialog extends BaseAlertDialog {
         window.setLayout(params.width, params.height);
     }
 
+    /**
+     * 玻璃皮（登录域共享壳 LoginGlassDrawable）：面板换玻璃、标题/提示翻白系、
+     * 幽灵钮换玻璃面＋白字；黄钮是定案强调面＋深字配对、原样保留。
+     * 只换皮：登录流程、回调、窗口尺寸一字不动。关闭图标本就是白矢量，
+     * 在旧白面板上几乎看不见，上玻璃后自然显形。
+     */
+    private void applyGlassSkin() {
+        binding.getRoot().setBackground(new LoginGlassDrawable(requireContext(), 22f));
+        binding.tvTitle.setTextColor(0xFFF1F4F5);
+        binding.tvHint.setTextColor(0x99FFFFFF);
+        GradientDrawable ghost = new GradientDrawable();
+        ghost.setColor(0x14FFFFFF);
+        ghost.setCornerRadius(ResUtil.dp2px(12));
+        ghost.setStroke(ResUtil.dp2px(1), 0x40FFFFFF);
+        binding.btnReload.setBackground(ghost);
+        binding.btnReload.setTextColor(0xFFF1F4F5);
+    }
+
     @Override
     protected void initView() {
+        applyGlassSkin();
         binding.tvTitle.setText(title + (optionsMode ? "已登录" : "登录"));
         if (!TextUtils.isEmpty(hint)) binding.tvHint.setText(hint);
         if (optionsMode) {

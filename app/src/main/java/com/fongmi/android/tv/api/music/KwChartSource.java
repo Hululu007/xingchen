@@ -271,11 +271,15 @@ public class KwChartSource implements MusicSource {
         }
     }
 
-    /** 等分片：失败／空都算该片无封面（不抛，调用方按回落处理）；get 本身无超时，Worker HTTP 自带 20 秒超时 */
+    /** 等分片：失败／空都算该片无封面（不抛，调用方按回落处理）。
+     * 扫描 H11：等待加总截止 20 秒（与本文件 Worker HTTP 口径对齐）——此前 f.get()
+     * 无超时，FutureTask 在 FETCH_POOL 里排队的时间不算进 HTTP 超时，多片同时在途、
+     * 池被占满时等待线程可远超 20 秒干等且随调用堆积。只停等、不 cancel：
+     * 分片任务是 FLIGHTS 共享单飞，取消会连坐其它等待者。 */
     private static List<MusicTrack> getQuiet(Future<List<MusicTrack>> f) {
         if (f == null) return Collections.emptyList();
         try {
-            List<MusicTrack> r = f.get();
+            List<MusicTrack> r = f.get(20, java.util.concurrent.TimeUnit.SECONDS);
             return r == null ? Collections.emptyList() : r;
         } catch (Exception e) {
             return Collections.emptyList();

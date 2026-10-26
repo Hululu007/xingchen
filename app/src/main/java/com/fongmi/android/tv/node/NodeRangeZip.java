@@ -72,28 +72,59 @@ final class NodeRangeZip {
             long dataStart = entry.offset + 30 + nameLen + extraLen;
 
             SpiderDebug.log("node", "range fetch %s: %s bytes (of %s)", entryName, entry.compressed, total);
-            return write(url, dataStart, entry.compressed, entry.method, target, progress);
+            return write(url, dataStart, entry, target, progress);
         } catch (Exception e) {
             SpiderDebug.log("node", e);
             return e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
         }
     }
 
-    private static String write(String url, long start, long length, int method, File target, Progress progress) {
+    private static String write(String url, long start, Entry entry, File target, Progress progress) {
         if (target.getParentFile() != null) target.getParentFile().mkdirs();
-        Request request = new Request.Builder().url(url).header("Range", "bytes=" + start + "-" + (start + length - 1)).build();
+        Request request = new Request.Builder().url(url).header("Range", "bytes=" + start + "-" + (start + entry.compressed - 1)).build();
+        // 扫描 H14：先写临时文件、校验过才改名就位——此前直接写正式文件且成功条件
+        // 仅「产出 >0 字节」，截断/错位的 206 响应能解出部分字节就被当成功，
+        // 随后 writeMarker 把损坏的 libnode.so 钉成「已装好」（与 O7 叠加永久不可用）。
+        File tmp = new File(target.getParentFile(), target.getName() + ".tmp");
         try (Response response = OkHttp.client(NodeRuntime.LIB_TRANSFER_TIMEOUT_MS).newCall(request).execute()) {
             if (response.code() != 206 || response.body() == null) return "Range 请求失败 HTTP " + response.code();
-            try (InputStream raw = new Counting(response.body().byteStream(), length, progress);
-                 InputStream in = method == 0 ? raw : new InflaterInputStream(raw, new Inflater(true));
-                 OutputStream out = new FileOutputStream(target)) {
+            java.util.zip.CRC32 crc = new java.util.zip.CRC32();
+            long written = 0;
+            try (InputStream raw = new Counting(response.body().byteStream(), entry.compressed, progress);
+                 InputStream in = entry.method == 0 ? raw : new InflaterInputStream(raw, new Inflater(true));
+                 OutputStream out = new FileOutputStream(tmp)) {
                 byte[] buf = new byte[65536];
                 int len;
-                while ((len = in.read(buf)) != -1) out.write(buf, 0, len);
+                while ((len = in.read(buf)) != -1) {
+                    out.write(buf, 0, len);
+                    crc.update(buf, 0, len);
+                    written += len;
+                }
+            }
+            if (written <= 0) {
+                tmp.delete();
+                return "解出的文件为空";
+            }
+            if (written != entry.size) {
+                tmp.delete();
+                return "解出大小不符（期望 " + entry.size + "、实际 " + written + "）";
+            }
+            if (crc.getValue() != entry.crc) {
+                tmp.delete();
+                return "解出内容 CRC 不符";
+            }
+            if (target.exists() && !target.delete()) {
+                tmp.delete();
+                return "旧文件删除失败";
+            }
+            if (!tmp.renameTo(target)) {
+                tmp.delete();
+                return "临时文件改名失败";
             }
             target.setReadable(true, false);
-            return target.length() > 0 ? null : "解出的文件为空";
+            return null;
         } catch (Exception e) {
+            tmp.delete();
             SpiderDebug.log("node", e);
             return e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
         }
@@ -133,13 +164,16 @@ final class NodeRangeZip {
         while (pos + 46 <= central.length) {
             if (buffer.getInt(pos) != CEN_SIG) break;
             int method = buffer.getShort(pos + 10) & 0xFFFF;
+            // 中央目录定长段：CRC-32 在 +16、未压缩大小在 +24（此前都没读，H14 补上作校验据）
+            long crc = buffer.getInt(pos + 16) & 0xFFFFFFFFL;
             long compressed = buffer.getInt(pos + 20) & 0xFFFFFFFFL;
+            long size = buffer.getInt(pos + 24) & 0xFFFFFFFFL;
             int nameLen = buffer.getShort(pos + 28) & 0xFFFF;
             int extraLen = buffer.getShort(pos + 30) & 0xFFFF;
             int commentLen = buffer.getShort(pos + 32) & 0xFFFF;
             long offset = buffer.getInt(pos + 42) & 0xFFFFFFFFL;
             String entryName = new String(central, pos + 46, nameLen);
-            if (name.equals(entryName)) return new Entry(offset, compressed, method);
+            if (name.equals(entryName)) return new Entry(offset, compressed, method, crc, size);
             pos += 46 + nameLen + extraLen + commentLen;
         }
         return null;
@@ -159,11 +193,16 @@ final class NodeRangeZip {
         final long offset;
         final long compressed;
         final int method;
+        /** 中央目录的 CRC-32（解压后内容）与未压缩大小，write() 校验用（H14） */
+        final long crc;
+        final long size;
 
-        Entry(long offset, long compressed, int method) {
+        Entry(long offset, long compressed, int method, long crc, long size) {
             this.offset = offset;
             this.compressed = compressed;
             this.method = method;
+            this.crc = crc;
+            this.size = size;
         }
     }
 

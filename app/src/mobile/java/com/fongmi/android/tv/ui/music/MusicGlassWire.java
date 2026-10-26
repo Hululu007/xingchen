@@ -277,11 +277,17 @@ public final class MusicGlassWire {
         return found;
     }
 
-    /** 单件换玻璃：背景命中识别表才换，返回是否换了。已是玻璃件不重复包。选中族同步挂 tone 成带色玻璃。 */
+    /** 单件换玻璃：背景命中识别表才换，返回是否换了。已是玻璃件不重复包。选中族同步挂 tone 成带色玻璃。
+     * 已是玻璃件时也要重翻前景：列表行复用绑定时绑定代码会把字色重新写回深色（旧浅色口径），
+     * 只在首次换玻璃时翻一次，复用行就又变黑字（他点名「黑色字还是有」的机制之一）。 */
     public static boolean glassifyView(View v) {
         if (v == null) return false;
         Drawable bg = v.getBackground();
-        if (bg == null || bg instanceof MusicGlassDrawable) return false;
+        if (bg instanceof MusicGlassDrawable) {
+            flipForeground(v);
+            return false;
+        }
+        if (bg == null) return false;
         Float r = table(v.getContext()).get(bg.getConstantState());
         if (r == null) r = probeRadius(v.getContext(), bg.getConstantState());
         if (r == null) return false;
@@ -296,9 +302,13 @@ public final class MusicGlassWire {
         return true;
     }
 
-    /** 单件按指定圆角直换（手接点用：Holder/绑定点已知件型时）。 */
+    /** 单件按指定圆角直换（手接点用：Holder/绑定点已知件型时）。已是玻璃件时只重翻前景（同上）。 */
     public static void glassifyView(View v, float radiusDp) {
-        if (v == null || v.getBackground() instanceof MusicGlassDrawable) return;
+        if (v == null) return;
+        if (v.getBackground() instanceof MusicGlassDrawable) {
+            flipForeground(v);
+            return;
+        }
         v.setBackground(new MusicGlassDrawable(v.getContext(), radiusDp));
         applyFloatShadow(v, radiusDp);
         registerGlass(v);
@@ -326,11 +336,86 @@ public final class MusicGlassWire {
         float max = 0;
         for (TextView t : texts) max = Math.max(max, t.getTextSize());
         for (TextView t : texts) {
+            // 强调色（当前行红名一类高饱和色）是设计色，不许翻成白——重翻能反复跑靠的就是这条
+            if (isAccentColor(t.getCurrentTextColor())) continue;
             t.setTextColor(t.getTextSize() >= max - 0.5f ? FG_MAIN : FG_SUB);
             if (t instanceof EditText) ((EditText) t).setHintTextColor(FG_SUB);
         }
         for (ImageView im : icons) {
             if (im.getColorFilter() != null) im.setColorFilter(FG_ICON, PorterDuff.Mode.SRC_IN);
+        }
+    }
+
+    /** 高饱和色＝设计强调色（红名/状态色一类），翻字时保它。 */
+    private static boolean isAccentColor(int c) {
+        int r = (c >> 16) & 0xFF, g = (c >> 8) & 0xFF, b = c & 0xFF;
+        int max = Math.max(r, Math.max(g, b)), min = Math.min(r, Math.min(g, b));
+        if (max <= 90) return false;
+        return (max - min) / (float) max > 0.45f;
+    }
+
+    /** 中性深色＝旧浅色口径留下的黑/深灰字（低饱和＋低亮度）；浅灰蓝副字（#9AA7B8 一类，
+     * 在深底上对比已过 3:1）与白系、强调色都不算，不翻。 */
+    private static boolean isDarkNeutral(int c) {
+        int r = (c >> 16) & 0xFF, g = (c >> 8) & 0xFF, b = c & 0xFF;
+        int max = Math.max(r, Math.max(g, b)), min = Math.min(r, Math.min(g, b));
+        if (max == 0) return true;
+        float sat = (max - min) / (float) max;
+        float lum = (0.2126f * r + 0.7152f * g + 0.0722f * b) / 255f;
+        return sat < 0.30f && lum < 0.62f;
+    }
+
+    /** 表面亮度（只认纯色/渐变首色，认不出返回 -1）：页面级翻字跳过浅色实底面。 */
+    private static float surfaceLuminance(Drawable d) {
+        try {
+            if (d instanceof android.graphics.drawable.ColorDrawable) {
+                return luminanceOf(((android.graphics.drawable.ColorDrawable) d).getColor());
+            }
+            if (d instanceof android.graphics.drawable.GradientDrawable) {
+                int[] colors = ((android.graphics.drawable.GradientDrawable) d).getColors();
+                if (colors != null && colors.length > 0) return luminanceOf(colors[0]);
+            }
+        } catch (Throwable ignored) {
+        }
+        return -1f;
+    }
+
+    private static float luminanceOf(int c) {
+        int r = (c >> 16) & 0xFF, g = (c >> 8) & 0xFF, b = c & 0xFF;
+        return (0.2126f * r + 0.7152f * g + 0.0722f * b) / 255f;
+    }
+
+    /**
+     * 页面级翻字（glassifyTree 收尾）：页面底早已统一成深暖底，但 flipForeground 只翻
+     * 玻璃件内部，页标题、区头、动作钮、空态这些不在任何玻璃件里的字一直留着旧深色
+     * （他点名「全部黑色字还是有」的主通道）。本趟把不在玻璃件内、自己没底、
+     * 祖先里也没有浅色实底面的中性深色字按字号分主/副翻白；玻璃件内的字已由
+     * flipForeground 处理、带自己底的角标/小片不动、浅色实底页（如云盘页整页浅底）整趟跳过。
+     */
+    private static void flipPageTexts(View root) {
+        if (root.getBackground() instanceof MusicGlassDrawable) return; // 根即玻璃（底部弹窗）：已由根翻字处理
+        if (surfaceLuminance(root.getBackground()) > 0.55f) return; // 整页浅色实底：深字与底配对
+        java.util.List<TextView> texts = new java.util.ArrayList<>();
+        collectPageTexts(root, false, texts);
+        float max = 0;
+        for (TextView t : texts) max = Math.max(max, t.getTextSize());
+        for (TextView t : texts) {
+            t.setTextColor(t.getTextSize() >= max - 0.5f ? FG_MAIN : FG_SUB);
+            if (t instanceof EditText) ((EditText) t).setHintTextColor(FG_SUB);
+        }
+    }
+
+    private static void collectPageTexts(View v, boolean inGlass, java.util.List<TextView> out) {
+        Drawable bg = v.getBackground();
+        boolean glass = inGlass || bg instanceof MusicGlassDrawable;
+        if (!glass && bg != null && surfaceLuminance(bg) > 0.55f) return; // 浅色实底面子树：字与底配对
+        if (v instanceof TextView) {
+            TextView t = (TextView) v;
+            if (!glass && t.getBackground() == null && isDarkNeutral(t.getCurrentTextColor())) out.add(t);
+        }
+        if (v instanceof ViewGroup) {
+            ViewGroup g = (ViewGroup) v;
+            for (int i = 0; i < g.getChildCount(); i++) collectPageTexts(g.getChildAt(i), glass, out);
         }
     }
 
@@ -382,12 +467,15 @@ public final class MusicGlassWire {
     /** 整树走一遍：命中识别表的背景全换同源玻璃；RecyclerView 挂滚动监听顶版重裁；页根再做漏底结构归一。 */
     public static void glassifyTree(View root) {
         if (root == null) return;
+        // 底部弹窗的根是代码直挂的玻璃底：整片就是一个玻璃件，先按件内口径翻一遍字
+        if (root.getBackground() instanceof MusicGlassDrawable) flipForeground(root);
         glassifyView(root);
         if (root instanceof RecyclerView) hookScroll((RecyclerView) root);
         if (root instanceof android.widget.ScrollView) hookScrollView((android.widget.ScrollView) root);
         if (root instanceof ViewGroup) glassifyChildren((ViewGroup) root);
         glassifySwitches(root);
         normalizeFitsSkeleton(root);
+        flipPageTexts(root);
     }
 
     /** 开关全玻璃令的收口：整树里的系统开关统一换玻璃轨道/圆钮并摘掉旧染色

@@ -20,7 +20,9 @@ import com.github.catvod.crawler.SpiderDebug;
  * <b>含一个全空条目的列表</b>——列表非空，于是详情页照常打开，用户会看到设置页背后压着空白播放页。
  *
  * <p>判定只看两件事：结果里那个条目<b>什么都没有</b>，且站点是猫源。这两条合起来就是动作项的签名——
- * 真片源至少有名字，真失败会返回空列表（那条路归 {@code setEmpty}）。
+ * 真片源至少有名字，真失败会返回空列表（那条路归 {@code setEmpty}）。另有一类条目本身带「开网页」
+ * 签名的（结果非空、带名字和二维码），走 {@link #isWebsiteAction} 的识别在让位判定里单独成一条，
+ * 见 {@link #shouldYieldDetail}。
  *
  * <p>刻意<b>不</b>依赖"刚刚请求过内嵌网页"这类时序信号：详情结果会被缓存（命中时压根不调 spider，
  * 消息不会再发），且 {@code setDetail} 每次进入会被投递两次（{@code singleTop} 加观察者重投），
@@ -40,6 +42,13 @@ public final class CatAction {
      */
     public static boolean shouldYieldDetail(String key, long detailStartTime, Result result) {
         if (result == null || result.getList().isEmpty()) return false;
+        if (isWebsiteAction(key, result.getVod().getId(), result.getVod().getPic())) {
+            // 新形态动作项（见 isWebsiteAction 的二维码形）的 detail 结果<b>不是</b>全空——
+            // 它带名字、二维码图和简介，blank 那条永远让不了位，用户就被留在二维码页上。
+            // 条目本身带「开网页」签名，认条目即可，不必等它全空。仍要求开页请求由这次
+            // 导航触发：没等到请求（如 /msg 在设备上没送达）就不关页，二维码还留给用户扫。
+            return CatWebEvent.requestedAfter(detailStartTime);
+        }
         if (!blank(result.getVod())) return false;
         if (!CatWebEvent.requestedAfter(detailStartTime)) return false;
         return isCatSource(key);
@@ -91,6 +100,16 @@ public final class CatAction {
      * 老 bundle 的「扫码配置」是唯一的例外——它 pic 同样是 proxy 地址却不该开页，
      * 靠 {@code vod_id} 的形状排除（它是 {@code String(Math.random())}，纯小数；
      * 动作项的 id 都是具名标识符）。
+     *
+     * <p><b>第二形（二维码形）</b>：现行 bundle 的 {@code config-center}「扫码配置」
+     * 换了发法——pic 不再是 {@code /proxy/} 地址，而是挂在 bundle 自己服务上的二维码
+     * 接口地址，目标页明文放在 {@code url} 参数里
+     * （{@code .../website/api/config/qr?url=<目标页>}），detail 里 dispatch 的正是
+     * 这个目标页；id 也是带连字符的 {@code config-center}。旧的两道门（id 形状、
+     * proxy 段）都够不着它，点它只剩 detail 副产物那条独木桥——消息桥在设备上任一环
+     * 失手，用户就被留在二维码详情页。所以给这一形单开识别：信号全在 pic 自身
+     * （同源地址＋同源 {@code url} 参数），不靠 id 形状；与 proxy 形互斥，proxy 形里
+     * 混着的老扫码项不会被这一形捞回来。见 {@link #qrTarget}。
      */
     public static boolean isWebsiteAction(String key, String id, String pic) {
         return !TextUtils.isEmpty(websiteUrl(key, id, pic));
@@ -121,13 +140,61 @@ public final class CatAction {
      * 当成「设置页」加载进 WebView。
      */
     private static String websiteUrl(String key, String id, String pic) {
-        if (!isSettingSite(key) || !isActionId(id)) return "";
-        String url = target(pic);
-        if (TextUtils.isEmpty(url)) return "";
+        if (!isSettingSite(key)) return "";
         Site site = VodConfig.get().getSite(key);
         String api = site == null ? "" : site.getApi();
-        if (sameHost(api, url)) return url;
-        SpiderDebug.log("cat-action", "reject cross-host target api=%s url=%s", api, url);
+        if (isActionId(id)) {
+            String url = target(pic);
+            if (!TextUtils.isEmpty(url)) {
+                if (sameHost(api, url)) return url;
+                SpiderDebug.log("cat-action", "reject cross-host target api=%s url=%s", api, url);
+                return "";
+            }
+        }
+        return qrTarget(api, pic);
+    }
+
+    /**
+     * 二维码形动作项要打开的地址，不是就返回空。
+     *
+     * <p>pic 本身是 bundle 自己服务上的二维码接口地址、目标页挂在它的 {@code url} 参数里
+     * （见 {@link #isWebsiteAction} 的第二形说明）。两道同源校验都沿用 {@link #sameHost}
+     * 的本机口径：pic 的 host 要对得上站点 api（二维码接口确由这个 bundle 提供），解出的
+     * 目标也要对得上（要打开的是它自己的页面）——pic 是服务端下发的数据，任一腿跨 host
+     * 都不认，免得第三方数据把任意外部页当「设置页」塞进 WebView。
+     *
+     * <p>与 {@code /proxy/} 形互斥：pic 带 proxy 段的直接不看——那一形混着老 bundle 的
+     * 纯展示扫码项，归 {@link #target} 加 id 形状判定管，不许这一形凭 {@code url} 参数
+     * 之类的巧合把它捞回来。
+     */
+    private static String qrTarget(String api, String pic) {
+        if (TextUtils.isEmpty(pic) || pic.contains(PROXY)) return "";
+        if (!sameHost(api, pic)) return "";
+        String target = queryParam(pic, "url");
+        if (TextUtils.isEmpty(target)) return "";
+        if (!target.startsWith("http://") && !target.startsWith("https://")) return "";
+        if (sameHost(api, target)) return target;
+        SpiderDebug.log("cat-action", "reject cross-host qr target api=%s url=%s", api, target);
+        return "";
+    }
+
+    /** 取 URL 查询串里指定参数的值（URL 解码后）。没有返回空。 */
+    private static String queryParam(String url, String name) {
+        int q = url.indexOf('?');
+        if (q < 0) return "";
+        String query = url.substring(q + 1);
+        int fragment = query.indexOf('#');
+        if (fragment >= 0) query = query.substring(0, fragment);
+        for (String pair : query.split("&")) {
+            int eq = pair.indexOf('=');
+            if (eq <= 0) continue;
+            if (!pair.substring(0, eq).equals(name)) continue;
+            try {
+                return java.net.URLDecoder.decode(pair.substring(eq + 1), "UTF-8").trim();
+            } catch (Throwable e) {
+                return "";
+            }
+        }
         return "";
     }
 

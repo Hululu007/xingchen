@@ -740,6 +740,10 @@ public class SiteApi {
             SpiderDebug.log("detail", detailContent);
             Result result = Result.fromJson(detailContent);
             Vod vod = result.getVod();
+            // 猫源「开网页」动作项的 detail 结果（新形态带名字/二维码、非全空）：它不是详情，
+            // 下面挡板要凭它拦缓存——缓存住它，第二次点击命中缓存压根不调 spider，
+            // bundle 的开页消息再也不会发。
+            boolean catWebAction = CatAction.isWebsiteAction(key, vod == null ? "" : vod.getId(), vod == null ? "" : vod.getPic());
             // 计次按影片（key|id）：同一源下两部不同影片各空一次不能累计满阈值，
             // 否则无辜驱逐蜘蛛、下一部详情付全额重建。
             String strikeKey = key + "|" + id;
@@ -749,8 +753,8 @@ public class SiteApi {
                 actionStubs.put(strikeKey, System.currentTimeMillis());
                 stubDirtyKeys.put(key, Boolean.TRUE);
                 SpiderDebug.log("detail", "action stub key=%s id=%s api=%s", key, id, site.getApi());
-            } else if (CatAction.blank(result.getVod()) || CatWebEvent.requestedAfter(beforeSpider)) {
-                // 猫源动作项（全空条目）或这次调用顺带开过网页：那是副作用不是详情——
+            } else if (CatAction.blank(result.getVod()) || catWebAction || CatWebEvent.requestedAfter(beforeSpider)) {
+                // 猫源动作项（全空条目或带开网页签名的条目）或这次调用顺带开过网页：那是副作用不是详情——
                 // 不计次、不驱逐、不入缓存（默影视 cacheDetail 同挡板：缓存住它，第二次点击
                 // 命中缓存压根不调 spider，网页再也不开；计次则会把猫源蜘蛛误驱逐）。
                 SpiderDebug.log("detail", "cat action/web-opened result, skip strikes+cache key=%s id=%s", key, id);

@@ -587,13 +587,16 @@ public class MusicPlaylistActivity extends BaseActivity {
     private void removeFromSheet(MusicTrack track) {
         Task.execute(() -> {
             // 按行主键删：同歌单里同 trackId 异来源可并存，按 (playlistId, trackId) 删会连坐别家那行
-            // （与 MusicLibrary.replaceTrackInPlaylist 同口径：先按 trackId＋platform 复合身份定位到行）
+            // （与 MusicLibrary.replaceTrackInPlaylist 同口径：按 trackId＋platform＋插件戳三段身份定位到行）
             try {
                 com.fongmi.android.tv.db.dao.MusicPlaylistItemDao dao =
                         com.fongmi.android.tv.db.AppDatabase.get().getMusicPlaylistItemDao();
                 for (com.fongmi.android.tv.bean.MusicPlaylistItem item : dao.findByPlaylist(playlistId)) {
                     if (item != null && track.id != null && track.id.equals(item.getTrackId())
-                            && java.util.Objects.equals(track.platform, item.getPlatform())) {
+                            && java.util.Objects.equals(track.platform, item.getPlatform())
+                            && java.util.Objects.equals(
+                                    com.fongmi.android.tv.music.MusicIdentity.pluginOf(track.rawJson),
+                                    com.fongmi.android.tv.music.MusicIdentity.pluginOf(item.getRawJson()))) {
                         dao.deleteById(item.getId());
                         break;
                     }
@@ -818,7 +821,7 @@ public class MusicPlaylistActivity extends BaseActivity {
                     Notify.show("没有找到匹配的歌曲");
                     return;
                 }
-                MusicLibrary.replaceTrackInPlaylist(playlistId, track.id, h, ok -> {
+                MusicLibrary.replaceTrackInPlaylist(playlistId, track, h, ok -> {
                     Notify.show(ok ? "已刷新" : "刷新失败");
                     if (ok) loadSheetTracks();
                 });
@@ -846,7 +849,7 @@ public class MusicPlaylistActivity extends BaseActivity {
                     Notify.show("没有找到匹配的封面");
                     return;
                 }
-                MusicLibrary.updateTrackCover(playlistId, track.id, h.cover, () -> {
+                MusicLibrary.updateTrackCover(playlistId, track, h.cover, () -> {
                     Notify.show("封面已更新");
                     loadSheetTracks();
                 });
@@ -903,7 +906,7 @@ public class MusicPlaylistActivity extends BaseActivity {
                 }
                 MusicOptionsDialog.show(this, "换源", names, -1, idx -> {
                     MusicTrack pick = found.get(idx);
-                    MusicLibrary.replaceTrackInPlaylist(playlistId, track.id, pick, ok -> {
+                    MusicLibrary.replaceTrackInPlaylist(playlistId, track, pick, ok -> {
                         Notify.show(ok ? "已换源" : "换源失败");
                         if (ok) loadSheetTracks();
                     });

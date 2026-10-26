@@ -372,8 +372,16 @@ public class MusicLibrary {
         });
     }
 
+    /** 歌单条目与目标歌是否同一首：三段身份（trackId＋platform＋插件戳）全对上才认
+     *  （扫描 M4：旧实现只比裸 trackId 首命中，同歌单跨源同 id 时换错/改错行） */
+    private static boolean sameItemIdentity(MusicPlaylistItem i, MusicTrack t) {
+        if (i == null || t == null || t.id == null || !t.id.equals(i.getTrackId())) return false;
+        if (!normPlatform(i.getPlatform()).equals(normPlatform(t.platform))) return false;
+        return normPlugin(MusicIdentity.pluginOf(i.getRawJson())).equals(normPlugin(MusicIdentity.pluginOf(t.rawJson)));
+    }
+
     /** 换源/刷新：把歌单里某首原位换成另一首（位置与加入时间保留，歌单更新时间刷新） */
-    public static void replaceTrackInPlaylist(long playlistId, String oldTrackId, MusicTrack replacement, DataCallback<Boolean> cb) {
+    public static void replaceTrackInPlaylist(long playlistId, MusicTrack oldTrack, MusicTrack replacement, DataCallback<Boolean> cb) {
         Task.execute(() -> {
             boolean ok = false;
             Throwable error = null;
@@ -381,7 +389,7 @@ public class MusicLibrary {
                 if (replacement != null && replacement.id != null) {
                     MusicPlaylistItem found = null;
                     for (MusicPlaylistItem i : AppDatabase.get().getMusicPlaylistItemDao().findByPlaylist(playlistId)) {
-                        if (oldTrackId != null && oldTrackId.equals(i.getTrackId())) {
+                        if (sameItemIdentity(i, oldTrack)) {
                             found = i;
                             break;
                         }
@@ -417,15 +425,17 @@ public class MusicLibrary {
         });
     }
 
-    /** 重新匹配封面：只改歌单里某首的封面地址，其它字段不动 */
-    public static void updateTrackCover(long playlistId, String trackId, String cover, Runnable done) {
+    /** 重新匹配封面：只改歌单里某首的封面地址，其它字段不动；
+     *  扫描 M9：目标行找不到也是失败——旧实现 ok 恒 true，没改任何行也照跑 done 报「封面已更新」 */
+    public static void updateTrackCover(long playlistId, MusicTrack track, String cover, Runnable done) {
         Task.execute(() -> {
-            boolean ok = true;
+            boolean ok = false;
             try {
                 for (MusicPlaylistItem i : AppDatabase.get().getMusicPlaylistItemDao().findByPlaylist(playlistId)) {
-                    if (trackId != null && trackId.equals(i.getTrackId())) {
+                    if (sameItemIdentity(i, track)) {
                         i.setCover(cover);
                         AppDatabase.get().getMusicPlaylistItemDao().update(i);
+                        ok = true;
                         break;
                     }
                 }

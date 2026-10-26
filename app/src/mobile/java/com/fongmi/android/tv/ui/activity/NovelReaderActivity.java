@@ -1237,7 +1237,8 @@ public class NovelReaderActivity extends AppCompatActivity {
                 r.content = currentText.length() > 60000
                         ? currentText.substring(0, 60000) : currentText;
             }
-            ReadingStore.save(r);
+            // 合并写：整条覆盖会抹掉建会话时写入的 bookUrl 等追更字段（R1）
+            ReadingStore.saveMerged(r);
         } catch (Throwable ignored) {
         }
     }

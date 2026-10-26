@@ -791,11 +791,14 @@ public class ComicReaderActivity extends AppCompatActivity {
             r.chapterIndex = session.chapterIndex;
             r.chapterUrl = session.chapterUrl;
             r.siteKey = session.siteKey;
+            r.detailId = session.detailId;
+            r.playFlag = session.playFlag;
             r.legadoKey = session.legadoKey;
             r.localId = session.localId;
             r.origin = TextUtils.isEmpty(session.localId) ? "" : "local";
             r.position = currentPage();
-            ReadingStore.save(r);
+            // 合并写：整条覆盖会抹掉建会话时写入的 bookUrl 等追更字段（R1）
+            ReadingStore.saveMerged(r);
         } catch (Throwable ignored) {
         }
     }

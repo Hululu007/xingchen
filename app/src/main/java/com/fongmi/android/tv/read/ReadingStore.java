@@ -143,6 +143,36 @@ public class ReadingStore {
         writeAll(list);
     }
 
+    /**
+     * 合并写进度（两个阅读器存进度专用）：同键已有记录时，只更新进度字段，
+     * 会话建立时写入的字段（bookUrl/totalChapters/lastCheckedAt/hasUpdate 追更四件、
+     * detailId/playFlag/ruleTitle 等重建钥匙）patch 没带（空/0）时保旧值——
+     * 此前整条覆盖把 Legado 的 bookUrl 抹掉，追更在第一次阅读后永久失效（R1）。
+     * 正文快照与章节绑死：本次没带快照且章节已换，旧快照作废，不许串章喂错正文。
+     */
+    public static synchronized void saveMerged(Record patch) {
+        if (patch == null || TextUtils.isEmpty(patch.bookTitle)) return;
+        for (Record old : readAll()) {
+            if (!patch.key().equals(old.key())) continue;
+            if (TextUtils.isEmpty(patch.bookUrl)) patch.bookUrl = old.bookUrl;
+            if (patch.totalChapters <= 0) patch.totalChapters = old.totalChapters;
+            if (patch.lastCheckedAt <= 0) patch.lastCheckedAt = old.lastCheckedAt;
+            if (!patch.hasUpdate) patch.hasUpdate = old.hasUpdate;
+            if (TextUtils.isEmpty(patch.detailId)) patch.detailId = old.detailId;
+            if (TextUtils.isEmpty(patch.playFlag)) patch.playFlag = old.playFlag;
+            if (TextUtils.isEmpty(patch.ruleTitle)) patch.ruleTitle = old.ruleTitle;
+            if (TextUtils.isEmpty(patch.siteKey)) patch.siteKey = old.siteKey;
+            if (TextUtils.isEmpty(patch.legadoKey)) patch.legadoKey = old.legadoKey;
+            if (TextUtils.isEmpty(patch.coverUrl)) patch.coverUrl = old.coverUrl;
+            if (TextUtils.isEmpty(patch.content)) {
+                patch.content = TextUtils.equals(patch.chapterUrl, old.chapterUrl)
+                        ? old.content : "";
+            }
+            break;
+        }
+        save(patch);
+    }
+
     public static synchronized void remove(String kind, String sourceName, String bookTitle) {
         if (kind == null || sourceName == null || bookTitle == null) return;
         String k = kind + "|" + sourceName + "|" + bookTitle;

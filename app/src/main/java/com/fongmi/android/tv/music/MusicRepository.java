@@ -859,7 +859,7 @@ public class MusicRepository {
                 SpiderDebug.log("music", "lyric plugin search error %s", t.getMessage());
             }
         }
-        // 4. Worker 聚合（主来源，与 lyricRich 步 4 同一接线缝 cfLyricWord、同一
+        // 4. Worker 聚合（与 lyricRich 步 4 同一接线缝 cfLyricWord、同一
         //    CfLyricClient 入口与超时口径）：完整链已接、纯文本链此前漏接——rich 链
         //    空手后第二相走到本链时，Worker 的多平台聚合不在链上，只剩同族接口再掷
         //    一次骰子。只认与完整链同口径的词级版（cfLyricWord 本地解析定逐字），
@@ -966,8 +966,8 @@ public class MusicRepository {
     /**
      * lyric() 的 rich 版：按在线歌词优先级（MusicStore.getLyricPriority）选版。
      * 默认 wordByWord＝旧行为：本源带词级时间直接返回；本源只有行级时不立即返回，
-     * 继续往后找词级（同源其它插件→跨源→歌词型插件→Worker 聚合（主来源，已接线：
-     * cfLyricWord）→平台直连回落→AMLL 兜底），全程没词级才回落到首个行级命中。
+     * 继续往后找词级（同源其它插件→跨源→歌词型插件→Worker 聚合（cfLyricWord）
+     * →平台直连→AMLL 兜底），全程没词级才回落到首个行级命中。
      * 逐行／AMLL／跟随来源模式下，旧“见词即返”不再截断链：各步命中只进 LyricPick 桶，
      * 首选命中才立即返回，其余走完链后按优先级次序取；始终保留回落链，原来有词的歌
      * 绝不因此变无词。Worker／平台直连两步仍只出词级版（回包口径不动），逐行／AMLL
@@ -976,29 +976,71 @@ public class MusicRepository {
      * rich 通道保住译/音译/逐字正文，其它源只有纯文本，包成只有正文的 MusicLyric。
      */
     /**
-     * L10 版本 key（持久化／恢复共用同一算法）：档位＋正文内容哈希；正文空时用译文＋音译拼接哈希
-     * （与 addVersion 去重口径同源）。来源不进 key：同一正文换源聚合去重后只留首个版本，
+     * L10 版本 key（持久化／恢复共用同一算法）：档位＋正文＋译文＋音译三段一起算
+     * SHA-256（F2 审计：旧口径只有正文 trim 的 32 位 String.hashCode——可碰撞、
+     * 且不含译文，同正文不同译文两版 key 相同、恢复会认错译文版）。
+     * 正文为空时正文段留空、三段照算（纯译文版靠译文段区分）。
+     * 来源不进 key：同一正文换源聚合去重后只留首个版本，
      * 按来源硬匹配会把同文版本判成恢复失败；来源单独存 MusicStore，仅作展示／排障。
+     * 存量兼容：旧存档的 key（"档位#32位哈希"）与新 key 永不相等，恢复时按未命中
+     * 处理——聚合完整时走既有「已失效」清存＋提示一次，用户重选一次即换新 key，
+     * 不做旧→新映射（32 位哈希不可逆、硬映射只会认错版）。
      * 后波播放页 applyLyricVersion 点选时调 saveManualLyricChoice 存，点选即生效、下次同曲恢复。
      */
     public static String lyricVersionKey(LyricVersion version) {
         if (version == null || version.getLyric() == null) return "";
         MusicLyric lyric = version.getLyric();
         String raw = lyric.rawLrc == null ? "" : lyric.rawLrc.trim();
-        if (raw.isEmpty()) {
-            raw = (lyric.translation == null ? "" : lyric.translation.trim())
-                    + "|" + (lyric.romanization == null ? "" : lyric.romanization.trim());
-        }
-        if (raw.isEmpty()) return "";
-        return version.kindLabel() + "#" + raw.hashCode();
+        String trans = lyric.translation == null ? "" : lyric.translation.trim();
+        String roma = lyric.romanization == null ? "" : lyric.romanization.trim();
+        if (raw.isEmpty() && trans.isEmpty() && roma.isEmpty()) return "";
+        // 三段带长度前缀拼接再哈希：无长度前缀时「正文 ab＋译文 c」与「正文 a＋译文 bc」会拼成同一串
+        String joined = raw.length() + ":" + raw + "|" + trans.length() + ":" + trans + "|" + roma.length() + ":" + roma;
+        return "v2:" + version.kindLabel() + ":" + sha256Hex(joined);
     }
 
-    /** L10：播放页点选版本时存（歌曲 key→版本 key／来源），不要复用播放页内存 currentLyricKey。 */
+    /** 版本 key 用强哈希（SHA-256 十六进制）；算法不可用时退回正文长度＋哈希双段（仍强于单 32 位） */
+    private static String sha256Hex(String s) {
+        try {
+            byte[] digest = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(s.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder(digest.length * 2);
+            for (byte b : digest) sb.append(String.format("%02x", b & 0xff));
+            return sb.toString();
+        } catch (Throwable ignored) {
+            return s.length() + "-" + Integer.toHexString(s.hashCode()) + "-" + Integer.toHexString(s.hashCode() * 31 + 7);
+        }
+    }
+
+    /** L10：播放页点选版本时存（歌曲 key→版本 key／来源），不要复用播放页内存 currentLyricKey。
+     * 歌曲身份键统一（F2 审计：选版存读此前用 MusicQueue.trackKey、歌词缓存用
+     * MusicLyricCache.key，两套身份在元数据变动时分叉、选版存得到回读落空）：
+     * 存档一律写 MusicLyricCache.key（与缓存同一身份），恢复时先按新键查、
+     * 查不到再按旧 trackKey 查存量（见 manualChoiceStored），存量不迁移不丢。 */
     public static void saveManualLyricChoice(MusicTrack track, LyricVersion version) {
         if (track == null || version == null) return;
         String key = lyricVersionKey(version);
         if (key.isEmpty()) return;
-        MusicStore.setManualLyricChoice(MusicQueue.trackKey(track), key, version.getSource());
+        String songKey = MusicLyricCache.key(track);
+        if (songKey == null || songKey.isEmpty()) songKey = MusicQueue.trackKey(track);
+        MusicStore.setManualLyricChoice(songKey, key, version.getSource());
+    }
+
+    /** 手动选版存值读取（双键兼容）：先 MusicLyricCache.key（现行存档），后 MusicQueue.trackKey（存量旧存档） */
+    private static String manualChoiceStored(MusicTrack track) {
+        String songKey = MusicLyricCache.key(track);
+        if (songKey != null && !songKey.isEmpty()) {
+            String v = MusicStore.getManualLyricChoice(songKey);
+            if (v != null && !v.isEmpty()) return v;
+        }
+        return MusicStore.getManualLyricChoice(MusicQueue.trackKey(track));
+    }
+
+    /** 手动选版清除（双键同清）：恢复判失效时新旧两处存档一起清，免得旧键残值下次又冒出来顶掉 */
+    private static void clearManualChoice(MusicTrack track) {
+        String songKey = MusicLyricCache.key(track);
+        if (songKey != null && !songKey.isEmpty()) MusicStore.clearManualLyricChoice(songKey);
+        MusicStore.clearManualLyricChoice(MusicQueue.trackKey(track));
     }
 
     public static MusicLyric lyricRich(MusicTrack track, boolean force) {
@@ -1007,6 +1049,14 @@ public class MusicRepository {
 
     private static MusicLyric lyricRichInternal(MusicTrack track, boolean force) {
         if (track == null) return null;
+        // 整链总时限起点（F2 审计·超时层叠收口）：此前各层封顶互不知情——CfLyricClient
+        // 单发最坏 ≈25 秒、预取单步 await 45 秒、共享搭链 75 秒，层层相加没有一条总账。
+        // 现口径自内向外收成一条线：CfLyricClient 单发最坏 ≈24.6 秒（见该类）＜ 预取单步
+        // 45 秒（防挂死天花板）＜ 本链总时限 60 秒（自此点起算，预取每步 await 取
+        // 「单步封顶」与「总时限剩余」的较小值，总时限耗尽后各步一律按无结果收口、
+        // 迟到结果由 abandon 撤下丢弃、不回写任何状态）＜ 共享搭链等待 75 秒
+        // （搭链者等得到链收口）＜ 版本面板全量总时限 90 秒（LyricVersionsCache）。
+        long chainStartMs = System.currentTimeMillis();
         // 出词提速：链消费到第一份可用词（行级也算）时先行发布一次，供播放页先上屏；
         // 链的挑选口径与返回值不变，后到的更优版由页面在收口时无缝替换。
         java.util.concurrent.atomic.AtomicBoolean earlyFired = new java.util.concurrent.atomic.AtomicBoolean();
@@ -1020,29 +1070,57 @@ public class MusicRepository {
         EarlyLyricFetch earlyFetch = EarlyLyricFetch.start(track,
                 lyric -> fireEarlyLyric(track, lyric, earlyFired));
         // L10：非手动重搜时先试恢复上次手动选的版本（瓜子 restoreManualLyricChoice 口径）。
-        // 恢复用全量聚合（lyricRichAllDetailed）匹配版本 key，命中即直接返回该版，不走快路径优先级；
-        // 完整聚合里找不到才清除存值并通知一次“已失效”再走快路径——不许静默回落首版。
-        // 不完整聚合里找不到时不弹“已失效”、不清除存值，只走快路径（见 B8 注释）。
-        // 手动重搜（force）是用户要找新版，不恢复旧选；聚合本身抛错（网络等）时不弹“已失效”，
-        // 只记日志走快路径，免得把网络失败说成版本失效；密钥问题照旧重抛给播放页弹密钥提示。
+        // F2 审计改轻量恢复路：此前每次起播先跑一遍全量聚合（lyricRichAllDetailed）才出词，
+        // 且不完整聚合（transient 失败）时恢复无痕跳过、无日志、下一首再付一遍全量。
+        // 现恢复分两档：
+        // 1) 轻量：先在已缓存的显示版与 Worker 阶段一列表里按版本 key 匹配——选过的版
+        //    大多就在这两处（缓存版就是上次显示的版，Worker 是版本面板阶段一同源），
+        //    命中即返回，不付跨源/插件全量聚合的代价；
+        // 2) 全量兜底：轻量没命中才跑全量聚合，B8 口径不变——只认完整聚合：
+        //    完整聚合确认缺失才清存（新旧双键同清）并提示一次“已失效”，
+        //    不完整时不弹、不清除存值、只走快路径，下次播同一首歌可再试恢复。
+        // 每档结果都记 SpiderDebug 日志：恢复失败不再静默——命中／轻量未中／不完整跳过
+        // 各留一行，排障时能分清是真失效、网络瞬时失败还是存档 key 变更（见 lyricVersionKey
+        // 存量兼容注释：v2 强键上线后旧存档首播走完整聚合确认→清存→提示一次，属于预期）。
+        // 手动重搜（force）是用户要找新版，不恢复旧选；密钥问题照旧重抛给播放页弹密钥提示。
         if (!force) {
-            String stored = MusicStore.getManualLyricChoice(MusicQueue.trackKey(track));
+            String stored = manualChoiceStored(track);
             String wantKey = MusicStore.manualLyricChoiceKey(stored);
             if (!wantKey.isEmpty()) {
                 try {
-                    // B8：恢复只认完整聚合——不完整（某步 transient 失败／歌词缺失开关关导致提前截断）
-                    // 时不弹“已失效”，只走快路径，且不清除存值（下次播同一首歌可再试恢复）；
-                    // 完整聚合确认缺失后才清除存值并提示一次（清除后下次播不再重复提示）。
+                    MusicLyric cachedRich = MusicLyricCache.get(track);
+                    if (cachedRich != null && cachedRich.hasLyric()) {
+                        // 版本 key 只由档位＋正文/译文/音译决定（见 lyricVersionKey），
+                        // 用 displayedVersion 包装缓存词算 key 与面板版本同口径
+                        LyricVersion cachedVersion = displayedVersion(cachedRich, null);
+                        if (cachedVersion != null && wantKey.equals(lyricVersionKey(cachedVersion))) {
+                            SpiderDebug.log("music", "manual lyric restore hit(light=cached) key=%s", wantKey);
+                            earlyFetch.abandon();
+                            return cachedVersion.getLyric();
+                        }
+                    }
+                    for (LyricVersion v : lyricWorkerAll(track)) {
+                        if (wantKey.equals(lyricVersionKey(v))) {
+                            SpiderDebug.log("music", "manual lyric restore hit(light=worker) key=%s", wantKey);
+                            earlyFetch.abandon();
+                            return v.getLyric();
+                        }
+                    }
+                    SpiderDebug.log("music", "manual lyric restore light miss key=%s, fallback full agg", wantKey);
                     LyricRichAllResult agg = lyricRichAllDetailed(track, false);
                     for (LyricVersion v : agg.versions) {
                         if (wantKey.equals(lyricVersionKey(v))) {
+                            SpiderDebug.log("music", "manual lyric restore hit(full) key=%s", wantKey);
                             earlyFetch.abandon();
                             return v.getLyric();
                         }
                     }
                     if (agg.complete) {
-                        MusicStore.clearManualLyricChoice(MusicQueue.trackKey(track));
+                        SpiderDebug.log("music", "manual lyric restore expired key=%s", wantKey);
+                        clearManualChoice(track);
                         Notify.show("手动选择的歌词版本已失效，已按默认重新取词");
+                    } else {
+                        SpiderDebug.log("music", "manual lyric restore skipped(incomplete agg) key=%s", wantKey);
                     }
                 } catch (Throwable t) {
                     try {
@@ -1136,7 +1214,7 @@ public class MusicRepository {
         // 四个直连步已在链头由 EarlyLyricFetch 发出（见链头注），此处只补发步 2
         // 跨源收集与步 3 歌词插件（都经单线程桥，不许与步 0／步 1 抢桥），并接管
         // 直连四步的任务在原步序消费。
-        LyricPrefetch prefetch = LyricPrefetch.start(track, s, queries, force, gen, earlyFetch);
+        LyricPrefetch prefetch = LyricPrefetch.start(track, s, queries, force, gen, earlyFetch, chainStartMs);
         // 2. 其它源（本地源跳过，它不提供歌词）：查询序列外层（净查询先问遍各源，再降级）
         // force 时预取内的步 2 只跑精确遍（exactOnly），包含遍在下方与步 1 包含级同段补跑。
         CrossCollect cross = prefetch.cross();
@@ -1200,8 +1278,12 @@ public class MusicRepository {
                 return hit;
             }
         }
-        // 4. Worker 聚合（主来源，已接线）：cfLyricWord 只认本地解析逐字，
-        // 弱网／超时回空，不阻塞回落；回包口径不动。
+        // 4. Worker 聚合：cfLyricWord 只认本地解析逐字，弱网／超时回空，不阻塞回落；
+        // 回包口径不动。口径对齐（F2 审计）：Worker 是「歌词主来源」指定的是版本面板
+        // 阶段一（lyricWorkerAll 只问 Worker）与整包/逐字供词这一层；快路径是多腿并行
+        // 预取＋LyricPick 按优先级挑选，本步只是按链序消费 Worker 那条腿的结果，
+        // 不是「先等 Worker、失败才走别家」的串行主从——注释与步序按此对齐，不改步序
+        // （步序是 1.4.45 首帧定罪后的并行设计，改回串行会把首帧重新拖回串行总和）。
         MusicLyric cfHit = prefetch.cf();
         fireEarlyLyric(track, cfHit, earlyFired);
         hit = pick.note(cfHit);
@@ -1210,7 +1292,10 @@ public class MusicRepository {
             clearLyricMiss(track);
             return hit;
         }
-        // 5. 平台直连回落（Worker 不可用时才走：酷狗 KRC → QQ QRC → 网易云 YRC）：只认词级，行级不截断
+        // 5. 平台直连（酷狗 KRC → QQ QRC → 网易云 YRC）：只认词级，行级不截断。
+        // 注释与代码对齐（F2 审计）：本步不是「Worker 不可用时才发」——平台直连任务在
+        // 链头已与 Worker 并行发出（EarlyLyricFetch），此处只是按链序消费它的结果、
+        // 由 pick 按优先级裁定取舍；无条件消费正是有词可显的保障，不许改成条件触发。
         MusicLyric platformHit = prefetch.platform();
         fireEarlyLyric(track, platformHit, earlyFired);
         hit = pick.note(platformHit);
@@ -1361,7 +1446,14 @@ public class MusicRepository {
     public static MusicLyric fetchLyricForPlayback(MusicTrack track) {
         if (track == null) return null;
         MusicLyric cached = MusicLyricCache.get(track);
-        if (cached != null && cached.hasLyric()) return cached;
+        if (cached != null && cached.hasLyric()) {
+            // 命中复核（F2 审计④接线）：缓存词超过复核期（MusicLyricCache.isStale，7 天）
+            // 时后台重走一条自动链复核——链内 put() 成功即换新版，错版词由此有被自动链
+            // 纠正的路；本调用仍立即返回手头这份，播放不等待、不中断。链是共享单飞，
+            // 同歌已有链在飞时只是搭上登记，不重复发。
+            if (MusicLyricCache.isStale(track)) prefetchLyricRich(track);
+            return cached;
+        }
         MusicLyric rich = null;
         try {
             rich = lyricRichShared(track, false);
@@ -1371,7 +1463,10 @@ public class MusicRepository {
         try {
             String plain = lyric(track, false);
             if (plain != null && !plain.trim().isEmpty()) {
-                MusicLyricCache.putPlain(track, plain);
+                // 翻译行回落防毒化（F2 审计）：rich 链本次为空多半是瞬时失败，此前直接
+                // putPlain 把无译文的纯文本写进缓存，之后缓存命中就再也不走 rich 链、
+                // 译文永久补不回来。现处置：纯文本只供本次播放返回、不落缓存，
+                // 下次起播缓存仍未命中、rich 链照常重走，译文有机会补回。
                 return new MusicLyric(plain);
             }
         } catch (Throwable ignored) {
@@ -1380,7 +1475,7 @@ public class MusicRepository {
     }
 
     /**
-     * Worker 聚合接线缝（主来源，已接线）。
+     * Worker 聚合接线缝（已接线；「主来源」口径的适用面见 lyricRichInternal 步 4 注）。
      * 只把 Worker 回包映射为 MusicLyric（rawLrc 保留词级时间原文，译／音译原样带上），
      * 不改 Worker 回包口径，不用回包 kind 宣称定档位；快路径只认本地解析：
      * 任一行带词时间才算逐字命中，否则返回空，由直连／AMLL 回落接手。
@@ -1461,7 +1556,20 @@ public class MusicRepository {
      * （response＝null）不是失败，聚合仍完整。
      */
     private static void cfLyricVersionsAll(MusicTrack track, List<LyricVersion> out, Set<String> seen) {
-        CfLyricClient.CfResponse response = new CfLyricClient().fetch(track);
+        cfLyricVersionsAll(track, out, seen, false);
+    }
+
+    /**
+     * 提速⑥慢腿补收（版本面板阶段二／全量聚合专用）：主路 fetch 只回快腿
+     * （酷狗／网易／QQ，Worker 侧收口约 4–5 秒），慢腿（酷我／咪咕常超时拖尾）
+     * 由 includeSlow 时再发一趟 legs=slow 补收合并——慢腿只进版本列表、
+     * 不进快路径与阶段一，起播首帧不为它们付等待。慢腿回包的平台错误经
+     * CfLyricClient 的 errors 日志留痕，合并计数单独记一行便于定案。
+     */
+    private static void cfLyricVersionsAll(MusicTrack track, List<LyricVersion> out, Set<String> seen,
+                                           boolean includeSlow) {
+        CfLyricClient client = new CfLyricClient();
+        CfLyricClient.CfResponse response = client.fetch(track);
         if (response == null) return;
         sLastCfNote = response.fetchNote;
         int before = out.size();
@@ -1470,6 +1578,13 @@ public class MusicRepository {
         // 与回包为空是两种病，不许再混成一句「没回来」。
         SpiderDebug.log("music", "cf versions parsed=%d added=%d note=%s",
                 response.versions.size(), out.size() - before, String.valueOf(response.fetchNote));
+        if (!includeSlow) return;
+        CfLyricClient.CfResponse slow = client.fetchSlowLegs(track);
+        if (slow == null) return;
+        int slowBefore = out.size();
+        collectCfVersions(track, slow, out, seen);
+        SpiderDebug.log("music", "cf slow-leg versions parsed=%d added=%d note=%s",
+                slow.versions.size(), out.size() - slowBefore, String.valueOf(slow.fetchNote));
     }
 
     /** Worker 回包 → 版本列表合并（fetch 与收集拆开：起播预取已拿到回包时直接收集种缓存，不再多发一趟） */
@@ -1816,13 +1931,19 @@ public class MusicRepository {
 
     private static class LyricPrefetch {
         /**
-         * 待裁18：单步等待总封顶——高于最慢一步的内部封顶（Worker 连接 10 秒＋读 25 秒），
-         * 只作防挂死的天花板，不替代各步自己的超时；超时按该步无结果处理并撤下任务。
+         * 待裁18：单步等待总封顶——高于最慢一步的内部封顶，只作防挂死的天花板，
+         * 不替代各步自己的超时；超时按该步无结果处理并撤下任务。
+         * F2 审计收口后本值不再是实际最坏等待：每步 await 还受整链总时限约束（见下）。
          */
         private static final long AWAIT_CAP_MS = 45_000;
 
+        /** 整链总时限（自 lyricRichInternal 入口起算）：各步 await 的实际预算＝
+         * min(单步封顶, 总时限剩余)，剩余耗尽即按无结果收口——一条总账管住层叠封顶。 */
+        private static final long CHAIN_DEADLINE_MS = 60_000;
+
         private final long gen;
         private final String callKey;
+        private final long deadlineMs;
         private final Future<CrossCollect> cross;
         private final Future<List<MusicLyric>> plugins;
         private final Future<MusicLyric> cf;
@@ -1832,7 +1953,7 @@ public class MusicRepository {
 
         private LyricPrefetch(long gen, String callKey, Future<CrossCollect> cross, Future<List<MusicLyric>> plugins,
                               Future<MusicLyric> cf, Future<MusicLyric> platform,
-                              Future<MusicLyric> kuwo, Future<MusicLyric> amll) {
+                              Future<MusicLyric> kuwo, Future<MusicLyric> amll, long deadlineMs) {
             this.gen = gen;
             this.callKey = callKey;
             this.cross = cross;
@@ -1841,17 +1962,19 @@ public class MusicRepository {
             this.platform = platform;
             this.kuwo = kuwo;
             this.amll = amll;
+            this.deadlineMs = deadlineMs;
         }
 
         static LyricPrefetch start(MusicTrack track, MusicSource self, List<LocalTrackMeta.Query> queries, boolean force, long gen,
-                                   EarlyLyricFetch early) {
+                                   EarlyLyricFetch early, long chainStartMs) {
             Future<CrossCollect> cross = Task.largeExecutor().submit(() -> collectCross(track, self, queries, force, force));
             Future<List<MusicLyric>> plugins = Task.largeExecutor().submit(() -> collectLyricPlugins(track));
             // 四个直连步在链头已由 EarlyLyricFetch 发出，此处接管其任务在原步序消费
             // （步 4／5／5.5／6 的 await 与挑选口径一字不变）；接管后撤下归本对象管。
             early.adopted = true;
             return new LyricPrefetch(gen, lyricCallKey(track), cross, plugins,
-                    early.cf, early.platform, early.kuwo, early.amll);
+                    early.cf, early.platform, early.kuwo, early.amll,
+                    chainStartMs + CHAIN_DEADLINE_MS);
         }
 
         CrossCollect cross() {
@@ -1889,8 +2012,16 @@ public class MusicRepository {
                 f.cancel(true);
                 return null;
             }
+            // 整链总时限：剩余预算耗尽即按无结果收口（迟到结果由 abandon 撤下丢弃，
+            // 不回写状态——与待裁14/15 的迟到处置同一口径，处置确定化）
+            long budgetMs = Math.min(AWAIT_CAP_MS, deadlineMs - System.currentTimeMillis());
+            if (budgetMs <= 0) {
+                f.cancel(true);
+                SpiderDebug.log("music", "lyric chain deadline reached, step dropped");
+                return null;
+            }
             try {
-                return f.get(AWAIT_CAP_MS, java.util.concurrent.TimeUnit.MILLISECONDS);
+                return f.get(budgetMs, java.util.concurrent.TimeUnit.MILLISECONDS);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return null;
@@ -2080,8 +2211,16 @@ public class MusicRepository {
                 ownRich.sourceName = siteNameForPlatform(track.platform);
             }
             // 本源自有词即本曲本源产出：星辰级别记精确级（不是跨源匹配，不存在对错歌问题）；
-            // 瓜子等级照瓜子自有候选口径记 3.0（瓜子自有／在用候选构造分恒 1.0）
-            addVersion(out, seen, ownRich, MATCH_EXACT, 3.0);
+            // 瓜子等级走真实定级（F2 审计·定级虚报）：此前无条件记 3.0，面板显示 100%——
+            // 而瓜子自有候选的构造分只有 1.0，3.0 是「归一歌名全等＋歌手全等＋时长 15 秒内＋
+            // 源内 id 非空」四项全过才挣得到的。本步拿曲目自身当候选过同一把尺
+            // （GzLyricMatch.level）：元数据齐全的在线曲自匹配自然挣到 3.0，本地／设备曲
+            // 歌手缺失等元数据不足时按尺落到 1.0 或未定级，不再无条件冒充满分；
+            // 尺判 0（标题命中拒收模式／id 空）按未定级记，不拿 0 分冒充定级结论。
+            double ownGz = GzLyricMatch.level(track.title, track.artist, track.duration,
+                    track.title, track.artist, track.duration, track.id);
+            addVersion(out, seen, ownRich, MATCH_EXACT,
+                    ownGz > 0 ? ownGz : LyricVersion.GZ_LEVEL_UNKNOWN);
         } catch (Throwable t) {
             rethrowKeyIssue(t);
             complete = false;
@@ -2131,15 +2270,17 @@ public class MusicRepository {
                 SpiderDebug.log("music", "lyricRichAll plugin search error %s", t.getMessage());
             }
         }
-        // 4. Worker 聚合（主来源，已接线）：cfLyricVersionsAll 带候选元数据合并，
+        // 4. Worker 聚合：cfLyricVersionsAll 带候选元数据合并（含提速⑥慢腿补收，
+        // includeSlow＝true——本链是版本全量聚合，慢腿版本在此补齐），
         // 瓜子定级与时长偏差本地算；逐字签仍由 addVersion 本地解析正文判定，不认回包 kind 宣称。
         try {
-            cfLyricVersionsAll(track, out, seen);
+            cfLyricVersionsAll(track, out, seen, true);
         } catch (Throwable t) {
             complete = false;
             SpiderDebug.log("music", "lyricRichAll cf word error %s", t.getMessage());
         }
-        // 5. 平台直连回落（Worker 不可用时才走：酷狗／QQ／网易云各收一词级版；行级不收，版本条只显真实版本）
+        // 5. 平台直连（无条件收：酷狗／QQ／网易云各收一词级版；行级不收，版本条只显真实版本）。
+        // 注释与代码对齐（F2 审计）：本步与 Worker 步并列收集、不是「Worker 不可用时才走」。
         try {
             for (MusicLyric l : new PlatformWordLyricSource().lyricRichAll(track)) {
                 addVersion(out, seen, normalizeRich(l));
@@ -2288,17 +2429,20 @@ public class MusicRepository {
     }
 
     /**
-     * 在用词条（瓜子 buildDisplayedLyricCandidate 同口径）：当前实际在播的那份词本身即一个版本，
-     * 构造分恒满分（瓜子等级 3.0／星辰级别精确级），来源名由调用方给出（rich 自带／旁路词＝本地／
+     * 在用词条：当前实际在播的那份词本身即一个版本，来源名由调用方给出（rich 自带／旁路词＝本地／
      * 纯文本兜底＝曲目来源名）。播放页据此保证「播着词却暂无版本」不再出现；聚合列表里已有
      * 同文版本时以聚合版为准（带真实定级），本词条只补聚合缺失／未回的空窗。
+     * 定级口径（F2 审计·定级虚报）：本方法没有曲目上下文、无从过 GzLyricMatch 的尺，
+     * 此前无条件记精确级＋瓜子 3.0、面板恒显 100%——虚报。现按未定级记（包含级兜底＋
+     * 瓜子等级未定级，与 addVersion 无元数据重载同口径）：面板不显匹配度百分比，
+     * 待聚合版回来以真实定级为准。
      */
     public static LyricVersion displayedVersion(MusicLyric lyric, String sourceName) {
         if (lyric == null || !lyric.hasLyric()) return null;
         boolean[] kinds = versionKinds(lyric);
         String source = sourceName != null ? sourceName : lyric.sourceName;
         return new LyricVersion(lyric, source, kinds[0], kinds[1],
-                LyricVersion.MATCH_LEVEL_EXACT, 3.0);
+                LyricVersion.MATCH_LEVEL_CONTAINS, LyricVersion.GZ_LEVEL_UNKNOWN);
     }
 
     /** platform → 站点显示名（版本来源标注用；查不到返回空） */

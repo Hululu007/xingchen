@@ -89,7 +89,7 @@
             android:inputType="textUri"
             android:singleLine="true"
             android:textColor="#B3000000"
-            android:textColorHint="#60000000"
+            android:textColorHint="#99000000"
             android:textSize="15sp" />
 
     </LinearLayout>
@@ -121,7 +121,7 @@
             android:inputType="number"
             android:singleLine="true"
             android:textColor="#B3000000"
-            android:textColorHint="#60000000"
+            android:textColorHint="#99000000"
             android:textSize="15sp" />
 
     </LinearLayout>
@@ -153,7 +153,7 @@
             android:inputType="text"
             android:singleLine="true"
             android:textColor="#B3000000"
-            android:textColorHint="#60000000"
+            android:textColorHint="#99000000"
             android:textSize="15sp" />
 
     </LinearLayout>
@@ -185,7 +185,7 @@
             android:inputType="textPassword"
             android:singleLine="true"
             android:textColor="#B3000000"
-            android:textColorHint="#60000000"
+            android:textColorHint="#99000000"
             android:textSize="15sp" />
 
     </LinearLayout>

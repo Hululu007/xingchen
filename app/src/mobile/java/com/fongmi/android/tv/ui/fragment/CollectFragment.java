@@ -29,11 +29,14 @@ import com.fongmi.android.tv.bean.Collect;
 import com.fongmi.android.tv.bean.Result;
 import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.bean.Vod;
+import com.fongmi.android.tv.cloud.CloudFile;
+import com.fongmi.android.tv.cloud.drive115.Drive115;
 import com.fongmi.android.tv.databinding.FragmentCollectBinding;
 import com.fongmi.android.tv.model.SearchProgress;
 import com.fongmi.android.tv.model.SiteViewModel;
 import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.setting.SiteHealthStore;
+import com.fongmi.android.tv.ui.activity.CloudDriveActivity;
 import com.fongmi.android.tv.ui.activity.FolderActivity;
 import com.fongmi.android.tv.ui.activity.VideoActivity;
 import com.fongmi.android.tv.ui.adapter.CollectAdapter;
@@ -52,6 +55,8 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
 
     private static final int GRID_ITEM_MARGIN_DP = 4;
     private static final int GRID_TOP_PADDING_DP = 8;
+    /** 首页搜索里 115 网盘结果的虚拟源 key（分组名「115网盘」，点击走网盘自己的路，不进站点详情）。 */
+    private static final String PAN115_SITE_KEY = "pan115";
 
     private FragmentCollectBinding mBinding;
     private CollectAdapter mCollectAdapter;
@@ -61,6 +66,8 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
     private List<Site> mSites;
     private final List<Collect> mCollects = new ArrayList<>();
     private final List<Vod> mAllResults = new ArrayList<>();
+    /** 115 搜索结果的原始文件（按 fid 索引，点击时按类型分流用）。 */
+    private final java.util.Map<String, CloudFile> mPan115Files = new java.util.concurrent.ConcurrentHashMap<>();
     private int collectWidth;
 
     public static CollectFragment newInstance(String keyword) {
@@ -301,6 +308,67 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
         mAllResults.clear();
         mCollects.add(Collect.all());
         mCollectAdapter.setItems(new ArrayList<>(mCollects), () -> mViewModel.searchContent(mSites, getKeyword(), false));
+        searchPan115();
+    }
+
+    /**
+     * 115 网盘并入首页搜索（他定死：能搜 115 的只有网盘页内与首页这两处）。
+     * 只在全量搜索时挂这一路：单源搜索、源选择会话不混入（与 Emby 口径一致）；
+     * 未登录 115 或搜索失败一律静默，不弹登录、不打扰站点搜索。
+     */
+    private void searchPan115() {
+        if (!TextUtils.isEmpty(getSiteKey())) return;
+        if (com.fongmi.android.tv.ui.dialog.SearchSourceDialog.hasSelection()) return;
+        String keyword = getKeyword();
+        if (TextUtils.isEmpty(keyword) || keyword.trim().isEmpty()) return;
+        if (!com.fongmi.android.tv.utils.PanAuth.is115LoggedIn()) return;
+        new Thread(() -> {
+            try {
+                List<CloudFile> found = new Drive115().searchFiles(keyword, 0, 30);
+                if (found == null || found.isEmpty()) return;
+                Site site = Site.get(PAN115_SITE_KEY, "115网盘");
+                List<Vod> items = new ArrayList<>();
+                for (CloudFile f : found) {
+                    if (TextUtils.isEmpty(f.getId())) continue;
+                    mPan115Files.put(f.getId(), f);
+                    Vod vod = new Vod();
+                    vod.setId(f.getId());
+                    vod.setName(f.getName());
+                    vod.setSite(site);
+                    items.add(vod);
+                }
+                if (items.isEmpty()) return;
+                App.post(() -> addPan115Collect(site, items));
+            } catch (Exception ignored) {
+                // 网盘这一路失败静默：站点搜索结果照常
+            }
+        }).start();
+    }
+
+    /** 115 结果到达后并入：与 setCollect 同口径（进「全部」＋单开一组，分组名即站点名「115网盘」）。 */
+    private void addPan115Collect(Site site, List<Vod> items) {
+        if (!isAdded() || mBinding == null) return;
+        if (mCollects.isEmpty()) mCollects.add(Collect.all());
+        mAllResults.addAll(items);
+        mCollects.get(0).getList().addAll(items);
+        mCollects.add(new Collect(site, items));
+        mCollectAdapter.setItems(new ArrayList<>(mCollects));
+        if (mCollectAdapter.getPosition() == 0) mSearchAdapter.setItems(new ArrayList<>(mAllResults));
+    }
+
+    /** 115 结果点击：不走站点详情——文件夹直达网盘页对应目录、视频走网盘直达起播、其它文件进它所在目录。 */
+    private void onPan115ItemClick(Vod item) {
+        CloudFile f = mPan115Files.get(item.getId());
+        if (f == null) return;
+        if (f.isDir()) {
+            CloudDriveActivity.startAt(requireActivity(), Drive115.ID, f.getId(), f.getName());
+        } else if (f.isVideo()) {
+            CloudDriveActivity.play115File(requireActivity(), f);
+        } else {
+            String parent = f.getParentCid();
+            if (TextUtils.isEmpty(parent) || "0".equals(parent)) CloudDriveActivity.start(requireActivity(), Drive115.ID);
+            else CloudDriveActivity.startAt(requireActivity(), Drive115.ID, parent, "所在目录");
+        }
     }
 
     private int getCount() {
@@ -392,6 +460,10 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
 
     @Override
     public void onItemClick(Vod item, android.view.View coverView) {
+        if (PAN115_SITE_KEY.equals(item.getSiteKey())) {
+            onPan115ItemClick(item);
+            return;
+        }
         if (item.isFolder()) FolderActivity.start(requireActivity(), item.getSiteKey(), Result.folder(item));
         else {
             String pic = item.getPic().isEmpty() ? getPic() : item.getPic();
@@ -408,6 +480,8 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
         // 无激活源（列表为空）时没有可翻页的源，直接收手
         if (activated == null || activated.getSite() == null) return false;
         if ("all".equals(activated.getSite().getKey())) return false;
+        // 115 网盘组只取一页（30 条），不走站点翻页
+        if (PAN115_SITE_KEY.equals(activated.getSite().getKey())) return false;
         mViewModel.searchContent(activated.getSite(), getKeyword(), false, page);
         activated.setPage(Integer.parseInt(page));
         return true;

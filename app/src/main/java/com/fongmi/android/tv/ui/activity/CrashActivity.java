@@ -3,8 +3,9 @@ package com.fongmi.android.tv.ui.activity;
 import android.content.Intent;
 import android.os.Bundle;
 
-import androidx.appcompat.app.AlertDialog;
 import androidx.viewbinding.ViewBinding;
+
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.databinding.ActivityCrashBinding;
@@ -53,7 +54,7 @@ public class CrashActivity extends BaseActivity {
 
 
     private void showError() {
-        new AlertDialog.Builder(this)
+        new MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_WebHTV_LightDialog)
                 .setTitle(R.string.crash_details_title)
                 .setMessage(CustomActivityOnCrash.getAllErrorDetailsFromIntent(this, getIntent()))
                 .setPositiveButton(R.string.crash_details_close, null)

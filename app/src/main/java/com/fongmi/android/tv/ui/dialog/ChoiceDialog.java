@@ -299,7 +299,7 @@ public final class ChoiceDialog extends DialogFragment {
 
     private void styleItem(MaterialButton button, int position) {
         if (!itemEnabled(position)) {
-            button.setTextColor(ColorStateList.valueOf(Color.parseColor("#9AA0A6")));
+            button.setTextColor(ColorStateList.valueOf(Color.parseColor("#616161")));
             button.setBackgroundTintList(ColorStateList.valueOf(Color.parseColor("#F1F3F4")));
             button.setStrokeColor(ColorStateList.valueOf(Color.parseColor("#E0E0E0")));
             return;

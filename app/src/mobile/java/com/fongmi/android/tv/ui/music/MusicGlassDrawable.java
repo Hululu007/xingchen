@@ -242,6 +242,14 @@ public class MusicGlassDrawable extends Drawable {
     private boolean mLastOk = false;
     private boolean mProcessedDirty = true;
     private boolean mPressed = false;
+    private boolean mCropDone = false;
+    // 滚动取样补偿：缓存着色器按宿主位移平移旧取样画，免逐帧重渲（见 draw）
+    private android.graphics.BitmapShader mSampleShader;
+    private Bitmap mSampleShaderBitmap;
+    private final Paint mSamplePaint = new Paint(Paint.FILTER_BITMAP_FLAG);
+    private final android.graphics.Matrix mSampleMatrix = new android.graphics.Matrix();
+    private android.graphics.BitmapShader mLensInputShader;
+    private Bitmap mLensInputBitmap;
 
     public MusicGlassDrawable(Context context, float cornerRadiusDp) {
         this(context, cornerRadiusDp, false);
@@ -385,12 +393,31 @@ public class MusicGlassDrawable extends Drawable {
         mProcessedDirty = false;
     }
 
+    /** 滚动中的取样画法：旧取样图按宿主位移平移补偿（边缘 CLAMP 拉伸，糊化＋tint 之下滚动中不可辨），
+     *  一次着色器绘制代替逐帧重渲整张处理图。 */
+    private void drawSampleShifted(Canvas canvas, Rect b) {
+        if (mSampleShader == null || mSampleShaderBitmap != mProcessed) {
+            mSampleShader = new android.graphics.BitmapShader(
+                    mProcessed, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
+            mSampleShaderBitmap = mProcessed;
+        }
+        float dx = mHostLoc[0] - mLastHostX, dy = mHostLoc[1] - mLastHostY;
+        mSampleMatrix.setTranslate(b.left - dx, b.top - dy);
+        mSampleShader.setLocalMatrix(mSampleMatrix);
+        mSamplePaint.setShader(mSampleShader);
+        canvas.drawRect(b, mSamplePaint);
+        mSamplePaint.setShader(null);
+    }
+
     private boolean drawLensBackdrop(Canvas canvas, Rect b) {
         if (mLensDead || !shaderSupported() || mProcessed == null) return false;
         try {
             if (mLensShader == null) mLensShader = new RuntimeShader(REFRACTION_AGSL);
-            BitmapShader input = new BitmapShader(mProcessed, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
-            mLensShader.setInputShader("content", input);
+            if (mLensInputShader == null || mLensInputBitmap != mProcessed) {
+                mLensInputShader = new BitmapShader(mProcessed, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
+                mLensInputBitmap = mProcessed;
+            }
+            mLensShader.setInputShader("content", mLensInputShader);
             mLensShader.setFloatUniform("size", (float) b.width(), (float) b.height());
             mLensShader.setFloatUniform("offset", 0f, 0f);
             mLensShader.setFloatUniform("cornerRadii", cornerRadii(b));
@@ -445,21 +472,27 @@ public class MusicGlassDrawable extends Drawable {
         if (b.isEmpty()) return;
         mTmp.set(b);
 
-        boolean needCrop = false;
+        boolean hostMoved = false;
         if (getCallback() instanceof View) {
             View host = (View) getCallback();
             host.getLocationInWindow(mHostLoc);
-            if (mHostLoc[0] != mLastHostX || mHostLoc[1] != mLastHostY) {
-                mLastHostX = mHostLoc[0];
-                mLastHostY = mHostLoc[1];
-                needCrop = true;
-            }
+            hostMoved = mHostLoc[0] != mLastHostX || mHostLoc[1] != mLastHostY;
         }
         int ver = MusicGlassBackgroundView.getBufferVersion();
-        if (ver != mLastVersion || sEpoch != mLastEpoch || needCrop) {
+        boolean verChanged = ver != mLastVersion || sEpoch != mLastEpoch;
+        // 全页卡顿的根（2026-10-26 他点名所有页面都卡）：此前宿主一动就重裁＋把处理图逐帧重渲一遍，
+        // 每件每帧一张位图重绘×全页件数。改：滚动中不重裁——旧取样按位移平移补偿（身后内容近似
+        // 实时跟随，不定格）、位移过半个件才重锚一次；停下后 hostMoved 仍成立、自动精确重裁一次。
+        boolean reanchor = sScrollActive && mCropDone && mProcessed != null
+                && (Math.abs(mHostLoc[1] - mLastHostY) > b.height() / 2
+                || Math.abs(mHostLoc[0] - mLastHostX) > b.width() / 2);
+        if (verChanged || !mCropDone || reanchor || (hostMoved && !sScrollActive)) {
             mLastOk = computeCrop(b);
+            mCropDone = true;
             mLastVersion = ver;
             mLastEpoch = sEpoch;
+            mLastHostX = mHostLoc[0];
+            mLastHostY = mHostLoc[1];
             mProcessedDirty = true;
         }
 
@@ -477,7 +510,8 @@ public class MusicGlassDrawable extends Drawable {
                 // 滚动中不跑折射着色器（全幅 AGSL 是每帧最贵的一道），停下自动恢复
                 if (!sScrollActive) lensDrawn = drawLensBackdrop(canvas, b);
                 if (!lensDrawn && mProcessed != null) {
-                    canvas.drawBitmap(mProcessed, b.left, b.top, mProcessedPaint);
+                    if (sScrollActive && hostMoved) drawSampleShifted(canvas, b);
+                    else canvas.drawBitmap(mProcessed, b.left, b.top, mProcessedPaint);
                 }
             } else {
                 canvas.drawRect(mTmp, mFallbackPaint);

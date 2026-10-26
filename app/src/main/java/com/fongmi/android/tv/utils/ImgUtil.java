@@ -94,7 +94,7 @@ public class ImgUtil {
             view.setImageDrawable(resource);
             return;
         }
-        transition.transition(resource, new com.bumptech.glide.request.transition.Transition.ViewAdapter<Drawable>() {
+        transition.transition(resource, new com.bumptech.glide.request.transition.Transition.ViewAdapter() {
             @Override
             public View getView() {
                 return view;

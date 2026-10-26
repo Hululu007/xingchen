@@ -318,7 +318,7 @@ public class ThemeManager {
     // 旧底若已是上一次淡变的 TransitionDrawable，只取其末层作旧底，避免逐次套娃。
     private void setWindowBackgroundWithFade(Activity activity, Drawable newBg) {
         android.view.Window window = activity.getWindow();
-        Drawable oldBg = window.getBackground();
+        Drawable oldBg = window.getDecorView().getBackground();
         if (oldBg == null || newBg == null
                 || !com.fongmi.android.tv.utils.XcFadeTransition.isAnimEnabled(activity)) {
             window.setBackgroundDrawable(newBg);

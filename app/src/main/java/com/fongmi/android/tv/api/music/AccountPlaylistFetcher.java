@@ -84,8 +84,11 @@ public class AccountPlaylistFetcher {
     /* ================= QQ ================= */
 
     public static List<Sheet> fetchQq(String cookie) throws FetchException {
+        // 取号三级回落与 QqVkeyFetcher.uinOf 同口径（扫描 M17）：只带 qqmusic_uin 的
+        // 登录态在取链侧被认、在这里曾被判未登录、导入直接失败。
         String uin = digitsOnly(cookieValue(cookie, "uin"));
         if (uin.isEmpty()) uin = digitsOnly(cookieValue(cookie, "wxuin"));
+        if (uin.isEmpty()) uin = digitsOnly(cookieValue(cookie, "qqmusic_uin"));
         if (uin.isEmpty()) throw new FetchException("未读到 QQ 号（uin），请重新登录");
         long gtk = gtk(cookieValue(cookie, "skey"));
         JsonObject body = new JsonObject();

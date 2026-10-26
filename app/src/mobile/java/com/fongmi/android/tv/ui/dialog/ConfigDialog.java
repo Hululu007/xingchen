@@ -315,6 +315,9 @@ public class ConfigDialog extends BaseAlertDialog {
 
     private String getFriendlyError(String msg) {
         if (msg == null) return "配置加载失败，请检查配置是否正确";
+        // 猫源链的报错自带真实原因（取校验值的 HTTP 码/异常/内容不符），整句透传，
+        // 不许被下面的关键字映射吞成通用文案——他看报错原文就能定案，不用再发日志。
+        if (msg.contains("猫源")) return msg;
         if (msg.contains("MalformedJsonException")) return "配置文件格式错误，请检查 JSON 格式是否正确";
         if (msg.contains("UnknownHostException") || msg.contains("ConnectException")) return "网络连接失败，请检查网络设置";
         if (msg.contains("FileNotFoundException")) return "文件不存在，请检查路径是否正确";

@@ -385,12 +385,15 @@ public final class NodeBundle {
 
     private static String ensureRemote(File dir, String url) {
         // 一次取齐校验值：两个独立的小响应并行获取，避免 bundle 和 config 的网络延迟串行叠加。
-        String[] digests = remoteMd5Pair(url);
+        // reasons 与 digests 同下标：取值失败时逐路记下真实原因（HTTP 码/异常/内容不符），
+        // 供降级报错原文带出——只报一句猜测性的「网络不通或超时」，用户没法凭报错定案。
+        String[] reasons = new String[]{"", ""};
+        String[] digests = remoteMd5Pair(url, reasons);
         String expectedBundle = digests[0];
         String expectedConfig = digests[1];
         String key = remoteSourceKey(url, expectedBundle, expectedConfig);
         // 两个校验值缺任何一个都算不出完整身份，此时只能靠已装好的缓存服务，不能下载未校验内容。
-        if (TextUtils.isEmpty(key)) return ensureRemoteOffline(dir, url);
+        if (TextUtils.isEmpty(key)) return ensureRemoteOffline(dir, url, reasons);
 
         boolean[] cached = remoteCacheState(dir, url, expectedBundle, expectedConfig);
         boolean bundleCached = cached[0];
@@ -473,9 +476,10 @@ public final class NodeBundle {
      * 用服务端这次拿到的新值去比旧缓存必然不等——那会把「暂时无法更新」误判成
      * 「缓存不可用」，让一次 config 校验值抖动就整个源起不来。
      */
-    private static String ensureRemoteOffline(File dir, String url) {
+    private static String ensureRemoteOffline(File dir, String url, String[] reasons) {
+        String detail = md5FailureDetail(reasons);
         String installed = read(sourceStamp(dir));
-        if (!installedIsRemoteOf(installed, url)) return "猫源校验值获取失败（网络不通或超时），且没有该地址的本地缓存：" + url;
+        if (!installedIsRemoteOf(installed, url)) return "猫源校验值获取失败（" + detail + "），且没有该地址的本地缓存：" + url;
         String[] digests = installedDigests(installed);
         boolean bundleCached = isCached(file(dir), stamp(dir), sourceStamp(dir), installed, digests[0]);
         boolean configCached = isCached(config(dir), configStamp(dir), sourceStamp(dir), installed, digests[1]);
@@ -483,24 +487,41 @@ public final class NodeBundle {
             SpiderDebug.log("node", "remote md5 unavailable, keeping verified cache for %s", url);
             return null;
         }
-        return "猫源校验值获取失败（网络不通或超时），本地缓存也不完整，无法安全启动：" + url;
+        return "猫源校验值获取失败（" + detail + "），本地缓存也不完整，无法安全启动：" + url;
+    }
+
+    /** 把逐路取值失败的真实原因拼成给人看的一句；两路都没记下原因时只说多次尝试仍取不到，不猜。 */
+    private static String md5FailureDetail(String[] reasons) {
+        StringBuilder sb = new StringBuilder();
+        if (reasons != null) {
+            if (reasons.length > 0 && !TextUtils.isEmpty(reasons[0])) sb.append("index.js：").append(reasons[0]);
+            if (reasons.length > 1 && !TextUtils.isEmpty(reasons[1])) {
+                if (sb.length() > 0) sb.append("；");
+                sb.append("index.config.js：").append(reasons[1]);
+            }
+        }
+        return sb.length() == 0 ? "多次尝试仍取不到" : sb.toString();
     }
 
     private static String[] remoteMd5Pair(String url) {
+        return remoteMd5Pair(url, new String[]{"", ""});
+    }
+
+    private static String[] remoteMd5Pair(String url, String[] reasons) {
         String[] result = new String[]{"", ""};
         CountDownLatch done = new CountDownLatch(2);
         AtomicReference<String> bundle = new AtomicReference<>("");
         AtomicReference<String> config = new AtomicReference<>("");
         Thread bundleThread = new Thread(() -> {
             try {
-                bundle.set(remoteMd5(url));
+                bundle.set(remoteMd5(url, reasons, 0));
             } finally {
                 done.countDown();
             }
         }, "cat-md5-bundle");
         Thread configThread = new Thread(() -> {
             try {
-                config.set(remoteMd5(configUrl(url)));
+                config.set(remoteMd5(configUrl(url), reasons, 1));
             } finally {
                 done.countDown();
             }
@@ -524,10 +545,10 @@ public final class NodeBundle {
     private static final int MD5_ATTEMPTS = 3;
     private static final long MD5_RETRY_GAP_MS = 700L;
 
-    private static String remoteMd5(String url) {
+    private static String remoteMd5(String url, String[] reasons, int idx) {
         String target = md5Url(url);
         for (int attempt = 1; attempt <= MD5_ATTEMPTS; attempt++) {
-            String value = remoteMd5Once(target);
+            String value = remoteMd5Once(target, reasons, idx);
             if (!value.isEmpty()) return value;
             if (attempt < MD5_ATTEMPTS) {
                 try {
@@ -541,7 +562,7 @@ public final class NodeBundle {
         return "";
     }
 
-    private static String remoteMd5Once(String target) {
+    private static String remoteMd5Once(String target, String[] reasons, int idx) {
         okhttp3.OkHttpClient client = OkHttp.client().newBuilder()
                 .connectTimeout(METADATA_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
                 .readTimeout(METADATA_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
@@ -551,20 +572,28 @@ public final class NodeBundle {
         try (Response response = OkHttp.newCall(client, target, "node-bundle").execute()) {
             if (!response.isSuccessful() || response.body() == null) {
                 // 真因留痕：旧写法把网络失败/HTTP 码/内容不对全部吞成空串，
-                // 上层只能报一句误导性的「校验值不可用」，无从定案。
+                // 上层只能报一句误导性的「校验值不可用」，无从定案。原因同时记进
+                // reasons，随降级报错原文带给用户，不必等翻日志。
                 SpiderDebug.log("node", "remote md5 http %s url=%s", response.code(), target);
+                reasons[idx] = "HTTP " + response.code();
                 return "";
             }
-            if (response.body().contentLength() > MAX_METADATA_BYTES) return "";
+            if (response.body().contentLength() > MAX_METADATA_BYTES) {
+                reasons[idx] = "返回内容过长";
+                return "";
+            }
             try (InputStream in = response.body().byteStream()) {
                 String value = readLimited(in, MAX_METADATA_BYTES).trim();
                 if (isMd5(value)) return value;
                 SpiderDebug.log("node", "remote md5 bad content url=%s", target);
+                reasons[idx] = "返回内容不是校验值";
                 return "";
             }
         } catch (Exception e) {
             SpiderDebug.log("node", "remote md5 failed url=%s error=%s", target,
                     e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
+            reasons[idx] = e.getMessage() == null ? e.getClass().getSimpleName()
+                    : e.getClass().getSimpleName() + "：" + e.getMessage();
             return "";
         }
     }

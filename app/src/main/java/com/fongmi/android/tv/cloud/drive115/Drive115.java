@@ -240,8 +240,12 @@ public class Drive115 implements CloudDrive {
 
     /**
      * 取账号信息（对照 PY Api.nav）：用户名之外，把容量与 VIP 一并解析出来。
-     * nav 的 data 字段形态未经真机验过，空间/VIP 按多路候选键防御性解析，
-     * 并把关键子树原文打进调试日志，真机一跑即可对字段。
+     * 字段名以在役 SDK 源码为活证据（OpenListTeam/115-sdk-go 的 UserInfoResp，
+     * 与本接口同一份后端用户数据）：容量在 data.rt_space_info 里，
+     * all_total/all_use 每项是 {size 字节数, size_format 格式化串}；
+     * VIP 在 data.vip_info 里，level_name 是等级名、expire 是到期时间戳（秒）。
+     * 此前按 space_info/{size,str}＋expire_time 一套臆测键解析，真机恒取空——
+     * 副标题只剩「VIP」、空间与到期都拼不出来，病根即在此。旧键保留为兜底候选。
      *
      * @return 拿到 data 并完成解析返回 true
      */
@@ -258,9 +262,9 @@ public class Drive115 implements CloudDrive {
             vipText = parseVip(data);
             try {
                 com.github.catvod.crawler.SpiderDebug.log("panacct",
-                        "115 nav keys=%s space_info=%s vip_info=%s",
+                        "115 nav keys=%s rt_space_info=%s vip_info=%s",
                         String.valueOf(data.names()),
-                        String.valueOf(data.opt("space_info")),
+                        String.valueOf(data.opt("rt_space_info")),
                         String.valueOf(data.opt("vip_info")));
             } catch (Throwable ignored) {
             }
@@ -270,12 +274,14 @@ public class Drive115 implements CloudDrive {
         }
     }
 
-    /** 空间：data.space_info 的 all_total/all_use，每项可为数字、字符串或 {size,str} 对象 */
+    /** 空间：data.rt_space_info 的 all_total/all_use（真键，SDK 活证据），每项是 {size,size_format} 对象；
+     * 旧臆测的 space_info 只作兜底。单项也可为数字、字符串或 {size,str} 对象 */
     private void parseSpace(JSONObject data) {
         spaceUsed = -1;
         spaceTotal = -1;
         spaceText = "";
-        JSONObject si = data.optJSONObject("space_info");
+        JSONObject si = data.optJSONObject("rt_space_info");
+        if (si == null) si = data.optJSONObject("space_info");
         if (si == null) return;
         spaceTotal = spaceBytes(si.opt("all_total"));
         spaceUsed = spaceBytes(si.opt("all_use"));
@@ -312,8 +318,19 @@ public class Drive115 implements CloudDrive {
     private static String spaceStr(Object v) {
         if (v instanceof JSONObject) {
             JSONObject o = (JSONObject) v;
-            String s = o.optString("str", o.optString("fmt_size", ""));
+            // 真键 size_format（SDK 活证据）；str/fmt_size 是旧臆测键，只作兜底
+            String s = o.optString("size_format", o.optString("str", o.optString("fmt_size", "")));
             return s == null ? "" : s.trim();
+        }
+        if (v instanceof String) {
+            // 单项直接给格式化串（如「2TB」）时原样用；纯数字串归字节数路拼，不进这里
+            String s = ((String) v).trim();
+            try {
+                Long.parseLong(s);
+                return "";
+            } catch (Exception e) {
+                return s;
+            }
         }
         return "";
     }
@@ -327,7 +344,8 @@ public class Drive115 implements CloudDrive {
         if (vi != null) {
             name = vi.optString("name", vi.optString("level_name",
                     vi.optString("title", vi.optString("vip_name", ""))));
-            expire = vipExpire(vi.opt("expire_time"), vi.opt("expire_date"),
+            // 到期真键是 expire（秒级时间戳，SDK 活证据）；旧候选键只作兜底
+            expire = vipExpire(vi.opt("expire"), vi.opt("expire_time"), vi.opt("expire_date"),
                     vi.opt("end_time"), vi.opt("vip_expire_time"));
             vip = flagOn(vi.opt("is_vip")) || flagOn(vi.opt("vip"))
                     || !name.isEmpty() || !expire.isEmpty();
@@ -438,6 +456,7 @@ public class Drive115 implements CloudDrive {
             f.setSize(o.optLong("s", 0));
             f.setPickCode(o.optString("pc"));
             f.setSha1(o.optString("sha"));
+            if (!isDir) f.setThumbUrl(thumbOf(o));
             f.setParentCid(cid);
             files.add(f);
         }
@@ -450,11 +469,19 @@ public class Drive115 implements CloudDrive {
         return -1;
     }
 
+    /** 回包条目的缩略图键：PY 活口径取 u、备选 thumb（115 给视频文件生成的封面直链，列表/搜索回包同构）。 */
+    private static String thumbOf(JSONObject o) {
+        String u = o.optString("u");
+        if (u.isEmpty()) u = o.optString("thumb");
+        return u;
+    }
+
     /**
      * 全盘搜索文件（115 网页端搜索口径：webapi/files/search + search_value，
      * 参数集与 listDir 同构）。搜索结果的文件项里 cid 是其所在目录、目录项里
      * pid 是其上级目录，parentCid 按此回填（供从结果直达所在目录）。
-     * 响应字段未经真机对死，顶层键与条数打调试日志，真机一跑即可对字段。
+     * 缩略图按 PY 活口径取 u（备选 thumb）；顶层键、首条目键名与缩略图有无
+     * 随调试日志打出，真机一跑即可对死。
      */
     @Override
     public List<CloudFile> searchFiles(String keyword, int offset, int limit) throws Exception {
@@ -494,15 +521,25 @@ public class Drive115 implements CloudDrive {
             f.setSize(o.optLong("s", 0));
             f.setPickCode(o.optString("pc"));
             f.setSha1(o.optString("sha"));
+            if (!isDir) f.setThumbUrl(thumbOf(o));
             // 结果不在当前目录下，parentCid 只能取结果项自带的归属，别沿用 listDir 的请求 cid
             f.setParentCid(isDir ? o.optString("pid") : o.optString("cid"));
             files.add(f);
         }
         try {
+            String itemKeys = "";
+            boolean itemThumb = false;
+            if (arr.length() > 0) {
+                JSONObject first = arr.optJSONObject(0);
+                if (first != null) {
+                    itemKeys = String.valueOf(first.names());
+                    itemThumb = !thumbOf(first).isEmpty();
+                }
+            }
             com.github.catvod.crawler.SpiderDebug.log("pan115search",
-                    "kw=%s keys=%s count=%s got=%s",
+                    "kw=%s keys=%s count=%s got=%s itemKeys=%s itemThumb=%s",
                     keyword, String.valueOf(d.names()),
-                    String.valueOf(d.opt("count")), files.size());
+                    String.valueOf(d.opt("count")), files.size(), itemKeys, itemThumb);
         } catch (Throwable ignored) {
         }
         return files;

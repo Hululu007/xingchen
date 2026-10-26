@@ -58,6 +58,10 @@ public class DriveQuark implements CloudDrive {
     private final OkHttpClient client;
     private final Map<String, String> jar = new LinkedHashMap<>();
     private String userName = "";
+    /** 账号信息（fetchAccountInfo 填充，未取到时 vipText 为空、容量为 -1） */
+    private String vipText = "";
+    private long acctUsed = -1;
+    private long acctTotal = -1;
 
     public DriveQuark() {
         client = new OkHttpClient.Builder()
@@ -247,19 +251,97 @@ public class DriveQuark implements CloudDrive {
         return reqJsonGet(API_MEMBER, defaultParams());
     }
 
-    /** 容量摘要（防御性解析 /member 响应，字段形态未知时返回空） */
+    /**
+     * 取账号信息：/member 一次拿全容量与会员状态，解析进字段。
+     * 已用容量真实键名是 use_capacity（此前 storageSummary 的候选键里没有它，
+     * 容量摘要因此恒为空）；会员看 member_type，到期按多路候选键防御解析，
+     * 并把关键字段打进调试日志，真机一跑即可对字段。
+     *
+     * @return 拿到 data 返回 true
+     */
+    public boolean fetchAccountInfo() {
+        try {
+            Map<String, String> p = defaultParams();
+            // 与网页端同一组参数：带上订阅与身份子对象，到期信息在里面
+            p.put("fetch_subscribe", "true");
+            p.put("fetch_identity", "true");
+            p.put("_ch", "home");
+            JSONObject d = reqJsonGet(API_MEMBER, p).optJSONObject("data");
+            if (d == null) return false;
+            acctTotal = pickLong(d, "total_capacity", "total", "total_cap");
+            acctUsed = pickLong(d, "use_capacity", "used_capacity", "used", "use_cap");
+            vipText = parseVip(d);
+            try {
+                com.github.catvod.crawler.SpiderDebug.log("panacct",
+                        "quark member keys=%s member_type=%s total=%s use=%s",
+                        String.valueOf(d.names()), d.optString("member_type"),
+                        String.valueOf(d.opt("total_capacity")), String.valueOf(d.opt("use_capacity")));
+            } catch (Throwable ignored) {
+            }
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** 会员文案：member_type 映射＋到期；普通用户回空串 */
+    private static String parseVip(JSONObject d) {
+        String type = d.optString("member_type", "").trim();
+        if (type.isEmpty() || "NORMAL".equalsIgnoreCase(type)) return "";
+        String base;
+        String upper = type.toUpperCase(java.util.Locale.US);
+        if (upper.contains("SUPER")) base = "超级VIP";
+        else if (upper.contains("VIP")) base = "VIP";
+        else base = type;
+        String expire = vipExpire(d.opt("super_vip_exp_at"), d.opt("vip_exp_at"),
+                d.opt("exp_at"), d.opt("expire_at"), d.opt("member_exp_at"));
+        if (expire.isEmpty()) {
+            JSONArray subs = d.optJSONArray("subscribe");
+            if (subs != null && subs.length() > 0) {
+                JSONObject s0 = subs.optJSONObject(0);
+                if (s0 != null) expire = vipExpire(s0.opt("expire_at"), s0.opt("exp_at"));
+            }
+        }
+        return expire.isEmpty() ? base : base + " · " + expire + " 到期";
+    }
+
+    /** 到期值归一成 yyyy-MM-dd：数字按秒/毫秒时间戳换算，字符串取前 10 位 */
+    private static String vipExpire(Object... candidates) {
+        for (Object v : candidates) {
+            if (v == null) continue;
+            if (v instanceof Number) {
+                long n = ((Number) v).longValue();
+                if (n > 0) {
+                    return new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+                            .format(new java.util.Date(n < 100000000000L ? n * 1000 : n));
+                }
+            } else if (v instanceof String) {
+                String s = ((String) v).trim();
+                if (s.length() >= 10) return s.substring(0, 10);
+                try {
+                    long n = Long.parseLong(s);
+                    if (n > 0) {
+                        return new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+                                .format(new java.util.Date(n < 100000000000L ? n * 1000 : n));
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        return "";
+    }
+
+    /** VIP 文案（如「超级VIP · 2027-01-01 到期」），须先 fetchAccountInfo */
+    public String getVipText() {
+        return vipText;
+    }
+
+    /** 容量摘要（数据来自 fetchAccountInfo 的 /member 解析，未取过先取一次） */
     @Override
     public String storageSummary() throws Exception {
-        try {
-            JSONObject d = storageInfo().optJSONObject("data");
-            if (d == null) return "";
-            long used = pickLong(d, "used_capacity", "used", "use_cap");
-            long total = pickLong(d, "total_capacity", "total", "total_cap");
-            if (total <= 0) return "";
-            return "已用 " + formatSize(used) + " / 共 " + formatSize(total);
-        } catch (Exception e) {
-            return "";
-        }
+        if (acctTotal < 0) fetchAccountInfo();
+        if (acctTotal <= 0) return "";
+        return "已用 " + formatSize(Math.max(acctUsed, 0)) + " / 共 " + formatSize(acctTotal);
     }
 
     private static long pickLong(JSONObject o, String... keys) {

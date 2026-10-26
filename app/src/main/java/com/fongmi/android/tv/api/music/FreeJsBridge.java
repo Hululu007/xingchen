@@ -568,6 +568,9 @@ public class FreeJsBridge {
             // 元力 KW 插件 getLyric 不判空、读 lrclist 直接抛未处理拒绝——本源取词
             // 一次掷骰定生死。抛错立刻原样重试一遍（每次重新 parse 入参，不复用
             // 上一轮的 JS 对象）；仍失败照原口径把异常抛给上层走回退链，不吞。
+            // 扫描 T9：超时型失败不重试——要救的只是「回空抛错」一型，插件挂死/超时
+            // 时原样重试只会把桥超时整段重烧一遍（单插件最坏翻倍到 60 秒以上）。
+            if (first instanceof java.util.concurrent.TimeoutException) throw first;
             result = callGetLyric(item);
         }
         String json = toJson(result);

@@ -82,6 +82,8 @@ public class MusicChartDetailActivity extends BaseActivity {
     private String chartFreq = "";
     private String bigTitle = "";
     private String lastCurrentId;
+    /** 加载轮次守卫：重进页／点刷新重拉时，旧轮回调（整榜回包、酷我分片封面）不许覆写新轮列表 */
+    private int detailSeq;
     private android.os.Parcelable pendingListState;
 
     /** 榜单详情开新页（参数组照旧 openChartDetail：整个 chart 的名／平台／id／封面＋描述／频率透传） */
@@ -200,15 +202,18 @@ public class MusicChartDetailActivity extends BaseActivity {
         showLoading();
         empty.setOnClickListener(null);
         tvTitle.setText(bigTitle);
+        final int seq = ++detailSeq;
         MusicChart chart = new MusicChart(chartPlatform, chartId, bigTitle);
         chart.cover = chartCover;
         if (KwChartSource.PLATFORM.equals(chartPlatform)) {
-            loadKwChartDetail(chart);
+            loadKwChartDetail(chart, seq);
             return;
         }
         Task.execute(() -> {
-            List<MusicTrack> r = MusicRepository.chartTracks(chart);
+            // 失败与真空分：取链失败回 null、成功但无数据回空表（chartTracks 吞错版口径不变，老调用方不受影响）
+            List<MusicTrack> r = MusicRepository.chartTracksOrNull(chart);
             runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed() || seq != detailSeq) return;
                 tracks.clear();
                 if (r != null) tracks.addAll(r);
                 adapter.notifyDataSetChanged();
@@ -216,8 +221,7 @@ public class MusicChartDetailActivity extends BaseActivity {
                 if (tracks.isEmpty()) XcFadeTransition.fadeIn(empty);
                 else XcFadeTransition.fadeOutThenGone(empty);
                 if (tracks.isEmpty()) {
-                    // 榜单详情空态走榜单口径；点空态重试（失败与空未区分，源不给失败态）
-                    empty.setText(R.string.wave2_chart_empty);
+                    empty.setText(r == null ? "榜单加载失败\n点击重试" : getString(R.string.wave2_chart_empty));
                     empty.setOnClickListener(v -> loadChartDetail());
                 }
             });
@@ -226,15 +230,16 @@ public class MusicChartDetailActivity extends BaseActivity {
 
     /** 酷我详情首屏不再等整榜：先直连快出文字＋时长（这部分快），封面按片陆续补（先回的片先上图，不等另一片）。
      * 直连都空时走旧路（Worker 分片＋整榜直连回落），行为与改动前一致；QQ 等其它源走上面旧路不动。 */
-    private void loadKwChartDetail(MusicChart chart) {
+    private void loadKwChartDetail(MusicChart chart, int seq) {
         final String detailId = chartId;
         Task.execute(() -> {
             MusicRepository.startKwChartSlices(chart);
             List<MusicTrack> direct = MusicRepository.chartTracksDirect(chart);
             if (direct == null || direct.isEmpty()) {
-                List<MusicTrack> r = MusicRepository.chartTracks(chart);
+                // 直连空回落旧路：旧路失败（null）与真空（空表）分开报，不许都说「暂无数据」
+                List<MusicTrack> r = MusicRepository.chartTracksOrNull(chart);
                 runOnUiThread(() -> {
-                    if (isFinishing() || isDestroyed() || !detailId.equals(chartId)) return;
+                    if (isFinishing() || isDestroyed() || seq != detailSeq || !detailId.equals(chartId)) return;
                     tracks.clear();
                     if (r != null) tracks.addAll(r);
                     adapter.notifyDataSetChanged();
@@ -242,14 +247,14 @@ public class MusicChartDetailActivity extends BaseActivity {
                     if (tracks.isEmpty()) XcFadeTransition.fadeIn(empty);
                     else XcFadeTransition.fadeOutThenGone(empty);
                     if (tracks.isEmpty()) {
-                        empty.setText(R.string.wave2_chart_empty);
+                        empty.setText(r == null ? "榜单加载失败\n点击重试" : getString(R.string.wave2_chart_empty));
                         empty.setOnClickListener(v -> loadChartDetail());
                     }
                 });
                 return;
             }
             runOnUiThread(() -> {
-                if (isFinishing() || isDestroyed() || !detailId.equals(chartId)) return;
+                if (isFinishing() || isDestroyed() || seq != detailSeq || !detailId.equals(chartId)) return;
                 tracks.clear();
                 tracks.addAll(direct);
                 adapter.notifyDataSetChanged();
@@ -259,7 +264,7 @@ public class MusicChartDetailActivity extends BaseActivity {
                 @Override
                 public void onShard(int pn, List<MusicTrack> shard) {
                     runOnUiThread(() -> {
-                        if (isFinishing() || isDestroyed() || !detailId.equals(chartId)) return;
+                        if (isFinishing() || isDestroyed() || seq != detailSeq || !detailId.equals(chartId)) return;
                         applyShardCovers(shard);
                     });
                 }
@@ -523,8 +528,9 @@ public class MusicChartDetailActivity extends BaseActivity {
                     com.bumptech.glide.Glide.with(h.cover).clear(h.cover);
                 } catch (Throwable ignored) {
                 }
-                h.cover.setImageDrawable(null);
-                h.cover.setBackgroundColor(0xFFE5E5EA);
+                // 无封面不留空白块：照行级口径上素图＋榜名（CoverTextDrawable），与榜单页卡面一致
+                h.cover.setBackgroundColor(0x00000000);
+                h.cover.setImageDrawable(new com.fongmi.android.tv.utils.CoverTextDrawable(bigTitle, false, dp(16)));
             } else {
                 h.cover.setBackgroundColor(0x00000000);
                 ImgUtil.loadRounded16Fade(bigTitle, chartCover, h.cover);

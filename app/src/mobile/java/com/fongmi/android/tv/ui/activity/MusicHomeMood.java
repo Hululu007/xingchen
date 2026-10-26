@@ -72,12 +72,8 @@ public final class MusicHomeMood {
         return indexOf("深夜");
     }
 
-    /** 心情卡渐变三段：tone 向白混 0.08/0.20/0.32（瓜子公式，逐值）。 */
-    public static int[] moodGradient(int tone) {
-        return new int[]{mixWhite(tone, 0.08f), mixWhite(tone, 0.20f), mixWhite(tone, 0.32f)};
-    }
-
-    /** 向白混：ratio=0 原色、1 纯白。 */
+    /** 向白混：ratio=0 原色、1 纯白。注：原 moodGradient（三段渐变组装）零调用已删（体检 A 片死代码）；
+     * 本方法与 mixColors 自此无调用方，先留待裁，不在本片擅自扩删。 */
     public static int mixWhite(int color, float ratio) {
         return mixColors(color, 0xFFFFFFFF, ratio);
     }

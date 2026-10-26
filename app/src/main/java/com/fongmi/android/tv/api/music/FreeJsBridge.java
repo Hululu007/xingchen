@@ -571,7 +571,19 @@ public class FreeJsBridge {
             // 扫描 T9：超时型失败不重试——要救的只是「回空抛错」一型，插件挂死/超时
             // 时原样重试只会把桥超时整段重烧一遍（单插件最坏翻倍到 60 秒以上）。
             if (first instanceof java.util.concurrent.TimeoutException) throw first;
-            result = callGetLyric(item);
+            try {
+                result = callGetLyric(item);
+            } catch (Exception second) {
+                // 空数据读字段崩的归一（2026-10-26 真机日志 18 次实证）：重试后仍是
+                // 同一型——插件在 getLyric 里对接口回的 null 数据读字段（元力 KW 读
+                // lrclist 是已知一例，任何 FreeJS 插件同型）抛的未处理拒绝。这一型
+                // 的语义就是「本源此刻无词」，与插件判空后返回空等价；远端插件脚本
+                // 宿主改不了，就在桥这一层（全部 FreeJS 插件共用）归一成空结果：
+                // 上层各步按「本源无词」继续走链，不再逐链记 error、不再把全量
+                // 聚合标成不完整。其余异常（网络／插件真 bug）照原口径上抛，不吞。
+                if (isNullPayloadDeref(second)) return null;
+                throw second;
+            }
         }
         String json = toJson(result);
         if (TextUtils.isEmpty(json)) return null;
@@ -591,6 +603,22 @@ public class FreeJsBridge {
 
     private static boolean isBlank(String text) {
         return text == null || text.trim().isEmpty();
+    }
+
+    /**
+     * 「插件对 null 数据读字段」崩签名：QuickJS 的 TypeError 文案
+     * （cannot read property 'X' of null）。异常经桥的 Future 层层包装
+     * （ExecutionException 的 message 是 cause 的 toString），故沿 cause 链
+     * 逐层查 message，任一层命中即算——只认这一型，其它拒绝不许冒充无词。
+     */
+    private static boolean isNullPayloadDeref(Throwable t) {
+        for (Throwable cur = t; cur != null; cur = cur.getCause()) {
+            String m = cur.getMessage();
+            if (m == null) continue;
+            String lower = m.toLowerCase();
+            if (lower.contains("cannot read property") && lower.contains("of null")) return true;
+        }
+        return false;
     }
 
     /**

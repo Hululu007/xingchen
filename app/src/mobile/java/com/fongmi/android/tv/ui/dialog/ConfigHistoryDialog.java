@@ -222,7 +222,7 @@ public class ConfigHistoryDialog extends DialogFragment {
      */
     private void onDelete(Config config) {
         boolean active = adapter != null && adapter.isActive(config);
-        androidx.appcompat.app.AlertDialog dialog = new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+        androidx.appcompat.app.AlertDialog dialog = new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext(), R.style.ThemeOverlay_WebHTV_LightDialog)
             .setTitle("删除线路")
             .setMessage("确定要删除该线路吗？" + (active ? "\n（这是当前正在使用的线路）" : "") + "\n" + config.getDesc())
             .setPositiveButton("删除", (d, w) -> {
@@ -347,7 +347,7 @@ public class ConfigHistoryDialog extends DialogFragment {
     }
 
     private void onClear() {
-        androidx.appcompat.app.AlertDialog dialog = new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+        androidx.appcompat.app.AlertDialog dialog = new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext(), R.style.ThemeOverlay_WebHTV_LightDialog)
             .setTitle("清空线路")
             .setMessage("确定要删除全部线路吗？")
             .setPositiveButton("确定", (d, w) -> {

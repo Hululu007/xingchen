@@ -25,7 +25,7 @@ public class ThemeDialog extends BaseAlertDialog implements ThemeAdapter.OnClick
 
     @Override
     protected MaterialAlertDialogBuilder getBuilder() {
-        return builder().setTitle(R.string.setting_theme_color).setView(getBinding().getRoot());
+        return new MaterialAlertDialogBuilder(requireActivity(), R.style.ThemeOverlay_WebHTV_LightDialog).setTitle(R.string.setting_theme_color).setView(getBinding().getRoot());
     }
 
     @Override

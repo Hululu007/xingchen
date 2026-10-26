@@ -16,7 +16,7 @@ public class WebDialog {
     }
 
     private WebDialog(View view) {
-        this.dialog = new MaterialAlertDialogBuilder(view.getContext()).setView(view).create();
+        this.dialog = new MaterialAlertDialogBuilder(view.getContext(), com.fongmi.android.tv.R.style.ThemeOverlay_WebHTV_LightDialog).setView(view).create();
         if (view instanceof DialogInterface.OnDismissListener listener) this.dialog.setOnDismissListener(listener);
     }
 

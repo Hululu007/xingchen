@@ -287,7 +287,8 @@ public class AllNovelsActivity extends AppCompatActivity {
         btnGo.setOnClickListener(open);
         // 定案：长按只是移出书架；本地书文件留在私有目录，不删（全 App 统一口径）
         item.setOnLongClickListener(v -> {
-            ReadingStore.remove(r.kind, r.sourceName, r.bookTitle);
+            // 按记录本体删：本地书的键是 local|localId，三段拼法删不掉
+            ReadingStore.remove(r);
             ReadingBookmarkStore.removeBook(r.key());
             ToastUtil.show(AllNovelsActivity.this, "已从书架移除",
                     Toast.LENGTH_SHORT);

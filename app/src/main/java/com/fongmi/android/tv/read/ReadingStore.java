@@ -13,7 +13,8 @@ import java.util.List;
 
 /**
  * 书架/阅读进度存储：照 HkFavoriteStore 模式（SharedPreferences + Gson）。
- * 查找键：kind + sourceName + bookTitle。
+ * 查找键：在线书 kind + sourceName + bookTitle；本地书 local|localId
+ * （拼键只许走 keyOf 一处，find/remove/contains 与 Record.key() 共用）。
  * <p>
  * R8 注意：读回必须用 TypeToken<List<Record>>（AGENTS.md 第一道关卡），
  * 裸 List.class 读回的是 LinkedTreeMap，会在取值时崩。
@@ -65,12 +66,22 @@ public class ReadingStore {
         public long updatedAt = 0L;
 
         public String key() {
-            // 本地书可能重名，按书 id 区分；在线书走老键（行为不变）
-            if ("local".equals(origin) && !TextUtils.isEmpty(localId)) {
-                return "local|" + localId;
-            }
-            return kind + "|" + sourceName + "|" + bookTitle;
+            return keyOf(kind, sourceName, bookTitle, origin, localId);
         }
+    }
+
+    /**
+     * 拼键唯一口径：本地书可能重名，按书 id 区分（local|localId）；
+     * 在线书走老键 kind|sourceName|bookTitle（行为不变）。
+     * 此前 find/remove/contains 各自内联拼三段键，本地书记录的 key()
+     * 是 local|localId，两边永远对不上——本地书查不回、删不掉。
+     */
+    public static String keyOf(String kind, String sourceName, String bookTitle,
+                               String origin, String localId) {
+        if ("local".equals(origin) && !TextUtils.isEmpty(localId)) {
+            return "local|" + localId;
+        }
+        return kind + "|" + sourceName + "|" + bookTitle;
     }
 
     private static SharedPreferences prefs() {
@@ -106,7 +117,16 @@ public class ReadingStore {
 
     public static synchronized Record find(String kind, String sourceName, String bookTitle) {
         if (kind == null || sourceName == null || bookTitle == null) return null;
-        String k = kind + "|" + sourceName + "|" + bookTitle;
+        return findByKey(keyOf(kind, sourceName, bookTitle, "", ""));
+    }
+
+    /** 按记录本体找：本地书必须走这条（三段拼法找不到 local|localId 的记录）。 */
+    public static synchronized Record find(Record probe) {
+        if (probe == null) return null;
+        return findByKey(probe.key());
+    }
+
+    private static Record findByKey(String k) {
         for (Record r : readAll()) {
             if (k.equals(r.key())) return r;
         }
@@ -115,6 +135,11 @@ public class ReadingStore {
 
     public static synchronized boolean contains(String kind, String sourceName, String bookTitle) {
         return find(kind, sourceName, bookTitle) != null;
+    }
+
+    /** 按记录本体判在不在书架（本地书走这条）。 */
+    public static synchronized boolean contains(Record probe) {
+        return find(probe) != null;
     }
 
     /** 按本地书 id 找记录。 */
@@ -175,7 +200,16 @@ public class ReadingStore {
 
     public static synchronized void remove(String kind, String sourceName, String bookTitle) {
         if (kind == null || sourceName == null || bookTitle == null) return;
-        String k = kind + "|" + sourceName + "|" + bookTitle;
+        removeByKey(keyOf(kind, sourceName, bookTitle, "", ""));
+    }
+
+    /** 按记录本体删：本地书必须走这条（三段拼法删不掉 local|localId 的记录）。 */
+    public static synchronized void remove(Record rec) {
+        if (rec == null) return;
+        removeByKey(rec.key());
+    }
+
+    private static void removeByKey(String k) {
         List<Record> list = readAll();
         boolean changed = false;
         for (int i = list.size() - 1; i >= 0; i--) {

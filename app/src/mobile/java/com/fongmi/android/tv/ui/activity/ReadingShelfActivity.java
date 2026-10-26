@@ -1163,7 +1163,8 @@ public class ReadingShelfActivity extends AppCompatActivity {
     }
 
     private void removeRecord(ReadingStore.Record r) {
-        ReadingStore.remove(r.kind, r.sourceName, r.bookTitle);
+        // 按记录本体删：本地书的键是 local|localId，三段拼法删不掉
+        ReadingStore.remove(r);
         com.fongmi.android.tv.read.ReadingBookmarkStore.removeBook(r.key());
         // 定案：长按只是移出书架；本地书文件留在私有目录，不删（改口：2026-10-18）
         ToastUtil.show(ReadingShelfActivity.this, "已从书架移除",

@@ -53,14 +53,14 @@ import java.util.List;
 
 /**
  * 播放队列面板（GZ PlayQueueSheet 证据 redo2-gz-queue-evidence 逐项转写）：
- * 头部 44dp＝[标题 17sp/800][随机筹（仅随机模式）][计数筹·纯数字][清空·红 13sp][✕ 圆钮]，头部不放自己的返回箭头，✕ 关闭钮保留；
+ * 头部 44dp＝[标题 17sp/800][模式筹（常显当前模式名，2026-10-26 他改定）][计数筹·纯数字][清空·红 13sp][✕ 圆钮]，头部不放自己的返回箭头，✕ 关闭钮保留；
  * 来源行＝开面板时按 track.platform 统计队列级来源，全队一致才显示（星辰无 GZ 的 route 跳转，不可点、无 ›）；
  * 提示行「长按拖动调整顺序」；队列行＝序号 %02d＋封面 36dp＋歌名 13sp/700＋歌手 11sp＋三钮常显（30dp/图标 18dp），
  * 无时长/播放指示/手柄，长按整行拖动排序，被拖行白底圆角 12；当前行歌名红 #FA243C、歌手红 0.72、序号红 0.7；
  * 清空＝清队并关面板（无二次确认）；空态照 GZ。上一版的「中性深代红」口径无用户原话、与本体证据冲突，本版废止。
  * 批 4：面板底曾换液态玻璃（bg_music_glass_panel），1.4.28 真机点名透底看不清后恢复实底
- * bg_sheet_panel（GZ sheetPanelBg #F3F3F3，布局侧）；模式筹批 4 曾改常显全名，与头部注的
- * 「随机筹（仅随机模式）」自相冲突——本单对照 PlayQueueSheetKt.java:708 已改回仅随机出筹、文案「随机」；
+ * bg_sheet_panel（GZ sheetPanelBg #F3F3F3，布局侧）；模式筹曾照 PlayQueueSheetKt.java:708
+ * 改回仅随机出筹——2026-10-26 他真机点名「换别的模式就不见了」改定常显当前模式名（见 refresh）；
  * 数值补抠（:131-132 行高 56／pitch 58、GlassBottomSheetKt:158 上圆角 16）与现行一致；面板高 2026-10-26 他亲口改定固定半屏（原 0.68 钳高＋内容自适应作废）。
  * 首开乱跳修复（2026-10-26 真机点名）：旧版初始定位在 initView 里用 recycler.post 抢跑，彼时根高未定版
  * （wrap_content）、定版拍（setBehavior→updateSheetHeight）晚一到两拍改高重布局，位置被拉回一次——
@@ -93,6 +93,12 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
 
         @Override
         public void onQueueChanged() {
+            if (isAdded() && !dragging) refresh();
+        }
+
+        @Override
+        public void onModeChanged(int mode) {
+            // 面板开着时切模式，头部模式筹要立刻跟着变（服务 setMode 已发此信号，此前本面板没订）
             if (isAdded() && !dragging) refresh();
         }
     };
@@ -491,14 +497,17 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
         // GZ 计数筹＝纯数字（PlayQueueSheetKt:724 String.valueOf(size)），无「首」
         binding.tvCount.setText(String.valueOf(tracks.size()));
         bindSourceRow();
-        // 模式筹照瓜子（PlayQueueSheetKt.java:708）：仅随机模式出筹、文案就「随机」两字、红筹；
-        // 其余模式不占位。此前批 4 的「模式串常显」与瓜子不符，本单对照后摘除。
+        // 模式筹常显当前模式名（2026-10-26 他真机点名改定，覆盖此前「照瓜子仅随机出筹」口径：
+        // 换成别的模式筹就消失、只剩空，他当场点名要修）。文案走 App 现成模式名资源
+        // （music_mode_*：顺序／列表循环／单曲循环／随机，与筹的形态及旧随机筹文案同套），红筹不变。
         int mode = MusicController.get().getMode();
-        boolean shuffle = mode == MusicQueue.MODE_SHUFFLE;
-        binding.badgeShuffle.setText("随机");
+        binding.badgeShuffle.setText(mode == MusicQueue.MODE_REPEAT_ONE ? R.string.music_mode_repeat_one
+                : mode == MusicQueue.MODE_REPEAT_ALL ? R.string.music_mode_repeat_all
+                : mode == MusicQueue.MODE_SHUFFLE ? R.string.music_mode_shuffle
+                : R.string.music_mode_seq);
         binding.badgeShuffle.setBackgroundResource(R.drawable.sheet_chip_shuffle);
         binding.badgeShuffle.setTextColor(COLOR_RED);
-        binding.badgeShuffle.setVisibility(shuffle ? View.VISIBLE : View.GONE);
+        binding.badgeShuffle.setVisibility(View.VISIBLE);
         boolean empty = tracks.isEmpty();
         binding.recycler.setVisibility(empty ? View.GONE : View.VISIBLE);
         binding.emptyBox.setVisibility(empty ? View.VISIBLE : View.GONE);

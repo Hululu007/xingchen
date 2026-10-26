@@ -24,8 +24,16 @@ public class MusicLyricCache {
     private static final int DISK_MAX = 500;
     /** 单字段长度上限（低-03）：按文件头 len 直接分配，缓存损坏时会大额分配；歌词字段远小于此。 */
     private static final int MAX_FIELD_BYTES = 8 * 1024 * 1024;
-    /** 磁盘歌词有效期（低-03）：命中会刷新 lastModified，即「距上次使用 30 天」过期，冷数据自动失效。 */
+    /** 磁盘歌词有效期（固定过期，F2 审计④）：自写入时刻起 30 天，命中不刷新——
+     * 旧滑动口径（命中即 setLastModified）下常听的错版词永远不过期、被永久钉死。
+     * 固定过期后任何自动链写下的词最迟 30 天自愈重取；手动选版/手动重搜的 put
+     * 同样从写入时刻重新计期（那是用户当场确认的版，30 天内不被复核打扰）。 */
     private static final long DISK_TTL_MS = 30L * 24 * 3600 * 1000;
+    /** 命中复核线：磁盘账龄超过 7 天视为待复核——get() 照常返回（断网也有词），
+     * 服务侧取词见待复核就后台重走一条自动链，链成功即覆盖写回新版（错版就此被
+     * 纠正，不必等满 30 天），链失败什么都不动、旧账继续用（见 MusicRepository
+     * fetchLyricForPlayback）。手动选版不受影响：自动链第一步就是恢复手动选版。 */
+    private static final long DISK_REVALIDATE_MS = 7L * 24 * 3600 * 1000;
 
     private static final Map<String, MusicLyric> MEM = new LinkedHashMap<String, MusicLyric>(64, 0.75f, true) {
         @Override
@@ -235,7 +243,7 @@ public class MusicLyricCache {
                 lyric.format = readString(in);
                 lyric.sourceName = readString(in);
                 if (!lyric.hasLyric()) return null;
-                f.setLastModified(System.currentTimeMillis());
+                // 固定过期：命中不刷新 lastModified（旧滑动刷新已废，见 DISK_TTL_MS 注）
                 return lyric;
             } finally {
                 in.close();
@@ -245,7 +253,21 @@ public class MusicLyricCache {
         }
     }
 
-    /** 磁盘超 500 条删最久没用的（命中会刷新 lastModified，删的是真冷数据）。 */
+    /** 该歌的磁盘账是否已过复核线（账龄＞DISK_REVALIDATE_MS）：无磁盘账/未过线回 false。
+     * 只看磁盘写入时刻（内存账是本进程刚写/刚读的，不复核）。 */
+    public static boolean isStale(MusicTrack track) {
+        String key = key(track);
+        if (key == null) return false;
+        try {
+            File f = diskFile(key);
+            return f != null && f.isFile()
+                    && System.currentTimeMillis() - f.lastModified() > DISK_REVALIDATE_MS;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    /** 磁盘超 500 条删写入最久的（lastModified 自固定过期起就是写入时刻，不再被命中刷新）。 */
     private static void trimDisk() {
         try {
             File d = dir();

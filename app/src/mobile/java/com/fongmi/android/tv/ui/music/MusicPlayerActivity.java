@@ -36,6 +36,7 @@ import com.fongmi.android.tv.music.MusicLyricCache;
 import com.fongmi.android.tv.music.MusicStore;
 import com.fongmi.android.tv.music.RichLyrics;
 import com.fongmi.android.tv.player.lyrics.LyricsParser;
+import com.fongmi.android.tv.ui.dialog.MusicLyricVersionsDialog;
 import com.fongmi.android.tv.ui.dialog.MusicQualityPanelDialog;
 import com.fongmi.android.tv.ui.dialog.MusicQueueDialog;
 import com.fongmi.android.tv.ui.music.view.BurstHeartView;
@@ -160,7 +161,7 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
                     @Override
                     public void onFragmentViewDestroyed(@NonNull androidx.fragment.app.FragmentManager fm,
                                                         @NonNull androidx.fragment.app.Fragment f) {
-                        if (f instanceof MusicQualityPanelDialog) mScrubber.setMenuOpen(false);
+                        if (f instanceof MusicQualityPanelDialog || f instanceof MusicLyricVersionsDialog) mScrubber.setMenuOpen(false);
                     }
                 }, false);
 
@@ -265,8 +266,18 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
 
             @Override
             public void onLyricChip() {
-                MusicStore.setShowTranslation(!MusicStore.isShowTranslation());
-                mLyrics.reloadSettings();
+                // 瓜子口径：歌词筹点开＝歌词版本面板（翻译显隐在设置页开关，不占筹）
+                if (mTrack == null) return;
+                mScrubber.setMenuOpen(true);
+                com.fongmi.android.tv.bean.music.MusicLyric cur =
+                        com.fongmi.android.tv.music.MusicLyricCache.get(mTrack);
+                MusicLyricVersionsDialog.show(MusicPlayerActivity.this, mTrack,
+                        cur == null ? null : cur.rawLrc,
+                        version -> {
+                            com.fongmi.android.tv.music.MusicRepository.saveManualLyricChoice(mTrack, version);
+                            com.fongmi.android.tv.music.MusicLyricCache.put(mTrack, version.getLyric());
+                            applyLyric(mTrack, version.getLyric());
+                        });
             }
         });
         installCoverGestures();

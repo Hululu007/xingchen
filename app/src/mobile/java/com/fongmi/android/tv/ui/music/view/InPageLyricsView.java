@@ -53,7 +53,9 @@ public class InPageLyricsView extends View {
 
     private static final PathInterpolator BS4_A = new PathInterpolator(0.2f, 0f, 0f, 1f);
     private static final int COLOR_SUNG = 0xFFEAEAEA;
-    private static final float ALPHA_CUR_UNSUNG = 0.42f;
+    // 当前行未唱＝瓜子实色 #3C3C43（LyricsViewKt ColorActiveUnsung）：旧版拿白字 42% 透明当未唱，
+    // 与已唱 #EAEAEA 对比不够，整行看着全亮、扫唱看不出是逐字（他点名）——改实色深灰、不用透明度。
+    private static final int COLOR_UNSUNG = 0xFF3C3C43;
     private static final float ALPHA_NONCUR = 0.30f;
     private static final float ALPHA_SUB = 0.55f;
     private static final float SKEW = -0.12f;
@@ -104,6 +106,10 @@ public class InPageLyricsView extends View {
     private long mPosition;
     private Long mPreviewMs;
     private int mCurrent = -1;
+    // 逐字进度单调钳制（瓜子 liveSungOf：唱过的位置不回退）——250ms 同步点的抖动
+    // 不再让填充前沿来回颤；按行记每个词的历史最大进度，切行/回拖时清。
+    private long mMonoLineStart = Long.MIN_VALUE;
+    private final java.util.HashMap<Integer, Float> mMonoWordP = new java.util.HashMap<>();
     private float mScrollY;
     private ValueAnimator mScrollAnim;
     private Listener mListener;
@@ -224,6 +230,7 @@ public class InPageLyricsView extends View {
     }
 
     public void setPosition(long positionMs) {
+        if (positionMs < mRawBaseMs - 500) mMonoLineStart = Long.MIN_VALUE; // 回拖/点行：单调记录作废
         mPosition = positionMs;
         mRawBaseMs = positionMs;
         mRawSyncElapsed = android.os.SystemClock.elapsedRealtime();
@@ -635,6 +642,13 @@ public class InPageLyricsView extends View {
         float x = alignX(text, mMainPaint);
         long lineStart = main.getTimeMs();
         float em = mFontSp * mScaled;
+        if (lineStart != mMonoLineStart) {
+            mMonoLineStart = lineStart;
+            mMonoWordP.clear();
+        }
+        float feather = 0.25f * em; // 扫唱羽化量（瓜子 drawLiveSweepMask：0.25 × 字号）
+        boolean prevWasFrontier = false;
+        float frontierX = 0f;
         for (int wi = 0; wi < words.size(); wi++) {
             LyricsWord word = words.get(wi);
             boolean isLastWord = wi == words.size() - 1;
@@ -644,6 +658,11 @@ public class InPageLyricsView extends View {
             long wd = Math.max(1, word.getDurationMs());
             long elapsed = now - ws;
             float p = Math.max(0f, Math.min(1f, (float) elapsed / (float) wd));
+            Float monoPrev = mMonoWordP.get(wi);
+            if (monoPrev != null && p < monoPrev) p = monoPrev;
+            mMonoWordP.put(wi, p);
+            boolean isFrontier = p > 0f && p < 1f;
+            if (isFrontier) frontierX = x + ww * p;
 
             float lift = 0f;
             if (mAdvancedFx && elapsed > 0) {
@@ -666,9 +685,9 @@ public class InPageLyricsView extends View {
                 canvas.scale(scale, scale);
                 canvas.translate(-(x + ww / 2f), -baseline);
             }
-            // 未唱底
-            mMainPaint.setColor(0xFFFFFFFF);
-            mMainPaint.setAlpha(Math.round(255 * ALPHA_CUR_UNSUNG * fade));
+            // 未唱底（瓜子实色深灰，与已唱拉开对比，扫唱才看得出）
+            mMainPaint.setColor(COLOR_UNSUNG);
+            mMainPaint.setAlpha(Math.round(255 * fade));
             mMainPaint.setShadowLayer(0, 0, 0, 0);
             canvas.drawText(wt, x, baseline + lift + floatY, mMainPaint);
             // 长音光晕：字形边缘光晕位图垫在已唱字之下（瓜子 createGlyphEdgeGlow＋emphasizeGlow）
@@ -680,15 +699,25 @@ public class InPageLyricsView extends View {
                             (baseline + lift + floatY) - glow.originBase, mGlowPaint);
                 }
             }
-            if (p > 0f) {
+            if (p >= 1f) {
                 mMainPaint.setColor(COLOR_SUNG);
                 mMainPaint.setAlpha(Math.round(255 * fade));
-                canvas.save();
-                canvas.clipRect(x, baseline - em * 1.6f + lift + floatY, x + ww * p, baseline + em * 0.6f + lift + floatY);
+                mMainPaint.setShader(null);
                 canvas.drawText(wt, x, baseline + lift + floatY, mMainPaint);
-                canvas.restore();
-                mMainPaint.setMaskFilter(null);
+            } else if (isFrontier || prevWasFrontier) {
+                // 前沿羽化（瓜子扫唱遮罩同法）：已唱色在前沿前半羽化处全实、后半羽化处透尽；
+                // 硬裁边撤掉——逐帧硬切字形就是他点名的「生硬」；羽化尾巴要漏进下一个字。
+                mMainPaint.setColor(COLOR_SUNG);
+                mMainPaint.setAlpha(Math.round(255 * fade));
+                mMainPaint.setShader(new android.graphics.LinearGradient(
+                        frontierX - feather / 2f, 0, frontierX + feather / 2f, 0,
+                        new int[]{COLOR_SUNG, 0x00EAEAEA},
+                        new float[]{0f, 1f}, android.graphics.Shader.TileMode.CLAMP));
+                canvas.drawText(wt, x, baseline + lift + floatY, mMainPaint);
+                mMainPaint.setShader(null);
             }
+            mMainPaint.setMaskFilter(null);
+            prevWasFrontier = isFrontier;
             canvas.restore();
             x += ww;
         }

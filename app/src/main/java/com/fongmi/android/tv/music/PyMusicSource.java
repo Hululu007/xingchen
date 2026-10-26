@@ -194,10 +194,54 @@ public class PyMusicSource implements MusicSource {
                 }
             }
         } catch (Throwable t) {
-            if (!out.isEmpty()) return out;
+            if (!out.isEmpty()) {
+                supplementListCovers(out);
+                return out;
+            }
             throw t instanceof Exception ? (Exception) t : new Exception(t);
         }
+        supplementListCovers(out);
         return out;
+    }
+
+    /** 列表补图单次上限：onlineCover 每首要逐级搜在线源，无图蜘蛛整表无图时不许拖死列表页；超限的打日志如实记数 */
+    private static final int LIST_COVER_SUPPLEMENT_MAX = 10;
+
+    /**
+     * 列表路补图（搜索路 searchPage 有 supplementCovers、列表路此前漏了）：
+     * 蜘蛛不给 pic 的条目逐首走既有 onlineCover（按歌名对歌、命中同歌才回填），
+     * 与搜索路同口径——对不上不填、不拿别首的图冒充。逐首查比整表一批贵，
+     * 只补无图条目且封顶 LIST_COVER_SUPPLEMENT_MAX 首，超限记日志。
+     * 时长不补：Vod 模型无通用时长字段（只有 Emby 专用 emby_duration），无数据源。
+     */
+    private void supplementListCovers(List<MusicTrack> tracks) {
+        if (tracks == null || tracks.isEmpty()) return;
+        if (Boolean.TRUE.equals(SUPPLEMENTING.get())) return;
+        int missing = 0;
+        for (MusicTrack t : tracks) {
+            if (t != null && (t.cover == null || t.cover.isEmpty())) missing++;
+        }
+        if (missing == 0) return;
+        SUPPLEMENTING.set(Boolean.TRUE);
+        try {
+            int done = 0;
+            for (MusicTrack t : tracks) {
+                if (t == null || (t.cover != null && !t.cover.isEmpty())) continue;
+                if (done >= LIST_COVER_SUPPLEMENT_MAX) {
+                    SpiderDebug.log("music", "py list cover supplement capped missing=%d filled up to %d", missing, done);
+                    break;
+                }
+                done++;
+                try {
+                    String cover = MusicRepository.onlineCover(t);
+                    if (cover != null && !cover.isEmpty()) t.cover = cover;
+                } catch (Throwable e) {
+                    SpiderDebug.log("music", "py list cover supplement error %s", e.getMessage());
+                }
+            }
+        } finally {
+            SUPPLEMENTING.remove();
+        }
     }
 
     /** py 源没有榜单概念：不硬凑，返回空（榜单页由 FreeJS 等源供） */

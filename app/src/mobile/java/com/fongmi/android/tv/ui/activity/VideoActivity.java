@@ -578,7 +578,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
      * 播放器内显示线路/选集（官方 getChapters：列表条目即选集）。
      */
     public static void startHkPlay(Activity activity, String ruleTitle, String lineName, String episodeUrl, String episodeName, String name, String pic, String episodesJson, int selIdx) {
-        if (MusicVodRouter.routeHk(activity, ruleTitle, lineName, episodeUrl, name, pic)) return;
+        if (MusicVodRouter.routeHk(activity, ruleTitle, lineName, episodeUrl, name, pic, episodesJson, selIdx)) return;
         Intent intent = new Intent(activity, VideoActivity.class);
         intent.putExtra("key", HkDetailBridge.siteKey(ruleTitle));
         intent.putExtra("id", episodeUrl);
@@ -1656,6 +1656,13 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
                         long cost = System.currentTimeMillis() - detailStartTime;
                         SpiderDebug.log("video-flow", "detail finish cost=%dms hk rule=%s", cost, ruleTitle);
                         detailFinishTime = System.currentTimeMillis();
+                        // 海阔音乐改道：规则名识别为音乐就整表交音乐播放器、不落视频详情页
+                        // （否则这页点选集会在视频播放器里播，绕开音乐播放器）。桥接点在
+                        // 本页、不碰海阔引擎；非音乐规则照旧走详情渲染。
+                        if (MusicVodRouter.routeHkDetail(VideoActivity.this, ruleTitle, vod)) {
+                            finish();
+                            return;
+                        }
                         markEpisodeRender = true;
                         setDetail(vod);
                         backfillHkFavoritePic(ruleTitle, getId(), vod.getPic());

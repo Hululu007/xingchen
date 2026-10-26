@@ -110,6 +110,9 @@ public class CloudDriveActivity extends BaseActivity {
     /** onResume 刷新守门：initView 成功走完才置真；紧跟 initView 的首个 onResume 跳过，避免同一次进页重复拉取。 */
     private boolean viewReady;
     private boolean firstResume = true;
+    /** D5 回页闸门：数据动作在离开期间完成时置真，下次 onResume 才全量重拉；本页是否在前台由 onResume/onPause 维护。 */
+    private boolean resumeRefresh;
+    private boolean activityResumed;
 
     @Override
     protected ViewBinding getBinding() {
@@ -516,16 +519,36 @@ public class CloudDriveActivity extends BaseActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        activityResumed = true;
         if (firstResume) {
             firstResume = false;
             return;
         }
-        // L-15：从播放/子页回来刷新目录与会员信息。
         // 未登录那条路在 initView 里已 start PanLogin＋finish，viewReady 不会置真，走不到这里；
         // 已 finish 的实例也不会再有 onResume，不搅乱现行登录跳转。
         if (!viewReady || drive == null || isFinishing()) return;
         updateDriveInfo();
-        fetchFiles();
+        // 流畅度 D5（他拍板「我在哪点开视频的，回来还是在哪里」）：纯从播放/子页返回不再重拉目录——
+        // 已加载的页数与滚动位置原样保留，只刷顶部会员信息（L-15 的这一半保留在 updateDriveInfo）。
+        // 只有页内数据动作（长按删除/离线提交/转存成功/新建文件夹）在离开期间完成的，
+        // 才经 markResumeRefresh 标记、回来全量重拉（那种情况数据真变了，位置让位于正确性）。
+        if (resumeRefresh) fetchFiles();
+    }
+
+    @Override
+    protected void onPause() {
+        activityResumed = false;
+        super.onPause();
+    }
+
+    /** 数据动作完成后的刷新口：本页在前台就地全量重拉；不在前台只打标记，等 onResume 回来再拉。 */
+    private void refreshAfterDataChange() {
+        if (activityResumed) fetchFiles();
+        else markResumeRefresh();
+    }
+
+    private void markResumeRefresh() {
+        resumeRefresh = true;
     }
 
     /** 顶部显示会员状态 + 容量（用户明确要求） */
@@ -585,6 +608,7 @@ public class CloudDriveActivity extends BaseActivity {
 
     private void fetchFiles() {
         fetchGen++;
+        resumeRefresh = false;
         hasMore = true;
         loadingMore = false;
         fetchedCount = 0;
@@ -796,7 +820,7 @@ public class CloudDriveActivity extends BaseActivity {
                 boolean ok = drive.delete(Collections.singletonList(file.getId()), file.isDir());
                 runOnUiThread(() -> {
                     Notify.show(ok ? "已删除" : "删除失败");
-                    fetchFiles();
+                    refreshAfterDataChange();
                 });
             } catch (Exception e) {
                 runOnUiThread(() -> Notify.show("删除失败：" + msg(e)));
@@ -1402,7 +1426,7 @@ public class CloudDriveActivity extends BaseActivity {
                 boolean ok = drive.offlineDownload(url, cid);
                 runOnUiThread(() -> {
                     Notify.show(ok ? "离线任务已提交" : "提交失败");
-                    fetchFiles();
+                    refreshAfterDataChange();
                 });
             } catch (Exception e) {
                 runOnUiThread(() -> Notify.show("提交失败：" + msg(e)));
@@ -1446,7 +1470,7 @@ public class CloudDriveActivity extends BaseActivity {
                 boolean ok = drive.saveShare(shareUrl, password, cid);
                 runOnUiThread(() -> {
                     Notify.show(ok ? "转存成功" : "转存失败");
-                    fetchFiles();
+                    refreshAfterDataChange();
                 });
             } catch (Exception e) {
                 String m = msg(e);
@@ -1481,7 +1505,7 @@ public class CloudDriveActivity extends BaseActivity {
                 drive.createFolder(cid, name);
                 runOnUiThread(() -> {
                     Notify.show("已创建");
-                    fetchFiles();
+                    refreshAfterDataChange();
                 });
             } catch (Exception e) {
                 String m = msg(e);

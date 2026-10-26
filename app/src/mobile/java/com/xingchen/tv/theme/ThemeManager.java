@@ -26,6 +26,12 @@ public class ThemeManager {
     // 上一张成功贴出的壁纸图源：真图拿不到时兜底用，永不落透明黑。
     private static android.graphics.Bitmap sLastBitmap = null;
     private static Integer sLastColor = null;
+    // 每个窗口上次成功贴上的壁纸键（与缓存键同口径）。回前台重贴时新图与
+    // 窗口已贴的同键＝同一张图，此时绝不许再走交叉淡变：新旧两层同图叠淡
+    // 中段合成不透明度掉到约 0.75、透出窗口黑底，整屏暗闪一下（他真机
+    // 「每次从后台回首页闪一下」2026-10-26 的定罪点）。淡变只留给壁纸真换时。
+    private static final java.util.WeakHashMap<android.view.Window, String> sAppliedKeyByWindow =
+            new java.util.WeakHashMap<>();
     // 连上一张都没有时的深色占位（深蓝黑，与阅读底色同族）。
     private static final int PLACEHOLDER_COLOR = 0xFF0E1622;
 
@@ -85,6 +91,8 @@ public class ThemeManager {
         sCachedKey = "";
         sCachedBitmap = null;
         sCachedColor = null;
+        // 已贴登记一并清：换壁纸后第一贴必须走淡变（真切换的定案行为）。
+        sAppliedKeyByWindow.clear();
         applyAll();
     }
 
@@ -158,10 +166,17 @@ public class ThemeManager {
         if (activity == null || isHkPage(activity) || isMusicPage(activity) || isMusicPlayerPage(activity)) return;
         if (theme == null) theme = XingChenTheme.load(activity);
         android.graphics.drawable.Drawable dw = null;
-        if (currentCacheKey().equals(sCachedKey)) dw = freshDrawableFromCache(activity);
+        boolean fromCache = false;
+        if (currentCacheKey().equals(sCachedKey)) {
+            dw = freshDrawableFromCache(activity);
+            fromCache = dw != null;
+        }
         if (dw == null) dw = freshDrawableFromLast(activity);
         if (dw != null) {
             activity.getWindow().setBackgroundDrawable(dw);
+            // 贴的正是当前缓存键那一张：登记本窗口已贴键，其后 doApply 同键
+            // 直贴不淡变（开页与回前台都不再对同图自淡一遍）。
+            if (fromCache) sAppliedKeyByWindow.put(activity.getWindow(), currentCacheKey());
             flog("applyCachedNow: sync-pasted for " + activity.getClass().getSimpleName());
         }
     }
@@ -247,7 +262,9 @@ public class ThemeManager {
             if (!real) dw = fallbackDrawable(activity);
             flog("doApply: setting window background, real=" + real);
             try {
-                setWindowBackgroundWithFade(activity, dw);
+                // 真图时图源键就是当前缓存键（命中缓存或刚按此键解码入缓存）；
+                // 兜底图（上一张/占位）传 null：不登记、不冒充当前壁纸键。
+                setWindowBackgroundWithFade(activity, dw, real ? currentCacheKey() : null);
             } catch (Exception e) {
                 Log.e(TAG, "setting window background failed", e);
                 flog("ERROR setting window bg: " + e);
@@ -315,13 +332,19 @@ public class ThemeManager {
 
     // 主题/壁纸切换淡变（统一 200ms）：窗口已有旧底时新旧底交叉淡化，不再硬换；
     // 首贴无旧底、或系统动画关时直接落，与防闪的同步贴口径不冲突。
+    // 同图重贴直落（防闪定罪，2026-10-26）：新图源键与本窗口已贴键一致＝同一张
+    // 图——回前台的无条件重贴正落此类。若仍造 TransitionDrawable 对同图交叉淡，
+    // 中段两层各半透明、合成不透明度约 0.75，窗口黑底透出，整屏暗闪 200ms，
+    // 且回前台 apply 跑两遍就闪两轮。淡变只在图源键真变了（换壁纸/换主题）时走。
     // 旧底若已是上一次淡变的 TransitionDrawable，只取其末层作旧底，避免逐次套娃。
-    private void setWindowBackgroundWithFade(Activity activity, Drawable newBg) {
+    private void setWindowBackgroundWithFade(Activity activity, Drawable newBg, String sourceKey) {
         android.view.Window window = activity.getWindow();
         Drawable oldBg = window.getDecorView().getBackground();
-        if (oldBg == null || newBg == null
+        boolean unchanged = sourceKey != null && sourceKey.equals(sAppliedKeyByWindow.get(window));
+        if (oldBg == null || newBg == null || unchanged
                 || !com.fongmi.android.tv.utils.XcFadeTransition.isAnimEnabled(activity)) {
             window.setBackgroundDrawable(newBg);
+            if (sourceKey != null) sAppliedKeyByWindow.put(window, sourceKey);
             return;
         }
         if (oldBg instanceof android.graphics.drawable.TransitionDrawable) {
@@ -334,6 +357,7 @@ public class ThemeManager {
         td.setCrossFadeEnabled(true);
         window.setBackgroundDrawable(td);
         td.startTransition(200);
+        if (sourceKey != null) sAppliedKeyByWindow.put(window, sourceKey);
     }
 
     // 拿到真壁纸时返回一份本窗口独立的 Drawable，并把图源存进缓存/上一张；

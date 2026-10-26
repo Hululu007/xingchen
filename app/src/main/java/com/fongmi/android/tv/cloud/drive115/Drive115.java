@@ -41,6 +41,7 @@ public class Drive115 implements CloudDrive {
     private static final String API_FILES = "https://webapi.115.com/files";
     private static final String API_FILE_INFO = "https://webapi.115.com/files/get_info";
     private static final String API_M3U8 = "https://115.com/api/video/m3u8/%s.m3u8";
+    private static final String API_VIDEO = "https://webapi.115.com/files/video";
     private static final String API_DOWNURL = "https://proapi.115.com/app/chrome/downurl";
     private static final String API_LIXIAN = "https://115.com/web/lixian/";
 
@@ -592,24 +593,88 @@ public class Drive115 implements CloudDrive {
         return req.proxyUrl;
     }
 
+    /** /files/video 解析结果缓存（对照 PY _all_tiers：同一文件 15 分钟内只问一次接口） */
+    private static class VideoInfoEntry {
+        final long time;
+        final TierParser115.VideoInfo info;
+
+        VideoInfoEntry(long time, TierParser115.VideoInfo info) {
+            this.time = time;
+            this.info = info;
+        }
+    }
+
+    private final Map<String, VideoInfoEntry> videoInfoCache = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final long VIDEO_INFO_CACHE_MS = 15 * 60 * 1000;
+
     /**
-     * 转码画质列表（对照 PY _all_tiers，15分钟缓存）
-     * @return List of {url, definition}，url 已包成代理地址
+     * 取 /files/video 解析结果（画质多档 + 原画，TierParser115 解析）。
+     * 端点按 PY 移植源的活口径：webapi.115.com/files/video?pickcode=；
+     * 请求失败不进缓存（下次可重试），解析成功（含空结果）缓存 15 分钟。
+     * 字段未真机对死：响应顶层键与解析结果打调试日志，真机一跑即可对字段。
      */
-    public List<Map<String, String>> videoTiers(String pickcode) throws Exception {
-        List<Map<String, String>> result = new ArrayList<>();
-        if (TextUtils.isEmpty(pickcode)) return result;
-        // 调 video_info 接口取画质（对照 PY _pick_tiers）
+    public TierParser115.VideoInfo videoInfo(String pickcode) {
+        TierParser115.VideoInfo empty = new TierParser115.VideoInfo();
+        if (TextUtils.isEmpty(pickcode)) return empty;
+        VideoInfoEntry hit = videoInfoCache.get(pickcode);
+        if (hit != null && (System.currentTimeMillis() - hit.time) < VIDEO_INFO_CACHE_MS) {
+            return hit.info;
+        }
         try {
             Map<String, String> p = new HashMap<>();
             p.put("pickcode", pickcode);
-            JSONObject d = reqJson("https://webapi.115.com/video/info", p, null, UA_115, "https://115.com/");
-            // 解析逻辑对照 PY _pick_tiers，具体字段按实际返回调整
-            // 这里返回空列表，上层降级用 m3u8Url
+            JSONObject d = reqJson(API_VIDEO, p, null, UA_115, "https://115.com/");
+            TierParser115.VideoInfo info = TierParser115.parse(d);
+            videoInfoCache.put(pickcode, new VideoInfoEntry(System.currentTimeMillis(), info));
+            StringBuilder names = new StringBuilder();
+            for (TierParser115.Tier t : info.tiers) {
+                if (names.length() > 0) names.append(",");
+                names.append(t.name);
+            }
+            android.util.Log.d("Drive115", "videoInfo pc=" + pickcode
+                    + " keys=" + String.valueOf(d.names())
+                    + " tiers=" + info.tiers.size() + " [" + names + "]"
+                    + " origin=" + (!info.originUrl.isEmpty()));
+            return info;
         } catch (Exception e) {
-            android.util.Log.d("Drive115", "videoTiers 失败: " + e.getMessage());
+            android.util.Log.d("Drive115", "videoInfo 失败: " + e.getMessage());
+            return empty;
+        }
+    }
+
+    /**
+     * 转码画质列表（对照 PY _all_tiers，15 分钟缓存）
+     * @return List of {name, url}，url 是原始直链（未包代理，包代理在 PlayUrlBuilder115）
+     */
+    public List<Map<String, String>> videoTiers(String pickcode) {
+        List<Map<String, String>> result = new ArrayList<>();
+        for (TierParser115.Tier t : videoInfo(pickcode).tiers) {
+            Map<String, String> m = new HashMap<>();
+            m.put("name", t.name);
+            m.put("url", t.url);
+            result.add(m);
         }
         return result;
+    }
+
+    /** /files/video 给的原画直链（origin_file_url），没有返回空串 */
+    public String videoOriginUrl(String pickcode) {
+        return videoInfo(pickcode).originUrl;
+    }
+
+    /**
+     * 播放清单（原画 + 转码多档 + 自动画质，地址已包本机代理）：
+     * 供网盘文件点击走自己的播放会话（选集即画质档）。
+     */
+    public PlayUrlBuilder115.PlayList playList(CloudFile file) throws Exception {
+        if (file == null || TextUtils.isEmpty(file.getPickCode())) {
+            throw new Exception("文件 pick_code 为空");
+        }
+        if (playUrlBuilder == null) {
+            playUrlBuilder = new PlayUrlBuilder115(this, client, cookieJar);
+        }
+        Proxy115.getInstance(client, cookieJar).startProxy();
+        return playUrlBuilder.buildPlayList(file);
     }
 
     /** 暴露 cookie 罐（供代理层用） */

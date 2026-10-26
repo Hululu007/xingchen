@@ -63,6 +63,7 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
 
     private static final int RED = 0xFFFA243C;
     private static final int NAME = 0xFFF1F4F5;
+    private static final int GRAY = 0xFF8E8E93;
 
     private static class Row {
         final int quality;
@@ -126,8 +127,8 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
     @Override
     protected ViewBinding getBinding(@NonNull LayoutInflater inflater, @Nullable ViewGroup container) {
         root = inflater.inflate(R.layout.dialog_music_quality, container, false);
-        // 面板底＝全 App 同源液态玻璃（实白底作废）：瓜子 PlayerVersionSheet 顶圆角 28、贴底无缺口
-        root.setBackground(new MusicGlassDrawable(inflater.getContext(), 28, true));
+        // 面板底＝全 App 同源液态玻璃（实白底作废）：仅顶角 20dp、贴底无缺口；糊底走独立窗口静态回落
+        root.setBackground(new MusicGlassDrawable(inflater.getContext(), 20, true));
         MusicGlassWire.glassifyTree(root); // 面板内件同源接线
         return new Binding(root);
     }
@@ -289,7 +290,7 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
             if (iconBox0 != null) MusicGlassWire.glassify(iconBox0); // 图标盒同换玻璃（识别表已登记）
             if (i > 0) {
                 LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) row.getLayoutParams();
-                if (lp != null) lp.topMargin = dp(6);
+                if (lp != null) lp.topMargin = dp(8);
                 row.setLayoutParams(lp);
             }
             rowsContainer.addView(row);
@@ -306,13 +307,13 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
         // 不许再 setBackgroundResource 把白板/粉板盖回来（1.4.42 真机就是这么被盖掉的）。
         if (row.getBackground() instanceof MusicGlassDrawable) {
             MusicGlassDrawable g = (MusicGlassDrawable) row.getBackground();
-            if (selected) g.setToneColor(RED, 0.12f); // 瓜子选中底＝Accent 渐变 .12→.04，平面 tone 取 .12 近似
+            if (selected) g.setToneColor(RED, 0.16f);
             else g.setToneColor(0, 0f);
         }
         View iconBox = row.findViewById(R.id.qr_icon_box);
         if (iconBox != null && iconBox.getBackground() instanceof MusicGlassDrawable) {
             MusicGlassDrawable g = (MusicGlassDrawable) iconBox.getBackground();
-            if (selected) g.setToneColor(RED, 0.13f); // 瓜子选中图标盒底 Accent .13
+            if (selected) g.setToneColor(RED, 0.20f);
             else g.setToneColor(0, 0f);
         }
         ImageView icon = row.findViewById(R.id.qr_icon);
@@ -326,16 +327,12 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
             name.setTextColor(selected ? RED : NAME);
         }
         TextView spec = row.findViewById(R.id.qr_spec);
-        if (spec != null) {
-            spec.setText(r.spec);
-            spec.setTextColor(selected ? 0xB8FFFFFF : 0x85FFFFFF); // 瓜子 QualityRow 码率色 .72/.52
-        }
-        TextView currentTag = row.findViewById(R.id.qr_current);
-        if (currentTag != null) currentTag.setVisibility(selected ? View.VISIBLE : View.GONE);
+        if (spec != null) spec.setText(r.spec);
         TextView size = row.findViewById(R.id.qr_size);
         if (size != null) {
             // Q3：无实测前写“未知”，不写估算数；后台 HEAD 到长度后再回填。
             size.setText("未知");
+            size.setTextColor(selected ? RED : GRAY);
             sizeViews.add(size);
         }
         final int quality = r.quality;

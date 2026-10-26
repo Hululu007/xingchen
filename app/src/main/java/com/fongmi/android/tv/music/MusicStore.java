@@ -563,9 +563,13 @@ public class MusicStore {
 
     /** 已指定平台个数（指定行副文「已指定 N 个平台」用） */
     public static int getAssignedPlatformCount() {
+        // 只数真插件平台（freejs／lx）：指派消费端只有这两路桥，存量里混进的
+        // 非插件平台指派永不被读，不许再计进「已指定 N 个平台」的行值里冒充生效
         int n = 0;
-        for (String v : loadStringMap(K_PLATFORM_PLUGIN).values()) {
-            if (v != null && !v.isEmpty()) n++;
+        for (java.util.Map.Entry<String, String> e : loadStringMap(K_PLATFORM_PLUGIN).entrySet()) {
+            if (e.getValue() == null || e.getValue().isEmpty()) continue;
+            if (com.fongmi.android.tv.api.music.FreeJsMusicSource.PLATFORM.equals(e.getKey())
+                    || com.fongmi.android.tv.api.music.LxMusicSource.PLATFORM.equals(e.getKey())) n++;
         }
         return n;
     }
@@ -1005,6 +1009,23 @@ public class MusicStore {
 
     public static void setAutoBlockInvalid(boolean on) {
         Prefers.put(K_AUTO_BLOCK, on);
+        if (!on) {
+            // 关自动屏蔽同步解封：isBlocked 只看落盘 state==BLOCKED、不看开关，
+            // 只改开关则已屏蔽插件永远出不来。此处把 BLOCKED 态回落 FAILED
+            // （检测结论仍是失败、不冒充可用），checkBlocked 即不再拦它。
+            try {
+                java.util.Map<String, com.fongmi.android.tv.bean.music.MusicPluginTest> tests = loadPluginTests();
+                boolean changed = false;
+                for (com.fongmi.android.tv.bean.music.MusicPluginTest t : tests.values()) {
+                    if (t != null && t.state == com.fongmi.android.tv.bean.music.MusicPluginTest.State.BLOCKED) {
+                        t.state = com.fongmi.android.tv.bean.music.MusicPluginTest.State.FAILED;
+                        changed = true;
+                    }
+                }
+                if (changed) savePluginTests(tests);
+            } catch (Throwable ignored) {
+            }
+        }
     }
 
     /** 插件排序（瓜子 LxPluginSortMode，见对照表 P7/P8）：manual 手动（默认）／platform_count 平台／speed 速度／available 可用 */

@@ -24,6 +24,8 @@ import androidx.recyclerview.widget.RecyclerView;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.R;
+import com.fongmi.android.tv.api.music.FreeJsMusicSource;
+import com.fongmi.android.tv.api.music.LxMusicSource;
 import com.fongmi.android.tv.api.music.LxPlatformSearch;
 import com.fongmi.android.tv.api.music.MusicSourceManager;
 import com.fongmi.android.tv.bean.music.MusicPluginTest;
@@ -297,6 +299,7 @@ public class MusicPluginsActivity extends BaseActivity {
         else if (st.initializing) state = "启动中";
         else if (st.enabledLocalPlugins == 0) state = "无本地插件";
         else if (hasUntested) state = "未检测";
+        else if (st.liveRunners == 0) state = "未启动";
         else state = "运行正常";
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
@@ -323,6 +326,7 @@ public class MusicPluginsActivity extends BaseActivity {
         reload.setOnClickListener(v -> {
             MusicSourceManager.get().reloadBridges();
             refreshPluginSections();
+            refreshPluginHeader(MusicSourceManager.get().listSites());
             if (adapter != null) adapter.notifyDataSetChanged();
             Notify.show("已重新加载");
         });
@@ -380,12 +384,14 @@ public class MusicPluginsActivity extends BaseActivity {
                     + " 音源：" + audioCount + " 歌词：" + lyricCount);
         }
         pluginLocalTitle.setText(pluginImporting ? "导入中…" : getString(R.string.music_plugin_local_title));
-        // 已安装头计数：N / M 正在工作（M=启用且检测态非 FAILED；未检测计入工作数）
+        // 已安装头计数：N / M 正在工作（M=启用且检测态非 FAILED 非 BLOCKED；未检测计入工作数。
+        // 旧口径漏了 BLOCKED：已被屏蔽、取链被桥级拦截的插件还报「正在工作」）
         int working = 0;
         for (MusicSite s : sites) {
             if (!s.enabled) continue;
             MusicPluginTest t = MusicSourceManager.get().loadPluginTest(s.srcUrl);
-            if (t == null || t.state != MusicPluginTest.State.FAILED) working++;
+            if (t == null || (t.state != MusicPluginTest.State.FAILED
+                    && t.state != MusicPluginTest.State.BLOCKED)) working++;
         }
         // GZ 计数顺序：字面是“工作数 / 总数 正在工作”，不是总数在前。
         // 未全检测时后缀检测覆盖率——行全是“未检测”时头再称“正在工作”而不提覆盖率，就是实拍的自相矛盾。
@@ -432,6 +438,10 @@ public class MusicPluginsActivity extends BaseActivity {
             badgeColor = 0xFF8E8E93;
         } else if (hasUntested) {
             badge = "未检测";
+            badgeColor = 0xFF8E8E93;
+        } else if (st.liveRunners == 0) {
+            // 有启用插件、检测也齐，但一个活桥都没有（桥是懒建的）——不许称运行正常
+            badge = "未启动";
             badgeColor = 0xFF8E8E93;
         } else {
             badge = "运行正常";
@@ -843,6 +853,7 @@ public class MusicPluginsActivity extends BaseActivity {
             else if (st.initializing) state = "启动中";
             else if (st.enabledLocalPlugins == 0) state = "无本地插件";
             else if (hasUntested) state = "未检测";
+            else if (st.liveRunners == 0) state = "未启动";
             else state = "运行正常";
             card.addView(sectionLine("当前状态：" + state));
         }
@@ -861,6 +872,7 @@ public class MusicPluginsActivity extends BaseActivity {
         reloadBtn.setOnClickListener(v -> {
             MusicSourceManager.get().reloadBridges();
             refreshPluginSections();
+            refreshPluginHeader(MusicSourceManager.get().listSites());
             if (adapter != null) adapter.notifyDataSetChanged();
             Notify.show("已重新加载");
         });
@@ -947,14 +959,19 @@ public class MusicPluginsActivity extends BaseActivity {
     }
 
     /** 指定平台插件指派表（瓜子 AssignOptionRow 口径：默认（自动选择）＋各启用插件；
-     * 平台全集＝全部站点 platform 去重＋已指定残留平台；已停用插件不进选项，当前指派已不可用时顶部贴回落提示） */
+     * 平台全集只留真插件平台 freejs／lx（指派的消费端只有这两路桥，local／device／
+     * py／hk／kw／qq 等平台指派了也永不被读，摆出来可指派就是假功能）＋同口径的
+     * 已指定残留平台；已停用插件不进选项，当前指派已不可用时顶部贴回落提示） */
     private void showPlatformAssignDialog() {
         List<String> plats = new ArrayList<>();
         for (MusicSite s : MusicRepository.sites()) {
-            if (s != null && s.platform != null && !s.platform.isEmpty() && !plats.contains(s.platform)) plats.add(s.platform);
+            if (s != null && s.platform != null && !s.platform.isEmpty()
+                    && (FreeJsMusicSource.PLATFORM.equals(s.platform) || LxMusicSource.PLATFORM.equals(s.platform))
+                    && !plats.contains(s.platform)) plats.add(s.platform);
         }
         for (String p : MusicStore.getAssignedPlatforms()) {
-            if (!plats.contains(p)) plats.add(p);
+            if ((FreeJsMusicSource.PLATFORM.equals(p) || LxMusicSource.PLATFORM.equals(p))
+                    && !plats.contains(p)) plats.add(p);
         }
         if (plats.isEmpty()) {
             Notify.show("暂无平台");
@@ -1062,12 +1079,21 @@ public class MusicPluginsActivity extends BaseActivity {
                                 .setTitle("音源插件发现新版本")
                                 .setMessage((site.name == null ? "" : site.name) + "：" + v
                                         + "\n\n" + getString(R.string.music_plugin_update_desc))
-                                .setPositiveButton("立即更新", (d, w) -> {
-                                    MusicSourceManager.get().applyUpdate(site, v);
-                                    MusicActivity.clearHomeChartCache();
-                                    Notify.show(R.string.music_plugin_updated);
-                                    loadSites();
-                                })
+                                .setPositiveButton("立即更新", (d, w) -> Task.execute(() -> {
+                                    // applyUpdate 先下新脚本验版本才落版本号（阻塞），按真结果报：
+                                    // 失败时旧版本／旧脚本原样保留，不再无条件报「已更新」
+                                    boolean ok = MusicSourceManager.get().applyUpdate(site, v);
+                                    runOnUiThread(() -> {
+                                        if (isFinishing() || isDestroyed()) return;
+                                        if (ok) {
+                                            MusicActivity.clearHomeChartCache();
+                                            Notify.show(R.string.music_plugin_updated);
+                                            loadSites();
+                                        } else {
+                                            Notify.show("更新失败：新脚本下载或校验没通过，已保留当前版本");
+                                        }
+                                    });
+                                }))
                                 .setNegativeButton("忽略", (d, w) -> {
                                     MusicSourceManager.get().ignoreUpdate(site.srcUrl, v);
                                     Notify.show("已忽略这个版本");
@@ -1429,7 +1455,9 @@ public class MusicPluginsActivity extends BaseActivity {
             }
             boolean lx = MusicSourceManager.isLx(s);
             h.formatTag.setText(lx ? "落雪" : "FreeJS");
-            h.formatTag.setTextColor(lx ? 0xFFFA243C : 0xFF9AA7B8);
+            // 格式标签底是实心粉 badge_music（#FF6B9D，多处角标共用、不动它）：
+            // 旧字色浅灰蓝／正红压粉底对比不足看不清，统一改深酒红压粉底（对比约 6.8:1）
+            h.formatTag.setTextColor(0xFF5C0A24);
             // 副文案串单行“官方 · 版本 · 作者 · 耗时”（只有真实数据的段才拼；
             // 官方按播种地址认（isOfficialSite，不读字段）；加密／配置项无数据来源，字段已删、不出段；
             // 耗时是单次检测耗时，均耗时未存检测层，不冒充平均值）

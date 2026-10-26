@@ -901,8 +901,44 @@ public class MusicSourceManager {
         }
     }
 
-    /** 有更新就更新本地元数据（版本＋名字），并销毁旧桥让新脚本生效 */
-    public void applyUpdate(MusicSite site, String newVersion) {
+    /**
+     * 应用更新（阻塞，请在子线程调）：先把新脚本下载＋试初始化验版本、写进落盘缓存，
+     * 全部就位才落新版本号并销毁旧桥；任一步失败返回 false——旧版本号、旧缓存、
+     * 旧桥原样保留，更新提示下次照常再来。旧口径先落版本号再删缓存毁桥、新脚本靠
+     * 下次建桥懒下载，下载失败时版本号已是新版而脚本还是旧的、提示也不再出现，
+     * 版本与脚本从此脱节。返回 true 才算更新成功，调用方按真结果提示。
+     */
+    public boolean applyUpdate(MusicSite site, String newVersion) {
+        if (site == null || TextUtils.isEmpty(site.srcUrl) || TextUtils.isEmpty(newVersion)) return false;
+        String js;
+        try {
+            js = downloadJs(site.srcUrl);
+        } catch (Throwable t) {
+            SpiderDebug.log("music", "applyUpdate 下载新脚本失败 site=%s %s", site.name, t.getMessage());
+            return false;
+        }
+        MusicSite probed;
+        try {
+            probed = probe(js, site.srcUrl, null);
+        } catch (Throwable t) {
+            SpiderDebug.log("music", "applyUpdate 新脚本初始化失败 site=%s %s", site.name, t.getMessage());
+            return false;
+        }
+        if (probed == null || !newVersion.equals(probed.version)) {
+            SpiderDebug.log("music", "applyUpdate 新脚本版本对不上 site=%s want=%s got=%s",
+                    site.name, newVersion, probed == null ? "null" : probed.version);
+            return false;
+        }
+        File cache = jsCacheFile(site.srcUrl);
+        if (cache != null) {
+            try (FileOutputStream out = new FileOutputStream(cache)) {
+                out.write(js.getBytes("UTF-8"));
+            } catch (Throwable t) {
+                SpiderDebug.log("music", "applyUpdate 新脚本写缓存失败 site=%s %s", site.name, t.getMessage());
+                return false;
+            }
+        }
+        if (!TextUtils.isEmpty(probed.name)) site.name = probed.name;
         List<MusicSite> list = listSites();
         for (MusicSite s : list) {
             if (site.srcUrl.equals(s.srcUrl)) {
@@ -912,13 +948,12 @@ public class MusicSourceManager {
             }
         }
         saveSites(list);
-        // 脚本落盘缓存一并失效，否则重建桥读回的还是旧脚本（第十件）
-        File cache = jsCacheFile(site.srcUrl);
-        if (cache != null && cache.exists()) cache.delete();
+        // 缓存已是新脚本（不再删缓存），只销毁旧桥让下次建桥读新脚本
         FreeJsBridge b = bridges.remove(site.srcUrl);
         if (b != null) b.destroy();
         LxBridge lb = lxBridges.remove(site.srcUrl);
         if (lb != null) lb.destroy();
+        return true;
     }
 
     private int compareVersion(String a, String b) {
@@ -1038,20 +1073,36 @@ public class MusicSourceManager {
         }
     }
 
-    /** C5 门槛：完成过检测的音源插件 ≥2 且至少一个平台可用（AVAILABLE） */
+    /** 是否纯歌词型：内置歌词预置／站点歌词模式（musicSearch==2）／检测证据只有
+     * 歌词探针通过、音源探针没过——三样任一命中都不算音源插件。 */
+    private boolean isLyricOnlyPlugin(String srcUrl, MusicPluginTest t) {
+        if (srcUrl != null && isBuiltinLyricPreset(srcUrl)) return true;
+        if (srcUrl != null) {
+            for (MusicSite s : listSites()) {
+                if (srcUrl.equals(s.srcUrl)) {
+                    if (s.musicSearch == 2) return true;
+                    break;
+                }
+            }
+        }
+        return t != null && t.lyricOk && !t.audioOk;
+    }
+
+    /** C5 门槛计数口径（与弹窗文案「至少 2 个音源插件完成检测」一致）：只数音源插件
+     * 且检测结论为 AVAILABLE；歌词型、FAILED、BLOCKED、UNTESTED 都不算完成检测。
+     * 旧口径数全部已测（含歌词型与失败／屏蔽态），数字比文案大、门槛形同虚设。 */
     public int testedPluginCount() {
         int n = 0;
-        for (MusicPluginTest t : MusicStore.loadPluginTests().values()) {
-            if (t != null && t.state != MusicPluginTest.State.UNTESTED) n++;
+        for (java.util.Map.Entry<String, MusicPluginTest> e : MusicStore.loadPluginTests().entrySet()) {
+            MusicPluginTest t = e.getValue();
+            if (t != null && t.state == MusicPluginTest.State.AVAILABLE
+                    && !isLyricOnlyPlugin(e.getKey(), t)) n++;
         }
         return n;
     }
 
     public boolean hasAvailableTestedPlugin() {
-        for (MusicPluginTest t : MusicStore.loadPluginTests().values()) {
-            if (t != null && t.state == MusicPluginTest.State.AVAILABLE) return true;
-        }
-        return false;
+        return testedPluginCount() > 0;
     }
 
     /** 尝试开启智能切换：门槛不过返回 false（调用方弹“暂时无法开启”弹窗，N 取实数） */

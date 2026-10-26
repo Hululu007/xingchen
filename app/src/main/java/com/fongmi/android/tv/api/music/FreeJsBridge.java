@@ -373,6 +373,12 @@ public class FreeJsBridge {
         } catch (java.util.concurrent.TimeoutException te) {
             outer.cancel(true);
             throw te;
+        } catch (InterruptedException ie) {
+            // 扫描 H2（落雪桥已修、FreeJS 侧同型漏修）：等待被中断（看门狗/停播）时
+            // 必须连桥任务一起取消，否则被放弃的调用继续占单线程桥，后续同插件
+            // 搜索/取链/取词全排队等它跑完。中断标志由 InterruptedException 语义自带清除，不另恢复。
+            outer.cancel(true);
+            throw ie;
         }
         try {
             return stage.get(timeoutMs, TimeUnit.MILLISECONDS);
@@ -380,6 +386,10 @@ public class FreeJsBridge {
             outer.cancel(true);
             stage.cancel(true);
             throw te;
+        } catch (InterruptedException ie) {
+            outer.cancel(true);
+            stage.cancel(true);
+            throw ie;
         }
     }
 
@@ -892,7 +902,10 @@ public class FreeJsBridge {
             if (hs != null) req.put("headers", hs);
             if (!opts.isNull("body")) req.put("body", opts.optString("body", ""));
             long timeout = opts.optLong("timeout", 20000);
-            req.put("timeout", (int) Math.max(5000, Math.min(60000, timeout)));
+            // 扫描 H1（与落雪桥 LxBridge 同口径）：下限 1000——旧下限 5000 把插件自带
+            // 的小超时（如 2 秒）放大 2.5 倍，多后端顺序回退时每死一个多烧约 3 秒，
+            // 整链易撞桥 30 秒/取链 15 秒上限。
+            req.put("timeout", (int) Math.max(1000, Math.min(60000, timeout)));
             req.put("redirect", 1);
         } catch (Exception e) {
             try {

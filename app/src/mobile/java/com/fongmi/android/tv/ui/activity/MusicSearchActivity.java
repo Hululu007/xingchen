@@ -237,6 +237,9 @@ public class MusicSearchActivity extends BaseActivity {
             chip.setTextSize(13);
             chip.setTextColor(0xFF3A3A3C);
             chip.setBackgroundResource(R.drawable.bg_music_glass_chip);
+            // 扫描 T3：历史胶囊是代码动态建的、不在布局树里，glassifyTree 够不着——
+            // 此前只有原始半透底＋深字（深字压玻璃底看不清）；建后单独过玻璃翻字。
+            MusicGlassWire.glassify(chip);
             chip.setPadding(dp(12), dp(6), dp(12), dp(6));
             chip.setSingleLine(true);
             chip.setMaxWidth(dp(220));

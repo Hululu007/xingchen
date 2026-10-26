@@ -168,14 +168,34 @@ public class LxPlatformSearch {
             }
             JsonObject item = new JsonObject();
             item.addProperty("songmid", mid);
+            // 每档真实大小：搜索回包本身带 size128/size320/sizeflac（字节，2026-10-26 本机实测），
+            // 原样带进 _item 供音质面板直接读，不再全靠取链后 HEAD 才有数。
+            putSizeIfPositive(item, "size128", o, "size128");
+            putSizeIfPositive(item, "size320", o, "size320");
+            putSizeIfPositive(item, "sizeFlac", o, "sizeflac");
             finish(t, item);
             out.add(t);
         }
         return out;
     }
 
+    private static void putSizeIfPositive(JsonObject item, String itemKey, JsonObject src, String srcKey) {
+        long v = optLong(src, srcKey);
+        if (v > 0) item.addProperty(itemKey, v);
+    }
+
     /** QQ 解析要 strMediaMid：搜索接口不给，取链前用歌曲详情接口补（单首一次请求） */
     public static String qqMediaMid(String songmid) {
+        JsonObject file = qqFileInfo(songmid);
+        return file == null ? "" : optStr(file, "media_mid");
+    }
+
+    /**
+     * QQ 歌曲详情的 file 对象（与 qqMediaMid 同一接口）：带 media_mid 与每档真实大小
+     * （size_128mp3/size_320mp3/size_flac/size_hires）及 Hi-Res 规格（hires_bitdepth/hires_sample）。
+     * 音质面板补 Hi-Res 档大小与规格走这里；取不到返回 null，调用方回落其它数据面。
+     */
+    public static JsonObject qqFileInfo(String songmid) {
         try {
             String url = "https://c.y.qq.com/v8/fcg-bin/fcg_play_single_song.fcg?songmid=" + enc(songmid)
                     + "&tpl=yqq_song_detail&format=json&g_tk=5381&loginUin=0&hostUin=0"
@@ -185,11 +205,11 @@ public class LxPlatformSearch {
             JsonArray data = root.has("data") && root.get("data").isJsonArray() ? root.getAsJsonArray("data") : null;
             if (data != null && data.size() > 0 && data.get(0).isJsonObject()) {
                 JsonObject file = data.get(0).getAsJsonObject().getAsJsonObject("file");
-                if (file != null) return optStr(file, "media_mid");
+                if (file != null) return file;
             }
         } catch (Exception ignored) {
         }
-        return "";
+        return null;
     }
 
     /* ---------------- 网易 wy（weapi 方案；本机 POST 超时未验通，见类注释） ---------------- */
@@ -325,6 +345,11 @@ public class LxPlatformSearch {
             item.addProperty("hash", hash);
             item.addProperty("albumId", albumId);
             item.addProperty("songmid", hash);
+            // 每档真实大小：酷狗搜索回包带 filesize（128k）/320filesize/sqfilesize（FLAC），字节，
+            // 2026-10-26 本机实测；键名与 QQ 侧统一成 size128/size320/sizeFlac 供音质面板同口径读。
+            putSizeIfPositive(item, "size128", o, "filesize");
+            putSizeIfPositive(item, "size320", o, "320filesize");
+            putSizeIfPositive(item, "sizeFlac", o, "sqfilesize");
             finish(t, item);
             out.add(t);
         }

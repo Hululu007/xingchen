@@ -50,8 +50,10 @@ import java.util.Set;
  * （桥加载阻塞，走后台线程，算出前先以 4 档占位、算出后刷新）；FreeJS 取条目 qualities 键；
  * 本地／已下载／未知来源无源档信息，保持 4 档（选档仍走请求上限回落，不冒充源档）。
  * 当前档一定在列（源档里没有当前档时把它补进原位，保证选中态可见；属星辰侧规则，已在对照表标明）。
- * Q3 文件大小：不再用时长×标称码率估算（1000／2500 标称值作废）——后台逐档取链得真实地址后 HEAD
- * 取 Content-Length 回填；取不到真实地址／无长度时该行写“未知”，不写估算数、不显示估算列。
+ * Q3 文件大小：不再用时长×标称码率估算（1000／2500 标称值作废）——数据面三层，先到先填：
+ * ①源数据直带：QQ／酷狗搜索回包本身带每档字节数，解析时已存进条目 _item（size128/size320/sizeFlac），
+ * 面板开即有数；②QQ 详情补：QQ 歌再拉一次歌曲详情 file 对象，补 Hi-Res 档大小与位深／采样率规格；
+ * ③取链后 HEAD：前两层没有的档才走取链＋HEAD 取 Content-Length。都没有时该行保持“未知”，不写估算数。
  * 点行即回选档值并关面板（与 MusicOptionsDialog 同款行为，调用方判是否变化再切档）。
  * 批 4：只换皮——面板／行／图标盒／关闭钮换液态玻璃（bg_music_quality_* 半透明白＋白描边高光，底不许纯白），
  * 四档构成、按歌列档、大小实测与选档回逻辑一字不动；选中态仍粉底红字（与现行一致）。
@@ -108,6 +110,7 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
     private OnQualityPick callback;
     private List<Row> shownRows = new ArrayList<>();
     private List<TextView> sizeViews = new ArrayList<>();
+    private List<TextView> specViews = new ArrayList<>();
 
     public static void show(FragmentActivity activity, MusicTrack track, int current, OnQualityPick callback) {
         if (activity == null || activity.isFinishing() || activity.isDestroyed()) return;
@@ -282,6 +285,7 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
         rowsContainer.removeAllViews();
         shownRows = rows;
         sizeViews = new ArrayList<>();
+        specViews = new ArrayList<>();
         LayoutInflater inflater = LayoutInflater.from(rowsContainer.getContext());
         for (int i = 0; i < rows.size(); i++) {
             View row = inflater.inflate(R.layout.item_music_quality_row, rowsContainer, false);
@@ -330,6 +334,7 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
         if (spec != null) {
             spec.setText(r.spec);
             spec.setTextColor(selected ? 0xB8FFFFFF : 0x85FFFFFF); // 瓜子 QualityRow 码率色 .72/.52
+            specViews.add(spec); // 与 sizeViews 同序登记，供后台按真数据改规格（QQ Hi-Res 位深/采样率）
         }
         TextView currentTag = row.findViewById(R.id.qr_current);
         if (currentTag != null) currentTag.setVisibility(selected ? View.VISIBLE : View.GONE);
@@ -371,11 +376,61 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
         if (track == null) return;
         final List<Row> rows = shownRows;
         final List<TextView> views = sizeViews;
+        final List<TextView> specs = specViews;
         final MusicTrack t = track;
         Task.execute(() -> {
+            boolean[] filled = new boolean[rows.size()];
+            // 第一层：源数据直带（QQ／酷狗搜索回包的每档字节数，解析时已存 _item），开面板即填。
+            for (int i = 0; i < rows.size(); i++) {
+                if (!isAdded() || sizeViews != views) return;
+                long len = sourceSizeOf(t, rows.get(i).quality);
+                if (len > 0) {
+                    filled[i] = true;
+                    postSize(views, i, formatSize(len));
+                }
+            }
+            // 第二层：QQ 详情补 Hi-Res 档大小＋位深/采样率规格（其余档大小与第一层同源同值，只补缺）。
+            if ("tx".equals(lxPlatformKey(t))) {
+                try {
+                    String mid = null;
+                    if (!TextUtils.isEmpty(t.rawJson)) {
+                        JsonObject wrap = JsonParser.parseString(t.rawJson).getAsJsonObject();
+                        if (wrap.has("_item") && wrap.get("_item").isJsonObject()) {
+                            JsonElement sm = wrap.getAsJsonObject("_item").get("songmid");
+                            if (sm != null && !sm.isJsonNull()) mid = sm.getAsString();
+                        }
+                    }
+                    if (mid == null && !TextUtils.isEmpty(t.id)) {
+                        String[] parts = t.id.split(":", 3);
+                        if (parts.length >= 3) mid = parts[2];
+                    }
+                    if (mid != null && !mid.isEmpty()) {
+                        JsonObject file = com.fongmi.android.tv.api.music.LxPlatformSearch.qqFileInfo(mid);
+                        if (file != null) {
+                            for (int i = 0; i < rows.size(); i++) {
+                                if (!isAdded() || sizeViews != views) return;
+                                if (filled[i]) continue;
+                                long len = fileSizeOf(file, rows.get(i).quality);
+                                if (len > 0) {
+                                    filled[i] = true;
+                                    postSize(views, i, formatSize(len));
+                                }
+                            }
+                            for (int i = 0; i < rows.size(); i++) {
+                                if (rows.get(i).quality != MusicStore.QUALITY_SUPER) continue;
+                                String spec = hiresSpecOf(file);
+                                if (spec != null) postSpec(specs, views, i, spec);
+                            }
+                        }
+                    }
+                } catch (Throwable ignored) {
+                }
+            }
+            // 第三层：前两层没数的档才取链＋HEAD（原口径不动）。
             for (int i = 0; i < rows.size(); i++) {
                 // 必-7：关闭／刷新后提前退出，不再继续探链（不只拦写 UI）。
                 if (!isAdded() || sizeViews != views) return;
+                if (filled[i]) continue;
                 final int idx = i;
                 String label = null;
                 try {
@@ -388,15 +443,110 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
                     }
                 } catch (Throwable ignored) {
                 }
-                final String text = label;
-                if (text == null || getActivity() == null) continue;
-                getActivity().runOnUiThread(() -> {
-                    // 档刷新后旧任务的结果不许写进新行（占位 4 档→实际档时行数／顺序会变）
-                    if (!isAdded() || sizeViews != views) return;
-                    if (idx < views.size() && views.get(idx) != null) views.get(idx).setText(text);
-                });
+                if (label != null) postSize(views, idx, label);
             }
         });
+    }
+
+    private void postSize(List<TextView> views, int idx, String text) {
+        if (getActivity() == null) return;
+        getActivity().runOnUiThread(() -> {
+            // 档刷新后旧任务的结果不许写进新行（占位 4 档→实际档时行数／顺序会变）
+            if (!isAdded() || sizeViews != views) return;
+            if (idx < views.size() && views.get(idx) != null) views.get(idx).setText(text);
+        });
+    }
+
+    private void postSpec(List<TextView> specs, List<TextView> views, int idx, String text) {
+        if (getActivity() == null) return;
+        getActivity().runOnUiThread(() -> {
+            if (!isAdded() || sizeViews != views) return;
+            if (idx < specs.size() && specs.get(idx) != null) specs.get(idx).setText(text);
+        });
+    }
+
+    /** 源数据直带大小：条目 _item 的 size128/size320/sizeFlac/sizeHires（字节），没有返回 -1。 */
+    private static long sourceSizeOf(MusicTrack t, int quality) {
+        try {
+            if (t == null || TextUtils.isEmpty(t.rawJson)) return -1;
+            JsonObject wrap = JsonParser.parseString(t.rawJson).getAsJsonObject();
+            if (!wrap.has("_item") || !wrap.get("_item").isJsonObject()) return -1;
+            JsonObject item = wrap.getAsJsonObject("_item");
+            String key;
+            switch (quality) {
+                case MusicStore.QUALITY_LOW:
+                    key = "size128";
+                    break;
+                case MusicStore.QUALITY_HIGH:
+                    key = "sizeFlac";
+                    break;
+                case MusicStore.QUALITY_SUPER:
+                    key = "sizeHires";
+                    break;
+                default:
+                    key = "size320";
+                    break;
+            }
+            JsonElement v = item.get(key);
+            if (v == null || !v.isJsonPrimitive()) return -1;
+            long len = v.getAsLong();
+            return len > 0 ? len : -1;
+        } catch (Throwable ignored) {
+            return -1;
+        }
+    }
+
+    /** QQ 详情 file 对象的每档大小（size_128mp3/size_320mp3/size_flac/size_hires），没有返回 -1。 */
+    private static long fileSizeOf(JsonObject file, int quality) {
+        try {
+            String key;
+            switch (quality) {
+                case MusicStore.QUALITY_LOW:
+                    key = "size_128mp3";
+                    break;
+                case MusicStore.QUALITY_HIGH:
+                    key = "size_flac";
+                    break;
+                case MusicStore.QUALITY_SUPER:
+                    key = "size_hires";
+                    break;
+                default:
+                    key = "size_320mp3";
+                    break;
+            }
+            JsonElement v = file.get(key);
+            if (v == null || !v.isJsonPrimitive()) return -1;
+            long len = v.getAsLong();
+            return len > 0 ? len : -1;
+        } catch (Throwable ignored) {
+            return -1;
+        }
+    }
+
+    /** QQ 详情的 Hi-Res 真规格：位深＋采样率拼瓜子式“24bit / 96kHz”；两样都没有返回 null（不编）。 */
+    private static String hiresSpecOf(JsonObject file) {
+        try {
+            long bit = 0, sample = 0;
+            JsonElement b = file.get("hires_bitdepth");
+            if (b != null && b.isJsonPrimitive()) bit = b.getAsLong();
+            JsonElement s = file.get("hires_sample");
+            if (s != null && s.isJsonPrimitive()) sample = s.getAsLong();
+            if (bit <= 0 && sample <= 0) return null;
+            StringBuilder sb = new StringBuilder();
+            if (bit > 0) sb.append(bit).append("bit");
+            if (sample > 0) {
+                if (sb.length() > 0) sb.append(" / ");
+                sb.append(khz(sample));
+            }
+            return sb.toString();
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static String khz(long hz) {
+        if (hz % 1000 == 0) return (hz / 1000) + "kHz";
+        return String.format(Locale.US, "%.1f", hz / 1000.0) + "kHz";
     }
 
     /** HEAD 取 Content-Length（跟随跳转，5 秒超时，复用单例客户端）；无长度／失败返回 -1。

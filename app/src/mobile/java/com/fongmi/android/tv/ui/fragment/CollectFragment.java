@@ -395,7 +395,8 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
         if (mCollectAdapter.getPosition() == 0) mSearchAdapter.setItems(new ArrayList<>(mAllResults));
     }
 
-    /** 115 结果点击：不走站点详情——文件夹直达网盘页对应目录、视频走网盘直达起播、其它文件进它所在目录。 */
+    /** 115 结果点击：不走站点详情——文件夹直达网盘页对应目录、视频走网盘直达起播；
+     * 判定拿不准的非文件夹条目先试组装播放清单兜底（有档起播、无档提示不支持），不再默默开父目录。 */
     private void onPan115ItemClick(Vod item) {
         CloudFile f = mPan115Files.get(item.getId());
         if (f == null) return;
@@ -404,9 +405,7 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
         } else if (f.isVideo()) {
             CloudDriveActivity.play115File(requireActivity(), f);
         } else {
-            String parent = f.getParentCid();
-            if (TextUtils.isEmpty(parent) || "0".equals(parent)) CloudDriveActivity.start(requireActivity(), Drive115.ID);
-            else CloudDriveActivity.startAt(requireActivity(), Drive115.ID, parent, "所在目录");
+            CloudDriveActivity.tryPlay115File(requireActivity(), f);
         }
     }
 

@@ -20,6 +20,9 @@ public final class NodeLabInfo {
 
         @Nullable
         String availableVersion();
+
+        /** 有没有真更新：判据归实验室（LabRuntimeManager.hasUpdate 已定口径），消费侧不许自造 */
+        boolean hasUpdate();
     }
 
     private static final String IMPL_CLASS = "com.fongmi.android.tv.ui.lab.LabNodeInfo";
@@ -63,6 +66,16 @@ public final class NodeLabInfo {
             return impl.availableVersion();
         } catch (Throwable e) {
             return null;
+        }
+    }
+
+    public static boolean hasUpdate() {
+        Provider impl = provider();
+        if (impl == null) return false;
+        try {
+            return impl.hasUpdate();
+        } catch (Throwable e) {
+            return false;
         }
     }
 

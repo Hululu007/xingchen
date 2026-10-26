@@ -27,14 +27,14 @@
             android:layout_height="0dp"
             android:layout_weight="1">
 
-            <ImageView
+            <com.fongmi.android.tv.ui.music.view.FadingCoverView
                 android:id="@+id/playerCoverOut"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:contentDescription="@null"
                 android:scaleType="centerCrop" />
 
-            <ImageView
+            <com.fongmi.android.tv.ui.music.view.FadingCoverView
                 android:id="@+id/playerCover"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"

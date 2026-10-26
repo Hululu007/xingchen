@@ -396,7 +396,19 @@ public class CoverAmbientView extends View {
             mBlurNode.setPosition(0, 0, w, h);
             Canvas rec = mBlurNode.beginRecording(w, h);
             Paint p = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
-            rec.drawBitmap(mBlurBitmap, null, new android.graphics.RectF(0, 0, w, h), p);
+            // 糊图按瓜子 ContentScale.Crop 口径铺满整页：等比放大盖住整页、居中裁切——
+            // 图的内容以封面自身的比例顺着页面延展（瓜子 CoverAmbientKt 两分支同为
+            // AsyncImage＋Crop＋fillMaxSize，源码亲验）。旧法把 64×64 方图整张拉伸进
+            // 竖长 rect：图被纵向压扁成一团无内容的雾，封面下沿处内容断掉，真机读作
+            // 「封面像一张图贴在暗页上」（2026-10-26 他同屏对比图定罪：瓜子封面下方
+            // 糊面留着原图的鬼影顺延，星辰只剩均匀暗雾）。
+            int bw = mBlurBitmap.getWidth(), bh = mBlurBitmap.getHeight();
+            float cropScale = Math.max(w / (float) bw, h / (float) bh);
+            int sw = Math.round(w / cropScale), sh = Math.round(h / cropScale);
+            int sx = Math.max(0, (bw - sw) / 2), sy = Math.max(0, (bh - sh) / 2);
+            android.graphics.Rect src = new android.graphics.Rect(
+                    sx, sy, Math.min(bw, sx + sw), Math.min(bh, sy + sh));
+            rec.drawBitmap(mBlurBitmap, src, new android.graphics.RectF(0, 0, w, h), p);
             mBlurNode.endRecording();
             float r = (mFluidMode ? 18f : 24f) * getResources().getDisplayMetrics().density;
             mBlurNode.setRenderEffect(RenderEffect.createBlurEffect(r, r, Shader.TileMode.CLAMP));

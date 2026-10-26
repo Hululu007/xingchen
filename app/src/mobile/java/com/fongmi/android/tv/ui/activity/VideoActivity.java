@@ -659,6 +659,25 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         }
     }
 
+    /**
+     * 115 网盘文件直达播放：不走 SiteApi 的推送详情合成，播放会话归网盘自己。
+     * episodesJson 形态与 startLocal 同一套（flags 自带线路名）：单线路「115网盘」，
+     * 选集即画质档（原画/转码多档/自动画质），每集 url 是已包本机代理的地址；
+     * url 参数＝默认起播档的地址（与 episodesJson 中 selIdx 那集一致），
+     * 点播走 playerContent(PUSH) 裸地址分支由 Source.fetch 直通
+     * （代理地址的 m3u8 标记在 Source.fetch 里按 Proxy115 登记判定）。
+     */
+    public static void startPan115(Activity activity, String url, String name, String episodesJson, int selIdx) {
+        if (TextUtils.isEmpty(url)) return;
+        Intent intent = new Intent(activity, VideoActivity.class);
+        intent.putExtra("key", SiteApi.PUSH);
+        intent.putExtra("id", url);
+        intent.putExtra("name", name);
+        intent.putExtra("pan115_episodes", episodesJson);
+        intent.putExtra("pan115_episode_idx", selIdx);
+        activity.startActivity(intent);
+    }
+
     public static void collect(Activity activity, String key, String id, String name, String pic, String wallPic) {
         start(activity, key, id, name, pic, null, true, wallPic);
     }
@@ -1589,6 +1608,10 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
             playLocalDirect();
             return;
         }
+        if (!TextUtils.isEmpty(getIntent().getStringExtra("pan115_episodes"))) {
+            playPan115Direct();
+            return;
+        }
         if (!TextUtils.isEmpty(getIntent().getStringExtra("txt_episodes"))) {
             playTxtDirect();
             return;
@@ -1680,6 +1703,17 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private void playLocalDirect() {
         showProgress();
         setupDirectEpisodes("local_episodes", "local_episode_idx");
+        playDirect(getKey(), "", getId());
+    }
+
+    /**
+     * 115 网盘文件直接播放：不加载详情，选集 UI 复用 setupDirectEpisodes
+     * （线路「115网盘」、选集为画质档），点播走 playerContent(PUSH) 裸地址分支，
+     * 代理地址由 Source.fetch 直通（m3u8 标记按 Proxy115 登记判定）。
+     */
+    private void playPan115Direct() {
+        showProgress();
+        setupDirectEpisodes("pan115_episodes", "pan115_episode_idx");
         playDirect(getKey(), "", getId());
     }
 
@@ -2033,6 +2067,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
      * 随后自行 playerContent，阶段二不再点火，避免重播。 */
     private boolean isDirectPlaySession() {
         if (!TextUtils.isEmpty(getIntent().getStringExtra("local_episodes"))) return true;
+        if (!TextUtils.isEmpty(getIntent().getStringExtra("pan115_episodes"))) return true;
         if (!TextUtils.isEmpty(getIntent().getStringExtra("txt_episodes"))) return true;
         return getIntent().getBooleanExtra("hk_direct_play", false) && !TextUtils.isEmpty(getIntent().getStringExtra("hk_rule"));
     }

@@ -6,12 +6,18 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
 import android.os.Messenger;
+import android.os.SystemClock;
 import android.text.TextUtils;
 
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
+import com.fongmi.android.tv.api.CatSource;
 import com.fongmi.android.tv.utils.Notify;
 import com.github.catvod.crawler.SpiderDebug;
+
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -48,6 +54,22 @@ public final class NodeRuntime {
     static final long READY_TIMEOUT_MS = TimeUnit.MINUTES.toMillis(3);
     static final long READY_PROBE_TIMEOUT_MS = TimeUnit.SECONDS.toMillis(2);
     static final long READY_POLL_MS = 200L;
+    /**
+     * 请求前探活失败后，同步等原 bundle 重启就绪的上限。走到这里时运行时与 bundle
+     * 都已在机上（首次下载不在此列），正常几秒内就绪；超过这个预算按恢复失败处理，
+     * 不让一次点击无限转圈。它只约束 {@link #ensureReady} 的轮询等待，单次 start
+     * 本身的 12 分钟总预算（{@link #START_TIMEOUT_MS}）不因此被截断——超时后那轮
+     * start 仍在后台继续，后续请求探活通过即可用。
+     */
+    private static final long REVIVE_TIMEOUT_MS = TimeUnit.SECONDS.toMillis(15);
+
+    /** 探活专用客户端：与 NodeService.waitReady 的探测同口径（2 秒全超时、只认 /config 形状）。 */
+    private static final OkHttpClient PROBE_CLIENT = new OkHttpClient.Builder()
+            .connectTimeout(READY_PROBE_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            .readTimeout(READY_PROBE_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            .writeTimeout(READY_PROBE_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            .callTimeout(READY_PROBE_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            .build();
 
     private static volatile int port;
     private static final AtomicBoolean STARTING = new AtomicBoolean(false);
@@ -93,6 +115,53 @@ public final class NodeRuntime {
     }
 
     /**
+     * 当前端口上的服务是否还认得出是猫源。与 {@code NodeService.waitReady} 同一款探法：
+     * GET 本机 {@code /config}，按 {@link CatSource#isConfig} 的形状认——附带服务
+     * （弹幕等）对 /config 回的 401 信封不算活，进程在但 bundle 服务已不答也不算活。
+     */
+    private static boolean probeReady() {
+        int current = port;
+        if (current <= 0) return false;
+        try (Response response = PROBE_CLIENT.newCall(new Request.Builder()
+                .url("http://127.0.0.1:" + current + "/config")
+                .build()).execute()) {
+            String cfg = response.body() == null ? "" : response.body().string();
+            return CatSource.isConfig(cfg);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * 请求前的同步探活兜底（点播/浏览共用，调用方在后台线程）：
+     * 探活通过直接返回 {@code true}，只多一次本机回环 GET；
+     * 探不活（:node 在「加载→点播」的时间差里被系统回收，或进程在但服务已不答）
+     * 就用正在服务的原 bundle 走既有 start 流程强制重启一轮——跳过 start 的复用
+     * 捷径，因为进程级存活证明不了服务在答——再在 {@link #REVIVE_TIMEOUT_MS} 内
+     * 轮询探活等就绪。预算内没恢复返回 {@code false}，调用方按既有失败口径收口。
+     * 已有 start 在飞（配置加载/换源）时不重复投递，只轮询等它落定。
+     */
+    public static boolean ensureReady(Context context) {
+        if (probeReady()) return true;
+        if (TextUtils.isEmpty(servingUrl)) return false;
+        SpiderDebug.log("node", "ensureReady: cat server not answering on port %s, reviving %s", port, servingUrl);
+        startInternal(context, servingUrl, null, true);
+        long deadline = SystemClock.elapsedRealtime() + REVIVE_TIMEOUT_MS;
+        while (SystemClock.elapsedRealtime() < deadline) {
+            if (probeReady()) return true;
+            try {
+                Thread.sleep(READY_POLL_MS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+        boolean ready = probeReady();
+        if (!ready) SpiderDebug.log("node", "ensureReady: revive not ready after %sms", REVIVE_TIMEOUT_MS);
+        return ready;
+    }
+
+    /**
      * {@code :node} 子进程是否还活着。
      *
      * <p>{@link #running} 只在收到 READY 时置真、收到 ERROR/超时才置假：<b>子进程被系统或
@@ -127,6 +196,15 @@ public final class NodeRuntime {
      * @param url 用户填的猫源地址（{@code .../index.js.md5}）
      */
     public static synchronized void start(Context context, String url, Callback callback) {
+        startInternal(context, url, callback, false);
+    }
+
+    /**
+     * @param force 跳过复用捷径、强制走一遍杀旧起新的完整流程。{@link #ensureReady}
+     *              探活已确认服务不答时用：进程级存活（{@link #serviceAlive}）过不了
+     *              探活这一关，不能再用「进程在＋同一 bundle」把死服务当成就绪返回。
+     */
+    private static synchronized void startInternal(Context context, String url, Callback callback, boolean force) {
         if (TextUtils.isEmpty(url)) {
             if (callback != null) callback.onError("未填写猫源地址");
             return;
@@ -135,7 +213,7 @@ public final class NodeRuntime {
         // bundle、或本地包被改写后都会继续跑旧 JS。本地包按内容指纹判定，内容没变就无需重启。
         // 还必须确认子进程仍在：它被杀掉时没有任何回调会把 running 置假。
         boolean alive = running && serviceAlive();
-        if (alive && same(url) && NodeBundle.servesCurrentSource(url, servingSourceKey)) {
+        if (!force && alive && same(url) && NodeBundle.servesCurrentSource(url, servingSourceKey)) {
             if (callback != null) callback.onReady(baseUrl());
             return;
         }

@@ -132,6 +132,7 @@ public class CatSpider extends Spider {
     }
 
     private String post(String path, JsonObject body) {
+        if (targetsLocalBundle() && !ensureNodeReady(path)) return "";
         String url = resolve(path);
         try {
             Request request = new Request.Builder()
@@ -186,6 +187,31 @@ public class CatSpider extends Spider {
         int port = NodeRuntime.port();
         if (port > 0 && (base == null || !base.endsWith(":" + port))) return "http://127.0.0.1:" + port + matcher.group(3) + path;
         return api + path;
+    }
+
+    /** 本次请求是否打到本机 bundle——与 {@link #resolve} 的本机判定同口径：远端 T4 猫源不探活、不改写。 */
+    private boolean targetsLocalBundle() {
+        Matcher matcher = BUNDLE_BASE.matcher(api);
+        if (!matcher.matches()) return false;
+        String base = matcher.group(1);
+        return base == null || isLoopbackBase(base);
+    }
+
+    /**
+     * 发请求前先探活：:node 在「加载→浏览→点播」的时间差里被系统回收时，原流程要等
+     * 这次 POST 撞上死进程才异步重启，本次点击必空。这里让 {@link NodeRuntime#ensureReady}
+     * 先探 /config，探不活就同步拉起原 bundle、有界等就绪了再发；预算内恢复不了
+     * 按既有失败口径返回空，并把真因记进 cat-spider，不让上层只看到一片空。
+     */
+    private boolean ensureNodeReady(String path) {
+        try {
+            if (NodeRuntime.ensureReady(App.get())) return true;
+            SpiderDebug.log("cat-spider", "%s -> node not ready, revive failed or timed out", path);
+            return false;
+        } catch (Throwable e) {
+            SpiderDebug.log("cat-spider", "%s -> ensureReady error: %s", path, e.getMessage());
+            return false;
+        }
     }
 
     /** base 是否指向本机回环地址——本机 bundle 的 api 固定是 {@code http://127.0.0.1:<port>}。 */

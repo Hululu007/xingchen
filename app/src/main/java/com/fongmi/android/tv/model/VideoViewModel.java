@@ -65,7 +65,9 @@ public class VideoViewModel extends SiteViewModel implements VodDataSource {
                 detail.postValue(new VodDetailResult(key, id, SiteApi.detailContent(key, id)));
             } catch (Throwable e) {
                 String msg = e.getMessage();
-                detail.postValue(new VodDetailResult(key, id, msg != null ? Result.error(msg) : Result.empty()));
+                // 扫描 T7：无 message 的异常也要投 Result.error（与 SiteViewModel 同口径），
+                // 不许吞成 Result.empty()——用户只看到空白页、无任何错误文案可循
+                detail.postValue(new VodDetailResult(key, id, Result.error(msg != null ? msg : "加载失败，请重试")));
             }
         }));
     }
@@ -78,7 +80,7 @@ public class VideoViewModel extends SiteViewModel implements VodDataSource {
                 playback.postValue(new PlaybackResult<>(request, SiteApi.playerContent(request.getKey(), request.getFlag(), request.getId())));
             } catch (Throwable e) {
                 String msg = e.getMessage();
-                playback.postValue(new PlaybackResult<>(request, msg != null ? Result.error(msg) : Result.empty()));
+                playback.postValue(new PlaybackResult<>(request, Result.error(msg != null ? msg : "播放失败，请重试")));
             }
         }));
     }
@@ -91,7 +93,7 @@ public class VideoViewModel extends SiteViewModel implements VodDataSource {
                 preload.postValue(new PlaybackResult<>(request, SiteApi.playerContent(request.getKey(), request.getFlag(), request.getId())));
             } catch (Throwable e) {
                 String msg = e.getMessage();
-                preload.postValue(new PlaybackResult<>(request, msg != null ? Result.error(msg) : Result.empty()));
+                preload.postValue(new PlaybackResult<>(request, Result.error(msg != null ? msg : "播放失败，请重试")));
             }
         }));
     }

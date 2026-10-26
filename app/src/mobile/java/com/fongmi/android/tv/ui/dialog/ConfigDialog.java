@@ -230,6 +230,9 @@ public class ConfigDialog extends BaseAlertDialog {
      * （与线路管理列表删除的「有剩余顶上」口径分开，此弹窗是清槽位）。点播清完发 ConfigEvent.vod()，
      * 首页据此落到空首页（与冷启未加线路同一个状态）；直播同理清 LiveConfig。
      * 历史记录自身的左滑/清空删法不在此处，不受影响。
+     * 注意只清内存态不够：当前配置的取值是历史表 time 最新一行，本次删的只是其中一行，
+     * 重进时 Config.vod() 会把下一条历史顶上来——必须同时落 Config.markCleared 把这份
+     * 「亲手清过」持久化，重进才仍是空（修「清空后下次进来历史接口又顶上来了」）。
      */
     private void clearSlot() {
         if (TextUtils.isEmpty(ori)) return;
@@ -240,6 +243,7 @@ public class ConfigDialog extends BaseAlertDialog {
             Notify.show("已删除");
             return;
         }
+        Config.markCleared(type);
         switch (type) {
             case 0 -> {
                 VodConfig.get().clear().config(Config.create(0));

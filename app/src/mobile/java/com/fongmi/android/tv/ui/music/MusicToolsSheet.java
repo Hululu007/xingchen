@@ -1133,7 +1133,9 @@ public class MusicToolsSheet {
         reset.setPadding(dp(12), dp(10), dp(12), dp(6));
         reset.setOnClickListener(v -> {
             MusicStore.setCoverLyricFontSize(22f);
-            MusicStore.setLyricWeight(1);
+            // 扫描 T1：字重默认是 0（标准，MusicStore.LYRIC_WEIGHT_NORMAL），此前写 1（加粗）——
+            // 「恢复默认」反而把全 App 歌词字重静默改成加粗
+            MusicStore.setLyricWeight(0);
             MusicStore.setLyricAlign(0);
             MusicStore.setCoverLyricBlurLevel(2);
             MusicStore.setLyricPrimary(0);
@@ -1245,9 +1247,12 @@ public class MusicToolsSheet {
                 info = MusicController.get().audioInfo();
             } catch (Throwable ignored) {
             }
-            // 音质只报实测（他的口径：取不到就不显示，永不拿所选档名垫场）
-            card.addView(infoRow("音质", info != null && info.describe() != null && !info.describe().isEmpty()
-                    ? info.describe() : ""));
+            // 音质只报实测（他的口径：取不到就不显示，永不拿所选档名垫场；
+            // 扫描 T4：取不到时整行不加——此前照样摆一行空值「音质」，与口径不符）
+            if (info != null && info.describe() != null && !info.describe().isEmpty()) {
+                card.addView(divider());
+                card.addView(infoRow("音质", info.describe()));
+            }
             if (!TextUtils.isEmpty(t.platform)) {
                 card.addView(divider());
                 card.addView(infoRow("来源", t.platform));

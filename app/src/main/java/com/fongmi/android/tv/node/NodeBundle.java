@@ -48,7 +48,6 @@ public final class NodeBundle {
     private static final int MAX_METADATA_BYTES = 4096;
     private static final int MAX_SOURCE_KEY_BYTES = 16 * 1024;
     /** 元数据只是一行 md5；连接慢时允许短暂等待，但不能拖住缓存判定数十秒。 */
-    private static final long METADATA_TIMEOUT_MS = NodeRuntime.METADATA_TIMEOUT_MS;
 
     private static final java.util.Set<String> MEMBERS = new java.util.HashSet<>(java.util.Arrays.asList(
             "index.js", MARKER, "index.config.js", "index.config.js.md5"));
@@ -531,7 +530,7 @@ public final class NodeBundle {
         try {
             // 等待上限要盖住 remoteMd5 内部的全部重试（单次超时×次数＋间隔），
             // 否则重试还没跑完就被 latch 掐断、等于没重试。
-            done.await((METADATA_TIMEOUT_MS + MD5_RETRY_GAP_MS) * MD5_ATTEMPTS + 1000L, java.util.concurrent.TimeUnit.MILLISECONDS);
+            done.await((MD5_TIMEOUT_MS + MD5_RETRY_GAP_MS) * MD5_ATTEMPTS + 1000L, java.util.concurrent.TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
@@ -544,6 +543,9 @@ public final class NodeBundle {
      * （目标站多为 Cloudflare 边缘，直连握手抖动是常态），单发定生死太脆。 */
     private static final int MD5_ATTEMPTS = 3;
     private static final long MD5_RETRY_GAP_MS = 700L;
+    /** 单次取校验值的超时：文件只有 33 字节，3 秒足够定生死。总等待收口到
+     * 3 次×3 秒＋2 次间隔 0.7 秒 ≈ 10.4 秒——旧口径 8 秒×3 次要干等约 27 秒才报错。 */
+    private static final long MD5_TIMEOUT_MS = 3000L;
 
     private static String remoteMd5(String url, String[] reasons, int idx) {
         String target = md5Url(url);
@@ -564,10 +566,10 @@ public final class NodeBundle {
 
     private static String remoteMd5Once(String target, String[] reasons, int idx) {
         okhttp3.OkHttpClient client = OkHttp.client().newBuilder()
-                .connectTimeout(METADATA_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
-                .readTimeout(METADATA_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
-                .writeTimeout(METADATA_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
-                .callTimeout(METADATA_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .connectTimeout(MD5_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .readTimeout(MD5_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .writeTimeout(MD5_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .callTimeout(MD5_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
                 .build();
         try (Response response = OkHttp.newCall(client, target, "node-bundle").execute()) {
             if (!response.isSuccessful() || response.body() == null) {

@@ -455,9 +455,6 @@ public class Setting {
         return Prefers.getBoolean("drive_check", true);
     }
 
-    public static void putDriveCheck(boolean driveCheck) {
-        Prefers.put("drive_check", driveCheck);
-    }
 
     public static boolean isCompactEpisodeTitle() {
         return Prefers.getBoolean("compact_episode_title");
@@ -471,17 +468,11 @@ public class Setting {
         return Prefers.getBoolean("site_health_sort", true);
     }
 
-    public static void putSiteHealthSort(boolean sort) {
-        Prefers.put("site_health_sort", sort);
-    }
 
     public static boolean isSiteHealthDialogSort() {
         return Prefers.getBoolean("site_health_dialog_sort");
     }
 
-    public static void putSiteHealthDialogSort(boolean sort) {
-        Prefers.put("site_health_dialog_sort", sort);
-    }
 
     public static boolean isWebHomeExtension() {
         return Prefers.getBoolean("web_home_extension", true);
@@ -495,17 +486,11 @@ public class Setting {
         return Prefers.getBoolean("web_home_fullscreen", true);
     }
 
-    public static void putWebHomeFullscreen(boolean fullscreen) {
-        Prefers.put("web_home_fullscreen", fullscreen);
-    }
 
     public static boolean isPlaybackArtworkWall() {
         return Prefers.getBoolean("playback_artwork_wall", true);
     }
 
-    public static void putPlaybackArtworkWall(boolean artworkWall) {
-        Prefers.put("playback_artwork_wall", artworkWall);
-    }
 
     public static boolean isCspWarmup() {
         return getCspWarmupMode() != CSP_WARMUP_DISABLED;
@@ -701,17 +686,11 @@ public class Setting {
         return Prefers.getString("github_proxy", com.fongmi.android.tv.utils.GithubProxy.defaultSources());
     }
 
-    public static void putGithubProxy(String value) {
-        Prefers.put("github_proxy", com.fongmi.android.tv.utils.GithubProxy.normalizeConfig(value));
-    }
 
     public static boolean isGithubProxyEnabled() {
         return Prefers.getBoolean("github_proxy_enabled", true);
     }
 
-    public static void putGithubProxyEnabled(boolean enabled) {
-        Prefers.put("github_proxy_enabled", enabled);
-    }
 
     public static String getUpdateOciMirror() {
         return OciMirror.find(Prefers.getString("update_oci_mirror", OciMirror.DEFAULT)).id;
@@ -798,9 +777,6 @@ public class Setting {
         return Prefers.getInt("wall_color", 0);
     }
 
-    public static void putWallColor(int color) {
-        Prefers.put("wall_color", color);
-    }
 
     public static int getDynamicColor() {
         int color = getThemeColor();

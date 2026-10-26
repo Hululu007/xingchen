@@ -1,7 +1,6 @@
 package com.fongmi.android.tv.ui.dialog;
 
 import android.content.res.ColorStateList;
-import android.net.Uri;
 import android.text.TextUtils;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -25,6 +24,8 @@ import com.fongmi.android.tv.api.music.MusicSourceManager;
 import com.fongmi.android.tv.bean.music.MusicQuality;
 import com.fongmi.android.tv.bean.music.MusicSite;
 import com.fongmi.android.tv.bean.music.MusicTrack;
+import com.fongmi.android.tv.music.MusicAudioInfo;
+import com.fongmi.android.tv.music.MusicController;
 import com.fongmi.android.tv.music.MusicStore;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Task;
@@ -49,11 +50,18 @@ import java.util.Set;
  * 按歌列档（不许写死 4 行）：只列当前歌／源实际提供的档——落雪取各启用插件声明的 qualitys 并集
  * （桥加载阻塞，走后台线程，算出前先以 4 档占位、算出后刷新）；FreeJS 取条目 qualities 键；
  * 本地／已下载／未知来源无源档信息，保持 4 档（选档仍走请求上限回落，不冒充源档）。
- * 当前档一定在列（源档里没有当前档时把它补进原位，保证选中态可见；属星辰侧规则，已在对照表标明）。
- * Q3 文件大小：不再用时长×标称码率估算（1000／2500 标称值作废）——数据面三层，先到先填：
+ * 在播档一定在列（源档里没有在播档时把它补进原位，保证“当前播放”标记可见）。
+ * “当前播放”只认实测真值：与播放页音质筹同源——服务从 ExoPlayer 当前 Format 采的
+ * MusicAudioInfo（编码／真实码率／采样率／位深），按档归类后落行；实测不到就不标、
+ * 头部不写“当前 X”。请求档（用户所选上限）永不进显示：不标行、不进头部（他的死口径；
+ * 此前拿请求档标“当前播放”就是面板说谎的根——实际播的是回落后的低档文件）。
+ * Q3 文件大小：不再用时长×标称码率估算（1000／2500 标称值作废）——只用源真返回的每档数据：
  * ①源数据直带：QQ／酷狗搜索回包本身带每档字节数，解析时已存进条目 _item（size128/size320/sizeFlac），
  * 面板开即有数；②QQ 详情补：QQ 歌再拉一次歌曲详情 file 对象，补 Hi-Res 档大小与位深／采样率规格；
- * ③取链后 HEAD：前两层没有的档才走取链＋HEAD 取 Content-Length。都没有时该行保持“未知”，不写估算数。
+ * ③本地／已下载曲：在播文件就是磁盘上这一个文件，其长度只填在播档行。
+ * 原第③层“取链＋HEAD”已删：取链对未声明档会静默回落低档（LxMusicSource.pickQuality），
+ * HEAD 到的是回落文件的长度、不是该档的数据——曾把 128k 文件的 3.7MB 贴到 Hi-Res 行。
+ * 都没有时该行保持“未知”，不写估算数、不拿别档的数顶。
  * 点行即回选档值并关面板（与 MusicOptionsDialog 同款行为，调用方判是否变化再切档）。
  * 批 4：只换皮——面板／行／图标盒／关闭钮换液态玻璃（bg_music_quality_* 半透明白＋白描边高光，底不许纯白），
  * 四档构成、按歌列档、大小实测与选档回逻辑一字不动；选中态仍粉底红字（与现行一致）。
@@ -106,7 +114,10 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
     private LinearLayout rowsContainer;
     private TextView subView;
     private MusicTrack track;
+    /** 请求档（用户所选上限）：只作打开面板的上下文，永不进显示（他的死口径）。 */
     private int current = MusicStore.QUALITY_STANDARD;
+    /** 在播档（实测真值归类，-1＝实测不到）：只有它配标“当前播放”与头部“当前 X”。 */
+    private int actualTier = -1;
     private OnQualityPick callback;
     private List<Row> shownRows = new ArrayList<>();
     private List<TextView> sizeViews = new ArrayList<>();
@@ -154,6 +165,7 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
                 else artist.setText(track.artist);
             }
         }
+        actualTier = actualTierOf(currentAudioInfo());
         List<Row> initial = resolveTiersSync();
         if (initial == null) {
             // 落雪需后台算档：先铺 4 档占位、算出后刷新，不空着面板等
@@ -271,13 +283,38 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
         return rows;
     }
 
-    /** 按主档顺序（高→低）过滤；当前档不在源档里时补进原位，保证选中态可见。 */
+    /** 按主档顺序（高→低）过滤；在播档不在源档里时补进原位，保证“当前播放”标记可见。 */
     private List<Row> filterRows(Set<Integer> tiers) {
         List<Row> rows = new ArrayList<>();
         for (Row r : ROWS) {
-            if (tiers.contains(r.quality) || r.quality == current) rows.add(r);
+            if (tiers.contains(r.quality) || r.quality == actualTier) rows.add(r);
         }
         return rows.isEmpty() ? allRows() : rows;
+    }
+
+    /** 在播真值：与播放页音质筹同源（服务从 ExoPlayer 当前 Format 实测）。 */
+    private static MusicAudioInfo currentAudioInfo() {
+        try {
+            return MusicController.get().audioInfo();
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    /**
+     * 实测参数 → 在播所属档（阈值与 MusicAudioInfo.shortCode 同口径）：无损按位深／采样率
+     * 分 Hi-Res／无损，有损按真实码率分极高（≥192k）／标准；实测不到（无信息、
+     * 有损码率未知）返回 -1——面板不标当前播放、头部不写当前档，请求档不许顶上。
+     */
+    private static int actualTierOf(MusicAudioInfo info) {
+        if (info == null || info.codec == null || info.codec.isEmpty()) return -1;
+        if (info.lossless) {
+            return (info.bitDepth >= 24 || info.sampleRateHz >= 88200)
+                    ? MusicStore.QUALITY_SUPER : MusicStore.QUALITY_HIGH;
+        }
+        if (info.bitrateKbps >= 192) return MusicStore.QUALITY_STANDARD;
+        if (info.bitrateKbps > 0) return MusicStore.QUALITY_LOW;
+        return -1;
     }
 
     private void buildRows(List<Row> rows) {
@@ -298,49 +335,53 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
                 row.setLayoutParams(lp);
             }
             rowsContainer.addView(row);
-            bindRow(row, rows.get(i), rows.get(i).quality == current);
+            bindRow(row, rows.get(i), rows.get(i).quality == actualTier);
         }
         if (subView != null && track != null) {
-            subView.setText(rows.size() + " 档可选 · 当前 " + gzName(current));
+            // 头部同标真值：在播档实测不到就不写“当前 X”，请求档不许垫场。
+            subView.setText(actualTier >= 0
+                    ? rows.size() + " 档可选 · 当前 " + gzName(actualTier)
+                    : rows.size() + " 档可选");
         }
         loadSizesAsync();
     }
 
-    private void bindRow(View row, Row r, boolean selected) {
-        // 背景归玻璃（buildRows 已 glassify）：这里只切 tone——选中＝红 tone 玻璃行，
+    /** playing＝该行就是实测在播档：红字红 tone＋亮“当前播放”签，只认真值不认请求档。 */
+    private void bindRow(View row, Row r, boolean playing) {
+        // 背景归玻璃（buildRows 已 glassify）：这里只切 tone——在播行＝红 tone 玻璃行，
         // 不许再 setBackgroundResource 把白板/粉板盖回来（1.4.42 真机就是这么被盖掉的）。
         if (row.getBackground() instanceof MusicGlassDrawable) {
             MusicGlassDrawable g = (MusicGlassDrawable) row.getBackground();
-            if (selected) g.setToneColor(RED, 0.12f); // 瓜子选中底＝Accent 渐变 .12→.04，平面 tone 取 .12 近似
+            if (playing) g.setToneColor(RED, 0.12f); // 瓜子选中底＝Accent 渐变 .12→.04，平面 tone 取 .12 近似
             else g.setToneColor(0, 0f);
         }
         View iconBox = row.findViewById(R.id.qr_icon_box);
         if (iconBox != null && iconBox.getBackground() instanceof MusicGlassDrawable) {
             MusicGlassDrawable g = (MusicGlassDrawable) iconBox.getBackground();
-            if (selected) g.setToneColor(RED, 0.13f); // 瓜子选中图标盒底 Accent .13
+            if (playing) g.setToneColor(RED, 0.13f); // 瓜子选中图标盒底 Accent .13
             else g.setToneColor(0, 0f);
         }
         ImageView icon = row.findViewById(R.id.qr_icon);
         if (icon != null) {
             icon.setImageResource(r.iconRes);
-            icon.setImageTintList(ColorStateList.valueOf(selected ? RED : NAME));
+            icon.setImageTintList(ColorStateList.valueOf(playing ? RED : NAME));
         }
         TextView name = row.findViewById(R.id.qr_name);
         if (name != null) {
             name.setText(r.name);
-            name.setTextColor(selected ? RED : NAME);
+            name.setTextColor(playing ? RED : NAME);
         }
         TextView spec = row.findViewById(R.id.qr_spec);
         if (spec != null) {
             spec.setText(r.spec);
-            spec.setTextColor(selected ? 0xB8FFFFFF : 0x85FFFFFF); // 瓜子 QualityRow 码率色 .72/.52
+            spec.setTextColor(playing ? 0xB8FFFFFF : 0x85FFFFFF); // 瓜子 QualityRow 码率色 .72/.52
             specViews.add(spec); // 与 sizeViews 同序登记，供后台按真数据改规格（QQ Hi-Res 位深/采样率）
         }
         TextView currentTag = row.findViewById(R.id.qr_current);
-        if (currentTag != null) currentTag.setVisibility(selected ? View.VISIBLE : View.GONE);
+        if (currentTag != null) currentTag.setVisibility(playing ? View.VISIBLE : View.GONE);
         TextView size = row.findViewById(R.id.qr_size);
         if (size != null) {
-            // Q3：无实测前写“未知”，不写估算数；后台 HEAD 到长度后再回填。
+            // Q3：无源真数据前写“未知”，不写估算数；后台按源数据回填。
             size.setText("未知");
             sizeViews.add(size);
         }
@@ -356,21 +397,12 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
         return MusicStore.qualityName(quality);
     }
 
-    /** 必-7：HEAD 复用单例客户端（连接池复用，不许每档新建；落雪单档总超时 20 秒＋HEAD 5 秒，串行已够久）。 */
-    private static final okhttp3.OkHttpClient HEAD_CLIENT = new okhttp3.OkHttpClient.Builder()
-            .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
-            .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
-            .followRedirects(true)
-            .build();
-
     /**
-     * Q3 文件大小实测（后台逐档算、到一行填一行）：每档经仓库取链得真实地址，
-     * 有地址时 HEAD 取 Content-Length 回填；取不到地址／无长度／HEAD 失败时保持“未知”。
-     * 注意：取链走探链口径（probe＝true，只读地址、不记死），面板探链偶发失败不许污染
-     * 同曲真实点播；仅读地址、不改播放状态。串行不并行（避免与探链通道冲突）；
-     * 循环内每档前查存续条件：面板已关／档已刷新就提前退出，不再继续探链（旧口径只靠
-     * isAdded 拦写 UI，关闭后 Task 照跑、4 档串行最坏远超可接受等待）。
-     * 面板关闭或档刷新后旧任务结果不许写进新行。
+     * Q3 文件大小（后台逐档算、到一行填一行）：只填源真返回的每档数据——
+     * ①条目 _item 直带的每档字节数；②QQ 详情 file 对象的每档字节数（顺带 Hi-Res 真规格）；
+     * ③本地／已下载曲的在播文件长度（只填在播档行）。三层都没有的档保持“未知”。
+     * 原“取链＋HEAD”层已删（理由见类头 Q3）：取链对未声明档静默回落，量到的是别档文件的长度。
+     * 循环内每档前查存续条件：面板已关／档已刷新就提前退出；旧任务结果不许写进新行。
      */
     private void loadSizesAsync() {
         if (track == null) return;
@@ -378,11 +410,27 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
         final List<TextView> views = sizeViews;
         final List<TextView> specs = specViews;
         final MusicTrack t = track;
+        final int playing = actualTier;
         Task.execute(() -> {
             boolean[] filled = new boolean[rows.size()];
+            // 本地／已下载曲：在播文件就是磁盘上这一个文件，长度只填在播档行，其余档没有文件不许顶。
+            if (playing >= 0 && t.localPath != null && !t.localPath.isEmpty()) {
+                try {
+                    long len = new File(t.localPath).length();
+                    if (len > 0) {
+                        for (int i = 0; i < rows.size(); i++) {
+                            if (rows.get(i).quality != playing) continue;
+                            filled[i] = true;
+                            postSize(views, i, formatSize(len));
+                        }
+                    }
+                } catch (Throwable ignored) {
+                }
+            }
             // 第一层：源数据直带（QQ／酷狗搜索回包的每档字节数，解析时已存 _item），开面板即填。
             for (int i = 0; i < rows.size(); i++) {
                 if (!isAdded() || sizeViews != views) return;
+                if (filled[i]) continue;
                 long len = sourceSizeOf(t, rows.get(i).quality);
                 if (len > 0) {
                     filled[i] = true;
@@ -426,25 +474,8 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
                 } catch (Throwable ignored) {
                 }
             }
-            // 第三层：前两层没数的档才取链＋HEAD（原口径不动）。
-            for (int i = 0; i < rows.size(); i++) {
-                // 必-7：关闭／刷新后提前退出，不再继续探链（不只拦写 UI）。
-                if (!isAdded() || sizeViews != views) return;
-                if (filled[i]) continue;
-                final int idx = i;
-                String label = null;
-                try {
-                    String url = com.fongmi.android.tv.music.MusicRepository.playUrl(
-                            t, rows.get(i).quality, false, true);
-                    if (!isAdded() || sizeViews != views) return;
-                    if (url != null && !url.isEmpty()) {
-                        long len = headContentLength(url);
-                        if (len > 0) label = formatSize(len);
-                    }
-                } catch (Throwable ignored) {
-                }
-                if (label != null) postSize(views, idx, label);
-            }
+            // 没有第三层：取链会对未声明档静默回落低档文件，HEAD 量到的不是该档数据（见类头 Q3），
+            // 源没给每档数据的档就保持“未知”，不许拿回落文件的长度顶。
         });
     }
 
@@ -547,31 +578,6 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
     private static String khz(long hz) {
         if (hz % 1000 == 0) return (hz / 1000) + "kHz";
         return String.format(Locale.US, "%.1f", hz / 1000.0) + "kHz";
-    }
-
-    /** HEAD 取 Content-Length（跟随跳转，5 秒超时，复用单例客户端）；无长度／失败返回 -1。
-     * 本地歌取链返回 file:// 地址，OkHttp 发不出 HEAD，改直接读文件长度。 */
-    private static long headContentLength(String url) {
-        if (url != null && url.startsWith("file://")) {
-            try {
-                String path = Uri.parse(url).getPath();
-                if (path == null) return -1;
-                long len = new File(path).length();
-                return len > 0 ? len : -1;
-            } catch (Throwable ignored) {
-                return -1;
-            }
-        }
-        okhttp3.OkHttpClient client = HEAD_CLIENT;
-        okhttp3.Request req = new okhttp3.Request.Builder().url(url).head().build();
-        try (okhttp3.Response resp = client.newCall(req).execute()) {
-            if (resp == null || !resp.isSuccessful()) return -1;
-            String len = resp.header("Content-Length");
-            if (len == null) return -1;
-            return Long.parseLong(len.trim());
-        } catch (Throwable ignored) {
-            return -1;
-        }
     }
 
     private static String formatSize(double bytes) {

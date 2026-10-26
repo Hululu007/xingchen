@@ -26,6 +26,7 @@ import com.fongmi.android.tv.ui.hk.view.HkCenterListPopup;
 import com.fongmi.android.tv.ui.hk.view.MyWebProgress;
 import com.fongmi.android.tv.ui.hk.view.RecyclerFastScroller;
 import com.fongmi.android.tv.utils.Task;
+import com.fongmi.android.tv.utils.XcFadeTransition;
 import com.scwang.smart.refresh.layout.SmartRefreshLayout;
 
 import org.greenrobot.eventbus.EventBus;
@@ -568,7 +569,15 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
                     cacheMergeState = 2;
                 }
                 if (cacheMergeState <= 0) clearGlideMemory();
-                if (!merged) replaceListWith(list);
+                if (!merged) {
+                    replaceListWith(list);
+                    // 页内换页整页替换时内容淡入 200ms，不再整页硬换；缓存先行（fromCache）即贴、
+                    // 分页增量（PRE/AFTER/ARTICLE_LIST）不走本分支，均不受影响。
+                    if (!fromCache && recyclerView != null) {
+                        recyclerView.setAlpha(0f);
+                        XcFadeTransition.fadeIn(recyclerView);
+                    }
+                }
             } else if ("ARTICLE_LIST".equals(key) || isAfter) {
                 if (headerSize == -1) headerSize = initHeaders().size();
                 List<HkItem> cur = adapter.getList();

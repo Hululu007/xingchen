@@ -391,6 +391,36 @@ public class MusicDownloadActivity extends BaseActivity {
             else if (waiting > 0) tvDlLiveHeader.setText(downloading + " 首正在下载 · " + waiting + " 首等待继续");
             else tvDlLiveHeader.setText(downloading + " 首正在下载");
         }
+        refreshBatchBarState();
+    }
+
+    /** 批量工具条真态：任务钮按任务实况禁用置灰（旧口径整条无条件常显，
+     * 没任务时「全部暂停／继续／取消／清除失败」点了只空转刷新、无禁用态无提示）；
+     * 无进行中任务且无已完成时整条隐藏。本方法是唯一刷新点（refreshDlStats 各路必经）。 */
+    private void refreshBatchBarState() {
+        boolean hasActive = false;
+        boolean hasPaused = false;
+        boolean hasFailed = false;
+        for (MusicDownloadStore.LiveTask t : dlTasks) {
+            if (t.status == com.fongmi.android.tv.utils.download.DownloadTask.STATUS_DOWNLOADING
+                    || t.status == com.fongmi.android.tv.utils.download.DownloadTask.STATUS_WAITING) hasActive = true;
+            else if (t.status == com.fongmi.android.tv.utils.download.DownloadTask.STATUS_PAUSED) hasPaused = true;
+            else if (t.status == com.fongmi.android.tv.utils.download.DownloadTask.STATUS_ERROR) hasFailed = true;
+        }
+        setBatchBtn(btnDlPauseAll, hasActive);
+        setBatchBtn(btnDlResumeAll, hasPaused);
+        setBatchBtn(btnDlCancelAll, !dlTasks.isEmpty());
+        setBatchBtn(btnDlClearFailed, hasFailed);
+        if (downloadBatchBar != null) {
+            downloadBatchBar.setVisibility(dlTasks.isEmpty() && dlAllTracks.isEmpty()
+                    ? View.GONE : View.VISIBLE);
+        }
+    }
+
+    private void setBatchBtn(TextView btn, boolean enabled) {
+        if (btn == null) return;
+        btn.setEnabled(enabled);
+        btn.setAlpha(enabled ? 1f : 0.35f);
     }
 
     private void showTracks(List<MusicTrack> list) {
@@ -458,14 +488,20 @@ public class MusicDownloadActivity extends BaseActivity {
                 .setMessage("删除本地文件：释放存储空间，音频、封面、歌词一并删除\n仅移出列表：保留本地文件，仍可被本地音乐库扫描播放")
                 .setItems(new String[]{"删除本地文件", "仅移出列表"}, (d, which) -> {
                     List<MusicTrack> copy = new ArrayList<>(sel);
-                    Runnable done = new Runnable() {
+                    // 真结果计数：每条删没删由 Store 按文件／记录实况回，收齐后有失败如实报数
+                    MusicDownloadStore.DataCallback<Boolean> done = new MusicDownloadStore.DataCallback<Boolean>() {
                         int left = copy.size();
+                        int failed = 0;
 
                         @Override
-                        public void run() {
+                        public void onData(Boolean ok) {
+                            if (!Boolean.TRUE.equals(ok)) failed++;
                             if (--left <= 0) {
                                 dlSelected.clear();
                                 refreshDlSelectText();
+                                if (failed > 0) {
+                                    Notify.show(failed + " 首没删掉（文件删不动或记录已不存在），其余已处理");
+                                }
                                 loadDownloads();
                             }
                         }
@@ -485,8 +521,8 @@ public class MusicDownloadActivity extends BaseActivity {
                 .setTitle("删除下载")
                 .setMessage("删除本地文件：释放存储空间，音频、封面、歌词一并删除\n仅移出列表：保留本地文件，仍可被本地音乐库扫描播放")
                 .setItems(new String[]{"删除本地文件", "仅移出列表"}, (d, which) -> {
-                    Runnable done = () -> {
-                        Notify.show(R.string.music_deleted);
+                    MusicDownloadStore.DataCallback<Boolean> done = ok -> {
+                        Notify.show(Boolean.TRUE.equals(ok) ? R.string.music_deleted : "删除失败，文件可能被占用");
                         loadDownloads();
                     };
                     if (which == 1) MusicDownloadStore.deleteRecordOnly(track, done);

@@ -41,8 +41,19 @@ public class DeviceMusicStore {
     /** 合并扫描：MediaStore 歌曲 ＋ music_library 目录文件。
      * 第二波：应用扫描偏好——最小时长过滤（瓜子档）与文件夹排除（命中目录及其子目录的歌不进库，文件不动）。 */
     public static List<MusicTrack> scan(Context ctx) {
-        long minDuration = MusicStore.getDeviceMinDuration();
-        Set<String> excluded = MusicStore.getDeviceExcludedFolders();
+        return scan(ctx, true);
+    }
+
+    /** 真全集扫描（不应用最小时长／文件夹排除过滤，路径去重照常）：文件夹排除弹窗专用——
+     * 弹窗若拿过滤后的结果当数据源，被完全排除的文件夹根本不在列表里、永远勾不回来。 */
+    public static List<MusicTrack> scanAll(Context ctx) {
+        return scan(ctx, false);
+    }
+
+    private static List<MusicTrack> scan(Context ctx, boolean applyPrefs) {
+        long minDuration = applyPrefs ? MusicStore.getDeviceMinDuration() : 0;
+        Set<String> excluded = applyPrefs ? MusicStore.getDeviceExcludedFolders()
+                : java.util.Collections.emptySet();
         List<MusicTrack> out = new ArrayList<>();
         scanMediaStore(ctx, out);
         scanLibraryDir(ctx, out);

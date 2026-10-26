@@ -61,7 +61,7 @@ import java.util.List;
  * 批 4：面板底曾换液态玻璃（bg_music_glass_panel），1.4.28 真机点名透底看不清后恢复实底
  * bg_sheet_panel（GZ sheetPanelBg #F3F3F3，布局侧）；模式筹批 4 曾改常显全名，与头部注的
  * 「随机筹（仅随机模式）」自相冲突——本单对照 PlayQueueSheetKt.java:708 已改回仅随机出筹、文案「随机」；
- * 数值补抠（PlayQueueSheetKt:343 高度占比 0.68、:131-132 行高 56／pitch 58、GlassBottomSheetKt:158 上圆角 16）与现行一致，不改。
+ * 数值补抠（:131-132 行高 56／pitch 58、GlassBottomSheetKt:158 上圆角 16）与现行一致；面板高 2026-10-26 他亲口改定固定半屏（原 0.68 钳高＋内容自适应作废）。
  */
 public class MusicQueueDialog extends BaseBottomSheetDialog {
 
@@ -142,7 +142,7 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
         // 高度源一律走 windowHeight()（弹窗窗口实高），不许用 displayMetrics——见 windowHeight 注释。
         if (getContext() != null) {
             int screenH = windowHeight();
-            int maxH = Math.round(screenH * 0.68f);
+            int maxH = Math.round(screenH * 0.5f); // 固定半屏（他亲口口径，见 updateSheetHeight）
             behavior.setPeekHeight(maxH);
             behavior.setExpandedOffset(Math.max(0, screenH - maxH));
         }
@@ -309,8 +309,8 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
         super.onDestroyView();
     }
 
-    /** 队列面板高度与偏移的唯一 owner（重做结构）：面板高＝min(内容高, 0.68×屏高)，多余高度从列表里扣；
-     * 空态直接撑 0.68 以便空态盒居中；内容短时回 wrap_content，不留白。
+    /** 队列面板高度与偏移的唯一 owner：面板高固定半屏（2026-10-26 他亲口「播放列表瓜子是固定半屏」，
+     * 覆盖此前 0.68 钳高＋内容自适应——歌少时面板跟着缩也是不对的），列表占满剩余高、空态盒居中。
      * 偏移一次定准：peekHeight＝面板高、expandedOffset＝屏高－面板高、展开态；不挂布局监听、不另起重锚链。
      * 屏高＝windowHeight()（弹窗窗口实高、含导航栏区）；不许用 displayMetrics（活动窗口高、短一截，见 initView 注释）。 */
     private void updateSheetHeight() {
@@ -319,45 +319,14 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
         root.post(() -> {
             if (binding == null || sheetBehavior == null) return;
             int screenH = windowHeight();
-            int maxH = Math.round(screenH * 0.68f);
-            if (tracks.isEmpty()) {
-                ViewGroup.LayoutParams lp = root.getLayoutParams();
-                if (lp.height != maxH) {
-                    lp.height = maxH;
-                    root.setLayoutParams(lp);
-                }
-                setSheetOffsets(maxH, screenH);
-                return;
+            int halfH = Math.round(screenH * 0.5f); // 固定半屏（他亲口口径）
+            ViewGroup.LayoutParams lp = root.getLayoutParams();
+            if (lp.height != halfH) {
+                lp.height = halfH;
+                root.setLayoutParams(lp);
             }
-            ViewGroup.LayoutParams rootLp = root.getLayoutParams();
-            ViewGroup.LayoutParams recLp = binding.recycler.getLayoutParams();
-            if (rootLp.height != ViewGroup.LayoutParams.WRAP_CONTENT
-                    || recLp.height != ViewGroup.LayoutParams.WRAP_CONTENT) {
-                rootLp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
-                recLp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
-                root.setLayoutParams(rootLp);
-                binding.recycler.setLayoutParams(recLp);
-                root.post(this::updateSheetHeight);
-                return;
-            }
-            int rootH = root.getHeight();
-            if (rootH == 0) {
-                // 二-35：首帧（onShow 触发）视图可能尚未布局、实高为 0——旧拍在此静默放弃且无重试，
-                // 面板停在 0.68 锚点。下一拍再测（布局必随窗口显示跟上；面板销毁时 binding 空守卫截断）。
-                root.post(this::updateSheetHeight);
-                return;
-            }
-            int recH = binding.recycler.getHeight();
-            int finalH = rootH;
-            if (rootH > maxH && recH > 0) {
-                int newRecH = maxH - (rootH - recH);
-                if (newRecH > 0 && newRecH < recH) {
-                    recLp.height = newRecH;
-                    binding.recycler.setLayoutParams(recLp);
-                    finalH = maxH;
-                }
-            }
-            if (finalH > 0) setSheetOffsets(finalH, screenH);
+            // 列表吃满剩余高度（XML 侧 0dp＋weight 1）；不再按内容量缩面板
+            setSheetOffsets(halfH, screenH);
         });
     }
 

@@ -759,9 +759,11 @@ public class MusicActivity extends BaseActivity {
         MusicHomeMood.Mood mood = MusicHomeMood.at(idx);
         homeMoodName.setText(mood.name);
         homeMoodDesc.setText(mood.desc);
-        homeMoodWave.setWaveColor(mood.tone);
+        // 波浪只换颜色不换形（2026-10-26 他改口径）：固定白色半透、跟玻璃卡白字同系，
+        // 不再喂心情 tone 满色（扎眼）；心情色只活在选中片/播放钮上。
+        homeMoodWave.setWaveColor(MoodWaveView.WAVE_COLOR);
         // 卡面不再平铺心情色（2026-10-26 他发截图点名）：tone 0.16 压在深区取样上把整卡染成
-        // 墨绿实底、看不出玻璃——卡面保持纯玻璃，心情色只活在选中片/波形/播放钮上。
+        // 墨绿实底、看不出玻璃——卡面保持纯玻璃。
         // 播放钮：玻璃圆钮＋心情色 tone（与继续播放卡圆键同口径——他连着点名实色圆盘不是玻璃）；
         // 此前是 tone 实色渐变盘，整颗不透。
         if (!(homeMoodPlay.getBackground() instanceof MusicGlassDrawable)) {

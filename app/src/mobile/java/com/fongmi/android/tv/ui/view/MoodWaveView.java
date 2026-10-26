@@ -10,9 +10,14 @@ import android.view.View;
 /**
  * 心情电台卡波形条（从零重写，GZ MoodRadioPanel 波形区口径）：
  * 20 根竖条，条高由正弦相位决定；播放时相位推进、振幅趋向 1.0，暂停时相位停住、振幅趋向 0.35。
- * 颜色由宿主按当前心情 tone 喂 setWaveColor。条数 20 为星辰侧自定（GZ 条数未抠到，见对照表）。
+ * 颜色固定白色半透 WAVE_COLOR（与玻璃卡上的白字同系）——2026-10-26 他点：波浪
+ * 形状不动、只换颜色，不再随当前心情 tone 喂满色（原口径 setWaveColor(mood.tone) 作废）。
+ * 条数 20 为星辰侧自定（GZ 条数未抠到，见对照表）。
  */
 public class MoodWaveView extends View {
+
+    /** 波浪固定色：白 80% 半透，与玻璃卡白字同系，不随心情变。 */
+    public static final int WAVE_COLOR = 0xCCFFFFFF;
 
     private static final int BAR_COUNT = 20;
     private static final float AMP_PLAYING = 1.0f;
@@ -45,7 +50,7 @@ public class MoodWaveView extends View {
     }
 
     private void init() {
-        barPaint.setColor(0xFF8E8E93);
+        barPaint.setColor(WAVE_COLOR);
         barPaint.setStrokeCap(Paint.Cap.ROUND);
     }
 

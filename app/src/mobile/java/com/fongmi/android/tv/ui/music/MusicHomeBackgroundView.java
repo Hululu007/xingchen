@@ -6,6 +6,8 @@ import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Matrix;
 import android.graphics.Paint;
+import android.graphics.Rect;
+import android.graphics.RectF;
 import android.util.AttributeSet;
 import android.view.View;
 import android.view.ViewGroup;
@@ -22,6 +24,10 @@ import com.fongmi.android.tv.R;
  *
  * 本类自维护一份首页域 1/4 降采样缓冲（同一张照片、同裁切），供首页暗磨砂件
  * （MusicFrostDrawable）按宿主窗口位置裁剪作糊底——件身后糊的就是这张照片本身。
+ * 缓冲渲完再过一道缩微糊化（整体缩到 1/8 再双线性放大回来、两趟，见 blurBuffer）：
+ * 照片的波纹/闪点属高频细节，经此一糊只剩大块明暗与色影、纹理辨认不出
+ * （2026-10-27 验收定罪「透得太过、波纹直透进卡读成玻璃」后加厚；照片本体
+ * onDraw 仍是原图全清绘制，糊化只发生在缓冲这一份上）。
  * 照片在构造时同步解码（1152×2048、解码上限 2048 边），首帧即有图，不许先进页再闪。
  */
 public class MusicHomeBackgroundView extends View {
@@ -141,7 +147,7 @@ public class MusicHomeBackgroundView extends View {
         canvas.drawBitmap(mPhoto, mMatrix, mPaint);
     }
 
-    /** 把同一照片、同裁切以 1/4 尺寸渲进首页域缓冲，供磨砂件裁剪（1/4 自带糊度）。 */
+    /** 把同一照片、同裁切以 1/4 尺寸渲进首页域缓冲，供磨砂件裁剪；渲完再糊化加厚。 */
     private void renderBuffer(int w, int h) {
         if (mPhoto == null) return;
         int bw = Math.max(2, w / DOWNSAMPLE);
@@ -154,7 +160,35 @@ public class MusicHomeBackgroundView extends View {
             Canvas c = new Canvas(sBuffer);
             c.scale(1f / DOWNSAMPLE, 1f / DOWNSAMPLE);
             drawPhoto(c, w, h);
+            blurBuffer(sBuffer);
             if (old != null && old != sBuffer) old.recycle();
         }
+    }
+
+    /**
+     * 糊化加厚（2026-10-27 验收后加）：把缓冲整体缩到 1/8（即全屏 1/32）再以双线性
+     * 放大画回、连做两趟。1/4 降采样＋双线性直贴时照片波纹周期（原图几十像素级）
+     * 在卡内仍可辨认、读成玻璃；缩到 1/32 后每个缓冲像素平均掉原图约 32×32 邻域，
+     * 波纹/闪点这类高频细节整体灭掉，两趟后只剩缓慢变化的大块明暗与色影。
+     * 只在尺寸变化时跑一次、图又小，开销可忽略。
+     */
+    private static final int BLUR_SHRINK = 8;
+    private static final int BLUR_PASSES = 2;
+
+    private static void blurBuffer(Bitmap buf) {
+        int w = buf.getWidth(), h = buf.getHeight();
+        int tw = Math.max(1, w / BLUR_SHRINK), th = Math.max(1, h / BLUR_SHRINK);
+        if (tw >= w || th >= h) return;
+        Bitmap tiny = Bitmap.createBitmap(tw, th, Bitmap.Config.ARGB_8888);
+        Paint p = new Paint(Paint.FILTER_BITMAP_FLAG);
+        Rect src = new Rect(0, 0, w, h);
+        RectF dstFull = new RectF(0, 0, w, h);
+        Canvas bufCanvas = new Canvas(buf);
+        for (int i = 0; i < BLUR_PASSES; i++) {
+            Canvas tinyCanvas = new Canvas(tiny);
+            tinyCanvas.drawBitmap(buf, src, new RectF(0, 0, tw, th), p);
+            bufCanvas.drawBitmap(tiny, new Rect(0, 0, tw, th), dstFull, p);
+        }
+        tiny.recycle();
     }
 }

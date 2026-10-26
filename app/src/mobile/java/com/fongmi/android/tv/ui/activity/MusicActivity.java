@@ -63,7 +63,7 @@ import java.util.Map;
  * 心情电台卡（末卡）。榜单管线（拉取＋快照缓存，状态在 MusicHomeChartStore）只喂三彩卡前三行与猜你喜欢封面堆。
  * 2026-10-27 试点：本页底图换他发的海水照片（MusicHomeBackgroundView），件面液态玻璃撤下、
  * 换暗磨砂——布局先挂 bg_home_frost_* XML 件作可见下限，initView 走 MusicFrostWire 升级
- * 同源暗磨砂（钉死深灰 #333333@.72、不从背景取色，糊底＝身后照片缓冲）；其它音乐页照旧。
+ * 同源暗磨砂（钉死深灰 #333333@.85、不从背景取色，糊底＝身后照片缓冲缩微糊化、只剩明暗色影）；其它音乐页照旧。
  * 迷你条只在首页显示：白名单在 ListenMiniBar，本页只负责回页补注册（refreshMiniBar）。
  */
 public class MusicActivity extends BaseActivity {

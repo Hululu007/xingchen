@@ -244,8 +244,8 @@ public class MusicStore {
     public static int getQuality() {
         // 扫描 H6：合法值钳制（同 getMode 口径）——越界值会让取链从越界档逐档
         // 往下白试多轮源请求才轮到真档，单首取链平白变慢
-        int q = Prefers.getInt(K_QUALITY, QUALITY_STANDARD);
-        return q >= QUALITY_LOW && q <= QUALITY_SUPER ? q : QUALITY_STANDARD;
+        int q = Prefers.getInt(K_QUALITY, QUALITY_SUPER);
+        return q >= QUALITY_LOW && q <= QUALITY_SUPER ? q : QUALITY_SUPER;
     }
 
     public static void setQuality(int quality) {

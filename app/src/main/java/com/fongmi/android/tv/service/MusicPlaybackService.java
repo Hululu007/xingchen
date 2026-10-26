@@ -2393,14 +2393,13 @@ public class MusicPlaybackService extends MediaSessionService {
 
     private void onPlayFailed(MusicTrack failed) {
         // 高10：换档重取失败（取链环与看门狗都收口到这里）——取链期播放器没被碰过、
-        // 旧档流还装着且健康：不记失败账、不拉黑、不停旧流，只报没换成，播停态照旧。
+        // 旧档流还装着且健康：不记失败账、不拉黑、不停旧流、不提示（全程静默），播停态照旧。
         // 旧流若在取链期间自己先坏了（播放器已带错误），不在此支保它、走正常收口；
         // 装配成功后新流自己的拉流报错也不走这支（标记已在装配落点消费）。
         if (qualityReload && failed != null && failed == loadedTrack && hasMediaItem && player != null
                 && player.getPlayerError() == null) {
             qualityReload = false;
             preparing = false;
-            Notify.show(R.string.music_quality_reload_failed);
             return;
         }
         recordFailure(failed);

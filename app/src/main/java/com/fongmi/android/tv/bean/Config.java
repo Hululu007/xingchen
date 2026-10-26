@@ -96,17 +96,35 @@ public class Config {
         AppDatabase.get().getConfigDao().delete(url, type);
     }
 
+    /**
+     * 用户亲手清掉当前槽位的持久标记。findOne 取的是历史表里 time 最新的一行，
+     * 清掉当前行后下一条历史就会顶上来当当前配置——清槽位的口径是「清成空、
+     * 不自动切别的线路」，所以清空动作必须落这个标记：vod()/live()/wall() 见标记
+     * 直接回空配置；任一配置经 update() 成为当前（新加/切换/加载成功）时摘除。
+     * 从没配过（首次安装、无标记无记录）不走标记，原样回空，不受影响。
+     */
+    public static void markCleared(int type) {
+        Prefers.put("config_cleared_" + type, true);
+    }
+
+    private static boolean isCleared(int type) {
+        return Prefers.getBoolean("config_cleared_" + type, false);
+    }
+
     public static Config vod() {
+        if (isCleared(0)) return create(0);
         Config item = AppDatabase.get().getConfigDao().findOne(0);
         return item == null ? create(0) : item;
     }
 
     public static Config live() {
+        if (isCleared(1)) return create(1);
         Config item = AppDatabase.get().getConfigDao().findOne(1);
         return item == null ? create(1) : item;
     }
 
     public static Config wall() {
+        if (isCleared(2)) return create(2);
         Config item = AppDatabase.get().getConfigDao().findOne(2);
         return item == null ? create(2) : item;
     }
@@ -281,6 +299,7 @@ public class Config {
         if (isEmpty()) return this;
         setTime(System.currentTimeMillis());
         Prefers.put("config_" + getType(), getUrl());
+        Prefers.remove("config_cleared_" + getType());
         return save();
     }
 

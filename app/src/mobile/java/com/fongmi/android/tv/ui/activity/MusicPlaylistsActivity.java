@@ -39,8 +39,10 @@ import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.ui.dialog.AccountPlaylistDialog;
 import com.fongmi.android.tv.ui.dialog.MusicOptionsDialog;
 import com.fongmi.android.tv.ui.dialog.MusicPlaylistImportDialog;
+import com.fongmi.android.tv.ui.dialog.PanLoginDialog;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.Task;
+import com.fongmi.android.tv.utils.WebViewUtil;
 import com.fongmi.android.tv.utils.XcFadeTransition;
 import com.fongmi.android.tv.ui.music.MusicGlassDialogBuilder;
 import com.fongmi.android.tv.ui.music.MusicGlassDialogs;
@@ -679,9 +681,22 @@ public class MusicPlaylistsActivity extends BaseActivity {
             return;
         }
         android.webkit.WebView web = new android.webkit.WebView(this);
+        // 登录页白屏定根（2026-10-26 真机两家同病）：旧配置只有 JS/DOM/Cookie 三项，
+        // 与壳内全部能打开的登录 WebView（PanLoginDialog/PanLoginActivity/WebActivity/
+        // CatWebActivity）相比缺了整套承接——无 WebViewClient 时页面自身的跳转
+        // （两家首页一进来就按 UA/路由做 location 跳转）会被 WebView 交出外部处理，
+        // 本窗永远停在空白壳上；无 UA 时默认 "; wv" 移动 UA 也进不了提示里说的桌面版。
+        // 照 PanLoginDialog 工作配方补齐：configureBase（硬件层/渲染优先级/数据库/
+        // 混合内容）＋桌面 UA＋宽视口＋WebViewClient/WebChromeClient＋可聚焦（输入法）。
+        WebViewUtil.configureBase(web, "musiclogin");
         android.webkit.WebSettings st = web.getSettings();
-        st.setJavaScriptEnabled(true);
-        st.setDomStorageEnabled(true);
+        st.setUserAgentString(PanLoginDialog.DESKTOP_UA);
+        st.setUseWideViewPort(true);
+        st.setLoadWithOverviewMode(true);
+        web.setWebViewClient(new android.webkit.WebViewClient());
+        web.setWebChromeClient(new android.webkit.WebChromeClient());
+        web.setFocusable(true);
+        web.setFocusableInTouchMode(true);
         android.webkit.CookieManager.getInstance().setAcceptCookie(true);
         android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
         web.loadUrl(url);
@@ -702,6 +717,16 @@ public class MusicPlaylistsActivity extends BaseActivity {
                 .setPositiveButton("完成，获取Cookie", null)
                 .setNegativeButton(android.R.string.cancel, null)
                 .create();
+        // 与 PanLoginDialog 同口径：WebView 显式收尾，只靠 GC 会拖住页面与宿主引用
+        dialog.setOnDismissListener(d -> {
+            try {
+                web.stopLoading();
+                web.setWebViewClient(null);
+                web.setWebChromeClient(null);
+                web.destroy();
+            } catch (Throwable ignored) {
+            }
+        });
         // 本站自带 OnShowListener 会覆盖玻璃壳在 create 里挂的显示回调，故在监听首行手动补壳的整片收口
         dialog.setOnShowListener(d -> {
             MusicGlassDialogs.apply(dialog);

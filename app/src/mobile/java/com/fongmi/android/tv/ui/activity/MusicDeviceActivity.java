@@ -78,18 +78,9 @@ public class MusicDeviceActivity extends BaseActivity {
     }
 
     private View rootView;
-    private TextView tvTitle;
-    private ImageView btnSearch;
     private TextView tvBigTitle;
     private TextView tvBigCount;
-    private View deviceViewBar;
-    private TextView tvDeviceViewSongs;
-    private TextView tvDeviceViewAlbums;
-    private TextView tvDeviceViewArtists;
-    private TextView tvDeviceViewFolders;
-    private TextView tvDeviceSource;
     private EditText etDeviceSearch;
-    private View deviceToolsBar;
     private TextView tvDeviceScanSettings;
     private TextView tvDeviceRemoved;
     private TextView deviceFilterBar;
@@ -168,18 +159,13 @@ public class MusicDeviceActivity extends BaseActivity {
             deviceSource = savedInstanceState.getInt("ml_deviceSource", deviceSource);
             pendingListState = savedInstanceState.getParcelable("ml_listState");
         }
-        tvTitle = findViewById(R.id.tvTitle);
-        btnSearch = findViewById(R.id.btnSearch);
+        // 顶栏小标题、右上角搜索钮、分类排钮（歌曲/专辑/歌手/文件夹）与来源筛选入口已按令整排摘除：
+        // 恢复状态不得把页面带回无入口的分组视图或来源筛选，强制回平铺全部来源
+        deviceView = VIEW_SONGS;
+        deviceSource = 0;
         tvBigTitle = findViewById(R.id.tvBigTitle);
         tvBigCount = findViewById(R.id.tvBigCount);
-        deviceViewBar = findViewById(R.id.deviceViewBar);
-        tvDeviceViewSongs = findViewById(R.id.tvDeviceViewSongs);
-        tvDeviceViewAlbums = findViewById(R.id.tvDeviceViewAlbums);
-        tvDeviceViewArtists = findViewById(R.id.tvDeviceViewArtists);
-        tvDeviceViewFolders = findViewById(R.id.tvDeviceViewFolders);
-        tvDeviceSource = findViewById(R.id.tvDeviceSource);
         etDeviceSearch = findViewById(R.id.etDeviceSearch);
-        deviceToolsBar = findViewById(R.id.deviceToolsBar);
         tvDeviceScanSettings = findViewById(R.id.tvDeviceScanSettings);
         tvDeviceRemoved = findViewById(R.id.tvDeviceRemoved);
         deviceFilterBar = findViewById(R.id.deviceFilterBar);
@@ -189,17 +175,9 @@ public class MusicDeviceActivity extends BaseActivity {
         recycler = findViewById(R.id.recycler);
         empty = findViewById(R.id.empty);
 
-        tvTitle.setText(R.string.music_device);
-        btnSearch.setVisibility(View.VISIBLE);
-        btnSearch.setOnClickListener(v -> MusicSearchActivity.startSearch(this, ""));
         btnPlayAll.setOnClickListener(v -> shufflePlay());
         btnPlaySeq.setOnClickListener(v -> playAllSequential());
         btnSort.setOnClickListener(v -> showDeviceSortDialog());
-        tvDeviceViewSongs.setOnClickListener(v -> setDeviceView(VIEW_SONGS));
-        tvDeviceViewAlbums.setOnClickListener(v -> setDeviceView(VIEW_ALBUMS));
-        tvDeviceViewArtists.setOnClickListener(v -> setDeviceView(VIEW_ARTISTS));
-        tvDeviceViewFolders.setOnClickListener(v -> setDeviceView(VIEW_FOLDERS));
-        tvDeviceSource.setOnClickListener(v -> showDeviceSourceDialog());
         if (tvDeviceScanSettings != null) tvDeviceScanSettings.setOnClickListener(v -> showDeviceScanDialog());
         if (tvDeviceRemoved != null) tvDeviceRemoved.setOnClickListener(v -> showDeviceRemovedDialog());
         deviceFilterBar.setOnClickListener(v -> {
@@ -317,7 +295,6 @@ public class MusicDeviceActivity extends BaseActivity {
 
     private void loadDevice() {
         bigTitle = getString(R.string.music_device);
-        tvTitle.setText(R.string.music_device);
         if (androidx.core.content.ContextCompat.checkSelfPermission(this, audioPermission())
                 != android.content.pm.PackageManager.PERMISSION_GRANTED) {
             tracks.clear();
@@ -350,14 +327,7 @@ public class MusicDeviceActivity extends BaseActivity {
         });
     }
 
-    // ================= 视图／排序／来源／扫描 =================
-
-    private void setDeviceView(int view) {
-        deviceView = view;
-        deviceGroupType = -1;
-        deviceGroupKey = "";
-        refreshDeviceDisplay();
-    }
+    // ================= 排序／扫描 =================
 
     private void showDeviceSortDialog() {
         String[] items = {"默认", "最近添加", "时长", "文件大小"};
@@ -375,15 +345,6 @@ public class MusicDeviceActivity extends BaseActivity {
                 })
                 .setNegativeButton(android.R.string.cancel, null)
                 .show();
-    }
-
-    private void showDeviceSourceDialog() {
-        String[] items = {"全部来源", "设备媒体库", "导入目录"};
-        MusicOptionsDialog.show(this, "选择音乐库来源", java.util.Arrays.asList(items), deviceSource, idx -> {
-            deviceSource = idx;
-            tvDeviceSource.setText("来源：" + items[idx].replace("设备媒体库", "媒体库"));
-            refreshDeviceDisplay();
-        });
     }
 
     private void showDeviceScanDialog() {
@@ -462,20 +423,11 @@ public class MusicDeviceActivity extends BaseActivity {
     // ================= 显示刷新（过滤→排序／分组→列表） =================
 
     private void refreshDeviceDisplay() {
-        if (deviceViewBar != null) deviceViewBar.setVisibility(View.VISIBLE);
         if (etDeviceSearch != null) etDeviceSearch.setVisibility(View.VISIBLE);
-        if (deviceToolsBar != null) deviceToolsBar.setVisibility(View.VISIBLE);
         if (tvDeviceRemoved != null) {
             int removed = MusicStore.loadIgnoredDeviceIds().size();
             tvDeviceRemoved.setVisibility(removed > 0 ? View.VISIBLE : View.GONE);
             if (removed > 0) tvDeviceRemoved.setText(getString(R.string.wave2_device_removed, removed));
-        }
-        TextView[] chips = {tvDeviceViewSongs, tvDeviceViewAlbums, tvDeviceViewArtists, tvDeviceViewFolders};
-        for (int i = 0; i < chips.length; i++) {
-            if (chips[i] == null) continue;
-            boolean sel = i == deviceView;
-            chips[i].setTextColor(sel ? 0xFFFA243C : 0xFFF1F4F5);
-            chips[i].getPaint().setFakeBoldText(sel);
         }
         deviceFilterBar.setTextColor(0x99FFFFFF);
         if (deviceGroupType >= 0) {

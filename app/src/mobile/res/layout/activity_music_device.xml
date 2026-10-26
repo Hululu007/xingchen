@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 本地音乐独立页（拆页 p1，2026-10-25）：从旧列表壳的 device 模式拆出。
-     构成照旧页 device 模式实际引用子集：顶栏（标题＋搜索钮）＋大标题行＋工具栏（随机播／顺序播／排序）
-     ＋本地视图条（歌曲／专辑／歌手／文件夹＋来源）＋页内搜索框＋扫描工具条＋组筛选条＋列表＋空态覆盖层。
+     构成（2026-10-26 按令收紧）：大标题行＋页内搜索框＋组筛选条＋工具排（扫描设置／随机播／顺序播
+     三个玻璃框＋排序钮）＋列表＋空态覆盖层。原顶栏小标题、右上角搜索钮、分类排钮与来源筛选入口已整排摘除。
      根与背景层照旧列表布局：根底 home_bg_page 兜底＋MusicGlassBackgroundView 铺满。
      无返回箭头（铁律），关页走系统返回；界面只放名字和状态，无介绍文字。 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -23,41 +23,13 @@
         android:paddingEnd="20dp"
         android:paddingBottom="16dp">
 
-<RelativeLayout
-            android:id="@+id/headerBar"
-            android:layout_width="match_parent"
-            android:layout_height="64dp">
-
-            <TextView
-                android:id="@+id/tvTitle"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_alignParentStart="true"
-                android:layout_centerVertical="true"
-                android:text="@string/music_playlist"
-                android:textColor="#1C1C1E"
-                android:textSize="26sp"
-                android:textStyle="bold" />
-
-            <ImageView
-                android:id="@+id/btnSearch"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:layout_alignParentEnd="true"
-                android:layout_centerVertical="true"
-                android:contentDescription="@string/music_search"
-                android:padding="12dp"
-                android:src="@drawable/ic_music_search"
-                android:visibility="gone" />
-
-            </RelativeLayout>
 
         
 <LinearLayout
             android:id="@+id/bigTitleRow"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
+            android:layout_marginTop="6dp"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
@@ -82,79 +54,6 @@
             
         </LinearLayout>
 
-<LinearLayout
-            android:id="@+id/deviceViewBar"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:visibility="gone">
-
-            <TextView
-                android:id="@+id/tvDeviceViewSongs"
-                android:layout_width="wrap_content"
-                android:layout_height="32dp"
-                android:layout_marginEnd="8dp"
-                android:background="@drawable/bg_pill_overview"
-                android:gravity="center"
-                android:paddingStart="12dp"
-                android:paddingEnd="12dp"
-                android:text="歌曲"
-                android:textSize="13sp" />
-
-            <TextView
-                android:id="@+id/tvDeviceViewAlbums"
-                android:layout_width="wrap_content"
-                android:layout_height="32dp"
-                android:layout_marginEnd="8dp"
-                android:background="@drawable/bg_pill_overview"
-                android:gravity="center"
-                android:paddingStart="12dp"
-                android:paddingEnd="12dp"
-                android:text="专辑"
-                android:textSize="13sp" />
-
-            <TextView
-                android:id="@+id/tvDeviceViewArtists"
-                android:layout_width="wrap_content"
-                android:layout_height="32dp"
-                android:layout_marginEnd="8dp"
-                android:background="@drawable/bg_pill_overview"
-                android:gravity="center"
-                android:paddingStart="12dp"
-                android:paddingEnd="12dp"
-                android:text="歌手"
-                android:textSize="13sp" />
-
-            <TextView
-                android:id="@+id/tvDeviceViewFolders"
-                android:layout_width="wrap_content"
-                android:layout_height="32dp"
-                android:layout_marginEnd="8dp"
-                android:background="@drawable/bg_pill_overview"
-                android:gravity="center"
-                android:paddingStart="12dp"
-                android:paddingEnd="12dp"
-                android:text="文件夹"
-                android:textSize="13sp" />
-
-            <View
-                android:layout_width="0dp"
-                android:layout_height="1dp"
-                android:layout_weight="1" />
-
-            <TextView
-                android:id="@+id/tvDeviceSource"
-                android:layout_width="wrap_content"
-                android:layout_height="32dp"
-                android:background="@drawable/bg_pill_overview"
-                android:gravity="center"
-                android:paddingStart="12dp"
-                android:paddingEnd="12dp"
-                android:text="来源：全部"
-                android:textSize="13sp" />
-        </LinearLayout>
 
 <EditText
             android:id="@+id/etDeviceSearch"
@@ -173,40 +72,6 @@
             android:textSize="14sp"
             android:visibility="gone" />
 
-<LinearLayout
-            android:id="@+id/deviceToolsBar"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:visibility="gone">
-
-            <TextView
-                android:id="@+id/tvDeviceScanSettings"
-                android:layout_width="wrap_content"
-                android:layout_height="32dp"
-                android:background="@drawable/bg_pill_overview"
-                android:gravity="center"
-                android:paddingStart="12dp"
-                android:paddingEnd="12dp"
-                android:text="@string/wave2_device_scan_settings"
-                android:textColor="#1C1C1E"
-                android:textSize="13sp" />
-
-            <TextView
-                android:id="@+id/tvDeviceRemoved"
-                android:layout_width="wrap_content"
-                android:layout_height="32dp"
-                android:layout_marginStart="8dp"
-                android:background="@drawable/bg_pill_overview"
-                android:gravity="center"
-                android:paddingStart="12dp"
-                android:paddingEnd="12dp"
-                android:textColor="#FA243C"
-                android:textSize="13sp"
-                android:visibility="gone" />
-        </LinearLayout>
 
 <TextView
             android:id="@+id/deviceFilterBar"
@@ -228,19 +93,33 @@
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
+            <TextView
+                android:id="@+id/tvDeviceScanSettings"
+                android:layout_width="wrap_content"
+                android:layout_height="52dp"
+                android:background="@drawable/bg_music_glass_chip"
+                android:gravity="center"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:text="@string/wave2_device_scan_settings"
+                android:textColor="#F1F4F5"
+                android:textSize="16sp" />
+
             <LinearLayout
                 android:id="@+id/btnPlayAll"
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
+                android:layout_height="52dp"
+                android:layout_marginStart="12dp"
+                android:background="@drawable/bg_music_glass_chip"
                 android:gravity="center_vertical"
                 android:orientation="horizontal"
-                android:padding="8dp">
+                android:paddingStart="14dp"
+                android:paddingEnd="16dp">
 
                 <ImageView
                     android:id="@+id/ivPlayAllIcon"
                     android:layout_width="36dp"
                     android:layout_height="36dp"
-                    android:background="@drawable/card_music"
                     android:padding="8dp"
                     android:src="@drawable/ic_music_shuffle"
                     android:tint="#FA243C" />
@@ -251,23 +130,24 @@
                     android:layout_height="wrap_content"
                     android:layout_marginStart="12dp"
                     android:text="@string/music_shuffle_play"
-                    android:textColor="#9AA7B8"
+                    android:textColor="#F1F4F5"
                     android:textSize="16sp" />
             </LinearLayout>
 
             <LinearLayout
                 android:id="@+id/btnPlaySeq"
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="16dp"
+                android:layout_height="52dp"
+                android:layout_marginStart="12dp"
+                android:background="@drawable/bg_music_glass_chip"
                 android:gravity="center_vertical"
                 android:orientation="horizontal"
-                android:padding="8dp">
+                android:paddingStart="14dp"
+                android:paddingEnd="16dp">
 
                 <ImageView
                     android:layout_width="36dp"
                     android:layout_height="36dp"
-                    android:background="@drawable/card_music"
                     android:padding="8dp"
                     android:src="@drawable/ic_music_play"
                     android:tint="#FA243C" />
@@ -277,9 +157,22 @@
                     android:layout_height="wrap_content"
                     android:layout_marginStart="12dp"
                     android:text="@string/music_play_all_order"
-                    android:textColor="#9AA7B8"
+                    android:textColor="#F1F4F5"
                     android:textSize="16sp" />
             </LinearLayout>
+
+            <TextView
+                android:id="@+id/tvDeviceRemoved"
+                android:layout_width="wrap_content"
+                android:layout_height="32dp"
+                android:layout_marginStart="12dp"
+                android:background="@drawable/bg_pill_overview"
+                android:gravity="center"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:textColor="#FA243C"
+                android:textSize="13sp"
+                android:visibility="gone" />
 
             <View
                 android:layout_width="0dp"

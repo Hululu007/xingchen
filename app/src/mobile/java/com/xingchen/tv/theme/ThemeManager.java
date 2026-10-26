@@ -247,7 +247,7 @@ public class ThemeManager {
             if (!real) dw = fallbackDrawable(activity);
             flog("doApply: setting window background, real=" + real);
             try {
-                activity.getWindow().setBackgroundDrawable(dw);
+                setWindowBackgroundWithFade(activity, dw);
             } catch (Exception e) {
                 Log.e(TAG, "setting window background failed", e);
                 flog("ERROR setting window bg: " + e);
@@ -311,6 +311,29 @@ public class ThemeManager {
                 flog("ERROR clearing cover views: " + e);
             }
         } catch (Exception e) { flog("ERROR doApply failed: " + e); }
+    }
+
+    // 主题/壁纸切换淡变（统一 200ms）：窗口已有旧底时新旧底交叉淡化，不再硬换；
+    // 首贴无旧底、或系统动画关时直接落，与防闪的同步贴口径不冲突。
+    // 旧底若已是上一次淡变的 TransitionDrawable，只取其末层作旧底，避免逐次套娃。
+    private void setWindowBackgroundWithFade(Activity activity, Drawable newBg) {
+        android.view.Window window = activity.getWindow();
+        Drawable oldBg = window.getBackground();
+        if (oldBg == null || newBg == null
+                || !com.fongmi.android.tv.utils.XcFadeTransition.isAnimEnabled(activity)) {
+            window.setBackgroundDrawable(newBg);
+            return;
+        }
+        if (oldBg instanceof android.graphics.drawable.TransitionDrawable) {
+            android.graphics.drawable.TransitionDrawable prev =
+                    (android.graphics.drawable.TransitionDrawable) oldBg;
+            if (prev.getNumberOfLayers() > 0) oldBg = prev.getDrawable(prev.getNumberOfLayers() - 1);
+        }
+        android.graphics.drawable.TransitionDrawable td =
+                new android.graphics.drawable.TransitionDrawable(new Drawable[]{oldBg, newBg});
+        td.setCrossFadeEnabled(true);
+        window.setBackgroundDrawable(td);
+        td.startTransition(200);
     }
 
     // 拿到真壁纸时返回一份本窗口独立的 Drawable，并把图源存进缓存/上一张；

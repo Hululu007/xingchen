@@ -331,7 +331,7 @@ public class EmbyServerActivity extends BaseActivity {
 
     private void onDelete(EmbyServer s) {
         String name = TextUtils.isEmpty(s.alias) ? s.baseUrl : s.alias;
-        new AlertDialog.Builder(this)
+        new AlertDialog.Builder(this, R.style.ThemeOverlay_XingChen_GlassDialog_Dark)
                 .setTitle(R.string.emby_delete_title)
                 .setMessage(getString(R.string.emby_delete_msg, name))
                 .setPositiveButton(R.string.emby_btn_delete, (d, w) -> {

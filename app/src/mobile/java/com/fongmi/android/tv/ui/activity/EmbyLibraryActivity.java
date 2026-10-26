@@ -1,7 +1,7 @@
 package com.fongmi.android.tv.ui.activity;
 
 import android.app.Activity;
-import android.app.AlertDialog;
+import androidx.appcompat.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
@@ -296,7 +296,7 @@ public class EmbyLibraryActivity extends BaseActivity {
         String cur = EmbyStore.libSort();
         int checked = 0;
         for (int i = 0; i < values.length; i++) if (values[i].equals(cur)) checked = i;
-        new AlertDialog.Builder(this)
+        new AlertDialog.Builder(this, R.style.ThemeOverlay_XingChen_GlassDialog_Dark)
                 .setTitle(R.string.emby_sort)
                 .setSingleChoiceItems(labels, checked, (d, which) -> {
                     d.dismiss();
@@ -320,7 +320,7 @@ public class EmbyLibraryActivity extends BaseActivity {
         String cur = EmbyStore.libPlayedFilter();
         int checked = 0;
         for (int i = 0; i < values.length; i++) if (values[i].equals(cur)) checked = i;
-        new AlertDialog.Builder(this)
+        new AlertDialog.Builder(this, R.style.ThemeOverlay_XingChen_GlassDialog_Dark)
                 .setTitle(R.string.emby_filter_state)
                 .setSingleChoiceItems(labels, checked, (d, which) -> {
                     d.dismiss();
@@ -358,7 +358,7 @@ public class EmbyLibraryActivity extends BaseActivity {
                 String cur = EmbyStore.libYear();
                 int checked = 0;
                 for (int i = 0; i < values.size(); i++) if (values.get(i).equals(cur)) checked = i;
-                new AlertDialog.Builder(this)
+                new AlertDialog.Builder(this, R.style.ThemeOverlay_XingChen_GlassDialog_Dark)
                         .setTitle(R.string.emby_filter_year)
                         .setSingleChoiceItems(labels.toArray(new String[0]), checked, (d, which) -> {
                             d.dismiss();
@@ -437,7 +437,7 @@ public class EmbyLibraryActivity extends BaseActivity {
         values.addAll(items);
         int checked = 0;
         for (int i = 0; i < values.size(); i++) if (values.get(i).equals(cur)) checked = i;
-        new AlertDialog.Builder(this)
+        new AlertDialog.Builder(this, R.style.ThemeOverlay_XingChen_GlassDialog_Dark)
                 .setTitle(title)
                 .setSingleChoiceItems(labels.toArray(new String[0]), checked, (d, which) -> {
                     d.dismiss();
@@ -583,7 +583,7 @@ public class EmbyLibraryActivity extends BaseActivity {
                 it.played ? getString(R.string.emby_menu_unmark_played) : getString(R.string.emby_menu_mark_played),
                 it.favorite ? getString(R.string.emby_menu_unfavorite) : getString(R.string.emby_menu_favorite)
         };
-        new AlertDialog.Builder(this).setItems(titles, (d, which) -> {
+        new AlertDialog.Builder(this, R.style.ThemeOverlay_XingChen_GlassDialog_Dark).setItems(titles, (d, which) -> {
             if (which == 0) togglePlayed(it);
             else toggleFavorite(it);
         }).show();
@@ -794,7 +794,7 @@ public class EmbyLibraryActivity extends BaseActivity {
         rv.setLayoutManager(new GridLayoutManager(this, 3));
         PersonAdapter pa = new PersonAdapter(tvEmpty);
         rv.setAdapter(pa);
-        AlertDialog d = new AlertDialog.Builder(this).setView(v).create();
+        AlertDialog d = new AlertDialog.Builder(this, R.style.ThemeOverlay_XingChen_GlassDialog_Dark).setView(v).create();
         et.addTextChangedListener(new TextWatcher() {
             @Override
             public void beforeTextChanged(CharSequence s, int a, int b, int c) {

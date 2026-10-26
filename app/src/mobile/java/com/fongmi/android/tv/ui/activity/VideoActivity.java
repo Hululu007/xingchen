@@ -3313,7 +3313,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
                 String[] titles = {
                         p ? getString(R.string.emby_menu_unmark_played) : getString(R.string.emby_menu_mark_played)
                 };
-                new AlertDialog.Builder(this).setItems(titles, (d, which) ->
+                new AlertDialog.Builder(this, R.style.ThemeOverlay_XingChen_GlassDialog_Dark).setItems(titles, (d, which) ->
                         toggleEmbyEpisodePlayed(sid, iid, !p)).show();
             });
         });

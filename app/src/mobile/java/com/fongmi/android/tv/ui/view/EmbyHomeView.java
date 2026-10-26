@@ -1629,7 +1629,7 @@ public class EmbyHomeView extends FrameLayout {
                 it.played ? ctx.getString(R.string.emby_menu_unmark_played) : ctx.getString(R.string.emby_menu_mark_played),
                 it.favorite ? ctx.getString(R.string.emby_menu_unfavorite) : ctx.getString(R.string.emby_menu_favorite)
         };
-        showDialog(new AlertDialog.Builder(ctx).setItems(titles, (d, which) -> {
+        showDialog(new AlertDialog.Builder(ctx, R.style.ThemeOverlay_XingChen_GlassDialog_Dark).setItems(titles, (d, which) -> {
             if (which == 0) togglePlayed(it, section);
             else toggleFavorite(it, section);
         }).create());

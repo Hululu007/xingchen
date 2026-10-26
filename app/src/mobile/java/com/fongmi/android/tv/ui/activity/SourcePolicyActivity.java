@@ -23,7 +23,7 @@ import com.fongmi.android.tv.ui.base.BaseActivity;
 import java.util.ArrayList;
 import java.util.List;
 
-/** 按源定向：顶部七切换（PY / JS / 点播 / 海阔 / Emby / 书源 / 网盘），点哪个只看哪个；默认全部直连。 */
+/** 按源定向：顶部六切换（PY / JS / 点播 / 海阔 / Emby / 书源），点哪个只看哪个；默认全部直连。 */
 public class SourcePolicyActivity extends BaseActivity {
 
     private ActivitySourcePolicyBinding binding;
@@ -34,7 +34,6 @@ public class SourcePolicyActivity extends BaseActivity {
     private int countHk;
     private int countEmby;
     private int countBook;
-    private int countPan;
 
     public static void start(Activity activity) {
         activity.startActivity(new Intent(activity, SourcePolicyActivity.class));
@@ -77,14 +76,9 @@ public class SourcePolicyActivity extends BaseActivity {
             currentTab = SourceProxyPolicy.KIND_BOOK;
             applyTab();
         });
-        binding.tabPan.setOnClickListener(v -> {
-            currentTab = SourceProxyPolicy.KIND_PIKPAK;
-            applyTab();
-        });
         countHk = fillHk();
         countEmby = fillEmby();
         countBook = fillBook();
-        countPan = fillPan();
         countPy = fillSites(SourceProxyPolicy.KIND_PY, binding.groupPy, binding.tvTitlePy);
         countJs = fillSites(SourceProxyPolicy.KIND_JS, binding.groupJs, binding.tvTitleJs);
         countVod = fillVod();
@@ -95,7 +89,6 @@ public class SourcePolicyActivity extends BaseActivity {
             else if (countHk > 0) currentTab = SourceProxyPolicy.KIND_HK;
             else if (countEmby > 0) currentTab = SourceProxyPolicy.KIND_EMBY;
             else if (countBook > 0) currentTab = SourceProxyPolicy.KIND_BOOK;
-            else if (countPan > 0) currentTab = SourceProxyPolicy.KIND_PIKPAK;
         }
         applyTab();
     }
@@ -106,8 +99,7 @@ public class SourcePolicyActivity extends BaseActivity {
         boolean vod = SourceProxyPolicy.KIND_VOD.equals(currentTab);
         boolean emby = SourceProxyPolicy.KIND_EMBY.equals(currentTab);
         boolean book = SourceProxyPolicy.KIND_BOOK.equals(currentTab);
-        boolean pan = SourceProxyPolicy.KIND_PIKPAK.equals(currentTab);
-        boolean hk = !py && !js && !vod && !emby && !book && !pan;
+        boolean hk = !py && !js && !vod && !emby && !book;
         binding.tvTitlePy.setVisibility(py ? View.VISIBLE : View.GONE);
         binding.groupPy.setVisibility(py ? View.VISIBLE : View.GONE);
         binding.tvTitleJs.setVisibility(js ? View.VISIBLE : View.GONE);
@@ -120,9 +112,7 @@ public class SourcePolicyActivity extends BaseActivity {
         binding.groupEmby.setVisibility(emby ? View.VISIBLE : View.GONE);
         binding.tvTitleBook.setVisibility(book ? View.VISIBLE : View.GONE);
         binding.groupBook.setVisibility(book ? View.VISIBLE : View.GONE);
-        binding.tvTitlePan.setVisibility(pan ? View.VISIBLE : View.GONE);
-        binding.groupPan.setVisibility(pan ? View.VISIBLE : View.GONE);
-        int count = py ? countPy : (js ? countJs : (vod ? countVod : (emby ? countEmby : (book ? countBook : (pan ? countPan : countHk)))));
+        int count = py ? countPy : (js ? countJs : (vod ? countVod : (emby ? countEmby : (book ? countBook : countHk))));
         binding.tvNone.setVisibility(count == 0 ? View.VISIBLE : View.GONE);
         styleTab(binding.tabPy, py);
         styleTab(binding.tabJs, js);
@@ -130,7 +120,6 @@ public class SourcePolicyActivity extends BaseActivity {
         styleTab(binding.tabHk, hk);
         styleTab(binding.tabEmby, emby);
         styleTab(binding.tabBook, book);
-        styleTab(binding.tabPan, pan);
     }
 
     /** 点播源组：配置站点里 api 不是 .py/.js 的全部（jar 蜘蛛、接口站等），id=站点 key（与打点一致）。 */
@@ -284,17 +273,6 @@ public class SourcePolicyActivity extends BaseActivity {
             }
         }
         return n;
-    }
-
-    /**
-     * 网盘分区：目前只有 PikPak 一家接了节点门控（单一账号、单一条目），
-     * id 固定 DrivePikPak.ID，开关走框架表 pikpak: 前缀；开了即生效、
-     * 不要求节点总开关先开（SourceProxyPolicy 的 pikpak 口径）。
-     */
-    private int fillPan() {
-        addRow(binding.groupPan, "PikPak", SourceProxyPolicy.KIND_PIKPAK,
-                com.fongmi.android.tv.cloud.drivepikpak.DrivePikPak.ID);
-        return 1;
     }
 
     /** 书源条目的 key：先解析 json 取 bookSourceUrl（免得逐条走 get 的解析缓存）。 */

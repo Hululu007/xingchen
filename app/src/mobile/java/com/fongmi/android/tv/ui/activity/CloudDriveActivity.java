@@ -322,6 +322,15 @@ public class CloudDriveActivity extends BaseActivity {
                     }
                     return;
                 }
+                // 流畅度 D2/D7：BaseAdapter 没有差量插入 API，整表刷新前记下首可见位置＋偏移、刷新后恢复，续拉不跳位
+                ListView lv = adapter.listView;
+                int firstPos = 0;
+                int topOff = 0;
+                if (lv != null && !st.results.isEmpty()) {
+                    firstPos = lv.getFirstVisiblePosition();
+                    View top = lv.getChildAt(0);
+                    topOff = top == null ? 0 : top.getTop();
+                }
                 if (raw != null) {
                     st.fetched += raw.size();
                     // 搜索结果同文件列表口径：只出文件夹＋大于 30MB 的视频（visibleInList，过滤在组装处做，分页 offset 按原始条数走）
@@ -331,6 +340,7 @@ public class CloudDriveActivity extends BaseActivity {
                     st.hasMore = false;
                 }
                 adapter.notifyDataSetChanged();
+                if (lv != null && firstPos > 0) lv.setSelectionFromTop(firstPos, topOff);
                 if (st.results.isEmpty() && st.hasMore) {
                     // 这一页全被过滤掉（非视频文件），列表还空着滑不动，自动续拉下一页，别误报没找到
                     status.setVisibility(View.VISIBLE);
@@ -595,6 +605,7 @@ public class CloudDriveActivity extends BaseActivity {
                     if (!append) setLoading(false);
                     loadingMore = false;
                     if (!append) files.clear();
+                    int insertStart = files.size();
                     int added = 0;
                     if (result != null) {
                         fetchedCount = append ? fetchedCount + result.size() : result.size();
@@ -608,8 +619,14 @@ public class CloudDriveActivity extends BaseActivity {
                     }
                     // 取满一页＝可能还有下一页；不满一页＝已到头。恰好整 100 倍数时多取一页空页收尾，不丢文件。
                     hasMore = result != null && result.size() >= PAGE_LIMIT;
-                    adapter.notifyDataSetChanged();
-                    if (!append) renderBreadcrumb();
+                    // 流畅度 D2：续拉改差量插入只绑新行，不再整表重绑打断 fling；首屏/换目录仍整表。
+                    // 整页被过滤光（added==0）时先不刷新，下面自动续拉，别白打一发空的全表刷新
+                    if (!append) {
+                        adapter.notifyDataSetChanged();
+                        renderBreadcrumb();
+                    } else if (added > 0) {
+                        adapter.notifyItemRangeInserted(insertStart, added);
+                    }
                     // 整页都被过滤掉时展示列表不增长、滚动再也触发不了续拉，自动往下续一页，别把后面的视频堵死
                     if (append && added == 0 && hasMore) loadMore();
                 });

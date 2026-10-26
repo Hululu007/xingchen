@@ -297,7 +297,26 @@ public final class MusicGlassWire {
         if (root instanceof RecyclerView) hookScroll((RecyclerView) root);
         if (root instanceof android.widget.ScrollView) hookScrollView((android.widget.ScrollView) root);
         if (root instanceof ViewGroup) glassifyChildren((ViewGroup) root);
+        glassifySwitches(root);
         normalizeFitsSkeleton(root);
+    }
+
+    /** 开关全玻璃令的收口：整树里的系统开关统一换玻璃轨道/圆钮并摘掉旧染色
+     *  （此前设置页/插件行是 iOS 风实红/实灰轨——他点名两页没玻璃，开关是最扎眼的一片）。
+     *  面板侧 glassifyPanel 不走本路（工具面板开关是自绘 ToggleView，已单独按玻璃画）。 */
+    private static void glassifySwitches(View v) {
+        if (v instanceof androidx.appcompat.widget.SwitchCompat) {
+            androidx.appcompat.widget.SwitchCompat sw = (androidx.appcompat.widget.SwitchCompat) v;
+            android.content.Context ctx = sw.getContext();
+            sw.setTrackDrawable(ctx.getDrawable(R.drawable.switch_glass_track));
+            sw.setThumbDrawable(ctx.getDrawable(R.drawable.switch_glass_thumb));
+            sw.setTrackTintList(null);
+            sw.setThumbTintList(null);
+        }
+        if (v instanceof ViewGroup) {
+            ViewGroup g = (ViewGroup) v;
+            for (int i = 0; i < g.getChildCount(); i++) glassifySwitches(g.getChildAt(i));
+        }
     }
 
     /**

@@ -506,12 +506,23 @@ public class MusicGlassDrawable extends Drawable {
             if (mExternalFilter == null) buf = MusicGlassBackgroundView.getProcessedBuffer();
             if (buf == null) buf = MusicGlassBackgroundView.getBuffer();
             if (buf != null && !buf.isRecycled()) {
-                ensureProcessed(b, buf);
-                // 滚动中不跑折射着色器（全幅 AGSL 是每帧最贵的一道），停下自动恢复
-                if (!sScrollActive) lensDrawn = drawLensBackdrop(canvas, b);
-                if (!lensDrawn && mProcessed != null) {
-                    if (sScrollActive && hostMoved) drawSampleShifted(canvas, b);
-                    else canvas.drawBitmap(mProcessed, b.left, b.top, mProcessedPaint);
+                if (sScrollActive) {
+                    // 滚动中按当前位置精确取样直画全局处理缓冲：内容与身后严丝合缝地走，
+                    // 不用平移近似（旧 drawSampleShifted 靠宿主位移补偿＋过半重锚，一滑一跳、
+                    // 停下再跳一次——他 2026-10-26 点名「滑动一次玻璃就动一次」）。折射停下恢复。
+                    boolean okNow = computeCrop(b);
+                    if (okNow) {
+                        mDst.set(b);
+                        canvas.drawBitmap(buf, mSrc, mDst, mProcessedPaint);
+                    } else if (mProcessed != null) {
+                        canvas.drawBitmap(mProcessed, b.left, b.top, mProcessedPaint);
+                    }
+                } else {
+                    ensureProcessed(b, buf);
+                    lensDrawn = drawLensBackdrop(canvas, b);
+                    if (!lensDrawn && mProcessed != null) {
+                        canvas.drawBitmap(mProcessed, b.left, b.top, mProcessedPaint);
+                    }
                 }
             } else {
                 canvas.drawRect(mTmp, mFallbackPaint);

@@ -370,7 +370,7 @@ public class MusicGlassDrawable extends Drawable {
         return new float[]{r, r, r, r};
     }
 
-    /** 浮点取样直画：缓冲按浮点窗贴到 bounds，位置连续、无 4px 量化台阶。
+    /** 浮点取样直画：缓冲按浮点窗贴到 bounds，位置连续、无 4px 量化台阶。 */
     private void drawSampled(Canvas canvas, Bitmap buf, Rect b, Paint paint) {
         mSampleMatrix.reset();
         mSampleMatrix.postTranslate(-mSrcFx, -mSrcFy);

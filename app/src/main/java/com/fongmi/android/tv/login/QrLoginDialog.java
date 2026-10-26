@@ -39,7 +39,7 @@ import com.google.android.material.button.MaterialButton;
 public class QrLoginDialog extends DialogFragment {
 
     private Qr115Provider provider = new Qr115Provider();
-    private LoginMethod method = LoginMethod.WEB_QR;
+    private LoginMethod method = LoginMethod.QR;
 
     private ImageView qrView;
     private TextView tvStatus;
@@ -64,12 +64,12 @@ public class QrLoginDialog extends DialogFragment {
     }
 
     public static QrLoginDialog create() {
-        return create(LoginMethod.WEB_QR);
+        return create(LoginMethod.QR);
     }
 
     public static QrLoginDialog create(LoginMethod method) {
         QrLoginDialog d = new QrLoginDialog();
-        d.method = method != null ? method : LoginMethod.WEB_QR;
+        d.method = method != null ? method : LoginMethod.QR;
         d.provider = new Qr115Provider(d.method);
         return d;
     }

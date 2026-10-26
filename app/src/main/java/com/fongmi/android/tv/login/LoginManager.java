@@ -71,7 +71,7 @@ public class LoginManager {
     }
 
     /**
-     * 弹 115 登录框：先选登录方式（Web 扫码 / App 扫码 / Mac 扫码 / Cookie 导入…），
+     * 弹 115 登录框：先选登录方式（扫码 / 账号密码 / Cookie 导入，全是真能用的），
      * 再进具体流程。异步，登录结果走 callback。
      */
     public void login115(FragmentActivity activity, LoginCallback callback) {
@@ -79,7 +79,8 @@ public class LoginManager {
     }
 
     /**
-     * 直接进指定登录方式，methodId 见 {@link LoginMethod#id()}（如 "web_qr"、"cookie"）。
+     * 直接进指定登录方式，methodId 见 {@link LoginMethod#id()}（"qr" / "password" / "cookie"；
+     * 已删的扫码变体旧 id 由 fromId 映射到扫码正本）。
      * 传 null 或非法值时退回方式选择列表。
      */
     public void login115(FragmentActivity activity, String methodId, LoginCallback callback) {
@@ -92,7 +93,7 @@ public class LoginManager {
             return;
         }
         for (Fragment f : activity.getSupportFragmentManager().getFragments()) {
-            if (f instanceof LoginMethodDialog || f instanceof QrLoginDialog || f instanceof CookieImportDialog) return;
+            if (f instanceof LoginMethodDialog || f instanceof QrLoginDialog || f instanceof CookieImportDialog || f instanceof PwdLoginDialog) return;
         }
         if (method == null) {
             LoginMethodDialog.create()
@@ -182,11 +183,10 @@ public class LoginManager {
     private void openMethod(FragmentActivity activity, LoginMethod method, LoginCallback callback) {
         if (method == LoginMethod.COOKIE) {
             CookieImportDialog.create().callback(callback).show(activity);
+        } else if (method == LoginMethod.PASSWORD) {
+            PwdLoginDialog.create().callback(callback).show(activity);
         } else if (method.isQr()) {
             QrLoginDialog.create(method).callback(callback).show(activity);
-        } else {
-            // 未接入方式理论上在选择列表就被拦截，这里兜底
-            if (callback != null) callback.onError("「" + method.title() + "」正在接入中");
         }
     }
 
@@ -206,7 +206,7 @@ public class LoginManager {
 
     /**
      * 直接进指定 115 登录方式（异步）。
-     * methodId：web_qr / app_qr / mac_qr / cookie；其它值退回方式选择列表。
+     * methodId：qr / password / cookie（旧变体 id web_qr 等映射到扫码正本）；其它值退回方式选择列表。
      */
     public static void login115(String methodId) {
         FragmentActivity activity = currentActivity();

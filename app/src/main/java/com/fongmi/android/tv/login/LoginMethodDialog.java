@@ -186,41 +186,22 @@ public class LoginMethodDialog extends DialogFragment {
         card.setFocusable(true);
         card.addView(text, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
 
-        if (!m.isImplemented()) {
-            TextView badge = new TextView(requireContext());
-            badge.setText("即将上线");
-            badge.setTextColor(Color.parseColor("#FFD54F"));
-            badge.setTextSize(12);
-            badge.setSingleLine(true);
-            card.addView(badge, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        } else {
-            TextView arrow = new TextView(requireContext());
-            arrow.setText("›");
-            arrow.setTextColor(Color.parseColor("#B3FFFFFF"));
-            arrow.setTextSize(22);
-            card.addView(arrow, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        }
+        TextView arrow = new TextView(requireContext());
+        arrow.setText("›");
+        arrow.setTextColor(Color.parseColor("#B3FFFFFF"));
+        arrow.setTextSize(22);
+        card.addView(arrow, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
         card.setOnClickListener(v -> onCardClick(m));
         return card;
     }
 
     private void onCardClick(LoginMethod m) {
-        if (m.isImplemented()) {
-            dismissAllowingStateLoss();
-            App.post(() -> {
-                if (onPick != null) onPick.onPick(m);
-            });
-            return;
-        }
-        showComingSoon(m);
-    }
-
-    /** 未接入方式：小毛玻璃提示框，不伪造流程 */
-    private void showComingSoon(LoginMethod m) {
-        FragmentActivity activity = (FragmentActivity) getActivity();
-        if (activity == null || activity.isFinishing()) return;
-        ComingSoonDialog.create(m).show(activity.getSupportFragmentManager(), null);
+        // 列表里全是真能用的方式，点选直达，不再有占位提示
+        dismissAllowingStateLoss();
+        App.post(() -> {
+            if (onPick != null) onPick.onPick(m);
+        });
     }
 
     LoginManager.LoginCallback getCallback() {

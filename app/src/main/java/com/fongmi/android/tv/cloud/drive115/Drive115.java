@@ -46,11 +46,6 @@ public class Drive115 implements CloudDrive {
     private static final String API_DOWNURL = "https://proapi.115.com/app/chrome/downurl";
     private static final String API_LIXIAN = "https://115.com/web/lixian/";
 
-    // 二维码登录
-    private static final String API_QR_TOKEN = "https://qrcodeapi.115.com/api/1.0/android/1.0/token";
-    private static final String API_QR_STATUS = "https://qrcodeapi.115.com/get/status/";
-    private static final String API_QR_LOGIN = "https://passportapi.115.com/app/1.0/android/1.0/login/qrcode";
-
     private final OkHttpClient client;
     private String cookie = "";
     private String userName = "";
@@ -786,70 +781,5 @@ public class Drive115 implements CloudDrive {
             throw new Exception("转存失败：" + d.optString("error", d.optString("msg", "")));
         }
         return true;
-    }
-
-    // ---------- 二维码登录（对照 PY QrLogin） ----------
-
-    public static class QrSession {
-        public String uid;
-        public long time;
-        public String sign;
-        /** 扫码内容：token 接口的 qrcode 字段（https://115.com/scan/dg-{uid}），用 115 App 内扫一扫 */
-        public String content;
-        public long deadline;
-    }
-
-    /** 开始二维码登录，返回会话（含扫码内容） */
-    public QrSession qrStart() throws Exception {
-        JSONObject d = reqJson(API_QR_TOKEN, null, null, UA_115, null);
-        JSONObject data = d.optJSONObject("data");
-        if (data == null || TextUtils.isEmpty(data.optString("uid"))) {
-            throw new Exception("拿二维码失败：" + d.optString("message", d.optString("error", "未知错误")));
-        }
-        QrSession s = new QrSession();
-        s.uid = data.optString("uid");
-        s.time = data.optLong("time");
-        s.sign = data.optString("sign");
-        // 关键：二维码必须编码 qrcode 字段（扫码内容），而不是二维码图片的 URL。
-        // 图片 URL 用系统浏览器打开会 302 到 115 官网下载页（即用户报的"扫出来是下载页"）。
-        s.content = data.optString("qrcode");
-        if (TextUtils.isEmpty(s.content)) s.content = "https://115.com/scan/dg-" + s.uid;
-        s.deadline = System.currentTimeMillis() + 240000;
-        return s;
-    }
-
-    /**
-     * 轮询扫码状态
-     * @return 0=等待扫码 1=已扫码待确认 2=登录成功 -1=过期 -2=取消
-     */
-    public int qrPoll(QrSession session) throws Exception {
-        Map<String, String> p = new HashMap<>();
-        p.put("uid", session.uid);
-        p.put("time", String.valueOf(session.time));
-        p.put("sign", session.sign == null ? "" : session.sign);
-        p.put("_", nowMs());
-        JSONObject d = reqJson(API_QR_STATUS, p, null, null, null);
-        JSONObject data = d.optJSONObject("data");
-        return data != null ? data.optInt("status", 0) : 0;
-    }
-
-    /** 扫码确认后换取 cookie */
-    public boolean qrLogin(QrSession session) throws Exception {
-        Map<String, String> form = new HashMap<>();
-        form.put("account", session.uid);
-        form.put("app", "android");
-        JSONObject d = reqJson(API_QR_LOGIN, null, form, UA_115, null);
-        JSONObject data = d.optJSONObject("data");
-        JSONObject ck = data != null ? data.optJSONObject("cookie") : null;
-        if (ck == null) return false;
-        StringBuilder sb = new StringBuilder();
-        for (String k : new String[]{"UID", "CID", "SEID", "KID"}) {
-            if (ck.has(k)) {
-                if (sb.length() > 0) sb.append("; ");
-                sb.append(k).append("=").append(ck.optString(k));
-            }
-        }
-        cookie = sb.toString();
-        return !TextUtils.isEmpty(cookie);
     }
 }

@@ -38,6 +38,7 @@ import com.fongmi.android.tv.cloud.drive115.PlayUrlBuilder115;
 import com.fongmi.android.tv.cloud.drivepikpak.DrivePikPak;
 import com.fongmi.android.tv.cloud.drivequark.DriveQuark;
 import com.fongmi.android.tv.databinding.ActivityCloudDriveBinding;
+import com.github.catvod.utils.Prefers;
 import com.fongmi.android.tv.databinding.ItemCloudFileBinding;
 import com.fongmi.android.tv.music.CloudMusicSource;
 import com.fongmi.android.tv.music.MusicController;
@@ -64,6 +65,9 @@ public class CloudDriveActivity extends BaseActivity {
     private static final String EXTRA_OPEN_NAME = "open_name";
     private static final int PAGE_LIMIT = 100;
     private static final int SEARCH_LIMIT = 50;
+    /** 「保存到」上次所选文件夹的偏好键（按网盘分开记，拼 drive.getId()）：cid 与显示名各一份。 */
+    private static final String PREF_SAVE_CID = "drive_save_cid_";
+    private static final String PREF_SAVE_NAME = "drive_save_name_";
 
     public static void start(Activity activity, String driveId) {
         Intent intent = new Intent(activity, CloudDriveActivity.class);
@@ -989,7 +993,10 @@ public class CloudDriveActivity extends BaseActivity {
         return crumbs.get(crumbs.size() - 1).name;
     }
 
-    /** 「保存到」的所选目标（离线/转存弹窗共用）：默认当前所在文件夹，在选择器里改选后写回。 */
+    /**
+     * 「保存到」的所选目标（离线/转存弹窗共用）：默认＝上次选定的文件夹（按网盘记在偏好里），
+     * 没有记录时才是当前所在文件夹；在选择器里点「就存这里」改选后写回并落盘。
+     */
     private static class TargetFolder {
         String cid;
         String name;
@@ -998,6 +1005,41 @@ public class CloudDriveActivity extends BaseActivity {
             this.cid = cid;
             this.name = name;
         }
+    }
+
+    /** 弹窗默认目标：先读本网盘记住的上次所选，没有记录才用当前所在文件夹。 */
+    private TargetFolder loadTargetFolder() {
+        String cid = Prefers.getString(PREF_SAVE_CID + drive.getId(), "");
+        String name = Prefers.getString(PREF_SAVE_NAME + drive.getId(), "");
+        // 只认名字判有没有记过：夸克/PikPak 根目录的 cid 本就是 ""，选根目录时 cid 存空串也是有效记忆
+        if (!name.isEmpty()) return new TargetFolder(cid, name);
+        return new TargetFolder(currentCid(), currentCidName());
+    }
+
+    /**
+     * 记住的目标文件夹可能已被删/取不到：后台拿它试列一次，硬失败就静默回退当前目录
+     * （清掉记忆、刷新「保存到」行），不报错不卡弹窗；用户在校验回来前已改选的，不冲掉新选择。
+     */
+    private void verifyTargetFolder(TargetFolder target, TextView row, AlertDialog dialog) {
+        String cid = target.cid;
+        new Thread(() -> {
+            boolean ok;
+            try {
+                drive.listDir(cid, 0, 1);
+                ok = true;
+            } catch (Exception e) {
+                ok = false;
+            }
+            if (ok) return;
+            runOnUiThread(() -> {
+                if (!dialog.isShowing() || !cid.equals(target.cid)) return;
+                target.cid = currentCid();
+                target.name = currentCidName();
+                row.setText("保存到：" + target.name + " ›");
+                Prefers.remove(PREF_SAVE_CID + drive.getId());
+                Prefers.remove(PREF_SAVE_NAME + drive.getId());
+            });
+        }).start();
     }
 
     /** 文件夹选择器的会话状态：从根目录起的路径栈＋当前层的文件夹（只列文件夹，分页取全）。 */
@@ -1056,6 +1098,10 @@ public class CloudDriveActivity extends BaseActivity {
                     Crumb top = st.path.get(st.path.size() - 1);
                     target.cid = top.cid;
                     target.name = top.name;
+                    // 落盘时点定在这里：点「就存这里」选定即记（按网盘分开），下次打开弹窗默认就是它；
+                    // 选择器「打开在上次所选处」用的就是同一个 target，记忆只有这一份，不打架。
+                    Prefers.put(PREF_SAVE_CID + drive.getId(), target.cid);
+                    Prefers.put(PREF_SAVE_NAME + drive.getId(), target.name);
                     onChanged.run();
                 })
                 .setNegativeButton("取消", null)
@@ -1187,14 +1233,15 @@ public class CloudDriveActivity extends BaseActivity {
     }
 
     private void showOfflineDialog() {
-        TargetFolder target = new TargetFolder(currentCid(), currentCidName());
+        TargetFolder target = loadTargetFolder();
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         int pad = (int) (8 * getResources().getDisplayMetrics().density);
         layout.setPadding(pad, pad, pad, pad);
         EditText input = makeInput("粘贴 magnet / ed2k / http 链接");
         layout.addView(input);
-        layout.addView(makeTargetRow(target));
+        TextView targetRow = makeTargetRow(target);
+        layout.addView(targetRow);
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("离线下载")
                 .setView(layout)
@@ -1210,6 +1257,8 @@ public class CloudDriveActivity extends BaseActivity {
                 .create();
         MusicGlassDialogs.attach(dialog);
         dialog.show();
+        // 默认目标来自记忆且不是当前目录时，验一下它还在不在（删了就静默回退当前目录）
+        if (!target.cid.equals(currentCid())) verifyTargetFolder(target, targetRow, dialog);
     }
 
     private void doOfflineDownload(String url, String cid) {
@@ -1227,7 +1276,7 @@ public class CloudDriveActivity extends BaseActivity {
     }
 
     private void showSaveShareDialog() {
-        TargetFolder target = new TargetFolder(currentCid(), currentCidName());
+        TargetFolder target = loadTargetFolder();
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         int pad = (int) (8 * getResources().getDisplayMetrics().density);
@@ -1236,7 +1285,8 @@ public class CloudDriveActivity extends BaseActivity {
         EditText pwd = makeInput("提取码（可选）");
         layout.addView(link);
         layout.addView(pwd);
-        layout.addView(makeTargetRow(target));
+        TextView targetRow = makeTargetRow(target);
+        layout.addView(targetRow);
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("转存分享链接")
                 .setView(layout)
@@ -1252,6 +1302,7 @@ public class CloudDriveActivity extends BaseActivity {
                 .create();
         MusicGlassDialogs.attach(dialog);
         dialog.show();
+        if (!target.cid.equals(currentCid())) verifyTargetFolder(target, targetRow, dialog);
     }
 
     private void doSaveShare(String shareUrl, String password, String cid) {

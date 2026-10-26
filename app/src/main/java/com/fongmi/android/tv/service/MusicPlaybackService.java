@@ -1867,6 +1867,20 @@ public class MusicPlaybackService extends MediaSessionService {
         // 否则旧链回来发现队列已换只会静默返回，点了跟没点一样。
         preparing = true;
         final int seq = ++prepareSeq;
+        // 手动切歌先停旧声（本 bug 实根）：取链完成前播放器不被触碰，旧歌会一直响到
+        // 新链装上为止——队列／界面受理即切到新歌、声音还是旧歌，用户看着就是
+        // 「多开了一个播放器、两套各放各的」（真机：播 A 时搜索点酷狗等别源的 B，
+        // B 的页面与队列已成一套，响的还是 A）。手动受理即暂停旧歌：只暂停，
+        // 不清 loadedTrack／hasMediaItem——Q3③ 取链期删目标的回滚与 W-E 落位判定
+        // 照旧；成功回调 setMediaItem 后按 autoplay 正常出声，失败走原收口。
+        // 自动推进（连播／失败跳歌，autoAdvancing 已置位）不暂停，保无缝衔接；
+        // 同曲重备（音质重载／重点当前行）不暂停，避免无谓顿挫。
+        if (!autoAdvancing && loadedTrack != null && loadedTrack != track && isPlaying()) {
+            try {
+                player.pause();
+            } catch (Throwable ignored) {
+            }
+        }
         // 出词提速：取词与取链同刻启动、并行——不等播放器回调、不等播放页绑定。
         // 与页面那份取词走共享单飞并成一条链，结果回写缓存；备好时若仍是当前歌，
         // 经 onLyricReady 通知页面直接读缓存上屏（词跟歌一起到）。

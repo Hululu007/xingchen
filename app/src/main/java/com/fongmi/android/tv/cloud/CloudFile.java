@@ -13,7 +13,7 @@ public class CloudFile {
     private String pickCode;    // pc
     private String sha1;        // sha
     private String parentCid;
-    private String thumbUrl;    // 缩略图直链（PikPak/夸克返回，115 可为空）
+    private String thumbUrl;    // 缩略图直链（PikPak/夸克服务端返回；115 取回包 u 键、备选 thumb，个别文件可为空）
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }

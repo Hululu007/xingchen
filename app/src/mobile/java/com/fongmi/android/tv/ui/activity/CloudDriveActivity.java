@@ -1685,7 +1685,7 @@ public class CloudDriveActivity extends BaseActivity {
         return m == null ? "" : m;
     }
 
-    /** 115 的视频文件（截帧封面的适用面）：115 接口不给缩略图，只能本地截帧补。 */
+    /** 115 的视频文件（截帧封面的适用面）：服务端缩略图缺失时本地截帧补。 */
     private boolean is115Video(CloudFile f) {
         return f != null && !f.isDir() && f.isVideo()
                 && drive != null && Drive115.ID.equals(drive.getId())
@@ -1693,8 +1693,8 @@ public class CloudDriveActivity extends BaseActivity {
     }
 
     /**
-     * 行封面装配（文件列表与搜索结果共用，三家分两路）：
-     * 夸克/PikPak 的缩略图直链（thumbUrl）走 Glide；115 视频走截帧封面
+     * 行封面装配（文件列表与搜索结果共用）：
+     * 三家有缩略图直链（thumbUrl）都走 Glide；115 视频没直链时走截帧封面
      * （Pan115Cover 本地缓存，截好后回调 refresh 刷行）；都没有就图标占位。
      * iconTint 是占位图标的着色（浅面行深色、深面弹窗行浅色）。
      */

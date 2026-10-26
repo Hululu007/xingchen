@@ -416,6 +416,10 @@ public class ImgUtil {
         // 一旦包成 GlideUrl 就会被当 http 取图（new URL 直接抛未知协议）必然失败——
         // 本地音乐封面全黑的根因。原样返回字符串，交给 Glide 的 content 加载器。
         if (url.startsWith("content://") || url.startsWith("android.resource://")) return url;
+        // 本地文件绝对路径（网盘截帧封面等落盘图）：原样返回交给 Glide 的文件加载器；
+        // 包成 GlideUrl 会被当 http 取图必然失败——同 content:// 口径。只认真实存在的文件，
+        // 其余以 / 开头的串维持原行为。
+        if (url.startsWith("/") && new File(url).isFile()) return url;
         LazyHeaders.Builder builder = new LazyHeaders.Builder();
         // @js=（与双参版对齐补上）：此前单参路不认这个后缀，只带 @js= 的图四个后缀
         // 都不命中、整串连后缀当 URL 发出必 404。剥后缀并把代码组进 "js" 头，

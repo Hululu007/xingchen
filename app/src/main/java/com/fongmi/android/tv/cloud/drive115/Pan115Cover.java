@@ -19,8 +19,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * 115 视频截帧封面：115 接口不给缩略图（列表回包只有 fid/n/s/pc/sha），
- * 从视频里截一帧当封面用。取流走本机代理 Proxy115 的现成链（新铸原画直链
+ * 115 视频截帧封面：服务端缩略图（回包 u 键，Drive115 已解析进 CloudFile.thumbUrl）
+ * 缺失时的兜底——从视频里截一帧当封面用。取流走本机代理 Proxy115 的现成链（新铸原画直链
  * downUrl → proxy.put 包成 127.0.0.1 地址），MediaMetadataRetriever 远程取帧；
  * 取帧点＝时长一成处（片头黑屏多，避开），取不到时长固定 5 秒。
  * 截不到、或截出来近全黑（平均亮度过低）一律算没截到，不拿黑屏帧糊弄。

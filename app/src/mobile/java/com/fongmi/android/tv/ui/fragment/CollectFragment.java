@@ -31,6 +31,7 @@ import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.bean.Vod;
 import com.fongmi.android.tv.cloud.CloudFile;
 import com.fongmi.android.tv.cloud.drive115.Drive115;
+import com.fongmi.android.tv.cloud.drive115.Pan115Cover;
 import com.fongmi.android.tv.databinding.FragmentCollectBinding;
 import com.fongmi.android.tv.model.SearchProgress;
 import com.fongmi.android.tv.model.SiteViewModel;
@@ -324,7 +325,8 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
         if (!com.fongmi.android.tv.utils.PanAuth.is115LoggedIn()) return;
         new Thread(() -> {
             try {
-                List<CloudFile> found = new Drive115().searchFiles(keyword, 0, 30);
+                Drive115 drive = new Drive115();
+                List<CloudFile> found = drive.searchFiles(keyword, 0, 30);
                 if (found == null || found.isEmpty()) return;
                 Site site = Site.get(PAN115_SITE_KEY, "115网盘");
                 List<Vod> items = new ArrayList<>();
@@ -335,6 +337,10 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
                     vod.setId(f.getId());
                     vod.setName(f.getName());
                     vod.setSite(site);
+                    // 封面口径同他的铁规：服务端给了缩略图（thumbUrl）就填 pic；
+                    // 没给的视频走截帧兜底，实在没有才留空走素图。
+                    if (!TextUtils.isEmpty(f.getThumbUrl())) vod.setPic(f.getThumbUrl());
+                    else fillFrameCover(drive, f, vod);
                     items.add(vod);
                 }
                 if (items.isEmpty()) return;
@@ -343,6 +349,31 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
                 // 网盘这一路失败静默：站点搜索结果照常
             }
         }).start();
+    }
+
+    /**
+     * 115 搜索结果封面兜底（与网盘页 bindRowCover 同口径的第二路）：服务端没给缩略图的
+     * 视频走 Pan115Cover 截帧——已有缓存直接把本地路径填进 pic（ImgUtil 对真实存在的
+     * 本地文件原样放行给 Glide）；没有就请求截帧，截好后回主线程补 pic 并刷列表
+     * （Vod 是同一对象引用，两个列表共用，刷一次即可）。文件夹/非视频/无 pickcode 不走。
+     */
+    private void fillFrameCover(Drive115 drive, CloudFile f, Vod vod) {
+        if (f.isDir() || !f.isVideo() || TextUtils.isEmpty(f.getPickCode())) return;
+        java.io.File cover = Pan115Cover.coverFile(App.get(), f.getPickCode());
+        if (cover != null) {
+            vod.setPic(cover.getAbsolutePath());
+            return;
+        }
+        Pan115Cover.requestCover(App.get(), drive, f.getPickCode(), (pc, ok) -> {
+            if (!ok) return;
+            java.io.File done = Pan115Cover.coverFile(App.get(), pc);
+            if (done == null) return;
+            App.post(() -> {
+                if (!isAdded() || mBinding == null) return;
+                vod.setPic(done.getAbsolutePath());
+                if (mSearchAdapter != null) mSearchAdapter.notifyDataSetChanged();
+            });
+        });
     }
 
     /** 115 结果到达后并入：与 setCollect 同口径（进「全部」＋单开一组，分组名即站点名「115网盘」）。 */

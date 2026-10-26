@@ -161,9 +161,36 @@ public class ThemeManager {
         return actName.endsWith(".ui.activity.MusicRandomActivity");
     }
 
-    // 同步贴：只用已有图源（当前缓存优先，其次上一张），不解码。
+    // 本管理器给窗口落过底的登记：占位兜底只许在窗口还没落过任何底时用，
+    // 不许盖掉先前已落的真底（个别内置图转不成位图、不进缓存的那条支路）。
+    private static final java.util.WeakHashMap<android.view.Window, Boolean> sBgTouched =
+            new java.util.WeakHashMap<>();
+
+    private void setWindowColorNow(Activity activity, int color) {
+        try {
+            activity.getWindow().setBackgroundDrawable(
+                    new android.graphics.drawable.ColorDrawable(color));
+            sBgTouched.put(activity.getWindow(), Boolean.TRUE);
+        } catch (Exception ignored) {}
+    }
+
+    // 同步贴（apply 第一贴）：全类页面都在这一贴把窗口底落到定案值，不许等 post 的 doApply。
+    // 此前海阔/音乐/播放页在这一贴被整段跳过、底色只靠异步 doApply 落，进页首帧与落底
+    // 之间留空档＝他点名「进所有页都会闪」的共用病根之一（2026-10-26 全域进页闪普查）。
+    // 普通页同步贴仍只用已有图源（当前缓存优先，其次上一张），不在此新开大图解码。
     private void applyCachedNow(Activity activity) {
-        if (activity == null || isHkPage(activity) || isMusicPage(activity) || isMusicPlayerPage(activity)) return;
+        if (activity == null) return;
+        if (isHkPage(activity)) {
+            try {
+                setWindowColorNow(activity, activity.getColor(com.fongmi.android.tv.R.color.hk_status_bar));
+            } catch (Exception ignored) {}
+            return;
+        }
+        if (isMusicPage(activity) || isMusicPlayerPage(activity)) {
+            // 与 doApply 同值同口径（随心听落自己的深底，其余音乐页落暖基色）。
+            setWindowColorNow(activity, isMusicRandomPage(activity) ? 0xFF0A0E16 : 0xFF6E4E30);
+            return;
+        }
         if (theme == null) theme = XingChenTheme.load(activity);
         android.graphics.drawable.Drawable dw = null;
         boolean fromCache = false;
@@ -174,10 +201,16 @@ public class ThemeManager {
         if (dw == null) dw = freshDrawableFromLast(activity);
         if (dw != null) {
             activity.getWindow().setBackgroundDrawable(dw);
+            sBgTouched.put(activity.getWindow(), Boolean.TRUE);
             // 贴的正是当前缓存键那一张：登记本窗口已贴键，其后 doApply 同键
             // 直贴不淡变（开页与回前台都不再对同图自淡一遍）。
             if (fromCache) sAppliedKeyByWindow.put(activity.getWindow(), currentCacheKey());
             flog("applyCachedNow: sync-pasted for " + activity.getClass().getSimpleName());
+        } else if (!sBgTouched.containsKey(activity.getWindow())) {
+            // 真图还没解出来：先同步落深色占位（与 doApply 兜底同色），不许让主题
+            // 起始底留在首帧上；doApply 解出真图后按既有口径换上。
+            setWindowColorNow(activity, PLACEHOLDER_COLOR);
+            flog("applyCachedNow: placeholder for " + activity.getClass().getSimpleName());
         }
     }
 
@@ -239,6 +272,7 @@ public class ThemeManager {
                 try {
                     activity.getWindow().setBackgroundDrawable(
                             new android.graphics.drawable.ColorDrawable(activity.getColor(com.fongmi.android.tv.R.color.hk_status_bar)));
+                    sBgTouched.put(activity.getWindow(), Boolean.TRUE);
                 } catch (Exception ignored) {}
                 return;
             }
@@ -252,6 +286,7 @@ public class ThemeManager {
                     int base = isMusicRandomPage(activity) ? 0xFF0A0E16 : 0xFF6E4E30;
                     activity.getWindow().setBackgroundDrawable(
                             new android.graphics.drawable.ColorDrawable(base));
+                    sBgTouched.put(activity.getWindow(), Boolean.TRUE);
                 } catch (Exception ignored) {}
                 return;
             }
@@ -344,6 +379,7 @@ public class ThemeManager {
         if (oldBg == null || newBg == null || unchanged
                 || !com.fongmi.android.tv.utils.XcFadeTransition.isAnimEnabled(activity)) {
             window.setBackgroundDrawable(newBg);
+            sBgTouched.put(window, Boolean.TRUE);
             if (sourceKey != null) sAppliedKeyByWindow.put(window, sourceKey);
             return;
         }
@@ -356,6 +392,7 @@ public class ThemeManager {
                 new android.graphics.drawable.TransitionDrawable(new Drawable[]{oldBg, newBg});
         td.setCrossFadeEnabled(true);
         window.setBackgroundDrawable(td);
+        sBgTouched.put(window, Boolean.TRUE);
         td.startTransition(200);
         if (sourceKey != null) sAppliedKeyByWindow.put(window, sourceKey);
     }

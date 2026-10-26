@@ -20,14 +20,19 @@
 
     <style name="Theme.App" parent="Theme.XingChen">
         <item name="android:windowDisablePreview">true</item>
-        <item name="android:windowSplashScreenBackground">#000000</item>
-        <item name="android:windowBackground">#000000</item>
+        <item name="android:windowSplashScreenBackground">#FF0E1622</item>
+        <!-- 起始窗口不许再纯黑（进页闪普查 2026-10-26）：透明＝点开新页到首帧的空档里
+             透出上一页（同在星辰壁纸上），不再先糊一帧纯黑；真底由 ThemeManager 在
+             onResume 同步落（缓存壁纸／自带底页定案色／冷缓存深色占位）。 -->
+        <item name="android:windowBackground">@android:color/transparent</item>
     </style>
 
     <!-- 音乐独立页专属主题（第一页＝音乐首页）：窗口底就是页面自己的玻璃基色，
          冷启首帧/转场/ overscroll 都不许透出主壁纸或黑底；运行时 ThemeManager 对本页豁免贴壁纸、只落此色 -->
     <style name="Theme.XingChen.Music" parent="Theme.App">
-        <item name="android:windowBackground">@color/music_page_base</item>
+        <!-- 起始窗口用与页面场景同值的渐变（bg_music_window_gradient），不再平板中棕：
+             进页首帧前露出的就是≈定案背景；运行时窗口底仍由 ThemeManager 落 music_page_base 平色 -->
+        <item name="android:windowBackground">@drawable/bg_music_window_gradient</item>
         <item name="android:colorBackground">@color/music_page_base</item>
         <item name="android:windowSplashScreenBackground">@color/music_page_base</item>
     </style>
@@ -44,7 +49,9 @@
          此前借用随心听的 MusicDark（深蓝黑 0A0E16），与播放页暖氛围不是一路，
          转场帧色差明显；且 ThemeManager 曾漏分播放页、每次回前台贴主壁纸（闪的根）。 -->
     <style name="Theme.XingChen.MusicPlayer" parent="Theme.App">
-        <item name="android:windowBackground">@color/music_page_base</item>
+        <!-- 起始窗口同音乐页渐变（bg_music_window_gradient）；播放页定案底是它自带的
+             封面氛围，运行时窗口底仍只落暖基色平色（现行口径不动、不压封面氛围） -->
+        <item name="android:windowBackground">@drawable/bg_music_window_gradient</item>
         <item name="android:colorBackground">@color/music_page_base</item>
         <item name="android:windowSplashScreenBackground">@color/music_page_base</item>
     </style>
@@ -260,8 +267,9 @@
     <!-- 海阔单页 Activity 主题：浅色独立主题，不跟主 App 走；弹窗走深色毛玻璃（用户不要白色底） -->
     <style name="Theme.XingChen.HkPage" parent="Theme.XingChen">
         <item name="android:alertDialogTheme">@style/ThemeOverlay.XingChen.GlassDialog.Dark</item>
-        <!-- 液态玻璃：窗背景同步动态背景顶色，透明状态栏下不断带 -->
-        <item name="android:windowBackground">@color/hk_status_bar</item>
+        <!-- 液态玻璃：起始窗口用与动态背景场景同值的渐变（bg_hk_window_gradient，顶色仍是
+             hk_status_bar，透明状态栏下不断带）；运行时窗底仍由 ThemeManager 落 hk_status_bar 平色 -->
+        <item name="android:windowBackground">@drawable/bg_hk_window_gradient</item>
         <item name="android:windowLightStatusBar">true</item>
     </style>
 

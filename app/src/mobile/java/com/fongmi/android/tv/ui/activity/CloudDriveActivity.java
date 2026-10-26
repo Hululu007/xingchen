@@ -7,9 +7,11 @@ import android.graphics.Color;
 import android.os.Bundle;
 import android.text.TextUtils;
 import android.util.Log;
+import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.ArrayAdapter;
+import android.view.Window;
+import android.widget.BaseAdapter;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -447,14 +449,16 @@ public class CloudDriveActivity extends BaseActivity {
 
     private void openTaskListDialog(TaskListState st) {
         for (CloudTask t : st.tasks) st.labels.add(taskLabel(t));
-        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, st.labels);
+        TaskAdapter adapter = new TaskAdapter(st);
         AlertDialog.Builder builder = new AlertDialog.Builder(this)
                 .setTitle("离线任务")
                 .setAdapter(adapter, (d, which) -> confirmDeleteTask(st.tasks.get(which), st.loadedPages))
                 .setNegativeButton("关闭", null);
         if (st.hasMore) builder.setNeutralButton("加载更多", null);
         AlertDialog dialog = builder.create();
+        MusicGlassDialogs.attach(dialog);
         dialog.show();
+        shrinkTaskDialog(dialog);
         if (st.hasMore) {
             // 覆盖按钮的默认点击（默认会关弹窗）：改成不关弹窗、就地续拉下一页往后拼接。
             dialog.getButton(AlertDialog.BUTTON_NEUTRAL)
@@ -462,7 +466,7 @@ public class CloudDriveActivity extends BaseActivity {
         }
     }
 
-    private void loadMoreTasks(AlertDialog dialog, ArrayAdapter<String> adapter, TaskListState st) {
+    private void loadMoreTasks(AlertDialog dialog, TaskAdapter adapter, TaskListState st) {
         if (st.loading || !st.hasMore) return;
         st.loading = true;
         int next = st.loadedPages + 1;
@@ -501,6 +505,94 @@ public class CloudDriveActivity extends BaseActivity {
         if (btn == null) return;
         btn.setText("没有更多了");
         btn.setEnabled(false);
+    }
+
+    /**
+     * 离线任务弹窗压小（他亲口点的口径）：不要近全屏——宽度两侧留边，高度封顶在
+     * 屏幕约六成，任务列表在框内滚动。只动窗口尺寸，数据与按钮行为不变。
+     */
+    private void shrinkTaskDialog(AlertDialog dialog) {
+        Window window = dialog.getWindow();
+        if (window == null) return;
+        View decor = window.getDecorView();
+        if (decor == null) return;
+        decor.post(() -> {
+            if (!dialog.isShowing()) return;
+            android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+            int width = dm.widthPixels - (int) (48 * dm.density);
+            int maxHeight = (int) (dm.heightPixels * 0.6f);
+            int height = Math.min(decor.getHeight(), maxHeight);
+            if (width > 0 && height > 0) window.setLayout(width, height);
+        });
+    }
+
+    /**
+     * 离线任务条目：一行一条——文件名在左（单行省略），进度靠右（百分比＋状态）。
+     * 原先是一整段 simple_list_item_1 纯文字（名＋百分比＋状态全挤一行）。
+     * 行内字色按玻璃口径写（主 #F1F4F5／副 白.60，与 MusicGlassDialogs 同套）。
+     */
+    private class TaskAdapter extends BaseAdapter {
+
+        private final TaskListState st;
+
+        TaskAdapter(TaskListState st) {
+            this.st = st;
+        }
+
+        @Override
+        public int getCount() {
+            return st.tasks.size();
+        }
+
+        @Override
+        public CloudTask getItem(int position) {
+            return st.tasks.get(position);
+        }
+
+        @Override
+        public long getItemId(int position) {
+            return position;
+        }
+
+        @Override
+        public View getView(int position, View convertView, ViewGroup parent) {
+            LinearLayout row;
+            TextView tvName;
+            TextView tvProgress;
+            if (convertView instanceof LinearLayout) {
+                row = (LinearLayout) convertView;
+                tvName = (TextView) row.getChildAt(0);
+                tvProgress = (TextView) row.getChildAt(1);
+            } else {
+                float density = getResources().getDisplayMetrics().density;
+                row = new LinearLayout(CloudDriveActivity.this);
+                row.setOrientation(LinearLayout.HORIZONTAL);
+                row.setGravity(Gravity.CENTER_VERTICAL);
+                int padH = (int) (16 * density);
+                int padV = (int) (11 * density);
+                row.setPadding(padH, padV, padH, padV);
+                tvName = new TextView(CloudDriveActivity.this);
+                tvName.setSingleLine(true);
+                tvName.setEllipsize(TextUtils.TruncateAt.END);
+                tvName.setTextColor(0xFFF1F4F5);
+                tvName.setTextSize(14);
+                row.addView(tvName, new LinearLayout.LayoutParams(
+                        0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+                tvProgress = new TextView(CloudDriveActivity.this);
+                tvProgress.setSingleLine(true);
+                tvProgress.setTextColor(0x99FFFFFF);
+                tvProgress.setTextSize(13);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                lp.setMarginStart((int) (12 * density));
+                row.addView(tvProgress, lp);
+            }
+            CloudTask t = st.tasks.get(position);
+            tvName.setText(t.getName());
+            String status = t.getStatusText();
+            tvProgress.setText(t.getPercent() + "%" + (TextUtils.isEmpty(status) ? "" : " · " + status));
+            return row;
+        }
     }
 
     private void confirmDeleteTask(CloudTask task, int loadedPages) {

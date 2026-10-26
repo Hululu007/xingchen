@@ -18,6 +18,9 @@ import java.util.List;
  * <li>{@link #KIND_HK}：海阔小程序，按规则名；
  * <li>{@link #KIND_EMBY}：Emby 服务器，按服 id（EmbyStore 镜像一份，本表是框架决策用的唯一真相）。
  * <li>{@link #KIND_BOOK}：书源（Legado 书源仓库），按 bookSourceUrl；阅读取数（正文/图片/音频/缓存下载）用。
+ * <li>{@link #KIND_MUSIC}：音乐源（FreeJS 插件），按 srcUrl（音乐源的唯一身份，与桥的 key 同口径）；
+ *     插件接口请求与脚本下载经桥/源管理打点后走本表决策。语义同 Emby：单源开了即生效、
+ *     不要求总开关先开（「需代理」是这类源的接入定案，见 MusicSourceManager 的指定源镜像）。
  * </ul>
  * 决策统一走 {@link #shouldProxy}：总开关（ClashSettings）关 → 一律直连；
  * 总开关开 → 查本表。
@@ -31,6 +34,8 @@ public final class SourceProxyPolicy {
     public static final String KIND_EMBY = "emby";
     /** 书源（Legado 书源仓库）：id=bookSourceUrl，与阅读打点一致。 */
     public static final String KIND_BOOK = "book";
+    /** 音乐源（FreeJS 插件）：id=srcUrl，与桥 key()、源管理身份同口径。 */
+    public static final String KIND_MUSIC = "music";
 
     private static final String PREFS = "clash_source_policy";
 
@@ -55,13 +60,19 @@ public final class SourceProxyPolicy {
         prefs(context).edit().putBoolean(key(kind, id), on).apply();
     }
 
+    /** 该源在本表里有没有显式条目（区分「从没写过」与「用户明确关了」：指定源镜像只补前者）。 */
+    public static boolean hasEntry(Context context, String kind, String id) {
+        return prefs(context).contains(key(kind, id));
+    }
+
     /**
      * 壳子网络层决策入口：这个来源的请求要不要走本地节点口。
-     * Emby：单服开了走节点即生效，不再要求节点总开关先开（用户口径：开了就生效）。
+     * Emby／音乐：单源开了走节点即生效，不再要求节点总开关先开（用户口径：开了就生效；
+     * 音乐侧「需代理」指定源由源管理把定案镜像进本表，见 MusicSourceManager）。
      * 其它源：维持原语义，总开关关 → 一律直连。
      */
     public static boolean shouldProxy(Context context, String kind, String id) {
-        if (KIND_EMBY.equals(kind)) return isEnabled(context, kind, id);
+        if (KIND_EMBY.equals(kind) || KIND_MUSIC.equals(kind)) return isEnabled(context, kind, id);
         if (!ClashSettings.isEnabled(context)) return false;
         return isEnabled(context, kind, id);
     }

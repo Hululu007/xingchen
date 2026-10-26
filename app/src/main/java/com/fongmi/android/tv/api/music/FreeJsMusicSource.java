@@ -207,6 +207,13 @@ public class FreeJsMusicSource implements MusicSource {
                 && com.fongmi.android.tv.music.MusicStore.isPlatformBlocked(origin, cp)) return null;
         FreeJsBridge b = MusicSourceManager.get().bridgeForTrack(track);
         if (b == null) return null;
+        // 提速③（元力 KW 保底）：预置酷我的取链全经第三方解析站（haitangw），实测
+        // 0.9–7.1 秒大幅波动且是单点。壳侧两件：①同歌同档短缓存 15 分钟（签名链
+        // 有效期内复用，失败即刷）；②首试上限压 7 秒（不在桥 15 秒上限里干等），
+        // 慢/失败立刻降一档重试一次。探链不走缓存与快速路（面板要的是实时探）。
+        if (!probe && MusicSourceManager.isBuiltinKuwo(b.key())) {
+            return kuwoPlayUrlCached(b, track, quality);
+        }
         long t0 = System.currentTimeMillis();
         MusicMediaSource ms = b.getMediaSource(track, MusicQuality.fromInt(quality), probe);
         // C5 真实取链耗时（最近一次口径，覆盖检测初始值）：归属取自 track.rawJson 的 _plugin
@@ -220,6 +227,37 @@ public class FreeJsMusicSource implements MusicSource {
             }
         }
         return ms == null ? null : ms.url;
+    }
+
+    /** 元力 KW 取链短缓存（同歌同档 → 直链，15 分钟；失败即刷，见 playUrl 注） */
+    private static final long KW_URL_CACHE_TTL_MS = 15 * 60 * 1000L;
+    private static final long KW_FIRST_TRY_TIMEOUT_MS = 7000;
+    private static final java.util.Map<String, Object[]> KW_URL_CACHE =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    private String kuwoPlayUrlCached(FreeJsBridge b, MusicTrack track, int quality) throws Exception {
+        String cacheKey = com.fongmi.android.tv.music.MusicQueue.trackKey(track) + "|" + quality;
+        Object[] hit = KW_URL_CACHE.get(cacheKey);
+        if (hit != null && System.currentTimeMillis() - (Long) hit[1] < KW_URL_CACHE_TTL_MS) {
+            return (String) hit[0];
+        }
+        MusicMediaSource ms = null;
+        try {
+            ms = b.getMediaSource(track, MusicQuality.fromInt(quality), false, KW_FIRST_TRY_TIMEOUT_MS);
+        } catch (Throwable t) {
+            SpiderDebug.log("music", "kw fast try fail quality=%d %s", quality, t.getMessage());
+        }
+        if (ms == null || TextUtils.isEmpty(ms.url)) {
+            // 失败即刷：旧缓存不许续命，降一档重试一次（最低档无处降则直接失败收口）
+            KW_URL_CACHE.remove(cacheKey);
+            int lower = quality - 1;
+            if (lower < MusicQuality.LOW.toInt()) return null;
+            SpiderDebug.log("music", "kw downgrade retry quality=%d->%d", quality, lower);
+            ms = b.getMediaSource(track, MusicQuality.fromInt(lower), false);
+            if (ms == null || TextUtils.isEmpty(ms.url)) return null;
+        }
+        KW_URL_CACHE.put(cacheKey, new Object[]{ms.url, System.currentTimeMillis()});
+        return ms.url;
     }
 
     @Override

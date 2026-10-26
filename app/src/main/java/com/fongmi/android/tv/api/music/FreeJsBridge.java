@@ -121,9 +121,30 @@ public class FreeJsBridge {
     private QuickJSContext ctx;
     private JSObject exports;
 
+    /**
+     * cheerio 按需注入（提速⑨）：cheerio 原文 488KB、冷建桥求值约 0.6 秒量级，
+     * 旧实现每桥无条件注入——元力 KW／油管等根本不用的插件白付这笔。
+     * 判据：插件源码含 cheerio 关键词（静态判）＋保守白名单（歌词网／歌词千寻
+     * 两个已知需要的预置歌词插件，按预置地址认）。误判兜底在 init：未注入时
+     * 若初始化失败且错误链提到 cheerio，强制注入重建一次（见 init）。
+     */
+    private final boolean cheerioWanted;
+    private boolean cheerioInjected;
+    private boolean forceCheerio;
+
     public FreeJsBridge(MusicSite site, String pluginJs) {
         this.site = site;
         this.pluginJs = pluginJs;
+        this.cheerioWanted = pluginJs != null && pluginJs.toLowerCase().contains("cheerio")
+                || (site != null && MusicSourceManager.isBuiltinLyricPreset(site.srcUrl));
+    }
+
+    private static boolean mentionsCheerio(Throwable t) {
+        for (Throwable cur = t; cur != null; cur = cur.getCause()) {
+            String m = cur.getMessage();
+            if (m != null && m.toLowerCase().contains("cheerio")) return true;
+        }
+        return false;
     }
 
     public MusicSite getSite() {
@@ -152,9 +173,29 @@ public class FreeJsBridge {
 
     public void init() throws Exception {
         submit(() -> {
-            createCtx();
-            loadPlugin();
-            readMeta();
+            try {
+                createCtx();
+                loadPlugin();
+                readMeta();
+            } catch (Throwable first) {
+                // cheerio 误判兜底（提速⑨）：静态判没判出需要、插件跑起来才发现缺
+                // cheerio 时，强制全量注入重建一次；其它失败照原样抛，不许拿重试掩盖真因
+                if (cheerioInjected || !mentionsCheerio(first)) {
+                    if (first instanceof Exception) throw (Exception) first;
+                    throw new Exception(first);
+                }
+                SpiderDebug.log("music", "freejs cheerio fallback rebuild site=%s", site.name);
+                forceCheerio = true;
+                try {
+                    if (ctx != null) ctx.destroy();
+                } catch (Throwable ignored) {
+                }
+                ctx = null;
+                exports = null;
+                createCtx();
+                loadPlugin();
+                readMeta();
+            }
             return null;
         }).get(CALL_TIMEOUT_MS, TimeUnit.MILLISECONDS);
     }
@@ -211,7 +252,9 @@ public class FreeJsBridge {
         });
         ctx.evaluate(Asset.read("js/lib/freejs.js"));
         injectLib("crypto-js", Asset.read("js/lib/crypto-js.js"));
-        injectLib("cheerio", Asset.read("js/lib/cheerio.cjs.js"));
+        // cheerio 按需（提速⑨，判据与兜底见 cheerioWanted 字段注）
+        cheerioInjected = cheerioWanted || forceCheerio;
+        if (cheerioInjected) injectLib("cheerio", Asset.read("js/lib/cheerio.cjs.js"));
     }
 
     /** 把 UMD/CJS 库原文包进 CommonJS 定义，供插件 require */
@@ -365,6 +408,41 @@ public class FreeJsBridge {
     }
 
     private Object callTimed(String func, long timeoutMs, boolean high, Object... args) throws Exception {
+        try {
+            return callTimedOnce(func, timeoutMs, high, args);
+        } catch (Exception e) {
+            // cheerio 运行时误判兜底（提速⑨）：有的插件在 search/getLyric 函数里才
+            // require('cheerio')，init 阶段不暴露——调用报错且提到 cheerio、而本桥
+            // 没注入时，强制注入重建一次再重试本调用一次；仍失败照原样抛。
+            if (cheerioInjected || !mentionsCheerio(e)) throw e;
+            SpiderDebug.log("music", "freejs cheerio runtime fallback func=%s site=%s", func, site.name);
+            rebuildWithCheerio();
+            return callTimedOnce(func, timeoutMs, high, args);
+        }
+    }
+
+    /** 强制注入 cheerio 重建上下文（桥线程内执行，与 init 兜底同口径） */
+    private void rebuildWithCheerio() throws Exception {
+        submit(() -> {
+            forceCheerio = true;
+            try {
+                if (exports != null) exports.release();
+            } catch (Throwable ignored) {
+            }
+            try {
+                if (ctx != null) ctx.destroy();
+            } catch (Throwable ignored) {
+            }
+            ctx = null;
+            exports = null;
+            createCtx();
+            loadPlugin();
+            readMeta();
+            return null;
+        }).get(CALL_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+    }
+
+    private Object callTimedOnce(String func, long timeoutMs, boolean high, Object... args) throws Exception {
         // P3：两段等待到点都必须取消底层任务，不只放弃等待——调用线程（音乐专用池）
         // 不许被挂死的插件拖住；桥是单线程，取消发中断信号，插件内同步网络等待会响应，
         // 插件本身死循环则仍占桥线程至其返回（单线程桥的固有限制，见交卷清单）
@@ -507,13 +585,22 @@ public class FreeJsBridge {
 
     /** 探链口径：probe＝true 时只读地址、不记死（面板探链用）；死键检查仍尊重已死标记。 */
     public MusicMediaSource getMediaSource(MusicTrack track, MusicQuality quality, boolean probe) throws Exception {
+        return getMediaSource(track, quality, probe, SOURCE_TIMEOUT_MS);
+    }
+
+    /**
+     * 带调用上限的取链：默认上限 SOURCE_TIMEOUT_MS（15 秒）；元力 KW 的快速降档路
+     * 传更短的首试上限（解析站慢/挂时不等满 15 秒，见 FreeJsMusicSource 的 KW 保底）。
+     * 死通道口径与默认路完全一致（同 channel 键、probe 只读不记死）。
+     */
+    public MusicMediaSource getMediaSource(MusicTrack track, MusicQuality quality, boolean probe, long callTimeoutMs) throws Exception {
         maybePromptLogin();
         String trackKey = MusicQueue.trackKey(track);
         String channel = key() + "|" + (quality == null ? "" : quality.getKey());
         if (isDeadChannel(trackKey, channel)) return null;
         MusicMediaSource ms;
         try {
-            ms = getMediaSourceInner(track, quality);
+            ms = getMediaSourceInner(track, quality, callTimeoutMs);
         } catch (Throwable t) {
             if (!probe) markDeadChannel(trackKey, channel);
             if (t instanceof Exception) throw (Exception) t;
@@ -527,17 +614,21 @@ public class FreeJsBridge {
     }
 
     private MusicMediaSource getMediaSourceInner(MusicTrack track, MusicQuality quality) throws Exception {
+        return getMediaSourceInner(track, quality, SOURCE_TIMEOUT_MS);
+    }
+
+    private MusicMediaSource getMediaSourceInner(MusicTrack track, MusicQuality quality, long callTimeoutMs) throws Exception {
         JsonObject item = unwrapItem(track);
         if (item == null) return null;
         Future<Object> argFuture = submitHigh(() -> ctx.parse(item.toString()));
         Object arg;
         try {
-            arg = argFuture.get(SOURCE_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+            arg = argFuture.get(callTimeoutMs, TimeUnit.MILLISECONDS);
         } catch (java.util.concurrent.TimeoutException te) {
             argFuture.cancel(true);
             throw te;
         }
-        Object result = callTimedHigh("getMediaSource", SOURCE_TIMEOUT_MS, arg, quality.getKey());
+        Object result = callTimedHigh("getMediaSource", callTimeoutMs, arg, quality.getKey());
         String json = toJsonHigh(result);
         if (TextUtils.isEmpty(json)) return null;
         json = json.trim();

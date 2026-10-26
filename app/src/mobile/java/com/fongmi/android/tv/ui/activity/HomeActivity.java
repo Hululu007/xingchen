@@ -2,10 +2,13 @@ package com.fongmi.android.tv.ui.activity;
 
 import android.app.PendingIntent;
 import android.app.SearchManager;
+import android.content.ContentResolver;
 import android.content.Intent;
 import android.content.res.Configuration;
+import android.database.Cursor;
 import android.net.Uri;
 import android.os.Bundle;
+import android.provider.OpenableColumns;
 import android.text.TextUtils;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -97,6 +100,7 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
     private ActivityHomeBinding mBinding;
     private WebHomeChromeController mChrome;
     private Config mStartupConfig;
+    private boolean mLocalMediaClaimed;
     private boolean wideWindow;
     private int currentPosition;
 
@@ -113,7 +117,7 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        checkAction(intent);
+        if (!claimLocalMedia(intent)) checkAction(intent);
     }
 
     @Override
@@ -144,6 +148,12 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
         } catch (Exception ignored) {
         }
         initConfig();
+        // 本地媒体直达：外部 VIEW 打开本地视频/音频，起播不依赖配置，在此先行
+        // 分流。原链把 checkAction 只挂在配置回调上——回调要等配置拉完（回环
+        // 配置失败还要重试约 20 秒），且被后来的加载顶掉时永不回来，意图会被
+        // 首页吞掉（只把应用唤到前台、落首页转圈，视频不播）。认领后配置回调
+        // 不再重复处理同一意图；txt/直播/分享等其余意图仍走原回调口径。
+        mLocalMediaClaimed = claimLocalMedia(getIntent());
         // Emby 盖子重挂：进程重启/recreate 后 active 标志还在但盖子视图随旧实例没了，
         // 按 isActive 走 EmbyMode 同一条 attach 路重挂（失败会回滚标志，见 EmbyMode）。
         EmbyMode.reattachIfActive(this);
@@ -282,17 +292,86 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
         return new Callback() {
             @Override
             public void success() {
-                checkAction(getIntent());
+                if (!mLocalMediaClaimed) checkAction(getIntent());
             }
 
             @Override
             public void error(String msg) {
                 resetVodChrome();
-                checkAction(getIntent());
+                if (!mLocalMediaClaimed) checkAction(getIntent());
                 StateEvent.empty();
                 Notify.show(msg);
             }
         };
+    }
+
+    private static final String[] LOCAL_MEDIA_EXTS = {".mp4", ".mkv", ".avi", ".mov", ".webm", ".flv", ".ts", ".m2ts", ".mts", ".rmvb", ".rm", ".wmv", ".mpg", ".mpeg", ".m4v", ".3gp", ".f4v", ".vob", ".mp3", ".flac", ".aac", ".m4a", ".ogg", ".wav", ".ape", ".opus", ".mka"};
+
+    /**
+     * 本地媒体意图认领：是本地媒体就直接分流起播并返回 true（调用方不再走
+     * checkAction 的推送链）。判别口径见 isLocalMediaIntent；权限门与原链一致
+     * （已授权时同步通过、不挡；content 地址自带授权但播放器跨页读仍靠它）。
+     */
+    private boolean claimLocalMedia(Intent intent) {
+        if (!isLocalMediaIntent(intent)) return false;
+        PermissionUtil.requestFile(this, allGranted -> dispatchLocalMedia(intent));
+        return true;
+    }
+
+    /**
+     * 本地媒体判别（分流条件）：VIEW＋data 为 file/content 方案，且满足其一——
+     * ① 意图 MIME 是 video/ 或 audio/（含向提供方回查 content 的 MIME）；
+     * ② 路径以本地媒体扩展名结尾（覆盖文件管理器不给 MIME、只给 octet-stream
+     * 的情形）。text/plain 先排除（txt 混合链接与 m3u 直播清单仍走原链）；
+     * http/https/smb/rtsp 等网络方案、磁力/迅雷等推送链接一律不认领。
+     */
+    private boolean isLocalMediaIntent(Intent intent) {
+        if (intent == null || intent.getData() == null) return false;
+        if (!Intent.ACTION_VIEW.equals(intent.getAction())) return false;
+        String scheme = intent.getData().getScheme();
+        boolean content = ContentResolver.SCHEME_CONTENT.equals(scheme);
+        if (!content && !ContentResolver.SCHEME_FILE.equalsIgnoreCase(scheme)) return false;
+        String type = intent.getType();
+        if ("text/plain".equals(type)) return false;
+        if (type == null && content) {
+            try {
+                type = getContentResolver().getType(intent.getData());
+            } catch (Exception ignored) {
+            }
+        }
+        if (type != null && (type.startsWith("video/") || type.startsWith("audio/"))) return true;
+        String path = UrlUtil.path(intent.getData()).toLowerCase(java.util.Locale.ROOT);
+        for (String ext : LOCAL_MEDIA_EXTS) if (path.endsWith(ext)) return true;
+        return false;
+    }
+
+    /** 本地媒体直达分发：能解出真实路径就按 file:// 播（最稳），解不出保留 content 原串；标题取文件名全名。 */
+    private void dispatchLocalMedia(Intent intent) {
+        Uri data = intent.getData();
+        if (data == null) return;
+        String path = null;
+        try {
+            path = FileChooser.getPathFromUri(data);
+        } catch (Exception ignored) {
+        }
+        if (!TextUtils.isEmpty(path)) {
+            VideoActivity.startLocal(this, "file://" + path, new File(path).getName());
+            return;
+        }
+        String name = queryDisplayName(data);
+        if (TextUtils.isEmpty(name)) name = data.getLastPathSegment();
+        VideoActivity.startLocal(this, data.toString(), name);
+    }
+
+    private String queryDisplayName(Uri uri) {
+        try (Cursor cursor = getContentResolver().query(uri, new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                int index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                if (index >= 0) return cursor.getString(index);
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
     }
 
     private void loadLive(String url) {

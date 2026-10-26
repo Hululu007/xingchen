@@ -142,7 +142,7 @@ fun ClassicPlayer(
 }
 
 @Composable
-private fun AmbientLayer(bitmap: Bitmap, modifier: Modifier = Modifier) {
+internal fun AmbientLayer(bitmap: Bitmap, modifier: Modifier = Modifier) {
     val small = remember(bitmap) {
         runCatching { Bitmap.createScaledBitmap(bitmap, 64, 64, true) }.getOrNull()
     }
@@ -247,7 +247,7 @@ private fun CoverLayer(
 }
 
 @Composable
-private fun TitleRow(
+internal fun TitleRow(
     state: PlayerUiState,
     onToggle: () -> Unit,
     onOpenQueue: () -> Unit,
@@ -348,7 +348,7 @@ private fun TitleRow(
 }
 
 @Composable
-private fun ArtistRow(state: PlayerUiState) {
+internal fun ArtistRow(state: PlayerUiState) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -431,7 +431,7 @@ private fun LyricSlot(
 }
 
 @Composable
-private fun LyricHint(text: String, modifier: Modifier = Modifier) {
+internal fun LyricHint(text: String, modifier: Modifier = Modifier) {
     Text(
         text = text,
         color = Color.White.copy(alpha = 0.45f),

@@ -6,6 +6,8 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
@@ -44,6 +46,11 @@ private enum class SheetKind { QUEUE, TOOLS, LYRIC_VERSIONS }
  * 所以全程连续。收回走逆动画，完后才 finish（无系统转场兜底闪帧）。
  * 无矩形（通知点开）直接展开态。
  *
+ * 页内横滑：同一棵树里挂一个两页 pager——0＝主题播放页（经典）、1＝全屏歌词面
+ * （FullLyricPlayer，与页内共用同一台歌词引擎、同一份快照）。左划进歌词页、
+ * 右划回（他亲定方向：歌词页在播放页右侧）；系统返回在歌词页先回播放页、
+ * 在播放页才收回成条。不另起 Activity、不另起转场体系。
+ *
  * 形变时长/曲线是容器形变的通行值（瓜子案卷未给此数，下单对照再抠），
  * 已单列在交卷未定项。
  */
@@ -79,7 +86,16 @@ fun PlayerRoot(
     val p = progress.value
     val expanded = p >= 0.999f
 
-    BackHandler(enabled = !collapsing) { collapse() }
+    // 页内横滑两页：0 播放页 / 1 全屏歌词面（同树、同快照，跟手过渡走 pager 本体）
+    val pagerState = rememberPagerState(initialPage = 0, pageCount = { 2 })
+
+    BackHandler(enabled = !collapsing) {
+        if (pagerState.currentPage == 1) {
+            scope.launch { pagerState.animateScrollToPage(0) }
+        } else {
+            collapse()
+        }
+    }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val fullW = constraints.maxWidth
@@ -88,17 +104,33 @@ fun PlayerRoot(
         val fullHDp = with(density) { fullH.toDp() }
 
         val page: @Composable () -> Unit = {
-            ClassicPlayer(
-                state = state,
-                onToggle = { PlayerStateHolder.toggle() },
-                onNext = { PlayerStateHolder.next() },
-                onPrev = { PlayerStateHolder.prev() },
-                onSeek = { PlayerStateHolder.seekTo(it) },
-                onOpenQueue = { sheet = SheetKind.QUEUE },
-                onOpenTools = { sheet = SheetKind.TOOLS },
-                onOpenLyricVersions = { sheet = SheetKind.LYRIC_VERSIONS },
-                onCollapse = { collapse() },
-            )
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxSize(),
+            ) { pageIndex ->
+                if (pageIndex == 0) {
+                    ClassicPlayer(
+                        state = state,
+                        onToggle = { PlayerStateHolder.toggle() },
+                        onNext = { PlayerStateHolder.next() },
+                        onPrev = { PlayerStateHolder.prev() },
+                        onSeek = { PlayerStateHolder.seekTo(it) },
+                        onOpenQueue = { sheet = SheetKind.QUEUE },
+                        onOpenTools = { sheet = SheetKind.TOOLS },
+                        onOpenLyricVersions = { sheet = SheetKind.LYRIC_VERSIONS },
+                        onCollapse = { collapse() },
+                    )
+                } else {
+                    FullLyricPlayer(
+                        state = state,
+                        onToggle = { PlayerStateHolder.toggle() },
+                        onOpenQueue = { sheet = SheetKind.QUEUE },
+                        onOpenTools = { sheet = SheetKind.TOOLS },
+                        onSeek = { PlayerStateHolder.seekTo(it) },
+                        onBack = { scope.launch { pagerState.animateScrollToPage(0) } },
+                    )
+                }
+            }
         }
 
         if (startRect == null || expanded) {

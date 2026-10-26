@@ -96,6 +96,38 @@ private val ColorCurrentUnsung = Color.White.copy(alpha = 0.42f)
 private val ColorInactive = Color.White.copy(alpha = 0.30f)
 private val ColorTranslation = Color.White.copy(alpha = 0.55f)
 
+/**
+ * 歌词舞台装配口径（瓜子同一台引擎、多处喂参不同；默认＝经典页内口径，本单前行为不变）：
+ * 全屏歌词面喂另一组（案卷第八节）：全屏字号键（默认 24、钳 16–40）、行高 ×1.3、
+ * 字距 −0.2、行距 6dp、像素锚点（见 [fullScreenAnchorY]）；wordByWord 关时当前行
+ * 整行上色、不走逐字（全屏底部 Std 档）。
+ */
+data class LyricStageSpec(
+    /** null＝读页内字号键；全屏面由调用方喂全屏字号键的值。 */
+    val fontSizeSp: Float? = null,
+    val lineHeightFactor: Float = 4f / 3f,
+    val lineGapDp: Float = LINE_GAP_DP,
+    val letterSpacingSp: Float = 0f,
+    /** true＝全屏像素锚点；false＝页内 45% 锚点。 */
+    val pixelAnchor: Boolean = false,
+    val wordByWord: Boolean = true,
+)
+
+/**
+ * 全屏锚点（瓜子 AppleLyricsList 调用方公式，jadx＋smali 亲验，本轮定谳）：
+ * 偏移＝clamp(0.22×容器高, 64dp, 120dp)，再封顶 0.28×容器高，减 24dp/2，
+ * 结果即当前行中线在本舞台内的 Y。另一「居中态」分支公式已抠到
+ * （((高−Ag高)/2 − 24dp/2) − Ag高 − 行距、下限 0），其触发旗语义未定死，未落。
+ */
+private fun fullScreenAnchorY(heightPx: Float, density: Float): Float {
+    val lo = 64f * density
+    val hi = 120f * density
+    var v = (0.22f * heightPx).coerceIn(lo, hi)
+    val cap = 0.28f * heightPx
+    if (v > cap) v = cap
+    return v - (24f * density) / 2f
+}
+
 /** 一行的量测结果（视觉行划分＋总高），与容器宽/字号绑定，量一次全场用。 */
 private class LineMeasure(
     /** 词行：每视觉行含的词下标；无词行为空表（整行自然折行） */
@@ -117,9 +149,10 @@ fun AnchoredLyricStage(
     isPlaying: Boolean,
     onSeekLine: (Long) -> Unit,
     modifier: Modifier = Modifier,
+    spec: LyricStageSpec = LyricStageSpec(),
 ) {
     if (!timed) {
-        StaticLyricText(lines = lines, modifier = modifier)
+        StaticLyricText(lines = lines, spec = spec, modifier = modifier)
         return
     }
     TimedLyricStage(
@@ -127,14 +160,20 @@ fun AnchoredLyricStage(
         positionMs = positionMs,
         isPlaying = isPlaying,
         onSeekLine = onSeekLine,
+        spec = spec,
         modifier = modifier,
     )
 }
 
 /** 纯文本：无当前行、静态显示、不滚动不均分（瓜子同口径）。 */
 @Composable
-private fun StaticLyricText(lines: List<LyricUiLine>, modifier: Modifier = Modifier) {
-    val fontSizeSp = remember { MusicPlayerSettings.getCoverLyricFontSize() }
+private fun StaticLyricText(
+    lines: List<LyricUiLine>,
+    spec: LyricStageSpec,
+    modifier: Modifier = Modifier,
+) {
+    val coverFontSizeSp = remember { MusicPlayerSettings.getCoverLyricFontSize() }
+    val fontSizeSp = spec.fontSizeSp ?: coverFontSizeSp
     val weight = remember { lyricFontWeight() }
     Column(modifier = modifier.fillMaxSize().clipToBounds().lyricSkew()) {
         for (line in lines) {
@@ -143,7 +182,8 @@ private fun StaticLyricText(lines: List<LyricUiLine>, modifier: Modifier = Modif
                 color = Color.White.copy(alpha = 0.85f),
                 fontSize = fontSizeSp.sp,
                 fontWeight = weight,
-                lineHeight = (fontSizeSp * 4f / 3f).sp,
+                lineHeight = (fontSizeSp * spec.lineHeightFactor).sp,
+                letterSpacing = spec.letterSpacingSp.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -176,13 +216,15 @@ private fun TimedLyricStage(
     positionMs: Long,
     isPlaying: Boolean,
     onSeekLine: (Long) -> Unit,
+    spec: LyricStageSpec,
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
 
     // 设置快照（进页读一次，与旧视图同口径）
-    val fontSizeSp = remember { MusicPlayerSettings.getCoverLyricFontSize() }
+    val coverFontSizeSp = remember { MusicPlayerSettings.getCoverLyricFontSize() }
+    val fontSizeSp = spec.fontSizeSp ?: coverFontSizeSp
     val weight = remember { lyricFontWeight() }
     val blurCoef = remember { MusicPlayerSettings.blurCoefficient() }
     val showTrans = remember { MusicPlayerSettings.isShowTranslation() }
@@ -197,14 +239,21 @@ private fun TimedLyricStage(
     BoxWithConstraints(modifier = modifier.fillMaxSize().clipToBounds()) {
         val widthPx = with(density) { maxWidth.toPx() }
         val heightPx = with(density) { maxHeight.toPx() }
-        val anchorY = heightPx * ANCHOR_FRACTION
-        val gapPx = with(density) { LINE_GAP_DP.dp.toPx() }
-        val lineHeightPx = with(density) { (fontSizeSp * 4f / 3f).sp.toPx() }
+        val anchorY = if (spec.pixelAnchor) {
+            fullScreenAnchorY(heightPx, density.density)
+        } else {
+            heightPx * ANCHOR_FRACTION
+        }
+        val gapPx = with(density) { spec.lineGapDp.dp.toPx() }
+        val lineHeightPx = with(density) { (fontSizeSp * spec.lineHeightFactor).sp.toPx() }
         val stepPx = lineHeightPx + gapPx
 
         // ---- 量测（宽/字号/行列变更才重算）----
         val measurer = rememberTextMeasurer()
-        val measures = remember(lines, widthPx, fontSizeSp, weight, showTrans, showRoma) {
+        val measures = remember(
+            lines, widthPx, fontSizeSp, weight, showTrans, showRoma,
+            spec.lineHeightFactor, spec.letterSpacingSp,
+        ) {
             measureLines(
                 lines = lines,
                 measurer = measurer,
@@ -214,6 +263,8 @@ private fun TimedLyricStage(
                 density = density.density,
                 showTrans = showTrans,
                 showRoma = showRoma,
+                lineHeightFactor = spec.lineHeightFactor,
+                letterSpacingSp = spec.letterSpacingSp,
             )
         }
         val cumTop = remember(measures, gapPx) {
@@ -280,6 +331,7 @@ private fun TimedLyricStage(
                         tracker.addPosition(down.uptimeMillis, down.position)
                         var dragging = false
                         var totalDy = 0f
+                        var totalDx = 0f
                         var up = false
                         while (!up) {
                             val event = awaitPointerEvent()
@@ -289,19 +341,22 @@ private fun TimedLyricStage(
                                 // 抬起或取消都收手（1.9 无 changedToUpOrCanceled，pressed 兜底同义）
                                 up = true
                             } else {
-                                val dy = change.positionChange().y
-                                totalDy += dy
+                                val dxy = change.positionChange()
+                                totalDx += dxy.x
+                                totalDy += dxy.y
                                 if (!dragging && abs(totalDy) > viewConfiguration.touchSlop) {
                                     dragging = true
                                 }
                                 if (dragging) {
                                     val limit = maxOf(totalHeight, heightPx)
-                                    browseOffset = (browseOffset + dy).coerceIn(-limit, heightPx)
+                                    browseOffset = (browseOffset + dxy.y).coerceIn(-limit, heightPx)
                                     change.consume()
                                 }
                             }
                         }
-                        if (!dragging) {
+                        // 横向移动过 slop＝同树 pager 的横滑（进/回全屏歌词面），不许误判成点行
+                        val swipedSideways = abs(totalDx) > viewConfiguration.touchSlop
+                        if (!dragging && !swipedSideways) {
                             // 点行快进：seek 到那行＋立即回锚（seek 弹簧）
                             val idx = lineIndexAtY(down.position.y)
                             if (idx >= 0 && idx < lines.size) {
@@ -380,6 +435,9 @@ private fun TimedLyricStage(
                         fontSizeSp = fontSizeSp,
                         weight = weight,
                         advancedFx = advancedFx,
+                        lineHeightFactor = spec.lineHeightFactor,
+                        letterSpacingSp = spec.letterSpacingSp,
+                        wordByWord = spec.wordByWord,
                         modifier = Modifier
                             .offset { IntOffset(0, top.roundToInt()) }
                             .fillMaxWidth()
@@ -448,11 +506,14 @@ private fun measureLines(
     density: Float,
     showTrans: Boolean,
     showRoma: Boolean,
+    lineHeightFactor: Float,
+    letterSpacingSp: Float,
 ): List<LineMeasure> {
     val mainStyle = TextStyle(
         fontSize = fontSizeSp.sp,
         fontWeight = weight,
-        lineHeight = (fontSizeSp * 4f / 3f).sp,
+        lineHeight = (fontSizeSp * lineHeightFactor).sp,
+        letterSpacing = letterSpacingSp.sp,
     )
     // 行高用探针实测（不手算密度，免得系统字号缩放下量测与渲染对不上）
     val lineHeightPx = measurer.measure("Ag", mainStyle).size.height.toFloat()
@@ -460,7 +521,7 @@ private fun measureLines(
     val subStyle = TextStyle(
         fontSize = subSizeSp.sp,
         fontWeight = weight,
-        lineHeight = (subSizeSp * 4f / 3f).sp,
+        lineHeight = (subSizeSp * lineHeightFactor).sp,
     )
     val subLineHeightPx = measurer.measure("Ag", subStyle).size.height.toFloat()
     val subGapPx = 6f * density
@@ -553,6 +614,9 @@ private fun LyricLineBlock(
     fontSizeSp: Float,
     weight: FontWeight,
     advancedFx: Boolean,
+    lineHeightFactor: Float,
+    letterSpacingSp: Float,
+    wordByWord: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val lineColor = when {
@@ -561,7 +625,7 @@ private fun LyricLineBlock(
         else -> ColorInactive
     }
     Column(modifier = modifier.lyricSkew()) {
-        if (isCurrent && line.words.isNotEmpty() && measure.wordRows.isNotEmpty()) {
+        if (isCurrent && wordByWord && line.words.isNotEmpty() && measure.wordRows.isNotEmpty()) {
             // 逐字只走当前行（瓜子同口径：非当前行整行渲染，断行结果共用）
             WordRows(
                 line = line,
@@ -572,6 +636,8 @@ private fun LyricLineBlock(
                 fontSizeSp = fontSizeSp,
                 weight = weight,
                 advancedFx = advancedFx,
+                lineHeightFactor = lineHeightFactor,
+                letterSpacingSp = letterSpacingSp,
             )
         } else {
             Text(
@@ -579,7 +645,8 @@ private fun LyricLineBlock(
                 color = if (isCurrent) Color.White else lineColor,
                 fontSize = fontSizeSp.sp,
                 fontWeight = weight,
-                lineHeight = (fontSizeSp * 4f / 3f).sp,
+                lineHeight = (fontSizeSp * lineHeightFactor).sp,
+                letterSpacing = letterSpacingSp.sp,
             )
         }
         if (measure.subText != null) {
@@ -588,7 +655,7 @@ private fun LyricLineBlock(
                 color = ColorTranslation,
                 fontSize = (fontSizeSp * 0.62f).sp,
                 fontWeight = weight,
-                lineHeight = (fontSizeSp * 0.62f * 4f / 3f).sp,
+                lineHeight = (fontSizeSp * 0.62f * lineHeightFactor).sp,
                 modifier = Modifier.offset(y = 6.dp),
             )
         }
@@ -606,9 +673,11 @@ private fun WordRows(
     fontSizeSp: Float,
     weight: FontWeight,
     advancedFx: Boolean,
+    lineHeightFactor: Float,
+    letterSpacingSp: Float,
 ) {
     val density = LocalDensity.current
-    val lineHeightPx = with(density) { (fontSizeSp * 4f / 3f).sp.toPx() }
+    val lineHeightPx = with(density) { (fontSizeSp * lineHeightFactor).sp.toPx() }
     val rows = measure.wordRows
     Layout(
         content = {
@@ -623,6 +692,8 @@ private fun WordRows(
                         fontSizeSp = fontSizeSp,
                         weight = weight,
                         advancedFx = advancedFx,
+                        lineHeightFactor = lineHeightFactor,
+                        letterSpacingSp = letterSpacingSp,
                     )
                 }
             }
@@ -659,6 +730,8 @@ private fun WordPiece(
     fontSizeSp: Float,
     weight: FontWeight,
     advancedFx: Boolean,
+    lineHeightFactor: Float,
+    letterSpacingSp: Float,
 ) {
     val dur = (word.endMs - word.startMs).coerceAtLeast(1L)
     // 唱到的比例（线性插值，靠平滑时间保证单调不回退）
@@ -671,7 +744,8 @@ private fun WordPiece(
     val baseStyle = TextStyle(
         fontSize = fontSizeSp.sp,
         fontWeight = weight,
-        lineHeight = (fontSizeSp * 4f / 3f).sp,
+        lineHeight = (fontSizeSp * lineHeightFactor).sp,
+        letterSpacing = letterSpacingSp.sp,
     )
     val density = LocalDensity.current
     val emPx = with(density) { fontSizeSp.sp.toPx() }

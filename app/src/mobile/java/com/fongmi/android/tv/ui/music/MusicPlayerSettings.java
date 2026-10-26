@@ -233,6 +233,19 @@ public class MusicPlayerSettings {
         }
     }
 
+    // ===== #16 全屏歌词页显示模式（自有；底部 Std/逐字双筹切换，默认逐字——
+    // 与引擎现行口径一致：有逐字数据即逐字；切 Std 后当前行整行上色不走逐字） =====
+
+    private static final String K_LYRIC_FULL_WORD = "music_lyric_full_word";
+
+    public static boolean isFullLyricWordByWord() {
+        return Prefers.getBoolean(K_LYRIC_FULL_WORD, true);
+    }
+
+    public static void setFullLyricWordByWord(boolean word) {
+        Prefers.put(K_LYRIC_FULL_WORD, word);
+    }
+
     /** 节拍响应倍率（喂包络的 beatScale）：slow 0.7／normal 1.0／fast 1.6。 */
     public static float fluidBeatFactor() {
         switch (getFluidSpeed()) {

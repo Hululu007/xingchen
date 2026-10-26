@@ -56,7 +56,9 @@ import org.json.JSONObject;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 网盘文件浏览器（115 / 夸克 / PikPak 共用）
@@ -71,6 +73,8 @@ public class CloudDriveActivity extends BaseActivity {
     private static final String EXTRA_OPEN_PARENT = "open_parent";
     private static final int PAGE_LIMIT = 100;
     private static final int SEARCH_LIMIT = 50;
+    /** 搜索首拉并发页数：换词后一次并发拉前 3 页（每页 SEARCH_LIMIT 条），先回的先攒、按页序拼，首屏不等满 3 页。 */
+    private static final int SEARCH_BURST_PAGES = 3;
     /** 整页被过滤光时自动续拉的连拉上限（防跑飞）：连拉 10 页仍无可见行就停，到顶仍空才是真空（下拉刷新会重置）。 */
     private static final int AUTO_CHAIN_MAX = 10;
     /** 「保存到」上次所选文件夹的偏好键（按网盘分开记，拼 drive.getId()）：cid 与显示名各一份。 */
@@ -196,6 +200,22 @@ public class CloudDriveActivity extends BaseActivity {
         boolean loading;
         boolean hasMore;
         int gen;
+        /** 并发首拉攒页：页号（offset/SEARCH_LIMIT）→该页原始结果，先回的先攒、按页序拼进 results 后移除，不许乱序上屏。 */
+        final Map<Integer, List<CloudFile>> pendingPages = new HashMap<>();
+        /** 下一个待拼页号：只从这一页起连续拼，缺页就等它回来。 */
+        int mergePage;
+        /** 下一个待发 offset：领完即推进，同一个 offset 绝不重发。 */
+        int nextOffset;
+        /** 在飞页数（首拉并发时可到 SEARCH_BURST_PAGES，续拉时为 1）；loading 与它同步维护。 */
+        int inFlight;
+        /** 已拼到尾页（一页不满 SEARCH_LIMIT）：其后攒着的页一律丢弃、fetched 不给它们记账。 */
+        boolean endReached;
+        /** 任一页失败后停链，首个失败定状态（口径同旧单线版）。 */
+        boolean failed;
+        /** 本词的并发首拉已发出过（换词在 runSearch 归零）。 */
+        boolean burstDone;
+        /** 连续拼入 0 条可见行的页数：全过滤自动续拉的连拉计数，含首拉 3 页一起算，到 AUTO_CHAIN_MAX 停。 */
+        int chain;
     }
 
     /**
@@ -302,18 +322,48 @@ public class CloudDriveActivity extends BaseActivity {
         st.fetched = 0;
         st.hasMore = false;
         st.results.clear();
+        // 并发取页的状态整套归零：上一词在飞的页回来会被 gen 校验丢弃，不许碰新词的记账
+        st.pendingPages.clear();
+        st.mergePage = 0;
+        st.nextOffset = 0;
+        st.inFlight = 0;
+        st.loading = false;
+        st.endReached = false;
+        st.failed = false;
+        st.burstDone = false;
+        st.chain = 0;
         adapter.notifyDataSetChanged();
         fetchSearchPage(st, adapter, status, null);
     }
 
-    /** 拉一页搜索结果往弹窗里拼；dialog 非空时（滚动续拉）顺带校验弹窗还开着。 */
+    /**
+     * 搜索取页入口：换词后的首拉一次并发发前 SEARCH_BURST_PAGES 页（他怕搜索结果出得慢，
+     * 不再单线一页一页等）；3 页之后走老路——滑到底才单页续拉（滚动监听调到这里时 burstDone 已真）。
+     * dialog 非空时（滚动续拉）顺带校验弹窗还开着。
+     * PikPak 例外只发 1 页：它的搜索分页是 page_token 链，下一页的 token 要等上一页回来才有，
+     * 并发发出去只会拿到空页——接口物理限制，它一家维持单页顺序拉。
+     */
     private void fetchSearchPage(SearchState st, SearchAdapter adapter, TextView status, AlertDialog dialog) {
-        if (st.loading) return;
-        st.loading = true;
+        if (st.loading || st.failed || st.endReached) return;
         status.setVisibility(View.VISIBLE);
         status.setText("正在搜索…");
+        if (!st.burstDone) {
+            st.burstDone = true;
+            int burst = drive instanceof DrivePikPak ? 1 : SEARCH_BURST_PAGES;
+            for (int i = 0; i < burst; i++) requestSearchPage(st, adapter, status, dialog);
+        } else {
+            requestSearchPage(st, adapter, status, dialog);
+        }
+    }
+
+    /** 发一页搜索请求：offset 从 st.nextOffset 领、领完即推进（同一 offset 绝不重发）；页号随请求带走，回来按页号攒。 */
+    private void requestSearchPage(SearchState st, SearchAdapter adapter, TextView status, AlertDialog dialog) {
         int gen = st.gen;
-        int offset = st.fetched;
+        int offset = st.nextOffset;
+        int pageIndex = offset / SEARCH_LIMIT;
+        st.nextOffset += SEARCH_LIMIT;
+        st.inFlight++;
+        st.loading = true;
         String kw = st.keyword;
         new Thread(() -> {
             List<CloudFile> page = null;
@@ -325,56 +375,102 @@ public class CloudDriveActivity extends BaseActivity {
             }
             List<CloudFile> raw = page;
             Exception err = error;
-            runOnUiThread(() -> {
-                if (gen != st.gen) return;
-                if (dialog != null && !dialog.isShowing()) return;
-                st.loading = false;
-                if (err != null) {
-                    Log.e(TAG, "搜索失败 kw=" + kw, err); // 真因进日志，脸上只给人话
-                    st.hasMore = false;
-                    if (st.results.isEmpty()) {
-                        status.setVisibility(View.VISIBLE);
-                        status.setText(humanSearchError(err));
-                    } else {
-                        status.setVisibility(View.GONE);
-                        Notify.show("加载更多失败，请稍后再试");
-                    }
-                    return;
-                }
-                // 流畅度 D2/D7：BaseAdapter 没有差量插入 API，整表刷新前记下首可见位置＋偏移、刷新后恢复，续拉不跳位
-                ListView lv = adapter.listView;
-                int firstPos = 0;
-                int topOff = 0;
-                if (lv != null && !st.results.isEmpty()) {
-                    firstPos = lv.getFirstVisiblePosition();
-                    View top = lv.getChildAt(0);
-                    topOff = top == null ? 0 : top.getTop();
-                }
-                if (raw != null) {
-                    st.fetched += raw.size();
-                    // 搜索结果同文件列表口径：只出文件夹＋大于 30MB 的视频（visibleInList，过滤在组装处做，分页 offset 按原始条数走）
-                    for (CloudFile f : raw) if (visibleInList(f)) st.results.add(f);
-                    st.hasMore = raw.size() >= SEARCH_LIMIT;
-                } else {
-                    st.hasMore = false;
-                }
-                adapter.notifyDataSetChanged();
-                if (lv != null && firstPos > 0) lv.setSelectionFromTop(firstPos, topOff);
-                if (st.results.isEmpty() && st.hasMore) {
-                    // 这一页全被过滤掉（非视频文件），列表还空着滑不动，自动续拉下一页，别误报没找到
-                    status.setVisibility(View.VISIBLE);
-                    status.setText("正在搜索…");
-                    fetchSearchPage(st, adapter, status, dialog);
-                    return;
-                }
-                if (st.results.isEmpty()) {
-                    status.setVisibility(View.VISIBLE);
-                    status.setText("没找到「" + kw + "」");
-                } else {
-                    status.setVisibility(View.GONE);
-                }
-            });
+            runOnUiThread(() -> onSearchPageArrived(st, adapter, status, dialog, gen, pageIndex, kw, raw, err));
         }).start();
+    }
+
+    /** 一页回来：gen 代次/弹窗校验照旧（换词、关弹窗后在飞的页全作废）；失败首个定状态并停链；成功先按页号攒下，再试按序拼。 */
+    private void onSearchPageArrived(SearchState st, SearchAdapter adapter, TextView status, AlertDialog dialog,
+                                     int gen, int pageIndex, String kw, List<CloudFile> raw, Exception err) {
+        if (gen != st.gen) return;
+        if (dialog != null && !dialog.isShowing()) return;
+        st.inFlight--;
+        if (st.inFlight <= 0) {
+            st.inFlight = 0;
+            st.loading = false;
+        }
+        if (st.failed) return;
+        if (err != null) {
+            st.failed = true;
+            st.hasMore = false;
+            Log.e(TAG, "搜索失败 kw=" + kw, err); // 真因进日志，脸上只给人话
+            if (st.results.isEmpty()) {
+                status.setVisibility(View.VISIBLE);
+                status.setText(humanSearchError(err));
+            } else {
+                status.setVisibility(View.GONE);
+                Notify.show("加载更多失败，请稍后再试");
+            }
+            return;
+        }
+        st.pendingPages.put(pageIndex, raw == null ? new ArrayList<>() : raw);
+        mergeSearchPages(st, adapter, status, dialog);
+    }
+
+    /**
+     * 按页序拼：从 mergePage 起连续拼（先回的后页只攒着等，缺页绝不抢先上屏、不许乱序）。
+     * fetched/hasMore 记账按原始条数走、过滤在拼装处做（visibleInList），与主列表同口径；
+     * 拼到一页不满 SEARCH_LIMIT 就是尾页（endReached），其后攒着的页整批丢弃、不记账。
+     * 首屏不等满 3 页：第一页拼上就先刷新上屏，后两页回来续拼到尾部。
+     */
+    private void mergeSearchPages(SearchState st, SearchAdapter adapter, TextView status, AlertDialog dialog) {
+        // 刷新位置保持（流畅度 D2/D7）：BaseAdapter 没有差量 API，先记下首可见位置＋偏移，刷新后恢复，续拼不跳位
+        ListView lv = adapter.listView;
+        int firstPos = 0;
+        int topOff = 0;
+        if (lv != null && !st.results.isEmpty()) {
+            firstPos = lv.getFirstVisiblePosition();
+            View top = lv.getChildAt(0);
+            topOff = top == null ? 0 : top.getTop();
+        }
+        boolean changed = false;
+        while (st.pendingPages.containsKey(st.mergePage)) {
+            List<CloudFile> raw = st.pendingPages.remove(st.mergePage);
+            st.mergePage++;
+            st.fetched += raw.size();
+            int before = st.results.size();
+            // 搜索结果同文件列表口径：只出文件夹＋大于 30MB 的视频（过滤在组装处做，分页记账按原始条数走）
+            for (CloudFile f : raw) if (visibleInList(f)) st.results.add(f);
+            if (st.results.size() > before) st.chain = 0;
+            else st.chain++;
+            changed = true;
+            if (raw.size() < SEARCH_LIMIT) {
+                st.endReached = true;
+                st.pendingPages.clear();
+                break;
+            }
+        }
+        st.hasMore = !st.endReached;
+        if (changed) {
+            adapter.notifyDataSetChanged();
+            if (lv != null && firstPos > 0) lv.setSelectionFromTop(firstPos, topOff);
+        }
+        if (!st.results.isEmpty()) {
+            status.setVisibility(View.GONE);
+            return;
+        }
+        if (st.endReached || st.failed) {
+            status.setVisibility(View.VISIBLE);
+            status.setText("没找到「" + st.keyword + "」");
+            return;
+        }
+        if (st.inFlight > 0) {
+            // 前面的页还没回齐（乱序等待中），保持「正在搜索…」，等它回来再拼
+            status.setVisibility(View.VISIBLE);
+            status.setText("正在搜索…");
+            return;
+        }
+        // 已回的页全被过滤光、列表还空着滑不动：自动续拉（与主列表 D4 同口径），连拉总上限含首拉 3 页
+        // 一起算（chain 计数），到顶仍空按真空收尾——不死循环、不重复发 offset
+        if (st.chain < AUTO_CHAIN_MAX) {
+            status.setVisibility(View.VISIBLE);
+            status.setText("正在搜索…");
+            requestSearchPage(st, adapter, status, dialog);
+        } else {
+            st.hasMore = false;
+            status.setVisibility(View.VISIBLE);
+            status.setText("没找到「" + st.keyword + "」");
+        }
     }
 
     /** 搜索失败的人话：驱动层已给人话的短消息直接用，空的/带 JSON 的/过长的统一兜底。 */

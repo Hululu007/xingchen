@@ -15,6 +15,7 @@ import android.view.Window;
 import android.widget.BaseAdapter;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.ListView;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
@@ -788,6 +789,207 @@ public class CloudDriveActivity extends BaseActivity {
         int pad = (int) (16 * getResources().getDisplayMetrics().density);
         input.setPadding(pad, pad, pad, pad);
         return input;
+    }
+
+    private String currentCidName() {
+        return crumbs.get(crumbs.size() - 1).name;
+    }
+
+    /** 「保存到」的所选目标（离线/转存弹窗共用）：默认当前所在文件夹，在选择器里改选后写回。 */
+    private static class TargetFolder {
+        String cid;
+        String name;
+
+        TargetFolder(String cid, String name) {
+            this.cid = cid;
+            this.name = name;
+        }
+    }
+
+    /** 文件夹选择器的会话状态：从根目录起的路径栈＋当前层的文件夹（只列文件夹，分页取全）。 */
+    private static class FolderPickerState {
+        final List<Crumb> path = new ArrayList<>();
+        final List<CloudFile> dirs = new ArrayList<>();
+        boolean loading;
+    }
+
+    /**
+     * 「保存到」行：显示当前所选文件夹，点击打开文件夹选择器改选。
+     * 字色先按玻璃白系写（主 #F1F4F5），与离线任务行同口径，
+     * 弹窗壳 MusicGlassDialogs.apply 还会整树翻一遍，双保险不怕黑字压深面。
+     */
+    private TextView makeTargetRow(TargetFolder target) {
+        TextView row = new TextView(this);
+        row.setText("保存到：" + target.name + " ›");
+        row.setTextColor(0xFFF1F4F5);
+        row.setTextSize(14);
+        int pad = (int) (16 * getResources().getDisplayMetrics().density);
+        row.setPadding(pad, pad, pad, pad);
+        row.setOnClickListener(v -> showFolderPicker(target,
+                () -> row.setText("保存到：" + target.name + " ›")));
+        return row;
+    }
+
+    /**
+     * 文件夹选择器：从上次所选处打开，逐层点进、顶部有「上一级」，底部「就存这里」定当前层。
+     * 形态随文件页弹窗口径：MusicGlassDialogs 玻璃壳（深面白字）＋压小窗口（复用离线任务的压小法）。
+     */
+    private void showFolderPicker(TargetFolder target, Runnable onChanged) {
+        FolderPickerState st = new FolderPickerState();
+        st.path.add(new Crumb(rootCid, "根目录"));
+        if (!target.cid.equals(rootCid)) st.path.add(new Crumb(target.cid, target.name));
+        float density = getResources().getDisplayMetrics().density;
+        int pad = (int) (8 * density);
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(pad, pad, pad, pad);
+        TextView tvPath = new TextView(this);
+        tvPath.setTextColor(0x99FFFFFF);
+        tvPath.setTextSize(13);
+        tvPath.setSingleLine(true);
+        tvPath.setEllipsize(TextUtils.TruncateAt.START);
+        layout.addView(tvPath);
+        ListView list = new ListView(this);
+        FolderAdapter adapter = new FolderAdapter(st);
+        list.setAdapter(adapter);
+        int listHeight = (int) (getResources().getDisplayMetrics().heightPixels * 0.42f);
+        layout.addView(list, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, listHeight));
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("选择文件夹")
+                .setView(layout)
+                .setPositiveButton("就存这里", (d, w) -> {
+                    Crumb top = st.path.get(st.path.size() - 1);
+                    target.cid = top.cid;
+                    target.name = top.name;
+                    onChanged.run();
+                })
+                .setNegativeButton("取消", null)
+                .create();
+        list.setOnItemClickListener((parent, view, position, id) -> {
+            int base = st.path.size() > 1 ? 1 : 0;
+            if (base == 1 && position == 0) {
+                st.path.remove(st.path.size() - 1);
+                fetchPickerDirs(st, adapter, tvPath);
+                return;
+            }
+            CloudFile dir = st.dirs.get(position - base);
+            st.path.add(new Crumb(dir.getId(), dir.getName()));
+            fetchPickerDirs(st, adapter, tvPath);
+        });
+        MusicGlassDialogs.attach(dialog);
+        dialog.show();
+        shrinkTaskDialog(dialog);
+        fetchPickerDirs(st, adapter, tvPath);
+    }
+
+    /** 拉当前层全部文件夹（分页取满，口径同文件列表：取满 PAGE_LIMIT 说明可能还有下一页）。 */
+    private void fetchPickerDirs(FolderPickerState st, FolderAdapter adapter, TextView tvPath) {
+        String cid = st.path.get(st.path.size() - 1).cid;
+        StringBuilder sb = new StringBuilder();
+        for (Crumb c : st.path) {
+            if (sb.length() > 0) sb.append(" / ");
+            sb.append(c.name);
+        }
+        tvPath.setText(sb.toString());
+        st.loading = true;
+        st.dirs.clear();
+        adapter.notifyDataSetChanged();
+        new Thread(() -> {
+            List<CloudFile> dirs = new ArrayList<>();
+            Exception error = null;
+            try {
+                for (int offset = 0; offset <= 10000; offset += PAGE_LIMIT) {
+                    List<CloudFile> page = drive.listDir(cid, offset, PAGE_LIMIT);
+                    if (page == null || page.isEmpty()) break;
+                    for (CloudFile f : page) if (f.isDir()) dirs.add(f);
+                    if (page.size() < PAGE_LIMIT) break;
+                }
+            } catch (Exception e) {
+                error = e;
+            }
+            Exception err = error;
+            runOnUiThread(() -> {
+                st.loading = false;
+                // 拉取期间用户已切层，这批结果作废，别串到新层上
+                if (!cid.equals(st.path.get(st.path.size() - 1).cid)) return;
+                if (err != null) {
+                    Notify.show("加载文件夹失败：" + msg(err));
+                    return;
+                }
+                st.dirs.addAll(dirs);
+                adapter.notifyDataSetChanged();
+                if (dirs.isEmpty()) Notify.show("这个文件夹里没有子文件夹");
+            });
+        }).start();
+    }
+
+    /** 选择器行：一行一个文件夹（名在左、› 在右）；子层时第一行是「‹ 上一级」。字色与离线任务行同套。 */
+    private class FolderAdapter extends BaseAdapter {
+
+        private final FolderPickerState st;
+
+        FolderAdapter(FolderPickerState st) {
+            this.st = st;
+        }
+
+        @Override
+        public int getCount() {
+            return (st.path.size() > 1 ? 1 : 0) + st.dirs.size();
+        }
+
+        @Override
+        public Object getItem(int position) {
+            return null;
+        }
+
+        @Override
+        public long getItemId(int position) {
+            return position;
+        }
+
+        @Override
+        public View getView(int position, View convertView, ViewGroup parent) {
+            LinearLayout row;
+            TextView tvName;
+            TextView tvArrow;
+            if (convertView instanceof LinearLayout) {
+                row = (LinearLayout) convertView;
+                tvName = (TextView) row.getChildAt(0);
+                tvArrow = (TextView) row.getChildAt(1);
+            } else {
+                float density = getResources().getDisplayMetrics().density;
+                row = new LinearLayout(CloudDriveActivity.this);
+                row.setOrientation(LinearLayout.HORIZONTAL);
+                row.setGravity(Gravity.CENTER_VERTICAL);
+                int padH = (int) (16 * density);
+                int padV = (int) (11 * density);
+                row.setPadding(padH, padV, padH, padV);
+                tvName = new TextView(CloudDriveActivity.this);
+                tvName.setSingleLine(true);
+                tvName.setEllipsize(TextUtils.TruncateAt.END);
+                tvName.setTextSize(14);
+                row.addView(tvName, new LinearLayout.LayoutParams(
+                        0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+                tvArrow = new TextView(CloudDriveActivity.this);
+                tvArrow.setSingleLine(true);
+                tvArrow.setTextSize(14);
+                row.addView(tvArrow, new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            }
+            int base = st.path.size() > 1 ? 1 : 0;
+            if (base == 1 && position == 0) {
+                tvName.setText("‹ 上一级");
+                tvName.setTextColor(0x99FFFFFF);
+                tvArrow.setText("");
+            } else {
+                tvName.setText(st.dirs.get(position - base).getName());
+                tvName.setTextColor(0xFFF1F4F5);
+                tvArrow.setText("›");
+                tvArrow.setTextColor(0x99FFFFFF);
+            }
+            return row;
+        }
     }
 
     private void showOfflineDialog() {

@@ -37,6 +37,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 public class ConfigDialog extends BaseAlertDialog {
 
     private DialogConfigBinding binding;
+    private android.app.ProgressDialog loadingDialog;
     private boolean append = true;
     private boolean edit;
     private String ori;
@@ -297,7 +298,30 @@ public class ConfigDialog extends BaseAlertDialog {
     private void loadConfig(Config config) {
         com.fongmi.android.tv.impl.Callback callback = new com.fongmi.android.tv.impl.Callback() {
             @Override
+            public void start() {
+                // 输入这条路原先全程零提示：贴完配置只能干等，失败才弹字。
+                // 照配置来源页切换线路的口径补加载中提示，只补提示、不动加载逻辑。
+                dismissLoading();
+                Activity activity = getActivity();
+                if (activity == null) return;
+                try {
+                    android.app.ProgressDialog progress = new android.app.ProgressDialog(activity);
+                    progress.setMessage("正在加载配置…");
+                    progress.setCancelable(false);
+                    progress.show();
+                    loadingDialog = progress;
+                } catch (Exception ignored) {
+                }
+            }
+
+            @Override
+            public void success() {
+                dismissLoading();
+            }
+
+            @Override
             public void error(String msg) {
+                dismissLoading();
                 Notify.show(getFriendlyError(msg));
             }
         };
@@ -312,6 +336,21 @@ public class ConfigDialog extends BaseAlertDialog {
     }
 
 
+
+    private void dismissLoading() {
+        if (loadingDialog == null) return;
+        try {
+            loadingDialog.dismiss();
+        } catch (Exception ignored) {
+        }
+        loadingDialog = null;
+    }
+
+    @Override
+    public void onDestroy() {
+        dismissLoading();
+        super.onDestroy();
+    }
 
     private String getFriendlyError(String msg) {
         if (msg == null) return "配置加载失败，请检查配置是否正确";

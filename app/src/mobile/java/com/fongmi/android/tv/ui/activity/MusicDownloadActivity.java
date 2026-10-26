@@ -494,7 +494,7 @@ public class MusicDownloadActivity extends BaseActivity {
                         int failed = 0;
 
                         @Override
-                        public void onData(Boolean ok) {
+                        public void onResult(Boolean ok) {
                             if (!Boolean.TRUE.equals(ok)) failed++;
                             if (--left <= 0) {
                                 dlSelected.clear();
@@ -522,7 +522,7 @@ public class MusicDownloadActivity extends BaseActivity {
                 .setMessage("删除本地文件：释放存储空间，音频、封面、歌词一并删除\n仅移出列表：保留本地文件，仍可被本地音乐库扫描播放")
                 .setItems(new String[]{"删除本地文件", "仅移出列表"}, (d, which) -> {
                     MusicDownloadStore.DataCallback<Boolean> done = ok -> {
-                        Notify.show(Boolean.TRUE.equals(ok) ? R.string.music_deleted : "删除失败，文件可能被占用");
+                        Notify.show(Boolean.TRUE.equals(ok) ? getString(R.string.music_deleted) : "删除失败，文件可能被占用");
                         loadDownloads();
                     };
                     if (which == 1) MusicDownloadStore.deleteRecordOnly(track, done);

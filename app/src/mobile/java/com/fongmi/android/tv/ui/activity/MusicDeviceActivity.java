@@ -697,7 +697,7 @@ public class MusicDeviceActivity extends BaseActivity {
                                     }
                                 } catch (Throwable ignored) {
                                 }
-                                Notify.show(deleted ? R.string.music_deleted : "删除失败，文件可能被占用");
+                                Notify.show(deleted ? getString(R.string.music_deleted) : "删除失败，文件可能被占用");
                                 if (deleted) loadDevice();
                             })
                             .setNegativeButton(android.R.string.cancel, null)
@@ -708,7 +708,7 @@ public class MusicDeviceActivity extends BaseActivity {
                             .setMessage(getString(R.string.music_download_delete_confirm))
                             .setPositiveButton(getString(R.string.music_download_delete), (d, w) ->
                                     MusicDownloadStore.deleteLocal(track, ok ->
-                                            Notify.show(ok ? R.string.music_deleted : "删除失败，文件可能被占用")))
+                                            Notify.show(ok ? getString(R.string.music_deleted) : "删除失败，文件可能被占用")))
                             .setNegativeButton(android.R.string.cancel, null)
                             .show();
                 }

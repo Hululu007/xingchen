@@ -128,8 +128,8 @@ public class PyMusicSource implements MusicSource {
         Result result = SiteApi.searchContent(vod, keyword, false, String.valueOf(p));
         List<MusicTrack> tracks = mapList(vod, result);
         supplementCovers(tracks, keyword);
-        boolean end = result != null && result.getPagecount() > 0
-                ? p >= result.getPagecount()
+        boolean end = result != null && result.getPageCount() > 0
+                ? p >= result.getPageCount()
                 : tracks.isEmpty();
         return new MusicSearchPage(tracks, end);
     }

@@ -629,6 +629,36 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         }
     }
 
+    /**
+     * 本地媒体文件直达播放：单集、线路名「本地」、标题与集名均为文件名全名。
+     * 选集载荷用 setupDirectEpisodes 的对象形态（flags 自带线路名），不走
+     * SiteApi 的推送详情（那条会把线路标成「推送」、还要再手点一次选集）。
+     */
+    public static void startLocal(Activity activity, String uri, String name) {
+        try {
+            if (TextUtils.isEmpty(uri)) return;
+            String title = TextUtils.isEmpty(name) ? uri : name;
+            org.json.JSONObject episode = new org.json.JSONObject();
+            episode.put("name", title);
+            episode.put("url", uri);
+            org.json.JSONObject flag = new org.json.JSONObject();
+            flag.put("name", "本地");
+            flag.put("episodes", new org.json.JSONArray().put(episode));
+            org.json.JSONObject root = new org.json.JSONObject();
+            root.put("flags", new org.json.JSONArray().put(flag));
+            Intent intent = new Intent(activity, VideoActivity.class);
+            intent.putExtra("key", SiteApi.PUSH);
+            intent.putExtra("id", uri);
+            intent.putExtra("name", title);
+            intent.putExtra("local_episodes", root.toString());
+            intent.putExtra("local_episode_idx", 0);
+            if (uri.startsWith("content://")) intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            activity.startActivity(intent);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
     public static void collect(Activity activity, String key, String id, String name, String pic, String wallPic) {
         start(activity, key, id, name, pic, null, true, wallPic);
     }
@@ -1555,6 +1585,10 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
                 if (!isFullscreen()) enterFullscreen();
             });
         }
+        if (!TextUtils.isEmpty(getIntent().getStringExtra("local_episodes"))) {
+            playLocalDirect();
+            return;
+        }
         if (!TextUtils.isEmpty(getIntent().getStringExtra("txt_episodes"))) {
             playTxtDirect();
             return;
@@ -1634,6 +1668,18 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private void playTxtDirect() {
         showProgress();
         setupDirectEpisodes("txt_episodes", "txt_episode_idx");
+        playDirect(getKey(), "", getId());
+    }
+
+    /**
+     * 本地媒体文件直接播放：不加载详情、不等配置。
+     * 选集 UI 复用 setupDirectEpisodes（线路名「本地」、单集为文件名全名），
+     * 点播走 playerContent(PUSH) 裸地址分支——file/content 地址无提取器认领，
+     * 在 Source.fetch 原样直通给播放器。
+     */
+    private void playLocalDirect() {
+        showProgress();
+        setupDirectEpisodes("local_episodes", "local_episode_idx");
         playDirect(getKey(), "", getId());
     }
 
@@ -1986,6 +2032,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     /** 直接播放会话（海阔选集/txt 走 setupDirectEpisodes）：选集已预选，playHkDirect/playTxtDirect
      * 随后自行 playerContent，阶段二不再点火，避免重播。 */
     private boolean isDirectPlaySession() {
+        if (!TextUtils.isEmpty(getIntent().getStringExtra("local_episodes"))) return true;
         if (!TextUtils.isEmpty(getIntent().getStringExtra("txt_episodes"))) return true;
         return getIntent().getBooleanExtra("hk_direct_play", false) && !TextUtils.isEmpty(getIntent().getStringExtra("hk_rule"));
     }

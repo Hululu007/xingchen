@@ -192,8 +192,45 @@ public class LxMusicSource implements MusicSource {
      * Huibq 2.5s＋溯音 3.2s＋聆川 2.2s），他网络下更慢（日志实测星海一发 4 秒、
      * Huibq 一发 10 秒），8 秒一到必砍、错误还是无消息的 TimeoutException，
      * 日志只剩 error null（2026-10-26 真机 tx/kg/mg 全灭实证）。改 18 秒：
-     * 仍在取链总预算 20 秒与桥内层 40 秒之内，wait 仍与 remain 取小。 */
-    private static final long PLUGIN_TIMEOUT_MS = 18000;
+     * 仍在取链总预算 20 秒与桥内层 40 秒之内，wait 仍与 remain 取小。
+     * 提速⑤再分配（2026-10-26 速度审计）：18 秒又让单脚本慢死吃掉总预算大半、
+     * 后续脚本只剩约 2 秒——基础压回 9 秒，改按延迟账分配（见 pluginBudgetMs：
+     * 有超基础成功记录的慢脚本按记录＋3 秒豁免，聚合脚本的 10.2 秒串行总耗时
+     * 正是「慢但能成」这型，成功记账后不再被基础预算误砍）。 */
+    private static final long PLUGIN_TIMEOUT_MS = 9000;
+
+    /** 本次取链的脚本遍历序：按延迟账升序（快的先试、无记录排后、相对序不变） */
+    private List<MusicSite> orderedPluginsForPlay() {
+        List<MusicSite> plugins = sites();
+        final Map<String, Long> per = latencyOfPlugins();
+        if (per.isEmpty()) return plugins;
+        List<MusicSite> sorted = new ArrayList<>(plugins);
+        sorted.sort(java.util.Comparator.comparingLong(
+                s -> {
+                    Long v = s == null ? null : per.get(s.srcUrl);
+                    return v == null ? Long.MAX_VALUE : v;
+                }));
+        return sorted;
+    }
+
+    /** 落雪延迟账（platform=lx → srcUrl → 最近一次成功取链耗时 ms） */
+    private static Map<String, Long> latencyOfPlugins() {
+        try {
+            Map<String, Map<String, Long>> all =
+                    com.fongmi.android.tv.music.MusicStore.loadPluginLatency();
+            Map<String, Long> per = all == null ? null : all.get(PLATFORM);
+            return per == null ? Collections.emptyMap() : per;
+        } catch (Throwable ignored) {
+            return Collections.emptyMap();
+        }
+    }
+
+    /** 单脚本预算：基础 9 秒；延迟账里有超基础的成功记录（慢但能成）按记录＋3 秒豁免 */
+    private static long pluginBudgetMs(MusicSite plugin, Map<String, Long> latency) {
+        Long recorded = plugin == null || latency == null ? null : latency.get(plugin.srcUrl);
+        if (recorded != null && recorded > PLUGIN_TIMEOUT_MS) return recorded + 3000;
+        return PLUGIN_TIMEOUT_MS;
+    }
     /** 脚本链实测验链的探测超时（毫秒）：只读响应码即断、不读体，见 probeUrlDead 口径 */
     private static final int PROBE_TIMEOUT_MS = 3000;
     /** 取链总预算（与播放服务 20 秒看门狗同口径）：到点还没出链就按失败返回 */
@@ -220,7 +257,9 @@ public class LxMusicSource implements MusicSource {
         String deadKey = MusicQueue.trackKey(track);
         // 实测验链结果只在本次取链内按 URL 缓存：同一条链被多个脚本重复给出时不反复敲
         Map<String, Boolean> probeCache = new HashMap<>();
-        for (MusicSite plugin : sites()) {
+        // 提速⑤：遍历按延迟账升序（快的先试），单脚本预算按账分配（慢但能成的豁免）
+        Map<String, Long> latency = latencyOfPlugins();
+        for (MusicSite plugin : orderedPluginsForPlay()) {
             // 服务看门狗／停播取消取链时中断本线程：中断后不许继续逐个脚本试下去
             if (Thread.currentThread().isInterrupted()) return null;
             if (System.currentTimeMillis() >= deadline) {
@@ -242,10 +281,10 @@ public class LxMusicSource implements MusicSource {
             if (b == null || !b.supports(p.platform, "musicUrl")) continue;
             String q = pickQuality(b, p.platform, want);
             long remain = deadline - System.currentTimeMillis();
-            long wait = Math.min(PLUGIN_TIMEOUT_MS, Math.max(0, remain));
+            long wait = Math.min(pluginBudgetMs(plugin, latency), Math.max(0, remain));
             if (wait <= 0) break;
             try {
-                // 单脚本 8 秒上限：get 到点就放弃这个脚本换下一个；P3：超时必须 cancel(true)
+                // 单脚本预算（基础 9 秒／慢但能成豁免，见 pluginBudgetMs）：get 到点就放弃这个脚本换下一个；P3：超时必须 cancel(true)
                 // 取消底层任务，不只放弃等待——否则 supplyAsync 线程继续占共享池，连续坏歌
                 // 即可占满 5 条、后续取链排队等死（本层改走音乐专用池见 Task.submitMusic 注释
                 // 的调用方，桥内层 40 秒上限见 LxBridge.request 的取消）
@@ -373,7 +412,7 @@ public class LxMusicSource implements MusicSource {
      * 清理轮 R-C7：单插件取链（播放路由指派用）。只试 srcUrl 命中的那一个启用落雪脚本，
      * 不遍历其它脚本：取不到返回 null，由仓库按策略决定是回落还是停住，不在这里跨脚本。
      * 单步口径与 playUrl 的单次迭代一致：QQ mediaMid 补齐、档位 pickQuality、单脚本
-     * 8 秒上限（超时 cancel(true)）、出链记 C5 耗时到该脚本名下；脚本未启用／不支持
+     * 单脚本预算（基础 9 秒／豁免同 playUrl）、出链记 C5 耗时到该脚本名下；脚本未启用／不支持
      * 该平台 musicUrl 时返回 null（不是抛错）。密钥问题（LxKeyIssue）照旧重抛，不许吞。
      */
     public String playUrlWithPlugin(MusicTrack track, int quality, String srcUrl) throws Exception {
@@ -425,7 +464,7 @@ public class LxMusicSource implements MusicSource {
             }, Task.musicExecutor());
             String r;
             try {
-                r = lxFuture.get(PLUGIN_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+                r = lxFuture.get(pluginBudgetMs(target, latencyOfPlugins()), TimeUnit.MILLISECONDS);
             } catch (java.util.concurrent.TimeoutException te) {
                 lxFuture.cancel(true);
                 if (!probe) markDeadPlugin(deadKey, srcUrl, want);

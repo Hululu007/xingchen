@@ -293,6 +293,30 @@ public class LoginManager {
         return true;
     }
 
+    // 扫描 O13：谷歌/快手/115 三家补同型回执——requestLogin 此前对这三家无条件
+    // return true，而静态桥在无前台界面时静默空转，FreeJS 桥把假回执原样回给插件，
+    // 插件按「已请求登录」继续等登录态、登录链无声卡死。回执口径与 QQ 一致。
+    public static boolean loginGoogleDelivered() {
+        FragmentActivity activity = currentActivity();
+        if (activity == null || activity.isFinishing()) return false;
+        App.post(() -> get().loginGoogle(activity, null));
+        return true;
+    }
+
+    public static boolean loginKuaishouDelivered() {
+        FragmentActivity activity = currentActivity();
+        if (activity == null || activity.isFinishing()) return false;
+        App.post(() -> get().loginKuaishou(activity, null));
+        return true;
+    }
+
+    public static boolean login115Delivered() {
+        FragmentActivity activity = currentActivity();
+        if (activity == null || activity.isFinishing()) return false;
+        App.post(() -> get().login115(activity, null));
+        return true;
+    }
+
     /** QQ 是否已登录（托管 Cookie 含账号标识＋音乐钥匙） */
     public static boolean isQQLoggedIn() {
         return isLoggedIn(QQLoginProvider.ID);
@@ -309,29 +333,26 @@ public class LoginManager {
     }
 
     /**
-     * 通用：按提供方 id 请壳子弹统一登录框（异步），已分发的返回 true
-     * （QQ 路径回执的是投递结果：无前台界面投不出去回 false，见 loginQQDelivered）。
+     * 通用：按提供方 id 请壳子弹统一登录框（异步），返回的是投递结果：
+     * 四家一致——无前台界面／界面正在关闭时弹窗投不出去、回 false（见各 *Delivered）。
      * 给不知道具体提供方 UI 细节的调用方（如 FreeJS 桥按插件声明的
      * loginProvider 触发）用；新增网页型提供方时在此登记一行分发。
      */
     public static boolean requestLogin(String providerId) {
         if (providerId == null) return false;
+        // 四家回执统一如实（O13）：都走带回执的投递，投不出去（无前台界面）回 false
         if (GoogleLoginProvider.ID.equals(providerId)) {
-            loginGoogle();
-            return true;
+            return loginGoogleDelivered();
         }
         if (KuaishouLoginProvider.ID.equals(providerId)) {
-            loginKuaishou();
-            return true;
+            return loginKuaishouDelivered();
         }
         if (QQLoginProvider.ID.equals(providerId)) {
-            // 回执如实：走带回执的投递，投不出去（无前台界面）回 false，
             // 按投递结果落节流戳的调用方（QqVkeyFetcher）据此不落戳
             return loginQQDelivered();
         }
         if ("115".equals(providerId)) {
-            login115();
-            return true;
+            return login115Delivered();
         }
         return false;
     }

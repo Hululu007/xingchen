@@ -29,7 +29,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
             android:text="@string/music_import_playlist"
-            android:textColor="#1C1C1E"
+            android:textColor="#F1F4F5"
             android:textSize="18sp"
             android:textStyle="bold" />
 
@@ -39,7 +39,7 @@
             android:layout_marginTop="4dp"
             android:lineSpacingExtra="5sp"
             android:text="支持各平台歌单链接或分享文案导入"
-            android:textColor="#8E8E93"
+            android:textColor="#99FFFFFF"
             android:textSize="12sp" />
 
         <LinearLayout
@@ -47,13 +47,6 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
-            android:orientation="horizontal" />
-
-        <LinearLayout
-            android:id="@+id/platformRow2"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
             android:orientation="horizontal" />
 
         <LinearLayout
@@ -86,14 +79,14 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="登录账号导入"
-                    android:textColor="#1C1C1E"
+                    android:textColor="#F1F4F5"
                     android:textSize="14sp" />
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="网易云 / QQ音乐"
-                    android:textColor="#8E8E93"
+                    android:textColor="#99FFFFFF"
                     android:textSize="11sp" />
             </LinearLayout>
 
@@ -101,7 +94,7 @@
                 android:layout_width="18dp"
                 android:layout_height="18dp"
                 android:src="@drawable/ic_music_chevron"
-                android:tint="#8E8E93" />
+                android:tint="#99FFFFFF" />
         </LinearLayout>
 
         <LinearLayout
@@ -121,7 +114,7 @@
                 android:layout_width="20dp"
                 android:layout_height="20dp"
                 android:src="@drawable/ic_music_download"
-                android:tint="#1C1C1E" />
+                android:tint="#F1F4F5" />
 
             <LinearLayout
                 android:layout_width="0dp"
@@ -134,14 +127,14 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="从洛雪(LX)歌单文件导入"
-                    android:textColor="#1C1C1E"
+                    android:textColor="#F1F4F5"
                     android:textSize="14sp" />
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text=".lxmc"
-                    android:textColor="#8E8E93"
+                    android:textColor="#99FFFFFF"
                     android:textSize="11sp" />
             </LinearLayout>
 
@@ -149,7 +142,7 @@
                 android:layout_width="18dp"
                 android:layout_height="18dp"
                 android:src="@drawable/ic_music_chevron"
-                android:tint="#8E8E93" />
+                android:tint="#99FFFFFF" />
         </LinearLayout>
 
         <EditText
@@ -166,8 +159,8 @@
             android:paddingTop="12dp"
             android:paddingEnd="14dp"
             android:paddingBottom="12dp"
-            android:textColor="#1C1C1E"
-            android:textColorHint="#9A9AA0"
+            android:textColor="#F1F4F5"
+            android:textColorHint="#99FFFFFF"
             android:textSize="14sp" />
 
         <TextView
@@ -198,7 +191,7 @@
             android:layout_marginTop="8dp"
             android:gravity="center"
             android:text="@android:string/cancel"
-            android:textColor="#8E8E93"
+            android:textColor="#99FFFFFF"
             android:textSize="14sp" />
     </LinearLayout>
 </ScrollView>

@@ -19,7 +19,7 @@ import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.databinding.DialogMusicPlaylistImportBinding;
 
 /**
- * 第 11 项：GZ 导入歌单大面板（底部大白板形态）。
+ * 第 11 项：GZ 导入歌单大面板（底部玻璃面板形态）。
  * 平台格只是支持平台指示（GZ 图标为各平台 logo，星辰无 logo 素材，格内用平台名文字代替，见对照表）；
  * 登录账号导入行只放开这一处（网易云／QQ音乐），点按回调宿主走 WebView 登录页；
  * 宿主读到 Cookie 后直接调平台公开接口拉“我的歌单”列表，点某张走 PlaylistImporter 现有导入链。
@@ -34,10 +34,9 @@ public class MusicPlaylistImportDialog extends BaseBottomSheetDialog {
         void onAccountImport(String platform);
     }
 
+    // 只列真能导入的四家；不支持的平台不摆占位格（2026-10-25 他令：做不出来就不要，
+    // 原第二排汽水／Spotify／Apple Music／咪咕四家占位芯片 2026-10-26 整排摘除）
     private static final String[] PLATFORMS_ROW1 = {"网易云", "QQ音乐", "酷狗", "酷我"};
-    // 第三波 G-B1：第二行四家歌单导入暂不支持（汽水／Spotify／Apple Music 无解析；
-    // 咪咕有搜歌／播放但歌单拉取未实现），格子置灰＋“暂不支持”，不留点了必败的格子
-    private static final String[] PLATFORMS_ROW2 = {"汽水", "Spotify", "Apple Music", "咪咕"};
 
     private DialogMusicPlaylistImportBinding binding;
     private Listener listener;
@@ -66,8 +65,7 @@ public class MusicPlaylistImportDialog extends BaseBottomSheetDialog {
 
     @Override
     protected void initView() {
-        buildPlatformRow(binding.platformRow1, PLATFORMS_ROW1, true);
-        buildPlatformRow(binding.platformRow2, PLATFORMS_ROW2, false);
+        buildPlatformRow(binding.platformRow1, PLATFORMS_ROW1);
         binding.loginRow.setOnClickListener(v -> {
             if (listener == null) return;
             FragmentActivity host = getActivity();
@@ -104,15 +102,13 @@ public class MusicPlaylistImportDialog extends BaseBottomSheetDialog {
         refreshImportEnabled();
     }
 
-    private void buildPlatformRow(LinearLayout row, String[] names, boolean supported) {
+    private void buildPlatformRow(LinearLayout row, String[] names) {
         row.removeAllViews();
         for (int i = 0; i < names.length; i++) {
             TextView cell = new TextView(getContext());
-            cell.setText(supported ? names[i] : names[i] + " · 暂不支持");
+            cell.setText(names[i]);
             cell.setTextSize(11);
-            cell.setTextColor(supported ? 0xFF1C1C1E : 0xFF9AA7B8);
-            cell.setAlpha(supported ? 1f : 0.6f);
-            if (!supported) cell.setEnabled(false);
+            cell.setTextColor(0xFFF1F4F5);
             cell.setGravity(android.view.Gravity.CENTER);
             cell.setBackgroundResource(R.drawable.bg_platform_cell);
             cell.setMaxLines(1);
@@ -123,6 +119,10 @@ public class MusicPlaylistImportDialog extends BaseBottomSheetDialog {
             if (i > 0) lp.setMarginStart(dp(8));
             cell.setLayoutParams(lp);
             row.addView(cell);
+            // 平台格是 initView 里现建的、没赶上 getBinding 的 glassifyTree 整树接线，
+            // 逐格补走同源玻璃（bg_platform_cell 在识别表内、圆角 12dp，与弹窗内
+            // 登录/LX 两行同一条接线口径）：不补就是白 92% 实块＋黑字，与整张玻璃弹窗脱节
+            MusicGlassWire.glassifyView(cell);
         }
     }
 

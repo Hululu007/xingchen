@@ -17,6 +17,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.R;
+import com.fongmi.android.tv.api.music.KwChartSource;
 import com.fongmi.android.tv.api.music.LxPlatformSearch;
 import com.fongmi.android.tv.bean.music.MusicChart;
 import com.fongmi.android.tv.bean.music.MusicSite;
@@ -26,6 +27,7 @@ import com.fongmi.android.tv.music.MusicRepository;
 import com.fongmi.android.tv.music.MusicStore;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.ui.dialog.MusicOptionsDialog;
+import com.fongmi.android.tv.utils.CoverTextDrawable;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Task;
 import com.fongmi.android.tv.utils.XcFadeTransition;
@@ -37,7 +39,8 @@ import java.util.List;
  * 榜单列表独立页（拆页 p5）：焦点卡＋分区头＋普通卡；
  * 数据源＝MusicRepository 榜单（只留酷我＋QQ 的站点），卡内预览逐榜拉取，
  * 卡面跟随封面取色淡染；点卡进榜单详情独立页 MusicChartDetailActivity。
- * 顶栏只留标题，无返回箭头，走系统返回。
+ * 顶栏无返回箭头，走系统返回。2026-10-26 他亲点：计数行/刷新钮/排序箭头整带已删，
+ * 本页只在进页时加载一次（无任何刷新入口），标题行保持他截图的样子不增不减。
  */
 public class MusicChartsActivity extends BaseActivity {
 
@@ -56,11 +59,6 @@ public class MusicChartsActivity extends BaseActivity {
     }
 
     private View rootView;
-    private TextView tvBigTitle;
-    private TextView tvBigCount;
-    private ImageView btnChartsRefresh;
-    private View btnPlayAll;
-    private View btnPlaySeq;
     private RecyclerView recycler;
     private boolean listIntroDone;
 
@@ -76,13 +74,10 @@ public class MusicChartsActivity extends BaseActivity {
     private final List<MusicChart> charts = new ArrayList<>();
     private ChartsAdapter adapter;
     private final java.util.Map<String, List<MusicTrack>> chartPreviews = new java.util.HashMap<>();
-    private String bigTitle = "";
     private android.os.Parcelable pendingListState;
-
-    /** 通用排序第二段升降序弹层的 post（页销毁取消，见 onDestroy） */
-    private final android.os.Handler sortDialogHandler =
-            new android.os.Handler(android.os.Looper.getMainLooper());
-    private Runnable sortDirRunnable;
+    /** loadCharts 轮次守卫：刷新入口已按他令删净、本页只进页加载，但进页加载本身
+     * 仍可能与重建/重入并发，旧轮的主结果与预览回调一律作废，不许覆写新轮。 */
+    private int chartsSeq;
 
     public static void startCharts(Activity activity) {
         activity.startActivity(new Intent(activity, MusicChartsActivity.class));
@@ -106,23 +101,12 @@ public class MusicChartsActivity extends BaseActivity {
         if (savedInstanceState != null) {
             pendingListState = savedInstanceState.getParcelable("ml_listState");
         }
-        tvBigTitle = findViewById(R.id.tvBigTitle);
-        tvBigCount = findViewById(R.id.tvBigCount);
-        btnChartsRefresh = findViewById(R.id.btnChartsRefresh);
-        btnPlayAll = findViewById(R.id.btnPlayAll);
-        btnPlaySeq = findViewById(R.id.btnPlaySeq);
         recycler = findViewById(R.id.recycler);
         empty = findViewById(R.id.empty);
 
-        bigTitle = getString(R.string.music_charts);
-        btnChartsRefresh.setVisibility(View.VISIBLE);
-        btnChartsRefresh.setOnClickListener(v -> loadCharts());
         // 顶栏搜索钮照旧落点：壳搜索模式（搜索页尚未拆）
         ImageView btnSearch = findViewById(R.id.btnSearch);
         btnSearch.setOnClickListener(v -> MusicSearchActivity.startSearch(this, ""));
-        // 榜单模式只有榜卡、没有歌曲行：顺序播放／随机播放钮点了只弹空提示，照旧隐藏
-        btnPlaySeq.setVisibility(View.GONE);
-        btnPlayAll.setVisibility(View.GONE);
         recycler.setLayoutManager(new LinearLayoutManager(this));
         recycler.setAdapter(adapter = new ChartsAdapter());
         loadCharts();
@@ -161,7 +145,6 @@ public class MusicChartsActivity extends BaseActivity {
     @Override
     protected void onDestroy() {
         MusicController.get().unbind();
-        if (sortDialogHandler != null) sortDialogHandler.removeCallbacksAndMessages(null);
         super.onDestroy();
     }
 
@@ -180,31 +163,38 @@ public class MusicChartsActivity extends BaseActivity {
     }
 
     private void loadCharts() {
+        final int seq = ++chartsSeq;
         showLoading();
         empty.setOnClickListener(null);
         Task.execute(() -> {
             List<MusicSite> sites = MusicRepository.sites();
             List<MusicChart> result = new ArrayList<>();
+            boolean anyFailure = false;
             for (MusicSite s : sites) {
                 if (!isChartSite(s)) continue;
-                result.addAll(MusicRepository.charts(s));
+                // 失败可辨版：任一源抛错回 null 记失败，页面层才能分失败与真空
+                List<MusicChart> cs = MusicRepository.chartsOrNull(s);
+                if (cs == null) {
+                    anyFailure = true;
+                    continue;
+                }
+                result.addAll(cs);
             }
+            final boolean failed = anyFailure;
             runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed() || seq != chartsSeq) return;
                 charts.clear();
                 charts.addAll(result);
                 chartPreviews.clear();
                 adapter.notifyDataSetChanged();
                 fadeListInOnce();
-                tvBigTitle.setText(bigTitle);
-                // 榜单列表双标题去重（瓜子单顶栏口径）：顶栏 26sp「榜单」已是标题，
-                // 大标题行 30sp 同名隐藏，只留「N 个榜单」计数＋刷新钮作副标题／工具行
-                tvBigTitle.setVisibility(View.GONE);
-                tvBigCount.setText(result.size() + " 个榜单");
-                if (result.isEmpty()) XcFadeTransition.fadeIn(empty);
-                else XcFadeTransition.fadeOutThenGone(empty);
                 if (result.isEmpty()) {
-                    empty.setText(R.string.wave2_chart_empty);
-                    empty.setOnClickListener(v -> loadCharts());
+                    XcFadeTransition.fadeIn(empty);
+                    // 失败与真空分开说：有源抛错＝加载失败，没源抛错＝真没榜；
+                    // 刷新入口已按他令删净，文案不许再许诺「点击重试/刷新」
+                    empty.setText(failed ? "榜单加载失败" : "暂无榜单数据");
+                } else {
+                    XcFadeTransition.fadeOutThenGone(empty);
                 }
                 // 榜单条目 rawJson 同名字段映射（有源给值、无源留空；详情曲目数不冒充榜总曲数）
                 for (MusicChart c : result) fillChartMetaFromRaw(c);
@@ -214,22 +204,41 @@ public class MusicChartsActivity extends BaseActivity {
                 for (int i = 0; i < result.size(); i++) {
                     MusicRepository.prewarmKwChart(result.get(i));
                 }
-                // 逐榜拉曲目当卡内预览（焦点 3 条、普通 2 条），到一条刷一条；
-                // 失败的卡预览区留空，不编假数据
+                // 逐榜拉卡内预览（焦点 3 条、普通 2 条），到一条刷一条，轮次守卫防旧轮覆写；
+                // 预览只取所需行数级别：酷我走 Worker 首片（40 首级、不拉整榜两片），
+                // 其余源单发请求量由服务端定、页内截断只存前 3 条；失败的卡预览区留空，不编假数据
                 for (int i = 0; i < result.size(); i++) {
                     final MusicChart c = result.get(i);
                     final int idx = i;
-                    Task.execute(() -> {
-                        List<MusicTrack> r = MusicRepository.chartTracks(c);
-                        runOnUiThread(() -> {
-                            if (isFinishing() || isDestroyed()) return;
-                            chartPreviews.put(c.platform + ":" + c.id, r == null ? new ArrayList<>() : r);
-                            adapter.notifyItemChanged(idx == 0 ? 0 : idx + 1);
+                    final String key = c.platform + ":" + c.id;
+                    if (KwChartSource.PLATFORM.equals(c.platform)) {
+                        MusicRepository.fetchKwChartCovers(c, (pn, shard) -> {
+                            if (pn != 0) return;
+                            runOnUiThread(() -> {
+                                if (isFinishing() || isDestroyed() || seq != chartsSeq) return;
+                                chartPreviews.put(key, previewOf(shard));
+                                adapter.notifyItemChanged(idx == 0 ? 0 : idx + 1);
+                            });
                         });
-                    });
+                    } else {
+                        Task.execute(() -> {
+                            List<MusicTrack> r = MusicRepository.chartTracks(c);
+                            runOnUiThread(() -> {
+                                if (isFinishing() || isDestroyed() || seq != chartsSeq) return;
+                                chartPreviews.put(key, previewOf(r));
+                                adapter.notifyItemChanged(idx == 0 ? 0 : idx + 1);
+                            });
+                        });
+                    }
                 }
             });
         });
+    }
+
+    /** 卡内预览只留前 3 条（焦点卡 3 条/普通卡 2 条的所需上限），整榜不进预览表。 */
+    private static List<MusicTrack> previewOf(List<MusicTrack> r) {
+        if (r == null || r.isEmpty()) return new ArrayList<>();
+        return new ArrayList<>(r.subList(0, Math.min(3, r.size())));
     }
 
     /** 榜单详情开新页（系统返回回榜单列表；本页不放自己的返回箭头）。
@@ -238,10 +247,6 @@ public class MusicChartsActivity extends BaseActivity {
         MusicChartDetailActivity.startChartDetail(this, chart);
     }
 
-    // ================= 通用排序（工具栏排序键照旧口径） =================
-
-
-    
     // ================= 取色与封面 =================
 
     /** 榜单卡玻璃色调（跟随封面取色：主色向白混 85% 成淡染，走玻璃 tone 不换底；
@@ -529,8 +534,10 @@ public class MusicChartsActivity extends BaseActivity {
                     com.bumptech.glide.Glide.with(h.cover).clear(h.cover);
                 } catch (Throwable ignored) {
                 }
-                h.cover.setImageDrawable(null);
-                h.cover.setBackgroundColor(0xFFE5E5EA);
+                // 真没封面才上素图（榜名排字），与行级 CoverTextDrawable 口径一致；
+                // 此前是一块空白浅灰 #E5E5EA，没任何信息
+                h.cover.setBackgroundColor(0x00000000);
+                h.cover.setImageDrawable(new CoverTextDrawable(chart.name, false, dp(14)));
             } else {
                 h.cover.setBackgroundColor(0x00000000);
                 loadCoverRounded(chart.name, chart.cover, h.cover, 14);
@@ -582,8 +589,8 @@ public class MusicChartsActivity extends BaseActivity {
                     com.bumptech.glide.Glide.with(h.cover).clear(h.cover);
                 } catch (Throwable ignored) {
                 }
-                h.cover.setImageDrawable(null);
-                h.cover.setBackgroundColor(0xFFE5E5EA);
+                h.cover.setBackgroundColor(0x00000000);
+                h.cover.setImageDrawable(new CoverTextDrawable(chart.name, false, dp(14)));
             } else {
                 h.cover.setBackgroundColor(0x00000000);
                 loadCoverRounded(chart.name, chart.cover, h.cover, 14);

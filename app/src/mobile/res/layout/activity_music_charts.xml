@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 榜单列表独立页（拆页 p5，2026-10-25）：从旧列表壳的 charts 模式拆出。
-     构成照旧页 charts 模式实际引用子集：顶栏（标题＋搜索钮）＋大标题行（标题代码隐藏、
-     只留「N 个榜单」计数＋刷新钮）＋工具栏（播放全部／顺序播放代码恒隐藏、只留排序键）
-     ＋列表（焦点卡＋分区头＋普通卡，行布局复用 item_music_chart_*）＋空态覆盖层。
+     构成：顶栏（只留搜索钮）＋列表（焦点卡＋分区头＋普通卡，行布局复用
+     item_music_chart_*）＋空态覆盖层。2026-10-26 他亲点：标题行与焦点卡之间整带
+     （「N 个榜单」计数行＋刷新钮＋排序箭头及其高度）全删，焦点卡直接顶到顶栏下；
+     标题行保持他截图里的样子不增不减，本页不另补标题视图。
      根与背景层照旧列表布局：根底 home_bg_page 兜底＋MusicGlassBackgroundView 铺满。
      无返回箭头（铁律），关页走系统返回；界面只放名字和状态，无介绍文字。 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -29,7 +30,6 @@
             android:layout_width="match_parent"
             android:layout_height="64dp">
 
-
             <ImageView
                 android:id="@+id/btnSearch"
                 android:layout_width="48dp"
@@ -40,115 +40,6 @@
                 android:padding="12dp"
                 android:src="@drawable/ic_music_search" />
         </RelativeLayout>
-
-        <LinearLayout
-            android:id="@+id/bigTitleRow"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <TextView
-                android:id="@+id/tvBigTitle"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:ellipsize="end"
-                android:maxLines="1"
-                android:textColor="#F1F4F5"
-                android:textSize="30sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/tvBigCount"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="12dp"
-                android:textColor="#9AA7B8"
-                android:textSize="20sp" />
-
-            <!-- 榜单列表页手动刷新（GZ TopListRefreshButton）：点按重新拉取 -->
-            <ImageView
-                android:id="@+id/btnChartsRefresh"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
-                android:layout_marginStart="12dp"
-                android:padding="4dp"
-                android:src="@drawable/ic_action_refresh"
-                android:tint="#9AA7B8"
-                android:visibility="gone" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:id="@+id/toolbar"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <LinearLayout
-                android:id="@+id/btnPlayAll"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal"
-                android:padding="8dp"
-                android:visibility="gone">
-
-                <ImageView
-                    android:id="@+id/ivPlayAllIcon"
-                    android:layout_width="36dp"
-                    android:layout_height="36dp"
-                    android:background="@drawable/card_music"
-                    android:padding="8dp"
-                    android:src="@drawable/ic_music_shuffle"
-                    android:tint="#FA243C" />
-
-                <TextView
-                    android:id="@+id/tvPlayAll"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="12dp"
-                    android:text="@string/music_shuffle_play"
-                    android:textColor="#9AA7B8"
-                    android:textSize="16sp" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:id="@+id/btnPlaySeq"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="16dp"
-                android:gravity="center_vertical"
-                android:orientation="horizontal"
-                android:padding="8dp"
-                android:visibility="gone">
-
-                <ImageView
-                    android:layout_width="36dp"
-                    android:layout_height="36dp"
-                    android:background="@drawable/card_music"
-                    android:padding="8dp"
-                    android:src="@drawable/ic_music_play"
-                    android:tint="#FA243C" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="12dp"
-                    android:text="@string/music_play_all_order"
-                    android:textColor="#9AA7B8"
-                    android:textSize="16sp" />
-            </LinearLayout>
-
-            <View
-                android:layout_width="0dp"
-                android:layout_height="1dp"
-                android:layout_weight="1" />
-
-
-        </LinearLayout>
 
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/recycler"

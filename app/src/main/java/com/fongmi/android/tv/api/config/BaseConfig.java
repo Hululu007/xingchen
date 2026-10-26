@@ -106,7 +106,8 @@ abstract class BaseConfig {
     }
 
     // 取消在途加载的附带清理钩（上游同名口径）：默认无操作，需要收口的
-    // 子类覆写——VodConfig 用它取消 Node 配置加载（NodeRuntime.cancelLoad）。
+    // 子类覆写。原 VodConfig 覆写（取消旧 Node 专用链加载）已随 E14 分发
+    // 改形退场，现无子类覆写。
     protected void cancelLoad() {
     }
 

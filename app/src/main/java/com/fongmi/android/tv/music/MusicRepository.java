@@ -2062,6 +2062,16 @@ public class MusicRepository {
      * 播放页当前曲无封面时后台调一次，命中后补上封面。第三波 A3：去掉仅本地歌门，在线歌也可用。
      */
     public static String onlineCover(MusicTrack track) {
+        MusicTrack hit = onlineMeta(track);
+        return hit == null ? null : hit.cover.trim();
+    }
+
+    /**
+     * 在线对歌补全：按净歌名逐级搜在线源（跳过本地／设备源），精确对上同一首歌就返回那首
+     * 在线曲（歌手/专辑/封面全套）。本地无标签文件（歌手/专辑/封面全空）与在线无封面曲共用。
+     * 此前只有 onlineCover 一个出口且全仓零调用——补全链建了没接线，播放页从没调过（他点名）。
+     */
+    public static MusicTrack onlineMeta(MusicTrack track) {
         if (track == null) return null;
         for (LocalTrackMeta.Query q : LocalTrackMeta.queries(track.title, track.artist, track.platform)) {
             if (q.keyword == null || q.keyword.isEmpty()) continue;
@@ -2073,11 +2083,11 @@ public class MusicRepository {
                         FreeJsMusicSource fj = (FreeJsMusicSource) other;
                         for (MusicSite site : fj.searchableSites()) {
                             MusicTrack hit = matchSong(target, fj.searchBySite(site, q.keyword));
-                            if (hit != null && hit.cover != null && !hit.cover.trim().isEmpty()) return hit.cover.trim();
+                            if (hit != null && hit.cover != null && !hit.cover.trim().isEmpty()) return hit;
                         }
                     } else {
                         MusicTrack hit = matchSong(target, other.search(q.keyword));
-                        if (hit != null && hit.cover != null && !hit.cover.trim().isEmpty()) return hit.cover.trim();
+                        if (hit != null && hit.cover != null && !hit.cover.trim().isEmpty()) return hit;
                     }
                 } catch (Throwable ignored) {
                 }

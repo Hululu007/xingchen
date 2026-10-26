@@ -142,6 +142,10 @@ public class DeviceMusicStore {
                         if (com.fongmi.android.tv.utils.LocalTrackMeta.isPlaceholderAlbum(tagAlbum)) tagAlbum = tagAlbumByUri(ctx, id);
                         if (!com.fongmi.android.tv.utils.LocalTrackMeta.isPlaceholderAlbum(tagAlbum)) t.album = tagAlbum;
                     }
+                    // 兜底全落空时占位值不许留在数据里（<unknown> 会一路印到播放页/队列）：
+                    // 歌手/专辑清成空，界面走各自的空态，在线对歌补全（onlineMeta）也只认空缺。
+                    if (com.fongmi.android.tv.utils.LocalTrackMeta.isPlaceholderArtist(t.artist)) t.artist = "";
+                    if (com.fongmi.android.tv.utils.LocalTrackMeta.isPlaceholderAlbum(t.album)) t.album = "";
                     t.duration = c.getLong(iDur);
                     t.platform = DeviceMusicSource.PLATFORM;
                     long albumId = c.getLong(iAlbumId);

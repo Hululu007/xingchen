@@ -95,6 +95,8 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
 
     private MusicTrack mTrack;
     private String mTrackKey;
+    // 在线对歌补全已试过的曲 key（一首只试一次，免得切回来反复搜）
+    private final java.util.Set<String> mMetaTried = new java.util.HashSet<>();
     private Bitmap mCoverBitmap;
     private boolean mFavorite;
     private int mFavTriggerCount;
@@ -582,11 +584,11 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
         mArtist.setText(track.displayArtist());
         // 歌手透明档：有点击回调且歌手可解析 → 白 0.45，否则 0.34（瓜子 SongMeta 两档）
         mArtist.setTextColor(firstArtist(track.displayArtist()) != null ? 0x73FFFFFF : 0x57FFFFFF);
-        if (TextUtils.isEmpty(track.album)) {
+        if (TextUtils.isEmpty(track.displayAlbum())) {
             mAlbum.setVisibility(View.GONE);
         } else {
             mAlbum.setVisibility(View.VISIBLE);
-            mAlbum.setText(track.album);
+            mAlbum.setText(track.displayAlbum());
         }
 
         bindCover(track, dir);
@@ -598,6 +600,50 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
         mLyrics.setLines(null);
         tryLoadLyric(track);
         updatePlayUi(MusicController.get().isPlaying());
+        maybeBackfillMeta(track, key);
+    }
+
+    /**
+     * 元信息补全接线：封面空、或本地无标签曲缺歌手/专辑时，后台在线对歌一次，
+     * 命中同一首就把缺的字段补回曲对象（只补空缺、不覆盖本地真标签），
+     * 还在播这首就刷新歌手/专辑行、封面与氛围。此前仓库里 onlineCover 建好却零调用，
+     * 补全链从没通过电（他点名：很多歌没封面、本地歌歌手专辑都没有）。
+     */
+    private void maybeBackfillMeta(final MusicTrack track, final String key) {
+        boolean local = com.fongmi.android.tv.utils.LocalTrackMeta.isLocalPlatform(track.platform);
+        boolean need = TextUtils.isEmpty(track.cover)
+                || (local && (TextUtils.isEmpty(track.displayArtist()) || TextUtils.isEmpty(track.displayAlbum())));
+        if (!need || !mMetaTried.add(key)) return;
+        com.fongmi.android.tv.utils.Task.execute(() -> {
+            MusicTrack hit = MusicRepository.onlineMeta(track);
+            if (hit == null) return;
+            boolean coverFilled = false;
+            if (TextUtils.isEmpty(track.cover) && !TextUtils.isEmpty(hit.cover)) {
+                track.cover = hit.cover.trim();
+                coverFilled = true;
+            }
+            if (TextUtils.isEmpty(track.displayArtist()) && !TextUtils.isEmpty(hit.displayArtist()))
+                track.artist = hit.displayArtist();
+            if (TextUtils.isEmpty(track.displayAlbum()) && !TextUtils.isEmpty(hit.displayAlbum()))
+                track.album = hit.displayAlbum();
+            final boolean fc = coverFilled;
+            mTitle.post(() -> {
+                if (mTrack == null || !key.equals(mTrackKey)) return;
+                mArtist.setText(mTrack.displayArtist());
+                mArtist.setTextColor(firstArtist(mTrack.displayArtist()) != null ? 0x73FFFFFF : 0x57FFFFFF);
+                if (TextUtils.isEmpty(mTrack.displayAlbum())) {
+                    mAlbum.setVisibility(View.GONE);
+                } else {
+                    mAlbum.setVisibility(View.VISIBLE);
+                    mAlbum.setText(mTrack.displayAlbum());
+                }
+                if (fc) {
+                    bindCover(mTrack, 0);
+                    mAmbient.setCover(mTrack.cover);
+                }
+                refreshFavorite(mTrack);
+            });
+        });
     }
 
     private void bindCover(MusicTrack track, int dir) {

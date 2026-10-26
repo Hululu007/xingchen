@@ -65,6 +65,12 @@ public class LocalTrackMeta {
         return artist.trim();
     }
 
+    /** 专辑占位清洗（与 realArtist 同口径）：占位专辑按没有处理，不许把 <unknown> 之类露给界面 */
+    public static String realAlbum(String album) {
+        if (isPlaceholderAlbum(album)) return "";
+        return album.trim();
+    }
+
     /** 显示／主清洗：去文件后缀、去尾巴发行组后缀；括号标签不动（显示保留原意） */
     public static String cleanTitle(String title) {
         if (title == null) return "";

@@ -44,7 +44,12 @@ public class MusicTrack {
     }
 
     public String displayArtist() {
-        return artist == null ? "" : artist;
+        // 占位歌手（<unknown> 等）一律按空显示，不许露原样（他截图实证：播放页歌手行印出 <unknown>）
+        return artist == null ? "" : com.fongmi.android.tv.utils.LocalTrackMeta.realArtist(artist);
+    }
+
+    public String displayAlbum() {
+        return album == null ? "" : com.fongmi.android.tv.utils.LocalTrackMeta.realAlbum(album);
     }
 
     public String displayTitle() {

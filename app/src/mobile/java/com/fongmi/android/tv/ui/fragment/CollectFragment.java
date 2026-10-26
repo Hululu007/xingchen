@@ -361,7 +361,7 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
         CloudFile f = mPan115Files.get(item.getId());
         if (f == null) return;
         if (f.isDir()) {
-            CloudDriveActivity.startAt(requireActivity(), Drive115.ID, f.getId(), f.getName());
+            CloudDriveActivity.startAt(requireActivity(), Drive115.ID, f.getId(), f.getName(), f.getParentCid());
         } else if (f.isVideo()) {
             CloudDriveActivity.play115File(requireActivity(), f);
         } else {

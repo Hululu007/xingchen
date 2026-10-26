@@ -68,6 +68,7 @@ public class CloudDriveActivity extends BaseActivity {
     private static final String EXTRA_DRIVE_ID = "drive_id";
     private static final String EXTRA_OPEN_CID = "open_cid";
     private static final String EXTRA_OPEN_NAME = "open_name";
+    private static final String EXTRA_OPEN_PARENT = "open_parent";
     private static final int PAGE_LIMIT = 100;
     private static final int SEARCH_LIMIT = 50;
     /** 整页被过滤光时自动续拉的连拉上限（防跑飞）：连拉 10 页仍无可见行就停，到顶仍空才是真空（下拉刷新会重置）。 */
@@ -86,10 +87,16 @@ public class CloudDriveActivity extends BaseActivity {
 
     /** 直达某个目录打开（如从搜索结果点文件夹进来）：面包屑＝根目录＋该目录。 */
     public static void startAt(Activity activity, String driveId, String cid, String name) {
+        startAt(activity, driveId, cid, name, null);
+    }
+
+    /** 直达并带上父级：落地栈＝根目录＋父级＋该目录，返回先退父级、逐层可退；父级未知传空，退化为根＋该目录。 */
+    public static void startAt(Activity activity, String driveId, String cid, String name, String parentCid) {
         Intent intent = new Intent(activity, CloudDriveActivity.class);
         intent.putExtra(EXTRA_DRIVE_ID, driveId);
         intent.putExtra(EXTRA_OPEN_CID, cid);
         intent.putExtra(EXTRA_OPEN_NAME, name);
+        if (!TextUtils.isEmpty(parentCid)) intent.putExtra(EXTRA_OPEN_PARENT, parentCid);
         activity.startActivity(intent);
     }
 
@@ -168,6 +175,11 @@ public class CloudDriveActivity extends BaseActivity {
         String openCid = getIntent().getStringExtra(EXTRA_OPEN_CID);
         if (!TextUtils.isEmpty(openCid) && !openCid.equals(rootCid)) {
             String openName = getIntent().getStringExtra(EXTRA_OPEN_NAME);
+            // 直达落地同样逐层可退：调用方给了父级就把父级垫进栈（根＋父级＋该目录），返回先退父级再退根
+            String openParent = getIntent().getStringExtra(EXTRA_OPEN_PARENT);
+            if (!TextUtils.isEmpty(openParent) && !isRootCid(openParent)) {
+                crumbs.add(new Crumb(openParent, "所在目录"));
+            }
             crumbs.add(new Crumb(openCid, TextUtils.isEmpty(openName) ? "目录" : openName));
         }
         // 搜索入口：三家都有，右上角明面按钮（布局里的 btn_search），不藏菜单
@@ -372,18 +384,63 @@ public class CloudDriveActivity extends BaseActivity {
         return m;
     }
 
-    /** 搜索结果点文件夹：关弹窗后本页直达该文件夹（面包屑＝根目录＋该文件夹）。 */
-    private void openDirFromSearch(CloudFile dir) {
+    /** 面包屑栈削回只剩根目录（落地拼栈的起点）。 */
+    private void resetCrumbsToRoot() {
         while (crumbs.size() > 1) crumbs.remove(crumbs.size() - 1);
-        crumbs.add(new Crumb(dir.getId(), dir.getName()));
+    }
+
+    /** 把面包屑栈截到 cid 那一级（截完它就是栈顶）；栈里没有这一级返回 false、栈不动。 */
+    private boolean truncateCrumbsTo(String cid) {
+        for (int i = crumbs.size() - 1; i >= 1; i--) {
+            if (crumbs.get(i).cid.equals(cid)) {
+                while (crumbs.size() > i + 1) crumbs.remove(crumbs.size() - 1);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 搜索结果点文件夹：关弹窗后本页直达该文件夹。落地拼栈带上父级、逐层可退
+     * （他的返回规矩：每次只退一层，绝不无声掉回根目录）：
+     * 父级已知且非根——它在来时路径上就截到它再压该文件夹，不在就拼「根＋父级＋该文件夹」，返回先退父级；
+     * 父级就是根——栈＝根＋该文件夹；父级未知——保留来时栈、把该文件夹压栈顶，返回先退回他来时的位置。
+     */
+    private void openDirFromSearch(CloudFile dir) {
+        String parent = dir.getParentCid();
+        if (TextUtils.isEmpty(parent)) {
+            crumbs.add(new Crumb(dir.getId(), dir.getName()));
+        } else if (isRootCid(parent)) {
+            resetCrumbsToRoot();
+            crumbs.add(new Crumb(dir.getId(), dir.getName()));
+        } else if (truncateCrumbsTo(parent)) {
+            crumbs.add(new Crumb(dir.getId(), dir.getName()));
+        } else {
+            resetCrumbsToRoot();
+            crumbs.add(new Crumb(parent, "所在目录"));
+            crumbs.add(new Crumb(dir.getId(), dir.getName()));
+        }
         fetchFiles();
     }
 
-    /** 搜索结果点其它文件：跳到它所在目录（目录名服务端没给，面包屑用「所在目录」占位）。 */
+    /**
+     * 搜索结果点其它文件：跳到它所在目录（目录名服务端没给，面包屑用「所在目录」占位）。
+     * 所在目录未知时绝不削栈掉回根目录（旧行为正是这样）：保留来时栈、原地刷新，停在他来时的地方；
+     * 已知时——在来时路径上就截到那一级，不在就拼「根＋所在目录」；它就是根目录时栈只剩根一级
+     * （这是点选的落点本身，到根再按返回才是退出本页）。
+     */
     private void gotoParentDir(CloudFile file) {
         String parent = file.getParentCid();
-        while (crumbs.size() > 1) crumbs.remove(crumbs.size() - 1);
-        if (!isRootCid(parent)) crumbs.add(new Crumb(parent, "所在目录"));
+        if (TextUtils.isEmpty(parent)) {
+            fetchFiles();
+            return;
+        }
+        if (isRootCid(parent)) {
+            resetCrumbsToRoot();
+        } else if (!truncateCrumbsTo(parent)) {
+            resetCrumbsToRoot();
+            crumbs.add(new Crumb(parent, "所在目录"));
+        }
         fetchFiles();
     }
 

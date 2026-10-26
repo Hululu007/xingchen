@@ -660,13 +660,10 @@ public class MusicToolsSheet {
     }
 
     // ---------- 主题子面板 ----------
-    private static final String[] THEME_IDS = {
-            MusicPlayerSettings.THEME_CLASSIC, MusicPlayerSettings.THEME_APPLE_MUSIC,
-            MusicPlayerSettings.THEME_COVER_IMMERSIVE, MusicPlayerSettings.THEME_LUMINOUS_CD,
-            MusicPlayerSettings.THEME_LUMINOUS_CD_AUTO, MusicPlayerSettings.THEME_LUMINOUS_CD_DARK,
-            MusicPlayerSettings.THEME_RECORD_SHELF};
-    private static final String[] THEME_NAMES = {
-            "经典", "Apple Music", "封面卡片", "流光 CD", "流光 CD·自动", "流光 CD·深色", "黑胶唱片架"};
+    // 2026-10-26 他令：没做出来的主题选项全部摘除——名表只留已建成的经典，其余六个
+    // （Apple Music／封面卡片／流光 CD 三变体／黑胶唱片架）连名带项摘干净，做完一个加回一个。
+    private static final String[] THEME_IDS = {MusicPlayerSettings.THEME_CLASSIC};
+    private static final String[] THEME_NAMES = {"经典"};
 
     private static String themeName(String id) {
         for (int i = 0; i < THEME_IDS.length; i++) if (THEME_IDS[i].equals(id)) return THEME_NAMES[i];

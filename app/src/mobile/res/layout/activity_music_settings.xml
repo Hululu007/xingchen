@@ -360,26 +360,6 @@
                             style="@style/MusicSettingValue" />
                     </LinearLayout>
 
-                    <View style="@style/MusicSettingDivider" />
-
-                    <LinearLayout
-                        android:id="@+id/rowCdSurface"
-                        style="@style/MusicSettingRow">
-
-                        <ImageView
-                            style="@style/MusicSettingIcon"
-                            android:backgroundTint="#FFB74D"
-                            android:contentDescription="@null"
-                            android:src="@drawable/ic_setting_disc" />
-
-                        <TextView
-                            style="@style/MusicSettingName"
-                            android:text="流光 CD 盘面" />
-
-                        <TextView
-                            android:id="@+id/tvCdSurface"
-                            style="@style/MusicSettingValue" />
-                    </LinearLayout>
                 </LinearLayout>
 
                 <!-- 播放器视觉 -->

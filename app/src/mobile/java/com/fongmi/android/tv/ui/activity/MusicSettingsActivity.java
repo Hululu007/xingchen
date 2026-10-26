@@ -149,8 +149,6 @@ public class MusicSettingsActivity extends BaseActivity {
         binding.rowEqParam.setOnClickListener(v -> ParametricEqDialog.show(this));
         refreshThemeText();
         binding.rowPlayerTheme.setOnClickListener(v -> showThemeDialog());
-        refreshCdSurfaceText();
-        binding.rowCdSurface.setOnClickListener(v -> showCdSurfaceDialog());
         initSwitch(binding.swFluidBg, MusicStore.isFluidBg(), MusicStore::setFluidBg);
         binding.rowFluidBg.setOnClickListener(v -> binding.swFluidBg.toggle());
         initSwitch(binding.swKeepScreen, MusicStore.isPlayerKeepScreenOn(), MusicStore::setPlayerKeepScreenOn);
@@ -182,7 +180,6 @@ public class MusicSettingsActivity extends BaseActivity {
         refreshPlayModeText();
         refreshSpeedText();
         refreshThemeText();
-        refreshCdSurfaceText();
         refreshMobileQualityText();
         refreshDlEmbedText();
         refreshDlEmbedFailText();
@@ -359,81 +356,21 @@ public class MusicSettingsActivity extends BaseActivity {
         });
     }
 
-    /** 批 6 迁移：播放页主题行改走 MusicPlayerSettings（七 id，与批 4 工具面板同一条路）。
-     * 旧路 MusicStore.getPlayerTheme/setPlayerTheme 只认五 id：读到 luminous_cd_dark/auto
-     * 会回落 classic 显示、写回更会把 CD 深／自动静默写成 classic（批 4 已在面板侧堵过同坑）。
-     * 同键 music_player_theme、同存量值，迁移无数据搬家问题。 */
+    /** 播放页主题行（2026-10-26 他令摘除未建成选项）：主题只留已建成的经典——其余六个
+     * 选项（封面卡片／Apple Music／流光 CD 三变体／黑胶唱片架）设置页与工具面板两处一并
+     * 摘除；流光 CD 盘面行整行已摘（布局＋本类两方法＋全部调用点）。存量里若存过非经典
+     * 主题值，MusicPlayerSettings.getTheme 一律回落经典，不报错不白屏。五主题本体属批二，
+     * 做完一个再把选项加回一个，本批不开工。 */
     private void refreshThemeText() {
-        String t = com.fongmi.android.tv.ui.music.MusicPlayerSettings.getTheme();
-        binding.tvPlayerTheme.setText(com.fongmi.android.tv.ui.music.MusicPlayerSettings.THEME_CLASSIC.equals(t) ? R.string.music_theme_classic
-                : com.fongmi.android.tv.ui.music.MusicPlayerSettings.THEME_COVER_IMMERSIVE.equals(t) ? R.string.music_theme_cover
-                : com.fongmi.android.tv.ui.music.MusicPlayerSettings.THEME_APPLE_MUSIC.equals(t) ? R.string.music_theme_apple
-                : com.fongmi.android.tv.ui.music.MusicPlayerSettings.THEME_LUMINOUS_CD.equals(t) ? R.string.music_theme_cd
-                : com.fongmi.android.tv.ui.music.MusicPlayerSettings.THEME_LUMINOUS_CD_DARK.equals(t) ? R.string.music_theme_cd_dark
-                : com.fongmi.android.tv.ui.music.MusicPlayerSettings.THEME_LUMINOUS_CD_AUTO.equals(t) ? R.string.music_theme_cd_auto
-                : com.fongmi.android.tv.ui.music.MusicPlayerSettings.THEME_RECORD_SHELF.equals(t) ? R.string.music_theme_vinyl
-                : R.string.music_theme_cover);
+        binding.tvPlayerTheme.setText(R.string.music_theme_classic);
     }
 
     private void showThemeDialog() {
-        // 瓜子序＋CD 三 id 独立成项（§4 三主题 id 模型）：Classic／CoverImmersive／AppleMusic／
-        // LuminousCd／LuminousCd 深／LuminousCd 自动／RecordShelf。
-        String[] ids = {com.fongmi.android.tv.ui.music.MusicPlayerSettings.THEME_CLASSIC,
-                com.fongmi.android.tv.ui.music.MusicPlayerSettings.THEME_COVER_IMMERSIVE,
-                com.fongmi.android.tv.ui.music.MusicPlayerSettings.THEME_APPLE_MUSIC,
-                com.fongmi.android.tv.ui.music.MusicPlayerSettings.THEME_LUMINOUS_CD,
-                com.fongmi.android.tv.ui.music.MusicPlayerSettings.THEME_LUMINOUS_CD_DARK,
-                com.fongmi.android.tv.ui.music.MusicPlayerSettings.THEME_LUMINOUS_CD_AUTO,
-                com.fongmi.android.tv.ui.music.MusicPlayerSettings.THEME_RECORD_SHELF};
+        String[] ids = {com.fongmi.android.tv.ui.music.MusicPlayerSettings.THEME_CLASSIC};
         List<String> opts = new ArrayList<>();
         opts.add(getString(R.string.music_theme_classic));
-        opts.add(getString(R.string.music_theme_cover));
-        opts.add(getString(R.string.music_theme_apple));
-        opts.add(getString(R.string.music_theme_cd));
-        opts.add(getString(R.string.music_theme_cd_dark));
-        opts.add(getString(R.string.music_theme_cd_auto));
-        opts.add(getString(R.string.music_theme_vinyl));
-        int cur = 1;
-        String theme = com.fongmi.android.tv.ui.music.MusicPlayerSettings.getTheme();
-        for (int i = 0; i < ids.length; i++) if (ids[i].equals(theme)) cur = i;
-        MusicOptionsDialog.show(this, "播放页主题", opts, cur, idx -> {
+        MusicOptionsDialog.show(this, "播放页主题", opts, 0, idx -> {
             com.fongmi.android.tv.ui.music.MusicPlayerSettings.setTheme(ids[idx]);
-            refreshThemeText();
-            refreshCdSurfaceText();
-        });
-    }
-
-    /** 批 6 接线：流光 CD 盘面行改走主题 id（播放页只认主题 id 推导表面，旧键 music_cd_surface
-     * 无任何播放侧读取方——旧行是写了没人读的假选项）。选表面＝切到对应 CD 主题变体；
-     * 当前主题不是 CD 时右侧值显「未启用」，选任一档即切到该 CD 变体（与瓜子三 id 模型一致）。
-     * 旧表面键 music_cd_surface 已整组摘除（扫查待裁 25：只写不读的纯残留，主题 id 是唯一真状态）。 */
-    private void refreshCdSurfaceText() {
-        String t = com.fongmi.android.tv.ui.music.MusicPlayerSettings.getTheme();
-        if (com.fongmi.android.tv.ui.music.MusicPlayerSettings.THEME_LUMINOUS_CD.equals(t)) {
-            binding.tvCdSurface.setText("浅色");
-        } else if (com.fongmi.android.tv.ui.music.MusicPlayerSettings.THEME_LUMINOUS_CD_DARK.equals(t)) {
-            binding.tvCdSurface.setText("深色");
-        } else if (com.fongmi.android.tv.ui.music.MusicPlayerSettings.THEME_LUMINOUS_CD_AUTO.equals(t)) {
-            binding.tvCdSurface.setText("自动");
-        } else {
-            binding.tvCdSurface.setText("未启用");
-        }
-    }
-
-    private void showCdSurfaceDialog() {
-        String[] ids = {com.fongmi.android.tv.ui.music.MusicPlayerSettings.THEME_LUMINOUS_CD,
-                com.fongmi.android.tv.ui.music.MusicPlayerSettings.THEME_LUMINOUS_CD_DARK,
-                com.fongmi.android.tv.ui.music.MusicPlayerSettings.THEME_LUMINOUS_CD_AUTO};
-        List<String> opts = new ArrayList<>();
-        opts.add("浅色");
-        opts.add("深色");
-        opts.add("自动");
-        int cur = 2;
-        String theme = com.fongmi.android.tv.ui.music.MusicPlayerSettings.getTheme();
-        for (int i = 0; i < ids.length; i++) if (ids[i].equals(theme)) cur = i;
-        MusicOptionsDialog.show(this, "流光 CD 盘面", opts, cur, idx -> {
-            com.fongmi.android.tv.ui.music.MusicPlayerSettings.setTheme(ids[idx]);
-            refreshCdSurfaceText();
             refreshThemeText();
         });
     }

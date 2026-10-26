@@ -15,7 +15,8 @@ import com.github.catvod.utils.Prefers;
  */
 public class MusicPlayerSettings {
 
-    // ===== 主题 id（播放页唯一认的枚举集，7 个） =====
+    // ===== 主题 id（枚举集 7 个；2026-10-26 摘除令后仅经典可选可读，其余六个 id 常量
+    // 只作批二五主题的预留登记，不在任何界面出现、存量值读时一律回落经典） =====
     public static final String THEME_CLASSIC = "classic";
     public static final String THEME_COVER_IMMERSIVE = "cover_immersive";
     public static final String THEME_APPLE_MUSIC = "apple_music";
@@ -46,13 +47,6 @@ public class MusicPlayerSettings {
 
     // ===== #1 主题（自有） =====
 
-    public static boolean isKnownTheme(String theme) {
-        return THEME_CLASSIC.equals(theme) || THEME_COVER_IMMERSIVE.equals(theme)
-                || THEME_APPLE_MUSIC.equals(theme) || THEME_LUMINOUS_CD.equals(theme)
-                || THEME_LUMINOUS_CD_DARK.equals(theme) || THEME_LUMINOUS_CD_AUTO.equals(theme)
-                || THEME_RECORD_SHELF.equals(theme);
-    }
-
     private static final String K_THEME_RESET_1439 = "music_theme_reset_1439";
 
     /**
@@ -61,6 +55,9 @@ public class MusicPlayerSettings {
      * 躺着 cover_immersive——首次读时清掉存量主题并落标记，之后用户自选照常保留。
      * 1.4.39 再补一轮：1436 标记在 1.4.36/37 已被消费、1.4.38 真机仍落封面卡片（存量被
      * 旧播放页当用户值写回），新标记首次读再清一次，保这版起默认必是经典。
+     * 2026-10-26 摘除令：未建成的六个主题选项已从设置页与工具面板摘除，本读口随之收紧——
+     * 存量里躺着的非经典值（cover_immersive 等）一律回落经典返回，播放页只建经典、
+     * 不会因读到旧值报错或白屏；批二主题建成后再逐个放开。
      */
     public static String getTheme() {
         if (!Prefers.getBoolean(K_THEME_RESET_1439, false)) {
@@ -70,12 +67,12 @@ public class MusicPlayerSettings {
             return THEME_CLASSIC;
         }
         String theme = Prefers.getString(K_THEME, THEME_CLASSIC);
-        return isKnownTheme(theme) ? theme : THEME_CLASSIC;
+        return THEME_CLASSIC.equals(theme) ? theme : THEME_CLASSIC;
     }
 
-    /** 先过 7 id 白名单，非法值写经典。 */
+    /** 只写经典：非经典入参一律写经典（与 getTheme 的回落口径成对）。 */
     public static void setTheme(String theme) {
-        Prefers.put(K_THEME, isKnownTheme(theme) ? theme : THEME_CLASSIC);
+        Prefers.put(K_THEME, THEME_CLASSIC.equals(theme) ? theme : THEME_CLASSIC);
     }
 
     // ===== #2 歌词字号（委托；唯一正本键 music_lyric_font_size_cover，默认 22，钳 14–32，

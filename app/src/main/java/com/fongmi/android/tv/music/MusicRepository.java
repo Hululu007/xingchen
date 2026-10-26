@@ -413,13 +413,36 @@ public class MusicRepository {
         return searchSite(site, keyword, 1);
     }
 
-    /** 分页版 searchSite（page 从 1 起）：页码透传到源，源不支持分页时第二页起返回空。 */
+    /** 分页版 searchSite（page 从 1 起）：页码透传到源，源不支持分页时第二页起返回空。
+     * 失败在此记真因再上抛：搜索页 fan-out 此前只计数不记日志，某家源整家消失时
+     * 无从定罪（2026-10-26「只剩 QQ」一案）；无源可路由同样留痕。 */
     public static List<MusicTrack> searchSite(MusicSite site, String keyword, int page) throws Exception {
         if (site == null) return Collections.emptyList();
         MusicSource s = find(site.platform);
-        if (s == null) return Collections.emptyList();
-        List<MusicTrack> r = s.searchBySite(site, keyword, Math.max(1, page));
-        return r == null ? Collections.emptyList() : r;
+        if (s == null) {
+            SpiderDebug.log("music", "search site no-source site=%s platform=%s", site.name, site.platform);
+            return Collections.emptyList();
+        }
+        try {
+            List<MusicTrack> r = s.searchBySite(site, keyword, Math.max(1, page));
+            return r == null ? Collections.emptyList() : r;
+        } catch (Throwable t) {
+            SpiderDebug.log("music", "search site fail site=%s platform=%s page=%d %s",
+                    site.name, site.platform, page, errText(t));
+            if (t instanceof Exception) throw (Exception) t;
+            throw new Exception(t);
+        }
+    }
+
+    /** 错误日志文本：与 LxMusicSource.errText 同口径——解包到根因取消息，没消息记类名。 */
+    private static String errText(Throwable t) {
+        Throwable root = t;
+        while ((root instanceof java.util.concurrent.ExecutionException
+                || root instanceof java.util.concurrent.CompletionException) && root.getCause() != null) {
+            root = root.getCause();
+        }
+        String m = root.getMessage();
+        return m != null ? m : root.getClass().getSimpleName();
     }
 
     public static List<MusicTrack> tracks(MusicSite site) {

@@ -80,7 +80,12 @@ public class FreeJsMusicSource implements MusicSource {
     @Override
     public List<MusicTrack> searchBySite(MusicSite site, String keyword, int page) throws Exception {
         FreeJsBridge b = MusicSourceManager.get().bridgeOf(site);
-        if (b == null) return Collections.emptyList();
+        if (b == null) {
+            // 桥没建起来（脚本下载/求值/初始化失败，细节在建桥侧日志）：此前静默回空，
+            // 该插件在搜索里整家消失还没留痕，这里补一行定位标记
+            SpiderDebug.log("music", "freejs search no-bridge site=%s", site.name);
+            return Collections.emptyList();
+        }
         List<MusicTrack> tracks = b.search(keyword, Math.max(1, page), "music").getTracks();
         // 单插件屏蔽平台：该插件屏蔽掉的内容平台不进单源结果（聚合搜索同口径在
         // MusicSourceManager.searchAll；旧实现单源搜索完全不查，屏蔽只在聚合页生效一半）

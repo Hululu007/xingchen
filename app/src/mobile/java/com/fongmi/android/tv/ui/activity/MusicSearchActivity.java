@@ -37,6 +37,7 @@ import com.fongmi.android.tv.ui.music.MusicGlassWire;
 import com.fongmi.android.tv.ui.music.MusicPlayerActivity;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.Task;
+import com.github.catvod.crawler.SpiderDebug;
 import com.fongmi.android.tv.utils.XcFadeTransition;
 import com.fongmi.android.tv.ui.music.MusicGlassDialogBuilder;
 
@@ -393,6 +394,10 @@ public class MusicSearchActivity extends BaseActivity {
                             }
                         }
                     } catch (Throwable t) {
+                        // 失败留痕：此前只计数不记日志，某家源整家消失时无从定罪
+                        // （2026-10-26「只剩 QQ」一案）；真因细节在仓库/源层同 tag 日志
+                        SpiderDebug.log("music", "search fanout fail site=%s bucket=%s %s",
+                                site.name, bucketKey, t.getClass().getSimpleName());
                         if (seq == searchSeq) searchFailedSites.incrementAndGet();
                     } finally {
                         // 在途标记无条件清：迟到任务若按 seq 跳过清除，会把新搜索同桶的分页永久堵死；
@@ -469,7 +474,9 @@ public class MusicSearchActivity extends BaseActivity {
             List<MusicTrack> r = null;
             try {
                 r = MusicRepository.searchSite(site, kw, nextPage);
-            } catch (Throwable ignored) {
+            } catch (Throwable t) {
+                SpiderDebug.log("music", "search loadmore fail bucket=%s page=%d %s",
+                        bucketKey, nextPage, t.getClass().getSimpleName());
             }
             final List<MusicTrack> page = r;
             runOnUiThread(() -> {

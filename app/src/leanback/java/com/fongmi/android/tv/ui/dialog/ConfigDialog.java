@@ -201,7 +201,12 @@ public class ConfigDialog extends BaseAlertDialog {
     private Config saveConfig(String text, String name) {
         if (text.isEmpty()) {
             if (!edit) return null;
-            if (!TextUtils.isEmpty(url)) Config.delete(url, type);
+            if (!TextUtils.isEmpty(url)) {
+                Config.delete(url, type);
+                // 与 mobile 清槽位同口径：删的正是当前生效这条，必须落已清空标记，
+                // 否则 getStoredConfig() 当场就把下一条历史顶上来，重进也一样。
+                Config.markCleared(type);
+            }
             return getStoredConfig();
         } else if (edit) {
             return Config.find(url, type).url(text).name(name).update();

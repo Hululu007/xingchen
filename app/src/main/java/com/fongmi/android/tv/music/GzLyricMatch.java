@@ -55,6 +55,9 @@ private static final Pattern SLASH_SPLIT = Pattern.compile("[/\\\\-]");
 * 瓜子分级（sq4.t 单候选口径）：返回等级值 3.0／2.0／1.5／1.4／1.0；0＝被瓜子门淘汰
 * （候选无源内 id、时长差超 15 秒、标题命中黑名单、或相似度门不过）。
 * 输入与瓜子 SearchSong 同义：标题、歌手、时长毫秒、候选源内 id。
+* 串版阈值分工（F2 审计·三把尺）：本处 15 秒是定级门；Worker 搜索候选粗筛
+* 30 秒（rankedEntries）、酷狗候选下载点 12 秒（下载前最严复核）各司其环、
+* 从宽到严，不是一把尺，不许互改对齐。
 */
 public static double level(String targetTitle, String targetArtist, long targetDurationMs,
 String candTitle, String candArtist, long candDurationMs,

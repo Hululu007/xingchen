@@ -66,7 +66,9 @@ public class ParametricEqDialog extends BaseBottomSheetDialog {
         TextView title = new TextView(inflater.getContext());
         title.setText(R.string.music_parametric_eq);
         title.setTextSize(17);
-        title.setTextColor(0xFF1C1C1E);
+        // 字色收口（体检 E-P8）：根是玻璃底、标题不在任何卡内、从未走 flip，
+        // 原 #1C1C1E 深字直压玻璃看不清；改与卡内 flip 后主色一致的 #F1F4F5
+        title.setTextColor(0xFFF1F4F5);
         title.setTypeface(null, android.graphics.Typeface.BOLD);
         root.addView(title);
 
@@ -77,7 +79,7 @@ public class ParametricEqDialog extends BaseBottomSheetDialog {
         TextView swLabel = new TextView(inflater.getContext());
         swLabel.setText("启用");
         swLabel.setTextSize(14);
-        swLabel.setTextColor(0xFF1C1C1E);
+        swLabel.setTextColor(0xFFF1F4F5); // 同标题收口（E-P8）：与卡内主字同色
         swRow.addView(swLabel, new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         SwitchCompat sw = new SwitchCompat(inflater.getContext());

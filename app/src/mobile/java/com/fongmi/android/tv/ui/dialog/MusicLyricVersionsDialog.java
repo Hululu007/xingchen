@@ -154,32 +154,47 @@ public class MusicLyricVersionsDialog extends BaseBottomSheetDialog {
     private void loadVersions() {
         final MusicTrack t = track;
         Task.execute(() -> {
-            List<LyricVersion> versions;
+            // 阶段一：先只问主来源 Worker，回来就上桌——不等全链（跨源逐家搜＋平台直连＋AMLL
+            // 串行收尾，真机上要等很久，面板看着就是摆设，他点名）。
+            List<LyricVersion> first = null;
             try {
-                versions = MusicRepository.lyricRichAll(t, false);
-            } catch (Throwable e) {
-                versions = null;
+                first = MusicRepository.lyricWorkerAll(t);
+            } catch (Throwable ignored) {
             }
-            final List<LyricVersion> vs = versions == null ? new ArrayList<>() : versions;
-            final List<Integer> counts = new ArrayList<>();
-            for (LyricVersion v : vs) {
-                int n = 0;
-                try {
-                    MusicLyric l = v.getLyric();
-                    if (l != null && !TextUtils.isEmpty(l.rawLrc)) n = LyricsParser.parseTimed(l.rawLrc).size();
-                } catch (Throwable ignored) {
-                }
-                counts.add(n);
+            if (first != null && !first.isEmpty()) publishVersions(t, first, false);
+            // 阶段二：全量聚合（与自动恢复同一条链，口径不动），收完替换为全量结果。
+            List<LyricVersion> full = null;
+            try {
+                full = MusicRepository.lyricRichAll(t, false);
+            } catch (Throwable ignored) {
             }
-            if (getActivity() == null) return;
-            getActivity().runOnUiThread(() -> {
-                if (!isAdded() || track != t) return;
-                all = vs;
-                lineCounts = counts;
-                loaded = true;
-                if (subView != null) subView.setText(vs.size() + " 个版本 · 按匹配度排列");
-                renderRows();
-            });
+            List<LyricVersion> vs = full == null ? new ArrayList<>() : full;
+            if (first != null && vs.size() < first.size()) vs = first;
+            publishVersions(t, vs, true);
+        });
+    }
+
+    private void publishVersions(final MusicTrack t, final List<LyricVersion> vs, final boolean done) {
+        final List<Integer> counts = new ArrayList<>();
+        for (LyricVersion v : vs) {
+            int n = 0;
+            try {
+                MusicLyric l = v.getLyric();
+                if (l != null && !TextUtils.isEmpty(l.rawLrc)) n = LyricsParser.parseTimed(l.rawLrc).size();
+            } catch (Throwable ignored) {
+            }
+            counts.add(n);
+        }
+        if (getActivity() == null) return;
+        getActivity().runOnUiThread(() -> {
+            if (!isAdded() || track != t) return;
+            all = vs;
+            lineCounts = counts;
+            loaded = true;
+            if (subView != null) subView.setText(done
+                    ? vs.size() + " 个版本 · 按匹配度排列"
+                    : "已找到 " + vs.size() + " 个版本 · 继续搜索中");
+            renderRows();
         });
     }
 

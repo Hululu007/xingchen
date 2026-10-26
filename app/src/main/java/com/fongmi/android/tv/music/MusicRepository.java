@@ -1678,6 +1678,21 @@ public class MusicRepository {
         return lyricRichAllDetailed(track, force).versions;
     }
 
+    /** 版本面板阶段一专用：只问主来源 Worker（定案口径：Worker 是歌词主来源），
+     * 回来即上桌，不等全量聚合的跨源串行链收尾。 */
+    public static List<LyricVersion> lyricWorkerAll(MusicTrack track) {
+        List<LyricVersion> out = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        if (track == null) return out;
+        try {
+            for (MusicLyric l : cfLyricWordAll(track)) {
+                addVersion(out, seen, normalizeRich(l));
+            }
+        } catch (Throwable ignored) {
+        }
+        return out;
+    }
+
     /**
      * lyricRichAll 步 2 单遍收集：level 指定级别时只收该级对歌的版本（MATCH_ANY 走
      * matchSong 原口径）。sink 非空时命中先进次级列（不入 seen、不进主列），由调用方

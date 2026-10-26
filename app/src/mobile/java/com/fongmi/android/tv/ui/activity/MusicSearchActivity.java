@@ -32,6 +32,7 @@ import com.fongmi.android.tv.music.MusicRepository;
 import com.fongmi.android.tv.music.MusicStore;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.ui.dialog.MusicOptionsDialog;
+import com.fongmi.android.tv.ui.music.MusicGlassDrawable;
 import com.fongmi.android.tv.ui.music.MusicGlassWire;
 import com.fongmi.android.tv.ui.music.MusicPlayerActivity;
 import com.fongmi.android.tv.utils.Notify;
@@ -1081,7 +1082,11 @@ public class MusicSearchActivity extends BaseActivity {
             if (viewType == TYPE_CARD) {
                 return new CardHolder(inf.inflate(R.layout.item_music_nav, parent, false));
             }
-            return new TrackHolder(inf.inflate(R.layout.item_music_search_result, parent, false));
+            View rowView = inf.inflate(R.layout.item_music_search_result, parent, false);
+            // 行框在建行时换成液态玻璃一次到位；bind 只切 tone，绝不再 setBackgroundResource
+            // 把未玻璃化的白/粉资源盖回来（队列同病、已在那边治过）
+            MusicGlassWire.glassify(rowView);
+            return new TrackHolder(rowView);
         }
 
         @Override
@@ -1187,10 +1192,13 @@ public class MusicSearchActivity extends BaseActivity {
             MusicTrack cur = MusicController.get().current();
             boolean isCurrent = cur != null && cur.id != null && cur.id.equals(t.id);
             h.title.setText(t.displayTitle());
-            // 在播行红名；框恒为液态玻璃框（在播换红淡染色玻璃框，不许退回裸行／实白卡）
-            h.title.setTextColor(isCurrent ? 0xFFFA243C : 0xFF1A1A1A);
-            h.itemView.setBackgroundResource(isCurrent
-                    ? R.drawable.bg_music_glass_row_current : R.drawable.bg_music_glass_row);
+            // 在播行红名＋玻璃挂红淡染；普通行白名清 tone（与播放列表同一口径）
+            h.title.setTextColor(isCurrent ? 0xFFFA243C : 0xFFF1F4F5);
+            if (h.itemView.getBackground() instanceof MusicGlassDrawable) {
+                MusicGlassDrawable rowGlass = (MusicGlassDrawable) h.itemView.getBackground();
+                if (isCurrent) rowGlass.setToneColor(0xFFFA243C, 0.14f);
+                else rowGlass.setToneColor(0, 0f);
+            }
             if (t.qualityTag != null && !t.qualityTag.isEmpty()) {
                 h.badge.setVisibility(View.VISIBLE);
                 h.badge.setText(t.qualityTag);
@@ -1266,6 +1274,7 @@ public class MusicSearchActivity extends BaseActivity {
         public ChipHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
             View v = LayoutInflater.from(parent.getContext())
                     .inflate(R.layout.item_music_search_chip, parent, false);
+            MusicGlassWire.glassify(v);
             return new ChipHolder((TextView) v);
         }
 
@@ -1274,9 +1283,13 @@ public class MusicSearchActivity extends BaseActivity {
             MusicSite site = searchSitesSnap.get(position);
             boolean sel = position == selectedChip;
             h.chip.setText(site == null || site.name == null ? "" : site.name);
-            h.chip.setBackgroundResource(sel
-                    ? R.drawable.bg_music_glass_chip_selected : R.drawable.bg_music_glass_chip);
-            h.chip.setTextColor(sel ? 0xFFFA243C : 0xFF3A3A3C);
+            // 选中＝样张口径的带色玻璃（青 tone）＋白字；bind 只切 tone 不换资源（防粉块盖回）
+            if (h.chip.getBackground() instanceof MusicGlassDrawable) {
+                MusicGlassDrawable chipGlass = (MusicGlassDrawable) h.chip.getBackground();
+                if (sel) chipGlass.setToneColor(0xFF305F67, 0.55f);
+                else chipGlass.setToneColor(0, 0f);
+            }
+            h.chip.setTextColor(sel ? 0xFFF1F4F5 : 0x99FFFFFF);
             h.chip.setTypeface(null, sel ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
             h.chip.setOnClickListener(v -> selectSource(h.getBindingAdapterPosition()));
         }

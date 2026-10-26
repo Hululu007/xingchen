@@ -380,7 +380,9 @@ public class LxPlatformSearch {
             }
             try {
                 latch.await(6, java.util.concurrent.TimeUnit.SECONDS);
-            } catch (InterruptedException ignored) {
+            } catch (InterruptedException e) {
+                // 扫描 H12：恢复中断标志——此前吞掉中断，搜索链上游的取消信号在此失效一截
+                Thread.currentThread().interrupt();
             }
         } finally {
             pool.shutdownNow();
@@ -388,10 +390,13 @@ public class LxPlatformSearch {
         return covers;
     }
 
-    /** 酷狗专辑信息取图：只读返回里实际存在的图字段，任一环节失败返回空（不抛、不阻塞搜索）。 */
+    /** 酷狗专辑信息取图：只读返回里实际存在的图字段，任一环节失败返回空（不抛、不阻塞搜索）。
+     * 扫描 H12：单请求超时压到 6 秒与整批预算对齐——此前走通用 http 的 20 秒超时，
+     * latch 的 6 秒只拦得住等待、拦不住池线程（OkHttp 同步 execute 不响应中断），
+     * 每首搜索最多 5 条线程跑满 20 秒做已丢弃的工作。 */
     private static String kgAlbumCover(String albumId) {
         try {
-            String text = httpGet("http://mobilecdn.kugou.com/api/v3/album/info?albumid=" + enc(albumId), null);
+            String text = http("http://mobilecdn.kugou.com/api/v3/album/info?albumid=" + enc(albumId), "GET", null, null, 6000);
             JsonObject root = JsonParser.parseString(text).getAsJsonObject();
             JsonObject data = root.has("data") && root.get("data").isJsonObject()
                     ? root.getAsJsonObject("data") : root;
@@ -662,6 +667,10 @@ public class LxPlatformSearch {
 
     /** 经 quickjs Connect 走壳子 OkHttp（吃代理/DoH/节点定向），与插件网络同出口 */
     private static String http(String url, String method, String body, String referer) throws Exception {
+        return http(url, method, body, referer, 20000);
+    }
+
+    private static String http(String url, String method, String body, String referer, int timeoutMs) throws Exception {
         JSONObject reqJson = new JSONObject();
         reqJson.put("method", method);
         JSONObject headers = new JSONObject();
@@ -670,7 +679,7 @@ public class LxPlatformSearch {
         if (body != null) headers.put("Content-Type", "application/x-www-form-urlencoded");
         reqJson.put("headers", headers);
         if (body != null) reqJson.put("body", body);
-        reqJson.put("timeout", 20000);
+        reqJson.put("timeout", timeoutMs);
         reqJson.put("redirect", 1);
         Req req = Req.objectFrom(reqJson.toString());
         try (Response res = Connect.to(url, req).execute()) {

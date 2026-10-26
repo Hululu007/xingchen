@@ -93,7 +93,7 @@ public class KeyboardAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
         @Override
         public void onClick(View view) {
             int position = getLayoutPosition();
-            if (position == RecyclerView.NO_POSITION) return;
+            if (position == RecyclerView.NO_POSITION || position >= mItems.size()) return;
             listener.onTextClick(mItems.get(position).toString());
         }
     }
@@ -112,14 +112,14 @@ public class KeyboardAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
         @Override
         public void onClick(View view) {
             int position = getLayoutPosition();
-            if (position == RecyclerView.NO_POSITION) return;
+            if (position == RecyclerView.NO_POSITION || position >= mItems.size()) return;
             listener.onIconClick((int) mItems.get(position));
         }
 
         @Override
         public boolean onLongClick(View view) {
             int position = getLayoutPosition();
-            if (position == RecyclerView.NO_POSITION) return false;
+            if (position == RecyclerView.NO_POSITION || position >= mItems.size()) return false;
             return listener.onLongClick((int) mItems.get(position));
         }
     }

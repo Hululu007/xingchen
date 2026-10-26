@@ -8,6 +8,7 @@ import android.view.View;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.leanback.widget.VerticalGridView;
+import androidx.recyclerview.widget.RecyclerView;
 
 import com.fongmi.android.tv.utils.KeyUtil;
 
@@ -32,14 +33,18 @@ public class CustomLiveListView extends VerticalGridView {
     }
 
     private boolean onKeyDown() {
-        if (getSelectedPosition() != getAdapter().getItemCount() - 1) return false;
+        RecyclerView.Adapter<?> adapter = getAdapter();
+        if (adapter == null) return false;
+        if (getSelectedPosition() != adapter.getItemCount() - 1) return false;
         setSelectedPosition(0);
         return true;
     }
 
     private boolean onKeyUp() {
+        RecyclerView.Adapter<?> adapter = getAdapter();
+        if (adapter == null) return false;
         if (getSelectedPosition() != 0) return false;
-        setSelectedPosition(getAdapter().getItemCount() - 1);
+        setSelectedPosition(adapter.getItemCount() - 1);
         return true;
     }
 

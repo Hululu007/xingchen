@@ -11,12 +11,13 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.fongmi.android.tv.bean.Config;
 import com.fongmi.android.tv.databinding.AdapterConfigBinding;
 
+import java.util.ArrayList;
 import java.util.List;
 
 public class ConfigAdapter extends RecyclerView.Adapter<ConfigAdapter.ViewHolder> {
 
     private final OnClickListener listener;
-    private List<Config> mItems;
+    private List<Config> mItems = new ArrayList<>();
     private boolean readOnly;
 
     public ConfigAdapter(OnClickListener listener) {

@@ -68,7 +68,7 @@ public class FlagAdapter extends RecyclerView.Adapter<FlagAdapter.ViewHolder> {
     }
 
     public Flag getActivated() {
-        return mItems.get(getPosition());
+        return mItems.isEmpty() ? new Flag() : mItems.get(getPosition());
     }
 
     public void setSelected(Flag item) {

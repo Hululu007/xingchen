@@ -38,7 +38,7 @@ public class ParseAdapter extends RecyclerView.Adapter<ParseAdapter.ViewHolder> 
     }
 
     public Parse first() {
-        return mItems.get(0);
+        return mItems.isEmpty() ? null : mItems.get(0);
     }
 
     public int getPosition() {

@@ -20,7 +20,7 @@ public class CustomKeyDownVod extends GestureDetector.SimpleOnGestureListener {
     private long holdTime;
 
     public static CustomKeyDownVod create(Activity activity) {
-        return new CustomKeyDownVod(activity);
+        return activity instanceof Listener ? new CustomKeyDownVod(activity) : null;
     }
 
     private CustomKeyDownVod(Activity activity) {

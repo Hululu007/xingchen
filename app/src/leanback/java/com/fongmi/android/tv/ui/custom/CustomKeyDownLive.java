@@ -27,7 +27,7 @@ public class CustomKeyDownLive extends GestureDetector.SimpleOnGestureListener {
     };
 
     public static CustomKeyDownLive create(Context context) {
-        return new CustomKeyDownLive(context);
+        return context instanceof Listener ? new CustomKeyDownLive(context) : null;
     }
 
     private CustomKeyDownLive(Context context) {

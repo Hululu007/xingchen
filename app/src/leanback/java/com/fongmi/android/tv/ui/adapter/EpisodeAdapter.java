@@ -75,6 +75,7 @@ public class EpisodeAdapter extends RecyclerView.Adapter<EpisodeAdapter.ViewHold
 
     public Episode getNext() {
         int current = getPosition();
+        if (current < 0 || getItemCount() == 0) return null;
         int max = getItemCount() - 1;
         current = ++current > max ? max : current;
         return mItems.get(current);
@@ -82,6 +83,7 @@ public class EpisodeAdapter extends RecyclerView.Adapter<EpisodeAdapter.ViewHold
 
     public Episode getPrev() {
         int current = getPosition();
+        if (current < 0 || getItemCount() == 0) return null;
         current = --current < 0 ? 0 : current;
         return mItems.get(current);
     }

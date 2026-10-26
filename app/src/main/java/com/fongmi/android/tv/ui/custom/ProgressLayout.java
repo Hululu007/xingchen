@@ -29,6 +29,7 @@ public class ProgressLayout extends RelativeLayout {
 
     public ProgressLayout(Context context) {
         super(context);
+        init();
     }
 
     public ProgressLayout(Context context, AttributeSet attrs) {

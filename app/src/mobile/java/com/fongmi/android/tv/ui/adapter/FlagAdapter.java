@@ -54,7 +54,8 @@ public class FlagAdapter extends RecyclerView.Adapter<FlagAdapter.ViewHolder> {
     }
 
     public Flag getActivated() {
-        return mItems.get(getPosition());
+        int position = getPosition();
+        return position < 0 || position >= mItems.size() ? null : mItems.get(position);
     }
 
     public void setSelected(Flag flag) {

@@ -3,10 +3,16 @@ package com.fongmi.android.tv.api.music;
 import android.text.TextUtils;
 import android.util.Base64;
 
+import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.bean.music.MusicTrack;
+import com.fongmi.android.tv.clash.MihomoManager;
+import com.fongmi.android.tv.clash.SourceProxyPolicy;
+import com.fongmi.android.tv.login.GoogleLoginProvider;
+import com.fongmi.android.tv.login.LoginManager;
 import com.fongmi.quickjs.bean.Req;
 import com.fongmi.quickjs.utils.Connect;
 import com.github.catvod.crawler.SpiderDebug;
+import com.github.catvod.net.SourceGate;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -22,6 +28,7 @@ import java.security.SecureRandom;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import javax.crypto.Cipher;
 import javax.crypto.spec.IvParameterSpec;
@@ -54,6 +61,7 @@ public class LxPlatformSearch {
     public static final String WY = "wy";
     public static final String KG = "kg";
     public static final String MG = "mg";
+    public static final String YT = "yt";
 
     private static final String UA = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/120.0 Mobile Safari/537.36";
 
@@ -69,6 +77,8 @@ public class LxPlatformSearch {
                 return "酷狗音乐";
             case MG:
                 return "咪咕音乐";
+            case YT:
+                return "油管音乐";
             default:
                 return key == null ? "" : key;
         }
@@ -76,7 +86,7 @@ public class LxPlatformSearch {
 
     /** 平台是否已实现壳子搜索 */
     public static boolean supported(String key) {
-        return KW.equals(key) || QQ.equals(key) || WY.equals(key) || KG.equals(key) || MG.equals(key);
+        return KW.equals(key) || QQ.equals(key) || WY.equals(key) || KG.equals(key) || MG.equals(key) || YT.equals(key);
     }
 
     public static List<MusicTrack> search(String key, String keyword) throws Exception {
@@ -106,6 +116,9 @@ public class LxPlatformSearch {
                     break;
                 case MG:
                     out = searchMg(keyword, p);
+                    break;
+                case YT:
+                    out = searchYt(keyword, p);
                     break;
                 default:
                     out = new ArrayList<>();
@@ -227,10 +240,63 @@ public class LxPlatformSearch {
         putSizeIfPositive(item, itemKey, src.getAsJsonObject(subKey), "size");
     }
 
-    /** QQ 解析要 strMediaMid：搜索接口不给，取链前用歌曲详情接口补（单首一次请求） */
+    /**
+     * QQ 解析要 strMediaMid：搜索接口不给，取链前用歌曲详情接口补（单首一次请求）。
+     * 提速④（2026-10-26）：media_mid 是歌曲的固有标识、按 songmid 恒定——补查结果
+     * 落盘缓存（内存＋Prefers 双层），同歌二次取链免付这约 2.4 秒串行补查。
+     * 选落盘缓存不选与脚本链并行：补查无副作用且结果恒定，缓存能把重复取链的
+     * 补查成本直接归零，并行只省首回的一发且要动脚本链的时序与汇合点，风险不对等。
+     * 缓存只存非空真值；查不到不落盘（下次照常补查，不把一次失败钉成永久无 mid）。
+     */
     public static String qqMediaMid(String songmid) {
+        if (songmid == null || songmid.isEmpty()) return "";
+        String cached = qqMediaMidCacheGet(songmid);
+        if (!cached.isEmpty()) return cached;
         JsonObject file = qqFileInfo(songmid);
-        return file == null ? "" : optStr(file, "media_mid");
+        String mid = file == null ? "" : optStr(file, "media_mid");
+        if (!mid.isEmpty()) qqMediaMidCachePut(songmid, mid);
+        return mid;
+    }
+
+    private static final String K_QQ_MEDIA_MID = "lx_qq_media_mid_cache";
+    private static final java.util.Map<String, String> QQ_MEDIA_MID_MEM =
+            new java.util.concurrent.ConcurrentHashMap<>();
+    private static boolean qqMediaMidDiskLoaded = false;
+
+    private static synchronized String qqMediaMidCacheGet(String songmid) {
+        String mem = QQ_MEDIA_MID_MEM.get(songmid);
+        if (mem != null) return mem;
+        if (!qqMediaMidDiskLoaded) {
+            qqMediaMidDiskLoaded = true;
+            try {
+                String json = com.github.catvod.utils.Prefers.getString(K_QQ_MEDIA_MID, "");
+                if (json != null && !json.isEmpty()) {
+                    JsonObject obj = JsonParser.parseString(json).getAsJsonObject();
+                    for (Map.Entry<String, JsonElement> e : obj.entrySet()) {
+                        if (e.getValue() != null && e.getValue().isJsonPrimitive()) {
+                            QQ_MEDIA_MID_MEM.put(e.getKey(), e.getValue().getAsString());
+                        }
+                    }
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        String v = QQ_MEDIA_MID_MEM.get(songmid);
+        return v == null ? "" : v;
+    }
+
+    private static synchronized void qqMediaMidCachePut(String songmid, String mediaMid) {
+        QQ_MEDIA_MID_MEM.put(songmid, mediaMid);
+        try {
+            // 防无界增长：超 500 首就整表重建（media_mid 可随时再补查，清掉只是慢一回）
+            if (QQ_MEDIA_MID_MEM.size() > 500) QQ_MEDIA_MID_MEM.clear();
+            JsonObject obj = new JsonObject();
+            for (Map.Entry<String, String> e : QQ_MEDIA_MID_MEM.entrySet()) {
+                obj.addProperty(e.getKey(), e.getValue());
+            }
+            com.github.catvod.utils.Prefers.put(K_QQ_MEDIA_MID, obj.toString());
+        } catch (Throwable ignored) {
+        }
     }
 
     /**
@@ -381,6 +447,34 @@ public class LxPlatformSearch {
 
     /* ---------------- 酷狗 kg ---------------- */
 
+    /** 酷狗封面后补专用池（守护线程，进程内共用） */
+    private static final java.util.concurrent.ExecutorService KG_FILL_POOL =
+            java.util.concurrent.Executors.newFixedThreadPool(2, r -> {
+                Thread th = new Thread(r, "kg-cover-fill");
+                th.setDaemon(true);
+                return th;
+            });
+
+    /** 酷狗专辑图进程内缓存（album_id → 图址）：命中直出、不走空位不闪（提速①缓存直出口径） */
+    private static final java.util.Map<String, String> KG_COVER_CACHE =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** 酷狗封面后补监听：补图回填完一批曲目后回调（搜索页据此只重绑那几行、淡入一次） */
+    public interface KgCoverListener {
+        void onKgCoversFilled(List<MusicTrack> tracks);
+    }
+
+    private static final java.util.List<KgCoverListener> KG_COVER_LISTENERS =
+            new java.util.concurrent.CopyOnWriteArrayList<>();
+
+    public static void addKgCoverListener(KgCoverListener l) {
+        if (l != null && !KG_COVER_LISTENERS.contains(l)) KG_COVER_LISTENERS.add(l);
+    }
+
+    public static void removeKgCoverListener(KgCoverListener l) {
+        KG_COVER_LISTENERS.remove(l);
+    }
+
     private static List<MusicTrack> searchKg(String keyword, int page) throws Exception {
         String url = "http://mobilecdn.kugou.com/api/v3/search/song?format=json&keyword=" + enc(keyword)
                 + "&page=" + page + "&pagesize=20&showtype=1";
@@ -389,16 +483,16 @@ public class LxPlatformSearch {
         List<MusicTrack> out = new ArrayList<>();
         JsonArray info = digArray(root, "data", "info");
         if (info == null) return out;
-        // 专辑图按 album_id 查专辑信息补（2026-10-25 本机实证：专辑接口 data.imgurl 有值、
-        // 单次约 1 秒）。旧实现串行只补前 3 张（怕单张 20 秒超时拖死搜索），第 4 张起全空——
-        // 改并发补图：去重专辑全补，小池并行＋整批 6 秒总预算，超预算的留空，不拖死搜索。
+        // 提速①（2026-10-26）：结果先行、封面后补——旧实现等整批专辑图补齐（5 路并行、
+        // 6 秒预算）才返回，酷狗桶感知耗时＝搜索 3 秒＋封面批 2–6 秒。现改为：
+        // 缓存里有的专辑图同步直出（不走空位）；没有的先出列表、条目标 coverPending，
+        // 补图异步回填同一批曲目对象并通知监听方重绑（行留玻璃空位、图到只淡入一次）。
         java.util.Set<String> albumIds = new java.util.LinkedHashSet<>();
         for (JsonElement el : info) {
             if (!el.isJsonObject()) continue;
             String albumId = optStr(el.getAsJsonObject(), "album_id");
-            if (!albumId.isEmpty()) albumIds.add(albumId);
+            if (!albumId.isEmpty() && !KG_COVER_CACHE.containsKey(albumId)) albumIds.add(albumId);
         }
-        java.util.Map<String, String> albumCovers = fetchKgAlbumCovers(albumIds);
         for (JsonElement el : info) {
             if (!el.isJsonObject()) continue;
             JsonObject o = el.getAsJsonObject();
@@ -411,8 +505,9 @@ public class LxPlatformSearch {
             t.duration = optLong(o, "duration") * 1000;
             String albumId = optStr(o, "album_id");
             if (!albumId.isEmpty()) {
-                String cover = albumCovers.get(albumId);
+                String cover = KG_COVER_CACHE.get(albumId);
                 if (cover != null && !cover.isEmpty()) t.cover = cover;
+                else t.coverPending = true;
             }
             JsonObject item = new JsonObject();
             item.addProperty("hash", hash);
@@ -431,10 +526,56 @@ public class LxPlatformSearch {
             finish(t, item);
             out.add(t);
         }
+        if (!albumIds.isEmpty()) scheduleKgCoverFill(out, albumIds);
         return out;
     }
 
-    /** 酷狗专辑图并发补齐：最多 5 路并行、整批最多等 6 秒；单张失败／超时留空，不抛出。 */
+    /**
+     * 酷狗封面异步后补：后台小池并发取图（口径同旧同步批：5 路、单张 6 秒），
+     * 回填本批曲目对象的 cover 并进进程缓存，最后通知监听方重绑。
+     * 补图失败必须留痕：旧同步批把单张失败静默吞掉（catch ignored 无 log），
+     * 「同词两次搜一张有一张无」无从定罪——现单张失败与整批结果都记 music 日志。
+     */
+    private static void scheduleKgCoverFill(List<MusicTrack> tracks, java.util.Set<String> albumIds) {
+        final List<MusicTrack> batch = new ArrayList<>(tracks);
+        final java.util.Set<String> ids = new java.util.LinkedHashSet<>(albumIds);
+        KG_FILL_POOL.execute(() -> {
+            java.util.Map<String, String> covers = fetchKgAlbumCovers(ids);
+            int filled = 0;
+            List<MusicTrack> changed = new ArrayList<>();
+            for (MusicTrack t : batch) {
+                if (!t.coverPending) continue;
+                String albumId = "";
+                try {
+                    JsonObject wrap = JsonParser.parseString(t.rawJson).getAsJsonObject();
+                    if (wrap.has("_item") && wrap.get("_item").isJsonObject()) {
+                        albumId = optStr(wrap.getAsJsonObject("_item"), "albumId");
+                    }
+                } catch (Throwable ignored) {
+                }
+                String cover = albumId.isEmpty() ? null : covers.get(albumId);
+                t.coverPending = false;
+                if (cover != null && !cover.isEmpty()) {
+                    t.cover = cover;
+                    t.coverBackfilled = true;
+                    filled++;
+                    changed.add(t);
+                }
+            }
+            SpiderDebug.log("music", "kg cover fill albums=%d filledTracks=%d", ids.size(), filled);
+            if (!changed.isEmpty()) {
+                for (KgCoverListener l : KG_COVER_LISTENERS) {
+                    try {
+                        l.onKgCoversFilled(changed);
+                    } catch (Throwable ignored) {
+                    }
+                }
+            }
+        });
+    }
+
+    /** 酷狗专辑图并发补齐：最多 5 路并行、整批最多等 6 秒；单张失败／超时留空，不抛出。
+     * 成功结果同步进进程缓存（KG_COVER_CACHE），同专辑再搜直出。 */
     private static java.util.Map<String, String> fetchKgAlbumCovers(java.util.Set<String> albumIds) {
         java.util.Map<String, String> covers = new java.util.concurrent.ConcurrentHashMap<>();
         if (albumIds == null || albumIds.isEmpty()) return covers;
@@ -445,7 +586,9 @@ public class LxPlatformSearch {
             for (String albumId : albumIds) {
                 pool.execute(() -> {
                     try {
-                        covers.put(albumId, kgAlbumCover(albumId));
+                        String cover = kgAlbumCover(albumId);
+                        covers.put(albumId, cover);
+                        if (!cover.isEmpty()) KG_COVER_CACHE.put(albumId, cover);
                     } finally {
                         latch.countDown();
                     }
@@ -475,8 +618,14 @@ public class LxPlatformSearch {
                     ? root.getAsJsonObject("data") : root;
             String cover = firstNonEmpty(data, "imgurl", "img", "pic", "cover", "image", "album_img");
             if (!cover.isEmpty()) return cover;
-            return firstNonEmpty(root, "imgurl", "img", "pic", "cover", "image");
-        } catch (Throwable ignored) {
+            String fallback = firstNonEmpty(root, "imgurl", "img", "pic", "cover", "image");
+            if (fallback.isEmpty()) {
+                // 补图失败留痕（F1 低）：此前 catch 与空结果双静默，「补不到图」在日志里不存在
+                SpiderDebug.log("music", "kg album cover empty albumId=%s", albumId);
+            }
+            return fallback;
+        } catch (Throwable t) {
+            SpiderDebug.log("music", "kg album cover fail albumId=%s %s", albumId, errText(t));
             return "";
         }
     }
@@ -575,14 +724,48 @@ public class LxPlatformSearch {
         }
     }
 
+    /* ---- 酷我 songinfoandlrc 熔断（提速⑦，与 CfLyricClient 熔断同款口径） ----
+     * 该端点回空已成常态（实测连续三发 data:null、每发白付 1–5.6 秒），且平台词与
+     * 元力 KW 插件词都经它。连续 KW_EMPTY_LIMIT 次拿到应答但 lrclist 为空 →
+     * 熔断窗口内 lyricKw 直接回 null 走后面兜底腿；窗口过后半开探活一发：
+     * 有词清零接回、仍空重新熔断。只认「有应答但空」计数——传输异常走 lyric()
+     * 的 catch 回 null、不经本计数，网络问题不算端点坏、不计数也不清零。 */
+    private static final int KW_EMPTY_LIMIT = 3;
+    private static final long KW_BREAKER_WINDOW_MS = 10 * 60 * 1000L;
+    private static int kwEmptyStreak;
+    private static long kwBreakerTrippedAt;
+
+    private static synchronized boolean kwBreakerOpen() {
+        return kwEmptyStreak >= KW_EMPTY_LIMIT
+                && System.currentTimeMillis() - kwBreakerTrippedAt < KW_BREAKER_WINDOW_MS;
+    }
+
+    private static synchronized void kwBreakerNoteEmpty() {
+        kwEmptyStreak++;
+        if (kwEmptyStreak >= KW_EMPTY_LIMIT) kwBreakerTrippedAt = System.currentTimeMillis();
+    }
+
+    private static synchronized void kwBreakerNoteHit() {
+        kwEmptyStreak = 0;
+        kwBreakerTrippedAt = 0;
+    }
+
     private static String lyricKw(JsonObject item) throws Exception {
         String rid = optStr(item, "rid");
         if (rid.isEmpty()) rid = optStr(item, "songmid");
         if (rid.isEmpty()) return null;
+        if (kwBreakerOpen()) {
+            com.github.catvod.crawler.SpiderDebug.log("music", "kuwo songinfoandlrc breaker open, skip rid=%s", rid);
+            return null;
+        }
         String text = httpGet("https://m.kuwo.cn/newh5/singles/songinfoandlrc?musicId=" + enc(rid), null);
         JsonObject root = JsonParser.parseString(text).getAsJsonObject();
         JsonArray list = digArray(root, "data", "lrclist");
-        if (list == null || list.size() == 0) return null;
+        if (list == null || list.size() == 0) {
+            kwBreakerNoteEmpty();
+            return null;
+        }
+        kwBreakerNoteHit();
         StringBuilder sb = new StringBuilder();
         for (JsonElement el : list) {
             if (!el.isJsonObject()) continue;

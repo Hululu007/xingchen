@@ -160,66 +160,21 @@
             android:layout_height="6dp" />
 
         <FrameLayout
-            android:id="@+id/playerScrubberBox"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginStart="28dp"
             android:layout_marginEnd="28dp">
+
+            <com.fongmi.android.tv.ui.music.view.MiniProgressView
+                android:id="@+id/playerMiniProgress"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
 
             <com.fongmi.android.tv.ui.music.view.ClassicScrubberView
                 android:id="@+id/playerScrubber"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:visibility="gone" />
-
-            <LinearLayout
-                android:id="@+id/playerMiniGroup"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_gravity="bottom"
-                android:orientation="vertical">
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="26dp"
-                    android:gravity="center"
-                    android:orientation="horizontal">
-
-                    <TextView
-                        android:id="@+id/miniChipQuality"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:background="@drawable/bg_music_mini_chip"
-                        android:letterSpacing="0.05"
-                        android:paddingLeft="12dp"
-                        android:paddingTop="5dp"
-                        android:paddingRight="12dp"
-                        android:paddingBottom="5dp"
-                        android:textColor="#B8FFFFFF"
-                        android:textSize="11sp"
-                        android:textStyle="bold" />
-
-                    <TextView
-                        android:id="@+id/miniChipLyric"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="6dp"
-                        android:background="@drawable/bg_music_mini_chip"
-                        android:letterSpacing="0.05"
-                        android:paddingLeft="12dp"
-                        android:paddingTop="5dp"
-                        android:paddingRight="12dp"
-                        android:paddingBottom="5dp"
-                        android:textColor="#B8FFFFFF"
-                        android:textSize="11sp"
-                        android:textStyle="bold" />
-                </LinearLayout>
-
-                <com.fongmi.android.tv.ui.music.view.MiniProgressView
-                    android:id="@+id/playerMiniProgress"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content" />
-            </LinearLayout>
         </FrameLayout>
 
         <View

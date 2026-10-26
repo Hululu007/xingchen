@@ -12,16 +12,14 @@ import android.util.AttributeSet;
 import androidx.appcompat.widget.AppCompatImageView;
 
 /**
- * 播放页封面（经典）：底部渐隐融进氛围层——瓜子的封面与背景是一个栈：封面在底层
- * （zIndex −2），氛围的糊封面＋明度渐变罩（停点 0/0.4/0.78/1、明度 +0.05/−0.04、
- * alpha 基数 0.8，CoverAmbientKt 亲读）盖在上面，封面下段就是这样被溶掉的。
- * 星辰栈是氛围在下、封面盒在上，等价做法：封面自带软件层，画完用 DST_OUT 线性
- * 渐变把下段擦透——0.78（罩的第三停点、罩在此到达基值）起擦、到底全透，露出
- * 下方同图的糊化氛围，完成同一件溶合。交叉淡化的一对封面（进/出）同口径。
+ * 播放页封面（经典）：底部渐隐融进氛围层——瓜子帧里封面下沿不是一条硬边，
+ * 是从约三分之二高处开始溶进同图的糊化氛围、到底全透。实现：自带软件层，
+ * 画完图后用 DST_OUT 线性渐变把下段逐步擦透（上 0.68 全实、到底全透）。
+ * 交叉淡化的一对封面（进/出）都用本类，溶边口径一致。
  */
 public class FadingCoverView extends AppCompatImageView {
 
-    private static final float FADE_START = 0.78f;
+    private static final float FADE_START = 0.68f;
 
     private final Paint fadePaint = new Paint();
 

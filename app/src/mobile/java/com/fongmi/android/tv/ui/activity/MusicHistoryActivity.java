@@ -33,7 +33,7 @@ import com.fongmi.android.tv.ui.music.MusicGlassWire;
 import com.fongmi.android.tv.ui.music.MusicPlayerActivity;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.fongmi.android.tv.ui.music.MusicGlassDialogBuilder;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -179,7 +179,7 @@ public class MusicHistoryActivity extends BaseActivity {
         btnFavHistMulti.setOnClickListener(v -> setHistoryMulti(!histMulti));
         btnFavHistClear.setOnClickListener(v -> {
             // 历史页清空（GZ：历史页有清除；收藏页无清空全部按钮）
-            new MaterialAlertDialogBuilder(this)
+            new MusicGlassDialogBuilder(this)
                     .setTitle("清空播放历史")
                     .setMessage("确定清空全部播放历史吗？")
                     .setPositiveButton("清空", (d, w) -> {
@@ -408,7 +408,7 @@ public class MusicHistoryActivity extends BaseActivity {
     /** 历史排序弹层（GZ：历史 3 项＋当前项文案「当前：…」） */
     private void showHistorySortDialog() {
         String[] items = new String[]{"最近播放", "最早播放", "歌曲名称"};
-        new MaterialAlertDialogBuilder(this)
+        new MusicGlassDialogBuilder(this)
                 .setTitle("历史排序")
                 .setMessage("当前：" + items[histSort])
                 .setSingleChoiceItems(items, histSort, (d, which) -> {
@@ -593,7 +593,7 @@ public class MusicHistoryActivity extends BaseActivity {
     }
 
     private void confirmDeleteLocal(MusicTrack track) {
-        new MaterialAlertDialogBuilder(this)
+        new MusicGlassDialogBuilder(this)
                 .setTitle(track.displayTitle())
                 .setMessage(getString(R.string.music_download_delete_confirm))
                 .setPositiveButton(getString(R.string.music_download_delete), (d, w) ->
@@ -694,7 +694,7 @@ public class MusicHistoryActivity extends BaseActivity {
         cancel.setGravity(android.view.Gravity.CENTER);
         cancel.setPadding(0, dp(14), 0, 0);
         root.addView(cancel);
-        final android.app.Dialog dialog = new MaterialAlertDialogBuilder(this)
+        final android.app.Dialog dialog = new MusicGlassDialogBuilder(this)
                 .setView(root)
                 .setCancelable(true)
                 .create();

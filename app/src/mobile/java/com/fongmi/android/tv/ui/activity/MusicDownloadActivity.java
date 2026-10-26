@@ -34,7 +34,7 @@ import com.fongmi.android.tv.ui.music.MusicPlayerActivity;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.Task;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.fongmi.android.tv.ui.music.MusicGlassDialogBuilder;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -198,7 +198,7 @@ public class MusicDownloadActivity extends BaseActivity {
         btnDlCancelAll.setOnClickListener(v -> {
             // GZ 批量取消确认文案（单任务版在任务行取消钮）
             if (dlTasks.isEmpty()) return;
-            new MaterialAlertDialogBuilder(this)
+            new MusicGlassDialogBuilder(this)
                     .setTitle("取消下载")
                     .setMessage("确定取消正在进行的 " + dlTasks.size() + " 个下载任务吗？已下载的临时内容将被删除，无法继续恢复。")
                     .setPositiveButton("取消下载", (d, which) -> {
@@ -454,7 +454,7 @@ public class MusicDownloadActivity extends BaseActivity {
     /** 批量删除二选一（GZ 弹层标题「删除下载」＋两项文案：删除本地文件／仅移出列表；
      * 含义与旧的两项一致：删除本地文件＝记录＋文件一并删，仅移出列表＝只删记录、文件留着仍可被本地库扫描） */
     private void deleteDownloadBatch(List<MusicTrack> sel) {
-        new MaterialAlertDialogBuilder(this)
+        new MusicGlassDialogBuilder(this)
                 .setTitle("删除下载")
                 .setMessage("删除本地文件：释放存储空间，音频、封面、歌词一并删除\n仅移出列表：保留本地文件，仍可被本地音乐库扫描播放")
                 .setItems(new String[]{"删除本地文件", "仅移出列表"}, (d, which) -> {
@@ -482,7 +482,7 @@ public class MusicDownloadActivity extends BaseActivity {
 
     /** 单首删除二选一（GZ 弹层标题「删除下载」＋两项文案；本页 ⋮ 菜单走这里） */
     private void deleteDownloadTwoChoice(MusicTrack track) {
-        new MaterialAlertDialogBuilder(this)
+        new MusicGlassDialogBuilder(this)
                 .setTitle("删除下载")
                 .setMessage("删除本地文件：释放存储空间，音频、封面、歌词一并删除\n仅移出列表：保留本地文件，仍可被本地音乐库扫描播放")
                 .setItems(new String[]{"删除本地文件", "仅移出列表"}, (d, which) -> {
@@ -597,7 +597,7 @@ public class MusicDownloadActivity extends BaseActivity {
                     tv.setPadding(0, dp(3), 0, dp(3));
                     box.addView(tv);
                 }
-                new MaterialAlertDialogBuilder(this)
+                new MusicGlassDialogBuilder(this)
                         .setTitle(track.displayTitle())
                         .setView(box)
                         .setPositiveButton(android.R.string.ok, null)
@@ -866,7 +866,7 @@ public class MusicDownloadActivity extends BaseActivity {
         cancel.setGravity(android.view.Gravity.CENTER);
         cancel.setPadding(0, dp(14), 0, 0);
         root.addView(cancel);
-        final android.app.Dialog dialog = new MaterialAlertDialogBuilder(this)
+        final android.app.Dialog dialog = new MusicGlassDialogBuilder(this)
                 .setView(root)
                 .setCancelable(true)
                 .create();
@@ -1109,7 +1109,7 @@ public class MusicDownloadActivity extends BaseActivity {
             h.btnCancel.setContentDescription("取消下载");
             h.btnCancel.setOnClickListener(v -> {
                 // GZ 单任务取消确认文案
-                new MaterialAlertDialogBuilder(MusicDownloadActivity.this)
+                new MusicGlassDialogBuilder(MusicDownloadActivity.this)
                         .setTitle("取消下载")
                         .setMessage("确定取消「" + (t.name == null ? "" : t.name) + "」的下载吗？已下载的临时内容将被删除，无法继续恢复。")
                         .setPositiveButton("取消下载", (d, which) -> {

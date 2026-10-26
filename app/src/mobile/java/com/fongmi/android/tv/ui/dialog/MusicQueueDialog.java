@@ -45,7 +45,7 @@ import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.google.android.material.bottomsheet.BottomSheetBehavior;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.fongmi.android.tv.ui.music.MusicGlassDialogBuilder;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -723,7 +723,7 @@ public class MusicQueueDialog extends BaseBottomSheetDialog {
         et.setSingleLine(true);
         int pad = Math.round(16 * host.getResources().getDisplayMetrics().density);
         et.setPadding(pad, pad, pad, pad);
-        new MaterialAlertDialogBuilder(host)
+        new MusicGlassDialogBuilder(host)
                 .setTitle(R.string.music_new_playlist)
                 .setView(et)
                 .setPositiveButton(android.R.string.ok, (d, w) -> cb.onResult(et.getText().toString()))

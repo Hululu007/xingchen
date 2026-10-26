@@ -37,7 +37,7 @@ import com.fongmi.android.tv.ui.music.MusicPlayerActivity;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.Task;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.fongmi.android.tv.ui.music.MusicGlassDialogBuilder;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
@@ -351,7 +351,7 @@ public class MusicDeviceActivity extends BaseActivity {
 
     private void showDeviceSortDialog() {
         String[] items = {"默认", "最近添加", "时长", "文件大小"};
-        new MaterialAlertDialogBuilder(this)
+        new MusicGlassDialogBuilder(this)
                 .setTitle("选择排序方式")
                 .setMessage("切换后列表将按该方式分组展示，升/降序在区块头右侧切换\n\n"
                         + "默认：按添加时间新→旧平铺\n"
@@ -417,7 +417,7 @@ public class MusicDeviceActivity extends BaseActivity {
         java.util.Set<String> excluded = new java.util.HashSet<>(MusicStore.getDeviceExcludedFolders());
         boolean[] checked = new boolean[list.size()];
         for (int i = 0; i < list.size(); i++) checked[i] = excluded.contains(list.get(i));
-        new MaterialAlertDialogBuilder(this)
+        new MusicGlassDialogBuilder(this)
                 .setTitle(R.string.wave2_device_exclude)
                 .setMultiChoiceItems(list.toArray(new String[0]), checked, (d, which, isChecked) -> {
                     if (isChecked) excluded.add(list.get(which));
@@ -437,7 +437,7 @@ public class MusicDeviceActivity extends BaseActivity {
             Notify.show("没有已移除的歌曲");
             return;
         }
-        new MaterialAlertDialogBuilder(this)
+        new MusicGlassDialogBuilder(this)
                 .setTitle("已移除歌曲")
                 .setMessage("共 " + n + " 首被移除（文件未删），恢复后重新出现在本地音乐里。")
                 .setPositiveButton(R.string.wave2_device_restore_all, (d, w) -> {
@@ -836,7 +836,7 @@ public class MusicDeviceActivity extends BaseActivity {
                     Notify.show("已移出本地库");
                     loadDevice();
                 } else if (idx == delFileIdx) {
-                    new MaterialAlertDialogBuilder(act)
+                    new MusicGlassDialogBuilder(act)
                             .setTitle(track.displayTitle())
                             .setMessage("确定删除这个文件吗？文件将从手机中彻底删除，同名歌词与封面文件一并删除。")
                             .setPositiveButton("删除", (d, w) -> {
@@ -864,7 +864,7 @@ public class MusicDeviceActivity extends BaseActivity {
                             .setNegativeButton(android.R.string.cancel, null)
                             .show();
                 } else if (idx == delIdx) {
-                    new MaterialAlertDialogBuilder(act)
+                    new MusicGlassDialogBuilder(act)
                             .setTitle(track.displayTitle())
                             .setMessage(getString(R.string.music_download_delete_confirm))
                             .setPositiveButton(getString(R.string.music_download_delete), (d, w) ->
@@ -961,7 +961,7 @@ public class MusicDeviceActivity extends BaseActivity {
         cancel.setGravity(android.view.Gravity.CENTER);
         cancel.setPadding(0, dp(14), 0, 0);
         root.addView(cancel);
-        final android.app.Dialog dialog = new MaterialAlertDialogBuilder(this)
+        final android.app.Dialog dialog = new MusicGlassDialogBuilder(this)
                 .setView(root)
                 .setCancelable(true)
                 .create();
@@ -1058,7 +1058,7 @@ public class MusicDeviceActivity extends BaseActivity {
                     StringBuilder sb = new StringBuilder();
                     if (fOk > 0) sb.append("成功 ").append(fOk).append(" 首\n\n");
                     for (String f : fFailed) sb.append(f).append("\n");
-                    new MaterialAlertDialogBuilder(this)
+                    new MusicGlassDialogBuilder(this)
                             .setTitle(R.string.music_import_encrypted)
                             .setMessage(sb.toString().trim())
                             .setPositiveButton(android.R.string.ok, null)

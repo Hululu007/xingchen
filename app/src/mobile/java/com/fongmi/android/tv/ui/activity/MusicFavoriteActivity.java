@@ -33,7 +33,7 @@ import com.fongmi.android.tv.ui.music.MusicGlassWire;
 import com.fongmi.android.tv.ui.music.MusicPlayerActivity;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.fongmi.android.tv.ui.music.MusicGlassDialogBuilder;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -403,7 +403,7 @@ public class MusicFavoriteActivity extends BaseActivity {
     /** 收藏排序弹层（GZ：收藏 3 项＋当前项文案「当前：…」） */
     private void showFavoriteSortDialog() {
         String[] items = new String[]{"最近收藏", "最早收藏", "歌曲名称"};
-        new MaterialAlertDialogBuilder(this)
+        new MusicGlassDialogBuilder(this)
                 .setTitle("收藏排序")
                 .setMessage("当前：" + items[favSort])
                 .setSingleChoiceItems(items, favSort, (d, which) -> {
@@ -587,7 +587,7 @@ public class MusicFavoriteActivity extends BaseActivity {
     }
 
     private void confirmDeleteLocal(MusicTrack track) {
-        new MaterialAlertDialogBuilder(this)
+        new MusicGlassDialogBuilder(this)
                 .setTitle(track.displayTitle())
                 .setMessage(getString(R.string.music_download_delete_confirm))
                 .setPositiveButton(getString(R.string.music_download_delete), (d, w) ->
@@ -689,7 +689,7 @@ public class MusicFavoriteActivity extends BaseActivity {
         cancel.setGravity(android.view.Gravity.CENTER);
         cancel.setPadding(0, dp(14), 0, 0);
         root.addView(cancel);
-        final android.app.Dialog dialog = new MaterialAlertDialogBuilder(this)
+        final android.app.Dialog dialog = new MusicGlassDialogBuilder(this)
                 .setView(root)
                 .setCancelable(true)
                 .create();

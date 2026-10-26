@@ -34,7 +34,7 @@ import com.fongmi.android.tv.ui.music.MusicGlassWire;
 import com.fongmi.android.tv.ui.music.MusicPlayerActivity;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.fongmi.android.tv.ui.music.MusicGlassDialogBuilder;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -430,7 +430,7 @@ public class MusicTracksActivity extends BaseActivity {
     }
 
     private void confirmDeleteLocal(MusicTrack track) {
-        new MaterialAlertDialogBuilder(this)
+        new MusicGlassDialogBuilder(this)
                 .setTitle(track.displayTitle())
                 .setMessage(getString(R.string.music_download_delete_confirm))
                 .setPositiveButton(getString(R.string.music_download_delete), (d, w) ->
@@ -533,7 +533,7 @@ public class MusicTracksActivity extends BaseActivity {
         cancel.setGravity(android.view.Gravity.CENTER);
         cancel.setPadding(0, dp(14), 0, 0);
         root.addView(cancel);
-        final android.app.Dialog dialog = new MaterialAlertDialogBuilder(this)
+        final android.app.Dialog dialog = new MusicGlassDialogBuilder(this)
                 .setView(root)
                 .setCancelable(true)
                 .create();

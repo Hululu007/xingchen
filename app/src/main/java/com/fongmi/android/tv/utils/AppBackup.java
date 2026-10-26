@@ -197,6 +197,7 @@ public final class AppBackup {
             throw new IOException(e);
         }
         Backup backup = Backup.objectFrom(json);
+        if (backup == null) throw new IOException("备份文件解析失败");
         try {
             if (backup.getConfig().isEmpty()) throw new IOException("备份缺少接口配置数据");
             String warning = validateManifest(manifestJson, shared, backup);
@@ -236,6 +237,7 @@ public final class AppBackup {
         try {
             FileUtil.gzipDecompress(source, restore);
             Backup backup = Backup.objectFrom(Path.read(restore));
+            if (backup == null) throw new IOException("旧备份文件解析失败");
             if (backup.getConfig().isEmpty()) throw new IOException("旧备份文件无有效配置数据");
             notifyProgress(progress, "恢复旧版数据库和设置", 75, source.length(), source.length());
             backup.restore();

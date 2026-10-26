@@ -382,6 +382,7 @@ public class Action implements Process {
 
     private void syncBackup(Map<String, String> params, Map<String, String> files, boolean force) {
         Backup backup = Backup.objectFrom(params.get("backup"));
+        if (backup == null) throw new IllegalStateException("Invalid sync backup");
         SyncOptions options = SyncOptions.objectFrom(params.get("options"));
         if (SyncFiles.hasPaths(options) && files.containsKey(SyncFiles.PART_NAME)) {
             File archive = new File(files.get(SyncFiles.PART_NAME));

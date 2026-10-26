@@ -107,13 +107,16 @@ public class Backup {
         return backup;
     }
 
+    // 解析失败必须与「本来就是空备份」区分：失败返回 null 并留痕，
+    // 调用方据此中止恢复——旧实现吞成空 Backup，远程同步路拿它 force 恢复会先清
+    // 站点/直播/配置三表再回填空数据、还回执成功，数据丢了无人知（全应用扫描 O5）。
     public static Backup objectFrom(String json) {
         try {
             Gson gson = new GsonBuilder().setObjectToNumberStrategy(ToNumberPolicy.LAZILY_PARSED_NUMBER).create();
-            Backup backup = gson.fromJson(json, Backup.class);
-            return backup == null ? new Backup() : backup;
+            return gson.fromJson(json, Backup.class);
         } catch (Exception e) {
-            return new Backup();
+            Log.w(TAG, "objectFrom parse failed", e);
+            return null;
         }
     }
 

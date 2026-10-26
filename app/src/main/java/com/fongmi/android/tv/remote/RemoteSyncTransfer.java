@@ -87,7 +87,9 @@ public final class RemoteSyncTransfer {
             int syncCount = syncFiles == null ? 0 : SyncFiles.restoreArchive(syncFiles);
             int mpvCount = mpvConfigFiles == null ? 0 : MpvConfigSync.restoreArchive(mpvConfigFiles);
             int loginCount = loginStateFiles == null ? 0 : LoginStateSync.restoreArchive(loginStateFiles);
-            Backup.objectFrom(backup).restore(options, true);
+            Backup parsed = Backup.objectFrom(backup);
+            if (parsed == null) throw new IllegalStateException("Invalid sync backup");
+            parsed.restore(options, true);
             if (options.isRemoteRelay()) RemoteStore.importRelayConfig(remoteRelay);
             JsonObject result = new JsonObject();
             result.addProperty("syncFiles", syncCount);

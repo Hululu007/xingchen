@@ -133,6 +133,7 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
         setContentView(R.layout.activity_music_player);
 
         mAmbient = findViewById(R.id.playerAmbient);
+        mAmbient.refreshSettings();
         mCoverBox = findViewById(R.id.playerCoverBox);
         mMeta = findViewById(R.id.playerMeta);
         // 歌名列与封面零间隔、渲染下移 12dp（瓜子 offset，只移渲染不动布局）
@@ -240,6 +241,7 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
             public void onSettingsChanged() {
                 mLyrics.reloadSettings();
                 applyKeepScreenOn();
+                if (mAmbient != null) mAmbient.refreshSettings();
             }
 
             @Override

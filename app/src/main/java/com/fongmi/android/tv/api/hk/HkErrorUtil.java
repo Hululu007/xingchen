@@ -209,7 +209,6 @@ public class HkErrorUtil {
             dialog.setContentView(view);
             Window window = dialog.getWindow();
             if (window != null) {
-                window.setWindowAnimations(R.style.XcBottomSheetSlide); // 底部弹窗统一滑上滑下＋淡入淡出 200ms
                 window.setBackgroundDrawableResource(android.R.color.transparent);
                 window.setGravity(Gravity.BOTTOM);
                 WindowManager.LayoutParams params = window.getAttributes();

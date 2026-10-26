@@ -63,60 +63,6 @@ public class HkHttp {
 
     private static final String DEFAULT_UA = "Mozilla/5.0 (Linux; Android 15; 2407FRK8EC Build/AP3A.240617.008; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/128.0.6613.127 Mobile Safari/537.36";
 
-    /**
-     * Brotli 透明解压拦截器（扫描 O11）：与 8.83 标配的 okhttp3.brotli.BrotliInterceptor
-     * 等价——请求未声明 Accept-Encoding 且无 Range 时声明 br，响应为 br 时用
-     * org.brotli:dec 解压并摘掉 Content-Encoding/Content-Length。
-     * 此前两处 client 构建都靠反射装载该类，而 okhttp-brotli 工件根本不在本仓依赖里
-     * （toml 的 okhttp bundle 无此条目），反射恒抛 ClassNotFoundException 被静默吞掉、
-     * br 响应永不解压。org.brotli:dec 由 catvod 以 api 依赖引入（纯解码器、已在包内），
-     * 故自备等价实现，不再反射、不另加外部工件。
-     */
-    private static final okhttp3.Interceptor BROTLI_INTERCEPTOR = chain -> {
-        Request request = chain.request();
-        boolean transparent = request.header("Accept-Encoding") == null && request.header("Range") == null;
-        if (transparent) {
-            request = request.newBuilder().header("Accept-Encoding", "br").build();
-        }
-        Response response = chain.proceed(request);
-        if (!transparent) return response;
-        ResponseBody body = response.body();
-        String encoding = response.header("Content-Encoding");
-        if (body == null || encoding == null || !"br".equalsIgnoreCase(encoding)) return response;
-        ResponseBody decoded = new ResponseBody() {
-            private okio.BufferedSource source;
-
-            @Override
-            public MediaType contentType() {
-                return body.contentType();
-            }
-
-            @Override
-            public long contentLength() {
-                return -1;
-            }
-
-            @Override
-            public okio.BufferedSource source() {
-                if (source == null) {
-                    try {
-                        source = okio.Okio.buffer(okio.Okio.source(
-                                new org.brotli.dec.BrotliInputStream(body.byteStream())));
-                    } catch (java.io.IOException e) {
-                        // 解码器构造失败（流头损坏）：退回原始流，不让一处解码问题崩掉整条取数链
-                        source = body.source();
-                    }
-                }
-                return source;
-            }
-        };
-        return response.newBuilder()
-                .body(decoded)
-                .removeHeader("Content-Encoding")
-                .removeHeader("Content-Length")
-                .build();
-    };
-
     private static volatile OkHttpClient client;
     /** 海阔图片专用 client（8.83 OkHttpUrlLoader.Factory 内建 client 配置） */
     private static volatile OkHttpClient imageClient;
@@ -745,7 +691,7 @@ public class HkHttp {
 
     /**
      * 海阔图片专用 OkHttpClient，移植自 8.83 OkHttpUrlLoader.Factory 内建 client：
-     * - Brotli 解压（自备等价拦截器，见 BROTLI_INTERCEPTOR 注／扫描 O11）
+     * - BrotliInterceptor
      * - 信任所有证书 SSL（UnSafeTrustManager + UnSafeHostnameVerifier）
      * - DNS：HK_IMAGE_DNS——默认系统解析，仅 haikuoshijie 类地址在用户开 DoH 时走 DoH
      *   （此前误装恒走 DoH 的 HK_DNS 致零封面）；8.83 buildLoadData 的逐地址
@@ -780,8 +726,12 @@ public class HkHttp {
                     okhttp3.Dispatcher d = new okhttp3.Dispatcher();
                     d.setMaxRequestsPerHost(48);
                     b.dispatcher(d);
-                    // Brotli（O11）：自备等价拦截器（见 BROTLI_INTERCEPTOR 注），不再反射装载缺失工件
-                    b.addInterceptor(BROTLI_INTERCEPTOR);
+                    try {
+                        Class<?> c = Class.forName("okhttp3.brotli.BrotliInterceptor");
+                        Object inst = c.getField("INSTANCE").get(null);
+                        b.addInterceptor((okhttp3.Interceptor) inst);
+                    } catch (Throwable ignored) {
+                    }
                     try {
                         b.cookieJar(HkCookieJar.get(App.get()));
                     } catch (Throwable ignored) {
@@ -855,8 +805,13 @@ public class HkHttp {
                             });
                             // retryOnConnectionFailure 不显式关闭：8.83 HttpHelper 原文未设置
                             // （OkHttp 默认 true，多地址时可换路由重试），此前被仿写版写成 false
-                    // Brotli（O11）：自备等价拦截器（见 BROTLI_INTERCEPTOR 注），不再反射装载缺失工件
-                    b.addInterceptor(BROTLI_INTERCEPTOR);
+                    // Brotli（8.83 标配）：反射加载，缺失则跳过
+                    try {
+                        Class<?> c = Class.forName("okhttp3.brotli.BrotliInterceptor");
+                        Object inst = c.getField("INSTANCE").get(null);
+                        b.addInterceptor((okhttp3.Interceptor) inst);
+                    } catch (Throwable ignored) {
+                    }
                     try {
                         b.cookieJar(HkCookieJar.get(App.get()));
                     } catch (Throwable ignored) {

@@ -385,14 +385,9 @@ public class HkProxyServer extends NanoHTTPD {
         return sb.toString();
     }
 
-    // 扫描 O9：字段名即外部 JSON 键（规则 JS 回的字符串），必须钉 @SerializedName——
-    // 此前无注解无保名，R8 改名后 body/headers 恒解析为 null、状态码与响应头全丢。
     static class ProxyResult {
-        @com.google.gson.annotations.SerializedName("body")
         String body;
-        @com.google.gson.annotations.SerializedName("headers")
         Map<String, String> headers;
-        @com.google.gson.annotations.SerializedName("statusCode")
         int statusCode;
     }
 }

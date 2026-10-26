@@ -1,13 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-     音乐搜索独立页（2026-10-25 用户定案）：构成只有——
-     标题「搜索」＋搜索框行（玻璃胶囊＋取消）＋搜索历史（仅初始态有存量时摆）
-     ＋结果列表＋状态层（加载／空态）。没有分类页签、没有源横排 chips、
-     没有工具行（随机／播放全部／来源下拉／排序）、没有组筛选条、
-     没有落地页热门／猜你想搜（定案摘除，不许回潮）。
-     结果按源分段排（2026-10-26 他亲点）：同源一段、段序＝源快照序、段内回包序。
-     皮走液态玻璃：根底 home_bg_page 兜底＋MusicGlassBackgroundView 铺满
-     （与首页同一套背景），玻璃件用全 App 共用 bg_music_glass_* 一套。
+     音乐搜索独立页（2026-10-25 用户定案重做）：构成只有——
+     标题「搜索」＋搜索框行（玻璃胶囊＋取消）＋分类页签（单曲／专辑／歌手／歌单）
+     ＋源横排 chips（各源分开、点哪个看哪个源的结果）＋结果列表＋状态层（加载／空态）。
+     工具行（随机／播放全部／来源下拉／排序）、组筛选条、落地页（热门／猜你想搜）全摘；
+     搜索历史 2026-10-25 用户点名补回（只有历史，别的一概不摆）。
+     组织摆法照用户参照图（2026-10-20 定「搜索结果按源横排」）；皮走液态玻璃：
+     根底 home_bg_page 兜底＋MusicGlassBackgroundView 铺满（与首页同一套背景），
+     玻璃件用全 App 共用 bg_music_glass_* 一套。
+     2026-10-27 潇洒哥改令恢复本构成（608b4c51 摘除的页签＋源 chips 整套回滚恢复）；
+     源 chips 名单含壳子五家、油管、115 网盘（登录才出）与已装插件源。
      无返回箭头（铁律），关页走系统返回／搜索框行「取消」；界面只放名字和状态，无介绍文字。 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
@@ -144,8 +146,24 @@
                 android:layout_marginTop="10dp" />
         </LinearLayout>
 
-        <!-- 搜索页构成定案（2026-10-25 他亲口）：只留标题＋搜索框＋取消＋结果列表＋搜索历史；
-             分类页签与源横排 chips 已按定案摘除（扫描 M25），搜索恒走单曲＋全源聚合 -->
+        <!-- 分类页签：单曲／专辑／歌手／歌单（构成与次序照参照图），四等分横排，子项由代码 inflate item_music_search_tab -->
+        <LinearLayout
+            android:id="@+id/tabRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:orientation="horizontal"
+            android:visibility="gone" />
+
+        <!-- 源横排 chips：chips 是本 App 自己的可搜源，点哪个看哪个源的结果 -->
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/sourceRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:clipToPadding="false"
+            android:overScrollMode="never"
+            android:visibility="gone" />
 
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/recycler"

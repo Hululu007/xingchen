@@ -356,6 +356,7 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
             case MotionEvent.ACTION_DOWN:
                 mCoverBackSpring.cancel();
                 mCoverBox.animate().cancel();
+                mSwipeHandoff = false;
                 mSwipeDownX = e.getRawX();
                 mSwipeDownY = e.getRawY();
                 mSwipeDy = 0;
@@ -435,16 +436,34 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
         return d * getResources().getDisplayMetrics().density;
     }
 
+    // 竖滑提交与切歌转场的交接旗：提交滑出后盒子停在锚点位不硬归零，
+    // 由 bindCover 的转场把盒子带回 0（与新封面入场同 400ms/bs4.e），旧封面不重滑出场。
+    private boolean mSwipeHandoff;
+
     private void commitSwipe(int dir) {
         mCoverBackSpring.cancel();
         mLastDir = dir;
         final float target = dir > 0 ? -anchorDistancePx() : anchorDistancePx();
         mCoverBox.animate().translationY(target).setDuration(150).setInterpolator(BS4_F)
                 .withEndAction(() -> {
-                    mCoverBox.setTranslationY(0);
+                    // 旧做法在这里 setTranslationY(0) 瞬时归零：盒内旧封面先跳回原位、
+                    // 再被 bindCover 的出场动画从 0 重滑一遍——双重滑动＋一帧硬跳（他点名生硬）。
+                    mSwipeHandoff = true;
                     if (dir > 0) MusicController.get().next();
                     else MusicController.get().prev();
+                    // 切歌没发生（队列到头等）时没人接手盒子：600ms 后还没被转场接走就弹簧回中
+                    mCoverBox.postDelayed(() -> {
+                        if (mSwipeHandoff) {
+                            mSwipeHandoff = false;
+                            animateCoverBack();
+                        }
+                    }, 600);
                 }).start();
+    }
+
+    /** 竖滑交接的盒子归位：与封面转场同 400ms/bs4.e 起步回 0。 */
+    private void settleSwipeBox() {
+        mCoverBox.animate().translationY(0).setDuration(400).setInterpolator(BS4_E).start();
     }
 
     private void animateCoverBack() {
@@ -652,6 +671,10 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
             mCoverOut.setVisibility(View.GONE);
             ImgUtil.load(track.displayTitle(), "", mCover);
             mCoverBitmap = null;
+            if (mSwipeHandoff) {
+                mSwipeHandoff = false;
+                settleSwipeBox();
+            }
             return;
         }
         final String want = url;
@@ -667,28 +690,45 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
                     mCover.setTranslationY(0);
                     mCover.setScaleX(mCoverScaleBase);
                     mCover.setScaleY(mCoverScaleBase);
+                    if (mSwipeHandoff) {
+                        mSwipeHandoff = false;
+                        settleSwipeBox();
+                    }
                     return;
                 }
                 // 切歌转场 400ms/bs4.e：入竖滑 0.5×尺寸＋缩放 0.94→1；出竖滑 0.5、缩放→0.96、alpha→0
                 // （缩放值与暂停缩放基数相乘——瓜子两层图形层叠加的等价）
                 float base = mCoverScaleBase;
                 float h = mCoverBox.getHeight() > 0 ? mCoverBox.getHeight() : dp(320);
-                mCoverOut.setImageBitmap(old);
-                mCoverOut.setVisibility(View.VISIBLE);
-                mCoverOut.setAlpha(1f);
-                mCoverOut.setTranslationY(0);
-                mCoverOut.setScaleX(base);
-                mCoverOut.setScaleY(base);
+                // 竖滑提交来的切歌：旧封面已随手势滑出，不再从原位重滑出场；
+                // 盒子由转场带回 0，与新封面入场同拍（交接不断链）。
+                boolean handoff = mSwipeHandoff;
+                mSwipeHandoff = false;
+                if (handoff) {
+                    mCoverOut.setVisibility(View.GONE);
+                    settleSwipeBox();
+                } else {
+                    mCoverOut.setImageBitmap(old);
+                    mCoverOut.setVisibility(View.VISIBLE);
+                    mCoverOut.setAlpha(1f);
+                    mCoverOut.setTranslationY(0);
+                    mCoverOut.setScaleX(base);
+                    mCoverOut.setScaleY(base);
+                }
                 mCover.setImageBitmap(resource);
-                mCover.setTranslationY(dir * 0.5f * h);
+                // 交接态入场起点按盒子当前偏移折算：合成位置仍从 dir 侧 0.5×尺寸起步，
+                // 与盒子归位同拍收拢，不从错误一侧扫进来
+                mCover.setTranslationY(handoff ? dir * 0.5f * h - mCoverBox.getTranslationY() : dir * 0.5f * h);
                 mCover.setScaleX(0.94f * base);
                 mCover.setScaleY(0.94f * base);
                 mCover.setAlpha(1f);
                 mCover.animate().translationY(0).scaleX(base).scaleY(base)
                         .setDuration(400).setInterpolator(BS4_E).start();
-                mCoverOut.animate().translationY(-dir * 0.5f * h).scaleX(0.96f * base).scaleY(0.96f * base).alpha(0f)
-                        .setDuration(400).setInterpolator(BS4_E)
-                        .withEndAction(() -> mCoverOut.setVisibility(View.GONE)).start();
+                if (!handoff) {
+                    mCoverOut.animate().translationY(-dir * 0.5f * h).scaleX(0.96f * base).scaleY(0.96f * base).alpha(0f)
+                            .setDuration(400).setInterpolator(BS4_E)
+                            .withEndAction(() -> mCoverOut.setVisibility(View.GONE)).start();
+                }
             }
 
             @Override

@@ -49,14 +49,14 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * 音乐搜索独立页（2026-10-25 用户定案重做）：构成只有标题「搜索」＋搜索框行（＋取消）
- * ＋分类页签（单曲／专辑／歌手／歌单，构成与次序照用户参照图）＋源横排 chips
- * （2026-10-20 定「搜索结果按源横排」：各源分开、点哪个源看哪个源的结果）
- * ＋该源的结果列表（行：歌名、歌手 - 专辑、来源标、⋮）。
- * 搜索执行仍是多源并发、按源分桶承接 chips；工具行（随机／播放全部／来源下拉／排序）、
- * 组筛选条、落地页（热门／猜你想搜）已全摘；搜索历史 2026-10-25 用户点名补回
- * （只摆历史词、点词即搜，不要热门／猜你想搜）。结果列表滑到底自动续下一页
- * （按桶分页，页码透传到源；旧实现全链写死第一页）。
+ * 音乐搜索独立页（2026-10-25 用户定案）：构成只有标题「搜索」＋搜索框行（＋取消）
+ * ＋搜索历史（仅初始态有存量时摆）＋结果列表＋状态层。没有分类页签、没有源
+ * 横排 chips、没有工具行／组筛选条／落地页热门与猜你想搜（定案摘除，不许回潮）。
+ * 搜索执行是多源并发、按源分桶；展示按源分段（2026-10-26 他亲点）：同源一段、
+ * 段序＝源快照序（旧源横排 chips 的次序）、段内＝该源回包序，续页新结果归入
+ * 各自源的段里续排。结果行：封面／歌名＋音质标／「歌手 · 专辑 · 来源」／时长／⋮。
+ * 滑到底自动续下一页（多桶并行推进，页码透传到源，源的末页信号判桶终局）。
+ * 部分源失败与真无果分开呈现（失败桶有标记，见 updateEmptyState 与完成提示）。
  * 行播放走 MusicController，队列 route=list、参数 mode=search＋keyword，队列面板来源跳转落回本页。
  * 无返回箭头，走系统返回／搜索框行「取消」。
  */
@@ -79,35 +79,20 @@ public class MusicSearchActivity extends BaseActivity {
     private View rootView;
     private EditText etKeyword;
     private RecyclerView recycler;
-    private boolean listIntroDone;
-
-    /** 列表首屏：数据第一次到达时整表淡入 200ms（统一口径），后续刷新不再重播。 */
-    private void fadeListInOnce() {
-        if (listIntroDone || recycler == null) return;
-        listIntroDone = true;
-        recycler.setAlpha(0f);
-        XcFadeTransition.fadeIn(recycler);
-    }
     private TextView empty;
     private View historyBox;
     private com.fongmi.android.tv.ui.widget.FlowLayout historyFlow;
 
     private final List<MusicTrack> tracks = new ArrayList<>();
-    private final List<Object> cards = new ArrayList<>();
     private SearchAdapter adapter;
     private String keyword = "";
     private String bigTitle = "";
 
-    // 搜索页构成定案（2026-10-25）：无分类页签、无源 chips——恒走单曲＋全源聚合展示。
-    // selectedCat 恒 0（单曲），仅为残余分组/歌单分支的守卫保留，不再有 UI 能改它。
+    // 搜索页构成定案（2026-10-25）：无分类页签、无源 chips——恒走单曲＋全源分段展示。
     private final List<MusicTrack> allResults = Collections.synchronizedList(new ArrayList<>());
     private final AtomicInteger searchTotalSites = new AtomicInteger(0);
     private final AtomicInteger searchFailedSites = new AtomicInteger(0);
-    private int selectedCat = 0;
     private int searchSeq = 0;
-    /** 组内钻取：-1 不钻取，1 歌手组，3 专辑组（与分组类型对齐，与页签下标无关） */
-    private int searchGroupType = -1;
-    private String searchGroupKey = "";
     /** 搜索按源分桶（键＝searchBucketKey：srcUrl 非空用 srcUrl、空走 "site:"+index；
      * 快照 searchSitesSnap 保 sites 顺序）。分桶只服务两件事：行来源名按桶反查、
      * 续页按桶推进；展示恒为全源聚合（见 currentSearchPool），不再有选中源概念。
@@ -122,6 +107,33 @@ public class MusicSearchActivity extends BaseActivity {
     private final java.util.Map<String, Integer> bucketPages = new java.util.HashMap<>();
     private final java.util.Set<String> bucketEnded = new java.util.HashSet<>();
     private final java.util.Set<String> bucketLoading = new java.util.HashSet<>();
+    /** 失败桶（第一页抛错／无源可路由／续页失败）：与「真无结果」分开呈现的凭据，
+     * 只记桶键、与 bucketEnded 并行（失败桶同时判终局防反复重试，性质靠本表区分）。 */
+    private final java.util.Set<String> bucketFailed = new java.util.HashSet<>();
+    /** 续页终局提示只报一次（每次搜索）：滚底反复触发不许反复弹 */
+    private boolean loadMoreEndNotified = false;
+    /** 部分源失败的完成提示只报一次（每次搜索） */
+    private boolean partialFailNotified = false;
+
+    /** 酷狗封面后补回调（源层回填同一批曲目对象后通知）：只重绑被回填的那几行 */
+    private final com.fongmi.android.tv.api.music.LxPlatformSearch.KgCoverListener kgCoverListener =
+            filled -> runOnUiThread(() -> rebindTracks(filled));
+    /** 咪咕时长后补回调：同上，只重绑被回填时长的行 */
+    private final com.fongmi.android.tv.api.music.LxPlatformSearch.MgDurationListener mgDurationListener =
+            filled -> runOnUiThread(() -> rebindTracks(filled));
+
+    /** 后补回填后按曲目对象身份找当前展示下标、逐行重绑（不在当前分段池里的忽略） */
+    private void rebindTracks(List<MusicTrack> filled) {
+        if (adapter == null || filled == null || filled.isEmpty()) return;
+        for (MusicTrack t : filled) {
+            for (int i = 0; i < tracks.size(); i++) {
+                if (tracks.get(i) == t) {
+                    adapter.notifyItemChanged(i);
+                    break;
+                }
+            }
+        }
+    }
 
     private String lastCurrentId;
     private android.os.Parcelable pendingListState;
@@ -167,8 +179,7 @@ public class MusicSearchActivity extends BaseActivity {
         if (savedInstanceState != null) {
             String savedKw = savedInstanceState.getString("ml_keyword");
             if (savedKw != null) keyword = savedKw;
-            // 页签已摘除：分类恒单曲，旧存档里的页签值一律不回填（防升级后残值把展示带偏）
-            selectedCat = 0;
+            // 页签已摘除：旧存档里的页签值一律不回填（防升级后残值把展示带偏）
             pendingListState = savedInstanceState.getParcelable("ml_listState");
         }
         bigTitle = getString(R.string.music_search);
@@ -198,6 +209,9 @@ public class MusicSearchActivity extends BaseActivity {
         });
         MusicGlassWire.glassifyTree(rootView);
         recycler.setAdapter(adapter = new SearchAdapter());
+        // 源层后补回填（酷狗封面／咪咕时长）通知：本页在前台时才接，销毁注销（onDestroy）
+        com.fongmi.android.tv.api.music.LxPlatformSearch.setKgCoverListener(kgCoverListener);
+        com.fongmi.android.tv.api.music.LxPlatformSearch.setMgDurationListener(mgDurationListener);
 
         findViewById(R.id.searchCancel).setOnClickListener(v -> finish());
         // 搜索只由键盘搜索键显式触发，输入框无任何 TextWatcher 自动搜；
@@ -274,7 +288,6 @@ public class MusicSearchActivity extends BaseActivity {
             outState.putString("ml_keyword", etKeyword != null
                     && etKeyword.getText() != null
                     ? etKeyword.getText().toString() : keyword);
-            outState.putInt("ml_selectedCat", selectedCat);
             if (recycler != null && recycler.getLayoutManager() != null) {
                 outState.putParcelable("ml_listState",
                         recycler.getLayoutManager().onSaveInstanceState());
@@ -304,6 +317,8 @@ public class MusicSearchActivity extends BaseActivity {
 
     @Override
     protected void onDestroy() {
+        com.fongmi.android.tv.api.music.LxPlatformSearch.setKgCoverListener(null);
+        com.fongmi.android.tv.api.music.LxPlatformSearch.setMgDurationListener(null);
         MusicController.get().removeListener(controllerListener);
         MusicController.get().unbind();
         super.onDestroy();
@@ -334,17 +349,16 @@ public class MusicSearchActivity extends BaseActivity {
             bucketPages.clear();
             bucketEnded.clear();
             bucketLoading.clear();
+            bucketFailed.clear();
         }
         searchSitesSnap.clear();
         selectedSource = null;
         searchAllReady = false;
         searchTotalSites.set(0);
         searchFailedSites.set(0);
-        selectedCat = 0;
-        searchGroupType = -1;
-        searchGroupKey = "";
+        loadMoreEndNotified = false;
+        partialFailNotified = false;
         tracks.clear();
-        cards.clear();
         adapter.notifyDataSetChanged();
         showLoading();
         Task.execute(() -> {
@@ -379,7 +393,11 @@ public class MusicSearchActivity extends BaseActivity {
                         bucketLoading.add(bucketKey);
                     }
                     try {
-                        List<MusicTrack> r = MusicRepository.searchSite(site, kw);
+                        // 带末页信号版：源明示末页（FreeJS isEnd 等）第一页就判桶终局，
+                        // 不再多发一页靠回空兜底；无源可路由在此抛错走失败桶
+                        com.fongmi.android.tv.music.MusicSearchPage page =
+                                MusicRepository.searchSitePage(site, kw, 1);
+                        List<MusicTrack> r = page.tracks;
                         if (seq == searchSeq && r != null) {
                             allResults.addAll(r);
                             synchronized (searchBySite) {
@@ -390,7 +408,7 @@ public class MusicSearchActivity extends BaseActivity {
                                 }
                                 bucket.addAll(r);
                                 bucketPages.put(bucketKey, 1);
-                                if (r.isEmpty()) bucketEnded.add(bucketKey);
+                                if (r.isEmpty() || page.end) bucketEnded.add(bucketKey);
                             }
                         }
                     } catch (Throwable t) {
@@ -398,7 +416,12 @@ public class MusicSearchActivity extends BaseActivity {
                         // （2026-10-26「只剩 QQ」一案）；真因细节在仓库/源层同 tag 日志
                         SpiderDebug.log("music", "search fanout fail site=%s bucket=%s %s",
                                 site.name, bucketKey, t.getClass().getSimpleName());
-                        if (seq == searchSeq) searchFailedSites.incrementAndGet();
+                        if (seq == searchSeq) {
+                            searchFailedSites.incrementAndGet();
+                            synchronized (searchBySite) {
+                                bucketFailed.add(bucketKey);
+                            }
+                        }
                     } finally {
                         // 在途标记无条件清：迟到任务若按 seq 跳过清除，会把新搜索同桶的分页永久堵死；
                         // 终局标记仍按 seq 守卫（新搜索的桶态不归旧任务判）
@@ -414,11 +437,22 @@ public class MusicSearchActivity extends BaseActivity {
                         // 旧搜索的迟到回调不许动新搜索的状态
                         if (seq == searchSeq) {
                             boolean last = pending.decrementAndGet() == 0;
-                            // 全源聚合展示：任一源到齐就刷一次（结果流入式变多），
+                            // 全源分段展示：任一源到齐就刷一次（结果流入式变多），
                             // 最后一源到齐置 ready 后总刷一次
                             runOnUiThread(() -> {
                                 if (seq == searchSeq) {
-                                    if (last) searchAllReady = true;
+                                    if (last) {
+                                        searchAllReady = true;
+                                        // 部分失败要让用户看见（与全失败/真无果分开）：
+                                        // 有结果时完成点补一条提示，无结果时状态层文案区分
+                                        if (!partialFailNotified
+                                                && searchFailedSites.get() > 0
+                                                && searchFailedSites.get() < searchTotalSites.get()
+                                                && !currentSearchPool().isEmpty()) {
+                                            partialFailNotified = true;
+                                            Notify.show("部分来源搜索失败，已显示其余来源结果");
+                                        }
+                                    }
                                     showSearchResults();
                                 }
                             });
@@ -430,28 +464,42 @@ public class MusicSearchActivity extends BaseActivity {
     }
 
     /**
-     * 续下一页：全源聚合展示下逐桶推进——取第一个还没到终局、不在途的桶续一页
-     * （一次滚底续一个桶，反复滚底自然把各源都续下去）。组内钻取态不续
-     * （钻取数据随桶长大自然变多，退出钻取后可继续续）。
-     * 续页结果按 track id 去重后并入桶——源不认页码回了重复页时全重复即判终局，
-     * 不会无限续同一页；空页／失败同样判终局。
+     * 续下一页：多桶并行推进（F1 低）——旧实现一次滚底只续第一个未终局桶一页，
+     * 多源要反复滚底、且全程无任何状态提示。现一次滚底把所有未终局、不在途的桶
+     * 各续一页（各自独立任务、独立收口），新结果按 track id 去重后并入各自的桶
+     * （分段展示下自然归入本源段内续排）；源明示末页（end 信号）／空页／全重复
+     * 判终局。状态提示走既有 Notify 口径：任一桶续页失败提示「部分来源加载失败」
+     * （每次搜索至多一次）、全部桶终局后首次滚底提示「没有更多了」（每次搜索至多一次）。
      */
     private void tryLoadMore() {
         if (keyword == null || keyword.isEmpty()) return;
-        if (selectedCat == 3 || searchGroupType >= 0) return;
-        String picked = null;
+        final int seq = searchSeq;
+        final String kw = keyword;
+        List<String> targets = new ArrayList<>();
         synchronized (searchBySite) {
             for (String k : searchBySite.keySet()) {
                 if (bucketEnded.contains(k) || bucketLoading.contains(k)) continue;
                 if (!bucketPages.containsKey(k)) continue;
-                picked = k;
-                break;
+                targets.add(k);
             }
         }
-        final String bucketKey = picked;
-        if (bucketKey == null) return;
-        final int seq = searchSeq;
-        final String kw = keyword;
+        if (targets.isEmpty()) {
+            // 无桶可续：搜索已到齐且每桶都终局时，首次滚底给终局提示（与云盘页同文案口径）
+            synchronized (searchBySite) {
+                if (searchAllReady && !searchBySite.isEmpty()
+                        && bucketEnded.containsAll(searchBySite.keySet())
+                        && bucketLoading.isEmpty() && !loadMoreEndNotified) {
+                    loadMoreEndNotified = true;
+                    Notify.show("没有更多了");
+                }
+            }
+            return;
+        }
+        for (String bk : targets) loadMoreBucket(bk, seq, kw);
+    }
+
+    /** 单桶续一页：独立任务、独立收口（一个桶失败不拖其它桶，失败记桶＋判终局） */
+    private void loadMoreBucket(final String bucketKey, final int seq, final String kw) {
         final MusicSite site;
         final int nextPage;
         synchronized (searchBySite) {
@@ -471,19 +519,24 @@ public class MusicSearchActivity extends BaseActivity {
             bucketLoading.add(bucketKey);
         }
         Task.largeExecutor().execute(() -> {
-            List<MusicTrack> r = null;
+            com.fongmi.android.tv.music.MusicSearchPage result = null;
+            boolean failed = false;
             try {
-                r = MusicRepository.searchSite(site, kw, nextPage);
+                result = MusicRepository.searchSitePage(site, kw, nextPage);
             } catch (Throwable t) {
+                failed = true;
                 SpiderDebug.log("music", "search loadmore fail bucket=%s page=%d %s",
                         bucketKey, nextPage, t.getClass().getSimpleName());
             }
-            final List<MusicTrack> page = r;
+            final com.fongmi.android.tv.music.MusicSearchPage pageResult = result;
+            final boolean pageFailed = failed;
             runOnUiThread(() -> {
                 int added = 0;
+                boolean notifyFail = false;
                 synchronized (searchBySite) {
                     bucketLoading.remove(bucketKey);
                     if (seq != searchSeq) return;
+                    List<MusicTrack> page = pageResult == null ? null : pageResult.tracks;
                     if (page != null && !page.isEmpty()) {
                         List<MusicTrack> bucket = searchBySite.get(bucketKey);
                         if (bucket != null) {
@@ -506,12 +559,24 @@ public class MusicSearchActivity extends BaseActivity {
                             }
                         }
                     }
-                    if (added > 0) bucketPages.put(bucketKey, nextPage);
-                    else bucketEnded.add(bucketKey);
+                    if (pageFailed) {
+                        bucketFailed.add(bucketKey);
+                        bucketEnded.add(bucketKey);
+                        if (!partialFailNotified) {
+                            partialFailNotified = true;
+                            notifyFail = true;
+                        }
+                    } else if (added > 0) {
+                        bucketPages.put(bucketKey, nextPage);
+                        // 源明示末页：本页是最后一页，不再多发一页靠回空兜底
+                        if (pageResult != null && pageResult.end) bucketEnded.add(bucketKey);
+                    } else {
+                        bucketEnded.add(bucketKey);
+                    }
                 }
-                if (added > 0 && seq == searchSeq) {
-                    showSearchResults();
-                }
+                if (seq != searchSeq) return;
+                if (notifyFail) Notify.show("部分来源加载失败");
+                if (added > 0) showSearchResults();
             });
         });
     }
@@ -526,26 +591,42 @@ public class MusicSearchActivity extends BaseActivity {
             bucketPages.clear();
             bucketEnded.clear();
             bucketLoading.clear();
+            bucketFailed.clear();
         }
         searchSitesSnap.clear();
         selectedSource = null;
         searchAllReady = false;
-        selectedCat = 0;
-        searchGroupType = -1;
-        searchGroupKey = "";
         tracks.clear();
-        cards.clear();
         adapter.notifyDataSetChanged();
         XcFadeTransition.fadeOutThenGone(empty);
         refreshHistory();
     }
 
-    /** 展示池：全源聚合（allResults 在各源到齐时按到达序并入，续页同样并入尾部）。
-     * allResults 是 synchronizedList，拷贝必须持本体锁，在途源还在 addAll 时裸拷会撕裂。 */
+    /**
+     * 展示池：按源分段（2026-10-26 他亲点）——同源一段，段序＝搜索快照站点序
+     * （旧源横排 chips 的次序），段内＝该源回包序；续页结果先进各自源的桶、
+     * 展示时归入本源段内续排，不混进别段。桶是 synchronizedList，拷贝持桶锁
+     * （在途源还在 addAll 时裸拷会撕裂）；快照里站点对应的桶不存在（未搜出/
+     * 失败未建桶）时该段跳过。allResults 仍按到达序并行维护，只作队列等
+     * 非展示用途的兜底池，不再决定展示顺序。
+     */
     private List<MusicTrack> currentSearchPool() {
-        synchronized (allResults) {
-            return new ArrayList<>(allResults);
+        List<MusicTrack> out = new ArrayList<>();
+        List<MusicSite> snap;
+        synchronized (searchBySite) {
+            snap = new ArrayList<>(searchSitesSnap);
         }
+        for (int i = 0; i < snap.size(); i++) {
+            List<MusicTrack> bucket;
+            synchronized (searchBySite) {
+                bucket = searchBySite.get(searchBucketKey(snap.get(i), i));
+            }
+            if (bucket == null) continue;
+            synchronized (bucket) {
+                out.addAll(bucket);
+            }
+        }
+        return out;
     }
 
     /**
@@ -588,54 +669,33 @@ public class MusicSearchActivity extends BaseActivity {
         return site != null && site.srcUrl != null && !site.srcUrl.isEmpty() ? site.srcUrl : "site:" + index;
     }
 
-    /** 把全源聚合的搜索结果显示到列表区（恒单曲列表）；组内钻取分支随页签摘除已不可达、保留守卫 */
+    /** 把搜索结果显示到列表区：分段池（按源分段）直接成列 */
     private void showSearchResults() {
         if (keyword == null || keyword.isEmpty()) return;
         boolean allFailed = searchTotalSites.get() > 0 && searchFailedSites.get() >= searchTotalSites.get();
-        if (searchGroupType == 1 || searchGroupType == 3) {
-            // 组内歌曲列（页签摘除后不可达，保留守卫）：按歌手／专辑在聚合池内过滤
-            List<MusicTrack> pool = currentSearchPool();
-            List<MusicTrack> g = new ArrayList<>();
-            for (MusicTrack t : pool) {
-                String k = searchGroupType == 1 ? artistOf(t) : albumOf(t);
-                if (k.equals(searchGroupKey)) g.add(t);
-            }
-            showTracks(g);
-            updateEmptyState(g.isEmpty(), allFailed,
-                    "没有找到『" + keyword + "』相关歌曲\n换一个歌名、歌手或专辑试试");
-            return;
-        }
-        switch (selectedCat) {
-            case 0: { // 单曲：当前源的歌曲直接列表
-                List<MusicTrack> pool = currentSearchPool();
-                showTracks(pool);
-                updateEmptyState(pool.isEmpty(), allFailed,
-                        "没有找到『" + keyword + "』相关歌曲\n换一个歌名、歌手或专辑试试");
-                break;
-            }
-            case 1: // 专辑：当前源桶内分组卡
-                showGroupCards(currentSearchPool(), 3,
-                        "没有找到『" + keyword + "』相关专辑", allFailed);
-                break;
-            case 2: // 歌手：当前源桶内分组卡
-                showGroupCards(currentSearchPool(), 1,
-                        "没有找到『" + keyword + "』相关歌手", allFailed);
-                break;
-            default: // 歌单：本地歌单名匹配（与源无关，chips 不影响本签）
-                showPlaylistCards(allFailed);
-                break;
-        }
+        List<MusicTrack> pool = currentSearchPool();
+        showTracks(pool);
+        updateEmptyState(pool.isEmpty(), allFailed,
+                "没有找到『" + keyword + "』相关歌曲\n换一个歌名、歌手或专辑试试");
     }
 
-    /** 状态层统一出口：有结果收起；无结果按「全失败／未到齐／真无果」三态给文案。 */
+    /**
+     * 状态层统一出口：有结果收起；无结果按「全失败／未到齐／部分失败／真无果」
+     * 四态给文案（F1：部分失败不许再被「没有找到」吞掉——失败与没搜到是两回事）。
+     */
     private void updateEmptyState(boolean isEmpty, boolean allFailed, String notFoundCopy) {
         if (!isEmpty) {
             XcFadeTransition.fadeOutThenGone(empty);
             return;
         }
         XcFadeTransition.fadeIn(empty);
+        boolean partialFailed;
+        synchronized (searchBySite) {
+            partialFailed = !bucketFailed.isEmpty();
+        }
         if (allFailed) empty.setText("搜索失败，请重试");
         else if (!searchAllReady) empty.setText("正在加载…");
+        else if (partialFailed) empty.setText("部分来源搜索失败\n" + notFoundCopy);
         else empty.setText(notFoundCopy);
     }
 
@@ -643,109 +703,6 @@ public class MusicSearchActivity extends BaseActivity {
     private String artistDisplay(String raw) {
         return com.fongmi.android.tv.utils.LocalTrackMeta.isPlaceholderArtist(raw)
                 ? getString(R.string.music_unknown_artist) : raw;
-    }
-
-    private String artistOf(MusicTrack t) {
-        return artistDisplay(t.artist);
-    }
-
-    private String albumOf(MusicTrack t) {
-        return t.album == null || t.album.isEmpty() ? "未知专辑" : t.album;
-    }
-
-    /** 歌手／专辑分组卡：按组名去重分组，点卡进该组歌曲列（入参已是当前源桶） */
-    private void showGroupCards(List<MusicTrack> pool, int type, String emptyCopy, boolean allFailed) {
-        LinkedHashMap<String, List<MusicTrack>> groups = new LinkedHashMap<>();
-        for (MusicTrack t : pool) {
-            String k = type == 1 ? artistOf(t) : albumOf(t);
-            List<MusicTrack> g = groups.get(k);
-            if (g == null) {
-                g = new ArrayList<>();
-                groups.put(k, g);
-            }
-            g.add(t);
-        }
-        tracks.clear();
-        cards.clear();
-        for (Map.Entry<String, List<MusicTrack>> e : groups.entrySet()) {
-            cards.add(new SearchGroupCard(type, e.getKey(), e.getValue().size()));
-        }
-        adapter.notifyDataSetChanged();
-        fadeListInOnce();
-        updateEmptyState(cards.isEmpty(), allFailed, emptyCopy + "\n换一个歌名、歌手或专辑试试");
-    }
-
-    /** 歌单页签：本地歌单名包含关键词即命中，曲目数逐个补齐后按原顺序刷 */
-    private void showPlaylistCards(boolean allFailed) {
-        String kw = keyword == null ? "" : keyword.toLowerCase(java.util.Locale.getDefault());
-        tracks.clear();
-        cards.clear();
-        adapter.notifyDataSetChanged();
-        MusicLibrary.playlists(list -> {
-            List<MusicPlaylist> hit = new ArrayList<>();
-            if (list != null) {
-                for (MusicPlaylist p : list) {
-                    if (p.getName() != null && p.getName().toLowerCase(java.util.Locale.getDefault()).contains(kw)) {
-                        hit.add(p);
-                    }
-                }
-            }
-            if (hit.isEmpty()) {
-                runOnUiThread(() -> finishPlaylistCards(new ArrayList<>(), allFailed));
-                return;
-            }
-            final SearchPlaylistCard[] arr = new SearchPlaylistCard[hit.size()];
-            final AtomicInteger left = new AtomicInteger(hit.size());
-            for (int i = 0; i < hit.size(); i++) {
-                final int idx = i;
-                final MusicPlaylist p = hit.get(i);
-                MusicLibrary.playlistTrackCount(p.getId(), n -> {
-                    arr[idx] = new SearchPlaylistCard(p.getId(), p.getName(), n);
-                    if (left.decrementAndGet() == 0) {
-                        List<SearchPlaylistCard> out = new ArrayList<>();
-                        for (SearchPlaylistCard c : arr) out.add(c);
-                        runOnUiThread(() -> finishPlaylistCards(out, allFailed));
-                    }
-                });
-            }
-        });
-    }
-
-    private void finishPlaylistCards(List<SearchPlaylistCard> list, boolean allFailed) {
-        // 歌单签是异步补数：回来时若已切走页签／清了词，旧结果不许盖新页签
-        if (selectedCat != 3 || searchGroupType >= 0 || keyword == null || keyword.isEmpty()) return;
-        tracks.clear();
-        cards.clear();
-        cards.addAll(list);
-        adapter.notifyDataSetChanged();
-        updateEmptyState(cards.isEmpty(), allFailed,
-                "没有找到『" + keyword + "』相关歌单\n换一个歌名、歌手或专辑试试");
-    }
-
-    /** 搜索分组卡（1 歌手组／3 专辑组；点卡进该组歌曲列） */
-    private static class SearchGroupCard {
-        final int type;
-        final String key;
-        final int count;
-
-        SearchGroupCard(int type, String key, int count) {
-            this.type = type;
-            this.key = key;
-            this.count = count;
-        }
-    }
-
-    /** 搜索歌单卡（本地歌单；点卡进歌单详情，不挂长按改名／删单——搜索页不是歌单管理页） */
-    private static class SearchPlaylistCard {
-        final long id;
-        final String name;
-        final int count;
-
-        SearchPlaylistCard(long id, String name, int count) {
-            this.id = id;
-            this.name = name;
-            this.count = count;
-        }
     }
 
     // ================= 列表与播放 =================
@@ -758,7 +715,6 @@ public class MusicSearchActivity extends BaseActivity {
     private void showTracks(List<MusicTrack> list) {
         tracks.clear();
         tracks.addAll(list);
-        cards.clear();
         runOnUiThread(() -> adapter.notifyDataSetChanged());
     }
 
@@ -1012,27 +968,14 @@ public class MusicSearchActivity extends BaseActivity {
 
     // ================= 列表 =================
 
-    /**
-     * 本页专属 adapter：歌曲行（item_music_search_result）与分组／歌单卡（item_music_nav）互斥展示，
-     * showTracks 清卡、分组／歌单卡清 tracks，两者从不同时非空，计数按在场的一族取。
-     */
+    /** 本页专属 adapter：只有歌曲行一种（item_music_search_result），分段展示下
+     *  tracks 就是按源分段排好的展示池拷贝（见 currentSearchPool）。 */
     private class SearchAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
-
-        private static final int TYPE_TRACK = 0;
-        private static final int TYPE_CARD = 1;
-
-        @Override
-        public int getItemViewType(int position) {
-            return cards.isEmpty() ? TYPE_TRACK : TYPE_CARD;
-        }
 
         @NonNull
         @Override
         public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
             LayoutInflater inf = LayoutInflater.from(parent.getContext());
-            if (viewType == TYPE_CARD) {
-                return new CardHolder(inf.inflate(R.layout.item_music_nav, parent, false));
-            }
             View rowView = inf.inflate(R.layout.item_music_search_result, parent, false);
             // 行框在建行时换成液态玻璃一次到位；bind 只切 tone，绝不再 setBackgroundResource
             // 把未玻璃化的白/粉资源盖回来（队列同病、已在那边治过）
@@ -1042,13 +985,12 @@ public class MusicSearchActivity extends BaseActivity {
 
         @Override
         public void onBindViewHolder(@NonNull RecyclerView.ViewHolder h, int position) {
-            if (h instanceof CardHolder) bindCard((CardHolder) h, position);
-            else bindTrack((TrackHolder) h, position);
+            bindTrack((TrackHolder) h, position);
         }
 
         @Override
         public int getItemCount() {
-            return cards.isEmpty() ? tracks.size() : cards.size();
+            return tracks.size();
         }
 
         class TrackHolder extends RecyclerView.ViewHolder {
@@ -1070,72 +1012,6 @@ public class MusicSearchActivity extends BaseActivity {
                 duration = v.findViewById(R.id.duration);
                 more = v.findViewById(R.id.more);
             }
-        }
-
-        class CardHolder extends RecyclerView.ViewHolder {
-            final View coverBox;
-            final ImageView icon;
-            final ImageView mosaicSingle;
-            final View mosaicGrid;
-            final ImageView mosaic1;
-            final ImageView mosaic2;
-            final ImageView mosaic3;
-            final ImageView mosaic4;
-            final TextView name;
-            final TextView status;
-
-            CardHolder(View v) {
-                super(v);
-                coverBox = v.findViewById(R.id.coverBox);
-                icon = v.findViewById(R.id.icon);
-                mosaicSingle = v.findViewById(R.id.mosaicSingle);
-                mosaicGrid = v.findViewById(R.id.mosaicGrid);
-                mosaic1 = v.findViewById(R.id.mosaic1);
-                mosaic2 = v.findViewById(R.id.mosaic2);
-                mosaic3 = v.findViewById(R.id.mosaic3);
-                mosaic4 = v.findViewById(R.id.mosaic4);
-                name = v.findViewById(R.id.name);
-                status = v.findViewById(R.id.status);
-            }
-        }
-
-        private void bindCard(CardHolder h, int position) {
-            // 回收行先复位（图标显、马赛克位藏），防旧图残留到别的卡。
-            h.icon.setVisibility(View.VISIBLE);
-            h.mosaicSingle.setVisibility(View.GONE);
-            h.mosaicGrid.setVisibility(View.GONE);
-            h.coverBox.setBackgroundResource(0);
-            h.coverBox.setClipToOutline(false);
-            Object o = cards.get(position);
-            if (o instanceof SearchGroupCard) {
-                // 搜索分组卡（点卡进该组歌曲列；退出钻取走重新点当前页签）
-                SearchGroupCard g = (SearchGroupCard) o;
-                h.name.setText(g.key);
-                h.status.setText(g.count + " 首");
-                h.icon.setImageResource(R.drawable.ic_music_queue);
-                h.icon.setBackground(circle(g.type == 1 ? 0xFF22C55E : 0xFF3B82F6));
-                h.itemView.setOnClickListener(v -> {
-                    searchGroupType = g.type;
-                    searchGroupKey = g.key;
-                    showSearchResults();
-                });
-            } else if (o instanceof SearchPlaylistCard) {
-                // 搜索歌单卡（点卡进歌单详情）
-                SearchPlaylistCard g = (SearchPlaylistCard) o;
-                h.name.setText(g.name);
-                h.status.setText(g.count + " 首");
-                h.icon.setImageResource(R.drawable.ic_music_queue);
-                h.icon.setBackground(circle(0xFF3B82F6));
-                h.itemView.setOnClickListener(v -> MusicPlaylistActivity.startSheet(MusicSearchActivity.this, g.id, g.name));
-            }
-            h.icon.setImageTintList(android.content.res.ColorStateList.valueOf(0xFFFFFFFF));
-        }
-
-        private GradientDrawable circle(int color) {
-            GradientDrawable d = new GradientDrawable();
-            d.setShape(GradientDrawable.OVAL);
-            d.setColor(color);
-            return d;
         }
 
         private void bindTrack(TrackHolder h, int position) {
@@ -1174,7 +1050,17 @@ public class MusicSearchActivity extends BaseActivity {
                 h.path.setText("");
             }
             h.duration.setText(fmt(t.duration));
-            if (t.cover == null || t.cover.isEmpty()) {
+            if (t.coverPending && (t.cover == null || t.cover.isEmpty())) {
+                // 封面后补在途（酷狗提速①）：留玻璃空位——清图、透明、不上素图、
+                // 不上糊图；图到了回填回调重绑本行、走下面的淡入支。
+                // 口径是「先出列表不等封面」，不是「先糊后清」。
+                try {
+                    com.bumptech.glide.Glide.with(h.cover).clear(h.cover);
+                } catch (Throwable ignored) {
+                }
+                h.cover.setImageDrawable(null);
+                h.cover.setBackgroundResource(0);
+            } else if (t.cover == null || t.cover.isEmpty()) {
                 // 没封面地址才上素图（素灰底＋歌名排字）；有地址的一律走加载、失败保持透明。
                 // 列表是回收行，先清掉上一行可能在途的加载请求，防旧封面迟到盖掉素图
                 try {
@@ -1183,7 +1069,12 @@ public class MusicSearchActivity extends BaseActivity {
                 }
                 h.cover.setImageDrawable(new com.fongmi.android.tv.utils.CoverTextDrawable(
                         t.displayTitle(), false, 8 * h.cover.getResources().getDisplayMetrics().density));
+            } else if (t.coverBackfilled) {
+                // 后补图首次到行：只淡入一次（清标记，之后重绑/回收重绑都走直出不闪）
+                t.coverBackfilled = false;
+                loadCoverRoundedFade(t.displayTitle(), t.cover, h.cover);
             } else {
+                // 本地已有缓存/首屏直出的封面：直接出，不走空位、不淡入、不闪
                 loadCoverRounded(t.displayTitle(), t.cover, h.cover, 10);
             }
             h.itemView.setOnClickListener(v -> playTrack(position));
@@ -1212,6 +1103,22 @@ public class MusicSearchActivity extends BaseActivity {
                         .error(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
                         .transform(new com.bumptech.glide.load.resource.bitmap.CenterCrop(),
                                 new com.bumptech.glide.load.resource.bitmap.RoundedCorners(dp(radiusDp)))
+                        .into(view);
+            } catch (Throwable ignored) {
+            }
+        }
+
+        /** 后补封面淡入一次：与直出同口径（透明占位/失败透明），只多交叉淡入 */
+        private void loadCoverRoundedFade(String text, String url, ImageView view) {
+            view.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            try {
+                com.bumptech.glide.Glide.with(view).clear(view);
+                com.bumptech.glide.Glide.with(view).load(com.fongmi.android.tv.utils.ImgUtil.getUrl(url))
+                        .placeholder(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
+                        .error(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
+                        .transition(com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions.withCrossFade(220))
+                        .transform(new com.bumptech.glide.load.resource.bitmap.CenterCrop(),
+                                new com.bumptech.glide.load.resource.bitmap.RoundedCorners(dp(10)))
                         .into(view);
             } catch (Throwable ignored) {
             }

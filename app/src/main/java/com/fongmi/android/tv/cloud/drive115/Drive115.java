@@ -39,6 +39,7 @@ public class Drive115 implements CloudDrive {
     private static final String API_SSO = "https://passportapi.115.com/app/1.0/web/1.0/check/sso";
     private static final String API_NAV = "https://my.115.com/?ct=ajax&ac=nav";
     private static final String API_FILES = "https://webapi.115.com/files";
+    private static final String API_SEARCH = "https://webapi.115.com/files/search";
     private static final String API_FILE_INFO = "https://webapi.115.com/files/get_info";
     private static final String API_M3U8 = "https://115.com/api/video/m3u8/%s.m3u8";
     private static final String API_VIDEO = "https://webapi.115.com/files/video";
@@ -452,6 +453,55 @@ public class Drive115 implements CloudDrive {
     public int getTotal(String cid) throws Exception {
         // listDir 返回的 count，这里简化处理
         return -1;
+    }
+
+    /**
+     * 全盘搜索文件（115 网页端搜索口径：webapi/files/search + search_value，
+     * 参数集与 listDir 同构）。搜索结果的文件项里 cid 是其所在目录、目录项里
+     * pid 是其上级目录，parentCid 按此回填（供从结果直达所在目录）。
+     * 响应字段未经真机对死，顶层键与条数打调试日志，真机一跑即可对字段。
+     */
+    public List<CloudFile> searchFiles(String keyword, int offset, int limit) throws Exception {
+        Map<String, String> p = new HashMap<>();
+        p.put("aid", "1");
+        p.put("cid", "0");
+        p.put("search_value", keyword == null ? "" : keyword.trim());
+        p.put("o", "user_ptime");
+        p.put("asc", "0");
+        p.put("offset", String.valueOf(offset));
+        p.put("limit", String.valueOf(limit));
+        p.put("show_dir", "1");
+        p.put("format", "json");
+        JSONObject d = reqJson(API_SEARCH, p, null, null, null);
+        if (!d.optBoolean("state", false) && d.has("error")) {
+            throw new Exception(d.optString("error"));
+        }
+        List<CloudFile> files = new ArrayList<>();
+        JSONArray arr = d.optJSONArray("data");
+        if (arr == null) return files;
+        for (int i = 0; i < arr.length(); i++) {
+            JSONObject o = arr.optJSONObject(i);
+            if (o == null) continue;
+            CloudFile f = new CloudFile();
+            boolean isDir = o.has("cid") && !o.has("fid");
+            f.setDir(isDir);
+            f.setId(isDir ? o.optString("cid") : o.optString("fid"));
+            f.setName(o.optString("n"));
+            f.setSize(o.optLong("s", 0));
+            f.setPickCode(o.optString("pc"));
+            f.setSha1(o.optString("sha"));
+            // 结果不在当前目录下，parentCid 只能取结果项自带的归属，别沿用 listDir 的请求 cid
+            f.setParentCid(isDir ? o.optString("pid") : o.optString("cid"));
+            files.add(f);
+        }
+        try {
+            com.github.catvod.crawler.SpiderDebug.log("pan115search",
+                    "kw=%s keys=%s count=%s got=%s",
+                    keyword, String.valueOf(d.names()),
+                    String.valueOf(d.opt("count")), files.size());
+        } catch (Throwable ignored) {
+        }
+        return files;
     }
 
     @Override

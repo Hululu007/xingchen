@@ -72,21 +72,6 @@ public final class MusicHomeMood {
         return indexOf("深夜");
     }
 
-    /** 向白混：ratio=0 原色、1 纯白。注：原 moodGradient（三段渐变组装）零调用已删（体检 A 片死代码）；
-     * 本方法与 mixColors 自此无调用方，先留待裁，不在本片擅自扩删。 */
-    public static int mixWhite(int color, float ratio) {
-        return mixColors(color, 0xFFFFFFFF, ratio);
-    }
-
-    public static int mixColors(int a, int b, float ratio) {
-        float r = Math.max(0f, Math.min(1f, ratio));
-        int alpha = Math.round(android.graphics.Color.alpha(a) + (android.graphics.Color.alpha(b) - android.graphics.Color.alpha(a)) * r);
-        int red = Math.round(android.graphics.Color.red(a) + (android.graphics.Color.red(b) - android.graphics.Color.red(a)) * r);
-        int green = Math.round(android.graphics.Color.green(a) + (android.graphics.Color.green(b) - android.graphics.Color.green(a)) * r);
-        int blue = Math.round(android.graphics.Color.blue(a) + (android.graphics.Color.blue(b) - android.graphics.Color.blue(a)) * r);
-        return android.graphics.Color.argb(alpha, red, green, blue);
-    }
-
     /** 换 alpha、保 RGB。 */
     public static int alphaColor(int color, float alpha) {
         int a = Math.round(255f * Math.max(0f, Math.min(1f, alpha)));

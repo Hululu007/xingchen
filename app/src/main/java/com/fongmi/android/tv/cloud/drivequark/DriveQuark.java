@@ -46,6 +46,10 @@ public class DriveQuark implements CloudDrive {
     private static final String API_DELETE = BASE + "/file/delete";
     private static final String API_DOWNLOAD = BASE + "/file/download";
     private static final String API_MEMBER = BASE + "/member";
+    private static final String API_SHARE_TOKEN = BASE + "/share/sharepage/token";
+    private static final String API_SHARE_DETAIL = BASE + "/share/sharepage/detail";
+    private static final String API_SHARE_SAVE = BASE + "/share/sharepage/save";
+    private static final String API_TASK = BASE + "/task";
 
     // 二维码登录（来源：h1d3rone/quarkmanager，已验证）
     // 注意：旧的 getQrcodeToken 是空接口（返回空 200），正确接口是 getTokenForQrcodeLogin
@@ -519,9 +523,11 @@ public class DriveQuark implements CloudDrive {
     }
 
     /**
-     * 分享转存（基础版本，未完全验证）
-     * 只解析分享链接提取 pwd_id（pan.quark.cn/s/{pwd_id}）；转存流程（stoken 换取 + file/save）尚未打通
+     * 分享转存（夸克网页端 sharepage 活口径，drive-pc.quark.cn）：
+     * token(pwd_id＋passcode) 换 stoken → detail 取分享根层文件的 fid＋share_fid_token
+     * （文件夹带 fid 整夹转存）→ save 落到目标目录 → 轮询 task 至完成。
      */
+    @Override
     public boolean saveShare(String shareUrl, String password, String toCid) throws Exception {
         String pwdId = null;
         if (!TextUtils.isEmpty(shareUrl)) {
@@ -529,8 +535,87 @@ public class DriveQuark implements CloudDrive {
             if (m.find()) pwdId = m.group(1);
         }
         if (TextUtils.isEmpty(pwdId)) throw new Exception("解析分享链接失败：拿不到 pwd_id");
-        // 未完全验证：暂不支持
-        throw new Exception("夸克分享转存未完全验证，暂不支持");
+        // 1) 换 stoken
+        JSONObject tokenBody = new JSONObject()
+                .put("pwd_id", pwdId)
+                .put("passcode", password == null ? "" : password.trim());
+        JSONObject td = reqJsonPost(API_SHARE_TOKEN, tokenBody);
+        if (td.optInt("status", -1) != 200) {
+            throw new Exception("打开分享失败：" + td.optString("message", td.optString("msg", "")));
+        }
+        JSONObject tData = td.optJSONObject("data");
+        String stoken = tData != null ? tData.optString("stoken") : "";
+        if (TextUtils.isEmpty(stoken)) throw new Exception("打开分享失败：没有拿到 stoken");
+        // 2) 取分享根层文件（翻页取全）
+        List<String> fidList = new ArrayList<>();
+        List<String> fidTokenList = new ArrayList<>();
+        for (int page = 1; page <= 20; page++) {
+            Map<String, String> p = defaultParams();
+            p.put("pwd_id", pwdId);
+            p.put("stoken", stoken);
+            p.put("pdir_fid", "0");
+            p.put("_page", String.valueOf(page));
+            p.put("_size", "100");
+            p.put("_sort", "file_type:asc,updated_at:desc");
+            JSONObject dd = reqJsonGet(API_SHARE_DETAIL, p);
+            if (dd.optInt("status", -1) != 200) {
+                throw new Exception("获取分享内容失败：" + dd.optString("message", dd.optString("msg", "")));
+            }
+            JSONObject data = dd.optJSONObject("data");
+            JSONArray list = data != null ? data.optJSONArray("list") : null;
+            if (list == null || list.length() == 0) break;
+            for (int i = 0; i < list.length(); i++) {
+                JSONObject o = list.optJSONObject(i);
+                if (o == null) continue;
+                String fid = o.optString("fid");
+                String ft = o.optString("share_fid_token");
+                if (!TextUtils.isEmpty(fid) && !TextUtils.isEmpty(ft)) {
+                    fidList.add(fid);
+                    fidTokenList.add(ft);
+                }
+            }
+            if (list.length() < 100) break;
+        }
+        if (fidList.isEmpty()) throw new Exception("分享为空或已失效");
+        // 3) save 转存到目标目录（空＝根目录 "0"）
+        JSONObject saveBody = new JSONObject();
+        saveBody.put("fid_list", new JSONArray(fidList));
+        saveBody.put("fid_token_list", new JSONArray(fidTokenList));
+        saveBody.put("to_pdir_fid", TextUtils.isEmpty(toCid) ? "0" : toCid);
+        saveBody.put("pwd_id", pwdId);
+        saveBody.put("stoken", stoken);
+        saveBody.put("pdir_fid", "0");
+        saveBody.put("scene", "link");
+        JSONObject sd = reqJsonPost(API_SHARE_SAVE, saveBody);
+        if (sd.optInt("status", -1) != 200) {
+            throw new Exception("转存失败：" + sd.optString("message", sd.optString("msg", "")));
+        }
+        JSONObject sData = sd.optJSONObject("data");
+        String taskId = sData != null ? sData.optString("task_id") : "";
+        if (TextUtils.isEmpty(taskId)) return true;
+        // 4) 轮询任务（与 PikPak 同口径：超时不假报成功，提示去网盘查看）
+        for (int i = 0; i < 15; i++) {
+            try {
+                Thread.sleep(2000);
+            } catch (InterruptedException ignored) {
+            }
+            if (shareTaskDone(taskId)) return true;
+        }
+        throw new Exception("转存超时，请稍后在网盘中查看");
+    }
+
+    /** 转存任务是否完成：GET /task，data.status==2 为完成；查询失败按未完成继续等 */
+    private boolean shareTaskDone(String taskId) {
+        try {
+            Map<String, String> p = defaultParams();
+            p.put("task_id", taskId);
+            p.put("retry_index", "0");
+            JSONObject d = reqJsonGet(API_TASK, p);
+            JSONObject data = d.optJSONObject("data");
+            return data != null && data.optInt("status", -1) == 2;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     // ---------- 二维码登录（来源：h1d3rone/quarkmanager，已验证；参考 Drive115 的 QrSession 模式） ----------

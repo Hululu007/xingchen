@@ -472,8 +472,8 @@ public class CloudDriveActivity extends BaseActivity {
 
     /**
      * FAB 菜单按各家 drive 的真实能力建，不支持的入口直接不显示，不再先给入口、点了才弹失败：
-     * 离线下载：115／PikPak 实现，夸克恒抛（DriveQuark:338）→ 夸克不显示；
-     * 转存分享链接：115（未全验证但已实现）／PikPak 实现，夸克恒抛（DriveQuark:400）→ 夸克不显示；
+     * 离线下载：115／PikPak 实现，夸克恒抛 → 夸克不显示；
+     * 转存分享链接：三家均已实现（115 待真机首验；夸克本批按 sharepage 口径补齐、待真机首验；PikPak 已验实现）→ 三家都显示；
      * 新建文件夹：只有 PikPak 覆盖 createFolder（DrivePikPak:731），115／夸克走 CloudDrive 默认实现恒抛 → 只 PikPak 显示；
      * 离线任务：115／PikPak 的 taskList 已实现，夸克 taskList 返回空表、taskDelete 恒抛 → 夸克不显示。
      */
@@ -483,7 +483,7 @@ public class CloudDriveActivity extends BaseActivity {
         boolean isQuark = DriveQuark.ID.equals(id);
         boolean isPikPak = DrivePikPak.ID.equals(id);
         if (!isQuark) actions.add("离线下载");
-        if (!isQuark) actions.add("转存分享链接");
+        actions.add("转存分享链接");
         if (isPikPak) actions.add("新建文件夹");
         if (!isQuark) actions.add("离线任务");
         return actions;

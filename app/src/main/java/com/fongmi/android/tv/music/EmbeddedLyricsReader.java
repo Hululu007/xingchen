@@ -12,7 +12,8 @@ import java.util.List;
  * 本地音频内嵌歌词读取（播放时现读，不入库；GZ EmbeddedLyricsReader 同款分工）。
  * 优先级（GZ y65.w0 口径）：ID3v2.3+：USLT > SYLT > TXXX（描述含 LYRIC）；ID3v2.2：ULT > SLT；
  * FLAC：Vorbis comment 的 LYRIC 键（LYRICS／UNSYNCEDLYRICS 为星辰侧超集，GZ 原文只确认 LYRIC）；
- * MP4：moov > udta > meta > ilst > ©lyr > data。Ogg 本轮不做（GZ y0 细节未抠清）。
+ * MP4：moov > udta > meta > ilst > ©lyr > data；
+ * Ogg：Vorbis（\x03vorbis 注释包）／Opus（OpusTags 包）的 LYRICS 系键，注释包结构与 FLAC 同族。
  * SYLT（同步词）转 [mm:ss.xx] LRC 文本；USLT 等非同步文本原样返回，由解析层走无时间轴静态显示，
  * 不许在这里编时间。任何解析失败返回 null，不许抛到调用链（调用方 DeviceMusicSource.lyric 兜底）。
  * 全部读取走 RandomAccessFile 定界读，不整文件载入；扩展头按帧头校验滑动跳过（不依赖扩展头尺寸字段的两种口径）。
@@ -30,9 +31,13 @@ public final class EmbeddedLyricsReader {
             String ext = dot > 0 ? name.substring(dot + 1).toLowerCase() : "";
             if (ext.equals("flac")) return readFlac(audio);
             if (ext.equals("mp4") || ext.equals("m4a") || ext.equals("m4b") || ext.equals("m4p")) return readMp4(audio);
+            if (ext.equals("ogg") || ext.equals("oga") || ext.equals("opus")) return readOgg(audio);
             String id3 = readId3(audio);
             if (id3 != null) return id3;
             if (ext.equals("flac")) return null;
+            // 无扩展名／错扩展名时按魔数兜底探 Ogg 容器（Vorbis/Opus 注释包）
+            String ogg = readOgg(audio);
+            if (ogg != null) return ogg;
             return readMp4(audio);
         } catch (Throwable ignored) {
             return null;
@@ -58,8 +63,12 @@ public final class EmbeddedLyricsReader {
             raf.seek(10);
             raf.readFully(tag);
             if (unsync) tag = deunsync(tag);
-            if (major == 2) return scanId3v2(tag, true, false);
-            return scanId3v2(tag, false, major == 4);
+            // SYLT 格式 1（MPEG 帧单位）换算要音频流的采样率与每帧采样数：
+            // 在 ID3 标签之后找音频帧头／STREAMINFO 现读（见 audioParams），
+            // 读不到才回落最常见近似（在 parseSylt 处注明）。
+            int[] params = audioParams(audio, 10L + tagSize);
+            if (major == 2) return scanId3v2(tag, true, false, params);
+            return scanId3v2(tag, false, major == 4, params);
         }
     }
 
@@ -90,7 +99,7 @@ public final class EmbeddedLyricsReader {
     }
 
     /** 帧头校验滑动扫描：扩展头／填充／垃圾字节都滑过去，只认合法帧头；目标帧按优先级收齐再定。 */
-    private static String scanId3v2(byte[] tag, boolean v22, boolean v24) throws Exception {
+    private static String scanId3v2(byte[] tag, boolean v22, boolean v24, int[] syltParams) throws Exception {
         String uslt = null;
         String sylt = null;
         String txxx = null;
@@ -107,7 +116,7 @@ public final class EmbeddedLyricsReader {
                 String id = new String(tag, off, 3, StandardCharsets.ISO_8859_1);
                 int body = off + 6;
                 if (id.equals("ULT") && uslt == null) uslt = parseUslt(tag, body, size);
-                else if (id.equals("SLT") && sylt == null) sylt = parseSylt(tag, body, size);
+                else if (id.equals("SLT") && sylt == null) sylt = parseSylt(tag, body, size, syltParams);
                 off += 6 + size;
             } else {
                 if (!isFrameId(tag, off, 4)) {
@@ -125,7 +134,7 @@ public final class EmbeddedLyricsReader {
                 String id = new String(tag, off, 4, StandardCharsets.ISO_8859_1);
                 int body = off + 10;
                 if (id.equals("USLT") && uslt == null) uslt = parseUslt(tag, body, size);
-                else if (id.equals("SYLT") && sylt == null) sylt = parseSylt(tag, body, size);
+                else if (id.equals("SYLT") && sylt == null) sylt = parseSylt(tag, body, size, syltParams);
                 else if (id.equals("TXXX") && txxx == null) txxx = parseTxxx(tag, body, size);
                 off += 10 + size;
             }
@@ -150,8 +159,10 @@ public final class EmbeddedLyricsReader {
         return decode(tag, textStart, end - textStart, enc);
     }
 
-    /** SYLT/SLT：编码＋语言(3)＋时间戳格式(1)＋内容类型(1)＋描述＋（正文结尾＋4 字节时间戳）循环 → LRC */
-    private static String parseSylt(byte[] tag, int body, int size) {
+    /** SYLT/SLT：编码＋语言(3)＋时间戳格式(1)＋内容类型(1)＋描述＋（正文结尾＋4 字节时间戳）循环 → LRC。
+     * syltParams＝audioParams 现读的 [采样率, 每帧采样数]，格式 1 按它真换算；null＝流参数
+     * 读不到，回落 MPEG1 Layer3／44.1kHz 近似（仅量级正确，非 44.1k 文件仍会偏，属明示局限）。 */
+    private static String parseSylt(byte[] tag, int body, int size, int[] syltParams) {
         if (size < 7) return null;
         int enc = tag[body] & 0xFF;
         if (enc > 3) return null;
@@ -172,10 +183,14 @@ public final class EmbeddedLyricsReader {
             long ts = ((tag[tsPos] & 0xFFL) << 24) | ((tag[tsPos + 1] & 0xFFL) << 16)
                     | ((tag[tsPos + 2] & 0xFFL) << 8) | (tag[tsPos + 3] & 0xFFL);
             // 扫描 M11：SYLT 格式字节 2＝毫秒（本就是毫秒，旧实现却按采样数换算、
-            // 时间被压到约 1/22）；1＝MPEG 帧为单位，帧长取决于音频流参数、SYLT
-            // 本身不带，只能按最常见的 MPEG1 Layer3（1152 采样/帧、44.1kHz）近似
-            // 换算——原样当毫秒用会差约 26 倍，近似换算后至少量级正确。
-            if (tsFormat == 1) ts = ts * 1152 * 1000 / 44100;
+            // 时间被压到约 1/22）；1＝MPEG 帧为单位：帧长＝每帧采样数／采样率，
+            // 由 audioParams 从音频流现读后真换算（MP3 帧头／FLAC STREAMINFO）；
+            // 流参数读不到才回落 MPEG1 Layer3（1152 采样/帧、44.1kHz）近似。
+            if (tsFormat == 1) {
+                long spf = syltParams != null ? syltParams[1] : 1152;
+                long rate = syltParams != null ? syltParams[0] : 44100;
+                ts = ts * spf * 1000 / rate;
+            }
             if (!text.trim().isEmpty()) {
                 entries.add(new long[]{ts});
                 texts.add(text.trim());
@@ -244,6 +259,150 @@ public final class EmbeddedLyricsReader {
         } catch (Throwable ignored) {
             return "";
         }
+    }
+
+    // ================= 音频流参数（SYLT 格式 1 真换算用） =================
+
+    /**
+     * 现读音频流参数 [采样率, 每帧采样数]，只供 SYLT 格式 1 换算；读不到返回 null。
+     * 两路：FLAC STREAMINFO（采样率 20 位在块偏移 18，每帧采样数 FLAC 是变长帧、无
+     * 固定值——FLAC 载 ID3/SYLT 本就罕见，此时每帧采样数按 4096 常规块长近似，属局限）；
+     * MP3 帧头（在 from 之后 256KB 内找首个合法帧同步：版本/层/码率/采样率索引全合法才认）。
+     */
+    private static int[] audioParams(File audio, long from) {
+        try (RandomAccessFile raf = new RandomAccessFile(audio, "r")) {
+            long len = raf.length();
+            if (len < 4) return null;
+            byte[] magic = new byte[4];
+            raf.readFully(magic);
+            if (magic[0] == 'f' && magic[1] == 'L' && magic[2] == 'a' && magic[3] == 'C') {
+                // STREAMINFO 是第一个元数据块：块头 4 字节＋34 字节内容，采样率在内容偏移 10..12
+                raf.seek(4);
+                int b0 = raf.read();
+                int type = b0 & 0x7F;
+                int blockLen = (raf.read() << 16) | (raf.read() << 8) | raf.read();
+                if (type != 0 || blockLen < 14) return null;
+                raf.seek(4 + 4 + 10);
+                int s0 = raf.read(), s1 = raf.read(), s2 = raf.read();
+                int rate = (s0 << 12) | (s1 << 4) | (s2 >> 4);
+                return rate > 0 ? new int[]{rate, 4096} : null;
+            }
+            long start = Math.max(0, from);
+            long scanEnd = Math.min(len - 4, start + 256 * 1024);
+            byte[] buf = new byte[(int) Math.max(0, scanEnd - start + 4)];
+            if (buf.length < 4) return null;
+            raf.seek(start);
+            raf.readFully(buf);
+            // 采样率表（索引 00/01/10 序）：MPEG1 44100/48000/32000、MPEG2 22050/24000/16000、MPEG2.5 11025/12000/8000
+            int[][] rates = {
+                    {44100, 48000, 32000}, // MPEG1
+                    {22050, 24000, 16000}, // MPEG2
+                    {11025, 12000, 8000},  // MPEG2.5
+            };
+            for (int i = 0; i + 4 <= buf.length; i++) {
+                int h = ((buf[i] & 0xFF) << 24) | ((buf[i + 1] & 0xFF) << 16)
+                        | ((buf[i + 2] & 0xFF) << 8) | (buf[i + 3] & 0xFF);
+                if ((h & 0xFFE00000) != 0xFFE00000) continue;
+                int version = (h >> 19) & 3; // 3=MPEG1, 2=MPEG2, 0=MPEG2.5, 1=保留
+                int layer = (h >> 17) & 3;   // 3=I, 2=II, 1=III, 0=保留
+                int bitrateIdx = (h >> 12) & 15;
+                int rateIdx = (h >> 10) & 3;
+                if (version == 1 || layer == 0 || bitrateIdx == 15 || bitrateIdx == 0 || rateIdx == 3) continue;
+                int vrow = version == 3 ? 0 : version == 2 ? 1 : 2;
+                int rate = rates[vrow][rateIdx];
+                int spf;
+                if (layer == 3) spf = 384;                        // Layer I 恒 384
+                else if (layer == 2) spf = 1152;                   // Layer II 恒 1152
+                else spf = version == 3 ? 1152 : 576;              // Layer III：MPEG1 1152／MPEG2+ 576
+                return new int[]{rate, spf};
+            }
+            return null;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    // ================= Ogg（Vorbis／Opus 注释包） =================
+
+    /** 注释包上限：歌词文本远小于此，超限按损坏处理不整包载入 */
+    private static final int OGG_COMMENT_MAX = 1024 * 1024;
+
+    /**
+     * Ogg 容器注释：逐页重组数据包，找 Vorbis \x03vorbis／Opus OpusTags 注释包，
+     * 包体结构与 FLAC Vorbis comment 同族（vendor＋条目数＋"键=值"），复用 parseVorbisComment
+     * 但键集走本类口径（含 LYRICS 系）。魔数不是 OggS 直接回 null（供错扩展名兜底探）。
+     */
+    private static String readOgg(File audio) throws Exception {
+        try (RandomAccessFile raf = new RandomAccessFile(audio, "r")) {
+            if (raf.length() < 27) return null;
+            byte[] head = new byte[4];
+            raf.readFully(head);
+            if (head[0] != 'O' || head[1] != 'g' || head[2] != 'g' || head[3] != 'S') return null;
+            java.io.ByteArrayOutputStream packet = new java.io.ByteArrayOutputStream();
+            long pos = 0;
+            long fileLen = raf.length();
+            int guard = 0;
+            boolean seenHeader = false;
+            while (pos + 27 <= fileLen && guard++ < 4096) {
+                raf.seek(pos);
+                byte[] ph = new byte[27];
+                raf.readFully(ph);
+                if (ph[0] != 'O' || ph[1] != 'g' || ph[2] != 'g' || ph[3] != 'S') return null;
+                int nSeg = ph[26] & 0xFF;
+                if (pos + 27 + nSeg > fileLen) return null;
+                byte[] segTable = new byte[nSeg];
+                raf.readFully(segTable);
+                long payloadAt = pos + 27 + nSeg;
+                long payloadLen = 0;
+                for (byte s : segTable) payloadLen += s & 0xFF;
+                if (payloadAt + payloadLen > fileLen) return null;
+                raf.seek(payloadAt);
+                // 逐段重组：段长 255＝包未完续接，<255＝本包在此结束；
+                // 一页内可含多个完整包，逐包处理不并包。
+                for (int i = 0; i < nSeg; i++) {
+                    int segLen = segTable[i] & 0xFF;
+                    if (segLen > 0) {
+                        byte[] seg = new byte[segLen];
+                        raf.readFully(seg);
+                        packet.write(seg, 0, seg.length);
+                        if (packet.size() > OGG_COMMENT_MAX) return null;
+                    }
+                    if (segLen == 255) continue;
+                    byte[] p = packet.toByteArray();
+                    packet.reset();
+                    String hit = parseOggCommentPacket(p);
+                    if (hit != null) return hit;
+                    if (isOggHeaderPacket(p)) {
+                        seenHeader = true;
+                        continue;
+                    }
+                    // 注释包必紧跟识别头：识别头之后第一个非注释包出现就停，
+                    // 不许整文件逐页扫到尾（音频包不是注释包、扫了也白扫）。
+                    if (seenHeader) return null;
+                }
+                pos = payloadAt + payloadLen;
+            }
+            return null;
+        }
+    }
+
+    private static boolean isOggHeaderPacket(byte[] p) {
+        // Vorbis 识别头 \x01vorbis／Opus 识别头 OpusHead：其后紧跟的才是注释包；
+        // 已扫过识别头又扫完一个完整包还没命中，说明注释包不在头部口径内。
+        return p.length >= 7 && ((p[0] == 1 && p[1] == 'v' && p[2] == 'o' && p[3] == 'r' && p[4] == 'b' && p[5] == 'i' && p[6] == 's')
+                || (p.length >= 8 && p[0] == 'O' && p[1] == 'p' && p[2] == 'u' && p[3] == 's' && p[4] == 'H' && p[5] == 'e' && p[6] == 'a' && p[7] == 'd'));
+    }
+
+    /** 注释包 → 歌词文本；不是注释包返回 null。包体从签名之后起与 Vorbis comment 同结构。 */
+    private static String parseOggCommentPacket(byte[] p) {
+        int off = -1;
+        if (p.length >= 7 && p[0] == 3 && p[1] == 'v' && p[2] == 'o' && p[3] == 'r' && p[4] == 'b' && p[5] == 'i' && p[6] == 's') off = 7;
+        else if (p.length >= 8 && p[0] == 'O' && p[1] == 'p' && p[2] == 'u' && p[3] == 's'
+                && p[4] == 'T' && p[5] == 'a' && p[6] == 'g' && p[7] == 's') off = 8;
+        if (off < 0) return null;
+        byte[] body = new byte[p.length - off];
+        System.arraycopy(p, off, body, 0, body.length);
+        return parseVorbisComment(body);
     }
 
     // ================= FLAC =================

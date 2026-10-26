@@ -58,8 +58,28 @@ public class LocalMusicSource implements MusicSource {
         return Uri.fromFile(f).toString();
     }
 
+    /**
+     * 已下载歌的本源词（播放链步 0 消费，此前恒回 null、下载时写下的词从不被读）：
+     * ①同名旁路 .lrc／下载记录 lyric 列（MusicDownloadStore.readSidecarLyric，D 片 P5
+     * 落的回读兜底，此前全树零调用——本方法就是它的播放侧消费端）；
+     * ②音频内嵌词（内嵌档下载写进文件的 USLT／Vorbis／©lyr，EmbeddedLyricsReader 现读）。
+     * 两路都没有才回 null 走跨源兜底链；断网时①②都在本地，词不丢。
+     */
     @Override
     public String lyric(MusicTrack track) {
+        if (track == null) return null;
+        try {
+            String sidecar = MusicDownloadStore.readSidecarLyric(track);
+            if (sidecar != null && !sidecar.trim().isEmpty()) return sidecar;
+        } catch (Throwable ignored) {
+        }
+        if (track.localPath != null && !track.localPath.isEmpty()) {
+            try {
+                String embedded = EmbeddedLyricsReader.read(new File(track.localPath));
+                if (embedded != null && !embedded.trim().isEmpty()) return embedded;
+            } catch (Throwable ignored) {
+            }
+        }
         return null;
     }
 }

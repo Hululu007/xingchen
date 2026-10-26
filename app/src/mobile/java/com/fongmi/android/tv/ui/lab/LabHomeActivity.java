@@ -63,10 +63,6 @@ public class LabHomeActivity extends AppCompatActivity {
         if (notice != null && !notice.isEmpty()) {
             android.widget.Toast.makeText(this, notice, android.widget.Toast.LENGTH_LONG).show();
         }
-        // 自动更新检测：后台比一次版本，有新版的卡片标「可更新」，查完回来再刷一次卡片
-        LabEnvUpdateCheck.maybeCheck(this, updatables -> runOnUiThread(() -> {
-            if (!isFinishing() && !isDestroyed()) reload();
-        }));
     }
 
     private int dp(int v) {
@@ -254,19 +250,6 @@ public class LabHomeActivity extends AppCompatActivity {
         state.setTextSize(11);
         state.setTextColor(installed ? LabSkin.GREEN_ON_DARK : LabSkin.HINT_ON_DARK);
         titleRow.addView(state);
-        // 自动检测：有新版且已装，在卡片行右端标「可更新」（只放状态，不写介绍字）
-        if (installed && LabEnvUpdateCheck.known(this).contains(env)) {
-            TextView upd = new TextView(this);
-            upd.setText("可更新");
-            upd.setTextSize(11);
-            upd.getPaint().setFakeBoldText(true);
-            upd.setTextColor(LabSkin.COUNT_YELLOW);
-            LinearLayout.LayoutParams ulp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            ulp.leftMargin = dp(6);
-            upd.setLayoutParams(ulp);
-            titleRow.addView(upd);
-        }
         tile.addView(titleRow);
 
         LinearLayout st = new LinearLayout(this);

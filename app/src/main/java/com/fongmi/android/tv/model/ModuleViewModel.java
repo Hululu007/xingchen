@@ -315,18 +315,16 @@ public final class ModuleViewModel extends AndroidViewModel {
     }
 
     // 桥口径（映射表 15）：NODEJS 行的状态只认实验室登记——已装版本与目录
-    // 可用版本都取 NodeLabInfo，不存在插件包/插件资产目录这回事；两版不同
-    // 即有更新（动作仍是跳实验室页处理）；不可从模块页卸载（卸载在实验室
-    // 环境页）；重启标记仍走 RuntimeModule 的改判口径。
+    // 可用版本都取 NodeLabInfo，不存在插件包/插件资产目录这回事；不可从
+    // 模块页卸载（卸载在实验室环境页）；重启标记仍走 RuntimeModule 的改判
+    // 口径。更新检测已整套摘除（他亲令：装到最新仍报可更新），本行不再算
+    // 「可更新」，updateAvailable 恒 false；版本只作展示。
     private Status nodeStatus() throws IOException {
         String installed = NodeLabInfo.installedVersion();
         String available = NodeLabInfo.availableVersion();
         // 展示回落：目录没条目时可用版本回的是空串（不是 null），同样回落到已装版本展示。
         if (available == null || available.isEmpty()) available = installed;
-        // 更新判据走实验室已定口径（扫描 O12）：旧实现「两串不等即更新」在已装版本
-        // 登记为空/目录无条目时假报可更新、已装比目录新时把降级报成更新。
-        boolean update = NodeLabInfo.hasUpdate();
-        return new Status(RuntimeInstaller.getAbi(), installed, available, update, module.isRestartRequired(), false);
+        return new Status(RuntimeInstaller.getAbi(), installed, available, false, module.isRestartRequired(), false);
     }
 
     private Status getInstalledStatus() throws IOException {

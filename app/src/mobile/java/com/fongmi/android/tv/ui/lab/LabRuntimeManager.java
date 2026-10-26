@@ -35,7 +35,7 @@ public final class LabRuntimeManager {
 
     /** 环境包下载地址（公开仓 XingChenApp/xingchen-lab-assets 已建，按清单回填；ubuntu 留空等 proot） */
     public static final Map<String, String> DOWNLOAD_URLS = new HashMap<>();
-    /** 包版本（更新检测＋安装登记用，与清单一致） */
+    /** 包版本（安装登记用，与清单一致） */
     private static final Map<String, String> PKG_VERSION = new HashMap<>();
     /** 包大小（≤20MB 的走 jsDelivr 镜像优先） */
     private static final Map<String, Long> PKG_SIZE = new HashMap<>();
@@ -537,7 +537,7 @@ public final class LabRuntimeManager {
             File tmp = new File(ctx.getCacheDir(), "lab-rt-" + rt + "-" + System.currentTimeMillis() + ".zip");
             try {
                 copyUri(ctx, uri, tmp, token);
-                // 本地包文件名合仓包约定时回填版本号，免得登记留空、日后被误标「可更新」
+                // 本地包文件名合仓包约定时回填版本号，免得登记留空、版本行没数
                 String version = versionFromPackageName(displayName(ctx, uri), rt);
                 installFromFile(ctx.getApplicationContext(), rt, tmp, version, listener, token);
             } catch (InstallCancelledException cx) {
@@ -590,7 +590,7 @@ public final class LabRuntimeManager {
         return DOWNLOAD_URLS.get(pkgKey(runtime));
     }
 
-    /** 从仓包文件名按约定 env-包id-版本号.zip 解析版本号；解析不出返回空串（登记留空、hasUpdate 按未知不提示）。 */
+    /** 从仓包文件名按约定 env-包id-版本号.zip 解析版本号；解析不出返回空串（登记留空）。 */
     private static String versionFromPackageName(String name, String runtime) {
         if (name == null) return "";
         String base = name;
@@ -877,25 +877,13 @@ public final class LabRuntimeManager {
         return "env-" + pkgKey(pkgId) + "-" + (version == null ? "" : version) + ".zip";
     }
 
-    /** 已装版本（版本更新检测用） */
+    /** 已装版本（环境页版本行与 Node 信息面展示用） */
     public static String installedVersion(Context c, String runtime) {
         LabRegistry.Runtime r = LabRegistry.get(c).runtime(LabManifest.normalizeRuntime(runtime));
         return r == null || r.version == null ? "" : r.version;
     }
 
-    /** 目录里有没有新版 */
-    public static boolean hasUpdate(Context c, String runtime) {
-        if (!isInstalled(c, runtime)) return false;
-        LabEnvCatalog.EnvEntry entry = LabEnvCatalog.entry(c, runtime);
-        if (entry == null || entry.version.isEmpty()) return false;
-        String installed = installedVersion(c, runtime);
-        // 已装版本未知（登记为空）≠落后：本地 zip 导入/旧在线装等路径不写版本号，
-        // compareVersions 对空串恒判目录更新，曾让 Python/Node/PHP 三家齐标假「可更新」。
-        if (installed.isEmpty()) return false;
-        return LabEnvCatalog.compareVersions(entry.version, installed) > 0;
-    }
-
-    /** 目录里的版本号（更新确认框用） */
+    /** 目录里的版本号（Node 信息面可用版本展示用） */
     public static String catalogVersion(Context c, String runtime) {
         LabEnvCatalog.EnvEntry e = LabEnvCatalog.entry(c, runtime);
         return e == null ? "" : e.version;

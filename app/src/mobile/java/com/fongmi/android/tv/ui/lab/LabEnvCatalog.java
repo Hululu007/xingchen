@@ -142,29 +142,4 @@ public final class LabEnvCatalog {
         return null;
     }
 
-    /** 版本比较：v1>v2 返回正数（上游 LabEnv.compareVersions 口径） */
-    public static int compareVersions(String v1, String v2) {
-        String[] a = norm(v1).split("[.\\-]");
-        String[] b = norm(v2).split("[.\\-]");
-        int n = Math.max(a.length, b.length);
-        for (int i = 0; i < n; i++) {
-            int x = i < a.length ? num(a[i]) : 0;
-            int y = i < b.length ? num(b[i]) : 0;
-            if (x != y) return x - y;
-        }
-        return 0;
-    }
-
-    private static String norm(String v) {
-        if (v == null) return "";
-        return v.trim().toLowerCase().replaceAll("^v", "");
-    }
-
-    private static int num(String s) {
-        try {
-            return Integer.parseInt(s.replaceAll("[^0-9]", ""));
-        } catch (Exception e) {
-            return 0;
-        }
-    }
 }

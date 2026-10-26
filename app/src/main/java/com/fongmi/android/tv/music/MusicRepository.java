@@ -880,7 +880,7 @@ public class MusicRepository {
         if (track == null) return null;
         // 出词提速：链消费到第一份可用词（行级也算）时先行发布一次，供播放页先上屏；
         // 链的挑选口径与返回值不变，后到的更优版由页面在收口时无缝替换。
-        boolean[] earlyFired = new boolean[1];
+        java.util.concurrent.atomic.AtomicBoolean earlyFired = new java.util.concurrent.atomic.AtomicBoolean();
         // L10：非手动重搜时先试恢复上次手动选的版本（瓜子 restoreManualLyricChoice 口径）。
         // 恢复用全量聚合（lyricRichAllDetailed）匹配版本 key，命中即直接返回该版，不走快路径优先级；
         // 完整聚合里找不到才清除存值并通知一次“已失效”再走快路径——不许静默回落首版。
@@ -968,7 +968,10 @@ public class MusicRepository {
         // 抛出点都与串行版逐点一致，墙钟从各步之和降为最慢一步。步 2 收集器自带同口径
         // 探针桶，命中首选即停收，与串行版「note 返回即停」同点；主线程已返回后才跑完
         // 的预取结果直接丢弃、不回写任何状态，不改变任何选择。
-        LyricPrefetch prefetch = LyricPrefetch.start(track, s, queries, force, gen);
+        // 主来源（Worker）结果一落地就先行发布，不等消费顺序轮到步 4——跨源收集
+        // （步 2，桥搜索）慢时，Worker 的词曾备好却压在队列里，页面干等整链收口。
+        LyricPrefetch prefetch = LyricPrefetch.start(track, s, queries, force, gen,
+                lyric -> fireEarlyLyric(track, lyric, earlyFired));
         // 2. 其它源（本地源跳过，它不提供歌词）：查询序列外层（净查询先问遍各源，再降级）
         // force 时预取内的步 2 只跑精确遍（exactOnly），包含遍在下方与步 1 包含级同段补跑。
         CrossCollect cross = prefetch.cross();
@@ -1129,11 +1132,11 @@ public class MusicRepository {
         LYRIC_EARLY.remove(MusicQueue.trackKey(track), listener);
     }
 
-    private static void fireEarlyLyric(MusicTrack track, MusicLyric candidate, boolean[] fired) {
-        if (fired[0] || !hasRaw(candidate)) return;
+    private static void fireEarlyLyric(MusicTrack track, MusicLyric candidate, java.util.concurrent.atomic.AtomicBoolean fired) {
+        if (!hasRaw(candidate)) return;
         java.util.function.Consumer<MusicLyric> listener = LYRIC_EARLY.get(MusicQueue.trackKey(track));
         if (listener == null) return;
-        fired[0] = true;
+        if (!fired.compareAndSet(false, true)) return;
         try {
             listener.accept(candidate);
         } catch (Throwable ignored) {
@@ -1551,10 +1554,21 @@ public class MusicRepository {
             this.amll = amll;
         }
 
-        static LyricPrefetch start(MusicTrack track, MusicSource self, List<LocalTrackMeta.Query> queries, boolean force, long gen) {
+        static LyricPrefetch start(MusicTrack track, MusicSource self, List<LocalTrackMeta.Query> queries, boolean force, long gen,
+                                   java.util.function.Consumer<MusicLyric> cfEarly) {
             Future<CrossCollect> cross = Task.largeExecutor().submit(() -> collectCross(track, self, queries, force, force));
             Future<List<MusicLyric>> plugins = Task.largeExecutor().submit(() -> collectLyricPlugins(track));
-            Future<MusicLyric> cf = Task.largeExecutor().submit(() -> cfLyricWord(track));
+            Future<MusicLyric> cf = Task.largeExecutor().submit(() -> {
+                MusicLyric v = cfLyricWord(track);
+                // 主来源先到先发布（仅展示先行，步 4 消费与挑选口径不变）
+                if (v != null && cfEarly != null) {
+                    try {
+                        cfEarly.accept(v);
+                    } catch (Throwable ignored) {
+                    }
+                }
+                return v;
+            });
             Future<MusicLyric> platform = Task.largeExecutor().submit(() -> {
                 try {
                     return new PlatformWordLyricSource().lyricRich(track);

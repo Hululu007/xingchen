@@ -207,6 +207,9 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
 
     @Override
     protected void onDestroy() {
+        if (mEarlyTrack != null && mEarlyListener != null) {
+            com.fongmi.android.tv.music.MusicRepository.clearEarlyLyricListener(mEarlyTrack, mEarlyListener);
+        }
         mTickHandler.removeCallbacks(mTick);
         mDeflectSpring.cancel();
         mCoverBackSpring.cancel();
@@ -566,8 +569,30 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
         return t == null ? "" : (t.id == null ? "" : t.id) + "|" + (t.title == null ? "" : t.title);
     }
 
+    // 先行歌词监听（仓库 LYRIC_EARLY）：链消费到第一份可用词就先上屏，不等整链收口的
+    // onLyricReady——此前这套先行发布零注册、是死接线，首词只能等全链跑完（他点名歌词慢）。
+    private MusicTrack mEarlyTrack;
+    private java.util.function.Consumer<com.fongmi.android.tv.bean.music.MusicLyric> mEarlyListener;
+
+    private void registerEarlyLyric(final MusicTrack track) {
+        if (mEarlyTrack != null && mEarlyListener != null
+                && !com.fongmi.android.tv.music.MusicQueue.trackKey(mEarlyTrack)
+                        .equals(com.fongmi.android.tv.music.MusicQueue.trackKey(track))) {
+            com.fongmi.android.tv.music.MusicRepository.clearEarlyLyricListener(mEarlyTrack, mEarlyListener);
+        }
+        mEarlyTrack = track;
+        mEarlyListener = lyric -> {
+            if (lyric == null || !lyric.hasLyric()) return;
+            runOnUiThread(() -> {
+                if (!isFinishing() && !isDestroyed() && mTrack == track) applyLyric(track, lyric);
+            });
+        };
+        com.fongmi.android.tv.music.MusicRepository.setEarlyLyricListener(track, mEarlyListener);
+    }
+
     private void bindTrack(MusicTrack track, int dir) {
         mTrack = track;
+        registerEarlyLyric(track);
         String key = trackKey(track);
         boolean same = key.equals(mTrackKey);
         mTrackKey = key;

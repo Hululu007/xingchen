@@ -88,15 +88,10 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
     private InPageLyricsView mLyrics;
     private ClassicScrubberView mScrubber;
     private MiniProgressView mMiniProgress;
-    private View mMiniGroup;
-    private TextView mMiniChipQuality;
-    private TextView mMiniChipLyric;
 
 
     private MusicTrack mTrack;
     private String mTrackKey;
-    // 在线对歌补全已试过的曲 key（一首只试一次，免得切回来反复搜）
-    private final java.util.Set<String> mMetaTried = new java.util.HashSet<>();
     private Bitmap mCoverBitmap;
     private boolean mFavorite;
     private int mFavTriggerCount;
@@ -150,24 +145,6 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
         mLyrics = findViewById(R.id.playerLyrics);
         mScrubber = findViewById(R.id.playerScrubber);
         mMiniProgress = findViewById(R.id.playerMiniProgress);
-        mMiniGroup = findViewById(R.id.playerMiniGroup);
-        mMiniChipQuality = findViewById(R.id.miniChipQuality);
-        mMiniChipLyric = findViewById(R.id.miniChipLyric);
-        // 进度区高度钉死为全栈高度：切换只在盒内交叉淡化，上面的封面/歌词一寸不动
-        // （旧做法动画改盒高、整列跟着重排，他点名「切换时全屏都会动」）
-        final View box = findViewById(R.id.playerScrubberBox);
-        box.post(() -> {
-            int wSpec = View.MeasureSpec.makeMeasureSpec(box.getWidth(), View.MeasureSpec.EXACTLY);
-            int hSpec = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED);
-            mScrubber.measure(wSpec, hSpec);
-            android.view.ViewGroup.LayoutParams lp = box.getLayoutParams();
-            lp.height = mScrubber.getMeasuredHeight();
-            box.setLayoutParams(lp);
-        });
-        // 迷你态常驻筹与全栈筹同路（播放时筹在他点名下不许消失）
-        mMiniChipQuality.setOnClickListener(v -> showQualityPanel());
-        mMiniChipLyric.setOnClickListener(v -> showLyricVersions());
-        mMiniGroup.setOnClickListener(v -> setScrubberExpanded(true));
 
         // 歌名 800 字重＋行高 24sp、歌手行高 18sp（API 28+；低版本退回粗体与默认行高）
         if (android.os.Build.VERSION.SDK_INT >= 28) {
@@ -277,43 +254,34 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
 
             @Override
             public void onQualityChip() {
-                showQualityPanel();
+                if (mTrack == null) return;
+                mScrubber.setMenuOpen(true);
+                MusicQualityPanelDialog.show(MusicPlayerActivity.this, mTrack,
+                        MusicController.get().getQuality(),
+                        q -> {
+                            MusicController.get().setQuality(q);
+                            refreshChips();
+                        });
             }
 
             @Override
             public void onLyricChip() {
-                showLyricVersions();
+                // 瓜子口径：歌词筹点开＝歌词版本面板（翻译显隐在设置页开关，不占筹）
+                if (mTrack == null) return;
+                mScrubber.setMenuOpen(true);
+                com.fongmi.android.tv.bean.music.MusicLyric cur =
+                        com.fongmi.android.tv.music.MusicLyricCache.get(mTrack);
+                MusicLyricVersionsDialog.show(MusicPlayerActivity.this, mTrack,
+                        cur == null ? null : cur.rawLrc,
+                        version -> {
+                            com.fongmi.android.tv.music.MusicRepository.saveManualLyricChoice(mTrack, version);
+                            com.fongmi.android.tv.music.MusicLyricCache.put(mTrack, version.getLyric());
+                            applyLyric(mTrack, version.getLyric());
+                        });
             }
         });
         installCoverGestures();
         installPageSwipe();
-    }
-
-    /** 音质筹（全栈与迷你常驻筹共用）：开音质面板 */
-    private void showQualityPanel() {
-        if (mTrack == null) return;
-        mScrubber.setMenuOpen(true);
-        MusicQualityPanelDialog.show(this, mTrack,
-                MusicController.get().getQuality(),
-                q -> {
-                    MusicController.get().setQuality(q);
-                    refreshChips();
-                });
-    }
-
-    /** 歌词筹（全栈与迷你常驻筹共用）：瓜子口径＝歌词版本面板（翻译显隐在设置页开关，不占筹） */
-    private void showLyricVersions() {
-        if (mTrack == null) return;
-        mScrubber.setMenuOpen(true);
-        com.fongmi.android.tv.bean.music.MusicLyric cur =
-                com.fongmi.android.tv.music.MusicLyricCache.get(mTrack);
-        MusicLyricVersionsDialog.show(this, mTrack,
-                cur == null ? null : cur.rawLrc,
-                version -> {
-                    com.fongmi.android.tv.music.MusicRepository.saveManualLyricChoice(mTrack, version);
-                    com.fongmi.android.tv.music.MusicLyricCache.put(mTrack, version.getLyric());
-                    applyLyric(mTrack, version.getLyric());
-                });
     }
 
     // ---------- 封面手势：竖滑切歌（轴锁定、36dp 触发、600dp/s 甩速、过阈震动）＋双击收藏 ----------
@@ -497,21 +465,47 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
 
     private boolean mScrubberExpanded;
     private long mLastScrubberTouchMs;
+    private android.animation.ValueAnimator mStackAnim;
 
     /** 迷你进度条 ↔ 完整进度栈（瓜子口径 2026-10-26 他亲口：暂停进度条就出来、播放就变迷你条；
      *  另保留点开全栈、播放中闲置 3 秒缩回的自有口径）。
-     *  切换只在钉死高度的盒内交叉淡化——盒高在装配时量成全栈高、全程不变，
-     *  上面的封面/歌词不参与重排（旧做法动画盒高带动全屏，他点名）。 */
+     *  切换不许生硬（他同日点名）：容器高度 250ms/bs4.a 形变＋两件交叉淡化，不再瞬间显隐。 */
     private void setScrubberExpanded(boolean expanded) {
         mScrubberExpanded = expanded;
         mLastScrubberTouchMs = System.currentTimeMillis();
-        final View in = expanded ? mScrubber : mMiniGroup;
-        final View out = expanded ? mMiniGroup : mScrubber;
+        final View in = expanded ? mScrubber : mMiniProgress;
+        final View out = expanded ? mMiniProgress : mScrubber;
+        final android.view.ViewGroup box = (android.view.ViewGroup) mScrubber.getParent();
+        if (mStackAnim != null) mStackAnim.cancel();
         in.animate().cancel();
         out.animate().cancel();
+        int widthSpec = View.MeasureSpec.makeMeasureSpec(box.getWidth(), View.MeasureSpec.EXACTLY);
+        int heightSpec = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED);
+        in.measure(widthSpec, heightSpec);
+        final int fromH = box.getHeight();
+        final int toH = in.getMeasuredHeight();
         in.setAlpha(0f);
         in.setVisibility(View.VISIBLE);
         out.setVisibility(View.VISIBLE);
+        if (fromH > 0 && toH > 0 && fromH != toH) {
+            mStackAnim = android.animation.ValueAnimator.ofInt(fromH, toH);
+            mStackAnim.setDuration(250);
+            mStackAnim.setInterpolator(BS4_A);
+            mStackAnim.addUpdateListener(a -> {
+                android.view.ViewGroup.LayoutParams lp = box.getLayoutParams();
+                lp.height = (int) a.getAnimatedValue();
+                box.setLayoutParams(lp);
+            });
+            mStackAnim.addListener(new android.animation.AnimatorListenerAdapter() {
+                @Override
+                public void onAnimationEnd(android.animation.Animator animation) {
+                    android.view.ViewGroup.LayoutParams lp = box.getLayoutParams();
+                    lp.height = android.view.ViewGroup.LayoutParams.WRAP_CONTENT;
+                    box.setLayoutParams(lp);
+                }
+            });
+            mStackAnim.start();
+        }
         in.animate().alpha(1f).setDuration(250).setInterpolator(BS4_A).start();
         out.animate().alpha(0f).setDuration(200).setInterpolator(BS4_A)
                 .withEndAction(() -> {
@@ -584,11 +578,11 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
         mArtist.setText(track.displayArtist());
         // 歌手透明档：有点击回调且歌手可解析 → 白 0.45，否则 0.34（瓜子 SongMeta 两档）
         mArtist.setTextColor(firstArtist(track.displayArtist()) != null ? 0x73FFFFFF : 0x57FFFFFF);
-        if (TextUtils.isEmpty(track.displayAlbum())) {
+        if (TextUtils.isEmpty(track.album)) {
             mAlbum.setVisibility(View.GONE);
         } else {
             mAlbum.setVisibility(View.VISIBLE);
-            mAlbum.setText(track.displayAlbum());
+            mAlbum.setText(track.album);
         }
 
         bindCover(track, dir);
@@ -600,50 +594,6 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
         mLyrics.setLines(null);
         tryLoadLyric(track);
         updatePlayUi(MusicController.get().isPlaying());
-        maybeBackfillMeta(track, key);
-    }
-
-    /**
-     * 元信息补全接线：封面空、或本地无标签曲缺歌手/专辑时，后台在线对歌一次，
-     * 命中同一首就把缺的字段补回曲对象（只补空缺、不覆盖本地真标签），
-     * 还在播这首就刷新歌手/专辑行、封面与氛围。此前仓库里 onlineCover 建好却零调用，
-     * 补全链从没通过电（他点名：很多歌没封面、本地歌歌手专辑都没有）。
-     */
-    private void maybeBackfillMeta(final MusicTrack track, final String key) {
-        boolean local = com.fongmi.android.tv.utils.LocalTrackMeta.isLocalPlatform(track.platform);
-        boolean need = TextUtils.isEmpty(track.cover)
-                || (local && (TextUtils.isEmpty(track.displayArtist()) || TextUtils.isEmpty(track.displayAlbum())));
-        if (!need || !mMetaTried.add(key)) return;
-        com.fongmi.android.tv.utils.Task.execute(() -> {
-            MusicTrack hit = MusicRepository.onlineMeta(track);
-            if (hit == null) return;
-            boolean coverFilled = false;
-            if (TextUtils.isEmpty(track.cover) && !TextUtils.isEmpty(hit.cover)) {
-                track.cover = hit.cover.trim();
-                coverFilled = true;
-            }
-            if (TextUtils.isEmpty(track.displayArtist()) && !TextUtils.isEmpty(hit.displayArtist()))
-                track.artist = hit.displayArtist();
-            if (TextUtils.isEmpty(track.displayAlbum()) && !TextUtils.isEmpty(hit.displayAlbum()))
-                track.album = hit.displayAlbum();
-            final boolean fc = coverFilled;
-            mTitle.post(() -> {
-                if (mTrack == null || !key.equals(mTrackKey)) return;
-                mArtist.setText(mTrack.displayArtist());
-                mArtist.setTextColor(firstArtist(mTrack.displayArtist()) != null ? 0x73FFFFFF : 0x57FFFFFF);
-                if (TextUtils.isEmpty(mTrack.displayAlbum())) {
-                    mAlbum.setVisibility(View.GONE);
-                } else {
-                    mAlbum.setVisibility(View.VISIBLE);
-                    mAlbum.setText(mTrack.displayAlbum());
-                }
-                if (fc) {
-                    bindCover(mTrack, 0);
-                    mAmbient.setCover(mTrack.cover);
-                }
-                refreshFavorite(mTrack);
-            });
-        });
     }
 
     private void bindCover(MusicTrack track, int dir) {
@@ -778,9 +728,8 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
 
     private void refreshChips() {
         // 本地旗（瓜子 z50）：本地曲音质筹改标「本地」且不可点
-        boolean local = mTrack != null
-                && com.fongmi.android.tv.music.MusicDownloadStore.isLocal(mTrack);
-        mScrubber.setLocalTrack(local);
+        mScrubber.setLocalTrack(mTrack != null
+                && com.fongmi.android.tv.music.MusicDownloadStore.isLocal(mTrack));
         // 音质筹只报真实音质（他的口径：取不到就不显示，永不拿所选档名垫场）
         String q = "";
         try {
@@ -792,13 +741,6 @@ public class MusicPlayerActivity extends AppCompatActivity implements MusicContr
         } catch (Throwable ignored) {
         }
         mScrubber.setChips(q, lyricChipLabel());
-        // 迷你常驻筹同步（与全栈筹同一份口径：音质取不到不显示、本地曲标「本地」不可点）
-        if (mMiniChipQuality != null) {
-            mMiniChipQuality.setText(local ? "本地" : q);
-            mMiniChipQuality.setVisibility(local || !q.isEmpty() ? View.VISIBLE : View.GONE);
-            mMiniChipQuality.setEnabled(!local);
-        }
-        if (mMiniChipLyric != null) mMiniChipLyric.setText(lyricChipLabel());
     }
 
     private String mLyricChip = "无词";

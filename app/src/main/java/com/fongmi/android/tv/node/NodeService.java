@@ -237,15 +237,20 @@ public class NodeService extends Service {
 
     private void sendError(Messenger reply, String text) {
         SpiderDebug.log("node", "start failed: %s", text);
-        if (reply == null) return;
-        Bundle data = new Bundle();
-        data.putString("text", text);
-        Message msg = Message.obtain(null, MSG_ERROR);
-        msg.setData(data);
+        // 扫描 H15：stopSelf 必须无条件执行——此前 reply==null 直接 return、
+        // reply.send 抛 RemoteException 时 stopSelf 被跳过，启动失败的 :node 服务
+        // 永不自停、前台通知常驻不退。回执只是尽力送达，自停走 finally 语义。
         try {
-            reply.send(msg);
-            stopSelf();
+            if (reply != null) {
+                Bundle data = new Bundle();
+                data.putString("text", text);
+                Message msg = Message.obtain(null, MSG_ERROR);
+                msg.setData(data);
+                reply.send(msg);
+            }
         } catch (RemoteException ignored) {
+        } finally {
+            stopSelf();
         }
     }
 

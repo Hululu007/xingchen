@@ -90,6 +90,9 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
     private TextView btnNext;
     private TextView btnPrev;
     private WeakReference<Activity> hostRef;
+    /** 音乐条实时背板当初录的是哪个宿主的页面根：宿主换人（Activity 重建）后旧背板录的
+     * 是已死页面的根，必须强制重建条换新根，不许继续放旧背板。 */
+    private WeakReference<Activity> liveGlassHostRef;
     private String lastVisible;
 
     // ================= 音乐会话（独立音乐播放器，id="music"） =================
@@ -302,7 +305,15 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
 
     public void onActivityPaused(Activity activity) {
         Activity host = hostRef == null ? null : hostRef.get();
-        if (host == activity) detachBar();
+        if (host == activity) {
+            // 收尾动作与 detachBar 同口径（代次推进＋停封面旋转/进度轮询），但摘除改走
+            // 淡出：此前只有这条暂停路是直接 removeView 硬没，与 hideBar 的 200ms 淡出
+            // 口径不一致。淡出途中若新宿主接管，attachBar 再推进代次即作废本次收尾
+            // （hideBar 的收尾动作里有代次守卫），不会误摘新条。
+            barGen++;
+            stopHomeSpin();
+            hideBar();
+        }
     }
 
     // ================= 条的显示 =================
@@ -362,9 +373,19 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
         if (!music && s == null) return;
         Activity old = hostRef == null ? null : hostRef.get();
         if (old != host) detachBar();
-        if (barView == null || barMusicMode != music) {
+        // 实时背板录的根属于旧宿主时条必须重建（旧根已随旧页销毁，继续用就是定格旧画面）
+        Activity liveHost = liveGlassHostRef == null ? null : liveGlassHostRef.get();
+        boolean liveStale = music && barView != null && liveHost != null && liveHost != host;
+        if (barView == null || barMusicMode != music || liveStale) {
             detachBar();
+            if (liveStale) {
+                barView = null;
+                liveGlassHostRef = null;
+            }
             barMusicMode = music;
+            // 建条前先把宿主立进 hostRef：tryWrapLiveGlass 靠它读 musicRoot 录背板；
+            // 此前建条必经 detachBar 把 hostRef 置 null，真背板恒接不通、永远走静态回落
+            hostRef = new WeakReference<>(host);
             if (music) buildMusicBar();
             else buildBar();
         }
@@ -823,6 +844,7 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
             });
             bar.setBackground(null);
             glass.init((ViewGroup) root);
+            liveGlassHostRef = new WeakReference<>(host);
             return wrap;
         } catch (Throwable ignored) {
             return null;

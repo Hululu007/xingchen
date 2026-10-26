@@ -44,9 +44,9 @@ public class CoverAmbientView extends View {
     private int mFromColor = FALLBACK;
     private int mToColor = FALLBACK;
     private ValueAnimator mColorAnim;
-    private Paint mShadeWhitePaint;
-    private Paint mShadeBlackPaint;
+    private Paint mFluidShadePaint;
     private int mShadeW, mShadeH;
+    private int mShadeBase;
     private RenderNode mBlurNode;
     private int mBlurNodeW, mBlurNodeH;
     private Bitmap mBlurNodeBitmap;
@@ -162,37 +162,56 @@ public class CoverAmbientView extends View {
                 canvas.save();
                 canvas.translate(mDriftTx, mDriftTy);
                 canvas.scale(mDriftScale, mDriftScale, w / 2f, h / 2f);
+                canvas.rotate(mDriftRot, w / 2f, h / 2f);
                 canvas.drawBitmap(mBlurBitmap, null, dst, mPaint);
                 canvas.restore();
                 mPaint.setAlpha(255);
             }
         }
-        if (mShadeWhitePaint == null || mShadeW != w || mShadeH != h) {
+        if (mFluidShadePaint == null || mShadeW != w || mShadeH != h || mShadeBase != mBaseColor) {
             mShadeW = w;
             mShadeH = h;
-            // 渐变罩明度 +0.05（上）→−0.04（下）线性：两遍合成——白 alpha 0.05→0、黑 alpha 0→0.04
-            mShadeWhitePaint = new Paint();
-            mShadeWhitePaint.setShader(new LinearGradient(0, 0, 0, h,
-                    0x0DFFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP));
-            mShadeBlackPaint = new Paint();
-            mShadeBlackPaint.setShader(new LinearGradient(0, 0, 0, h,
-                    0x00000000, 0x0A000000, Shader.TileMode.CLAMP));
+            mShadeBase = mBaseColor;
+            // 流体渐变罩四档（dig 流体节，硬件加速 f＝0）：0→明度+0.05 色 α.30；0.4→基色 α.38；
+            // 0.78→基色 α.36；1→明度−0.04 色 α.48。此前用的是静态糊图版的两道薄罩，流体版不用。
+            int[] cols = new int[]{
+                    withAlpha(blend(mBaseColor, 0xFFFFFFFF, 0.05f), 0.30f),
+                    withAlpha(mBaseColor, 0.38f),
+                    withAlpha(mBaseColor, 0.36f),
+                    withAlpha(blend(mBaseColor, 0xFF000000, 0.04f), 0.48f)};
+            mFluidShadePaint = new Paint();
+            mFluidShadePaint.setShader(new LinearGradient(0, 0, 0, h,
+                    cols, new float[]{0f, 0.4f, 0.78f, 1f}, Shader.TileMode.CLAMP));
         }
-        canvas.drawRect(0, 0, w, h, mShadeWhitePaint);
-        canvas.drawRect(0, 0, w, h, mShadeBlackPaint);
+        canvas.drawRect(0, 0, w, h, mFluidShadePaint);
     }
 
-    // ===== 氛围漂移（2026-10-26 他点名：瓜子播放时封面背景下半屏是会动的）=====
-    // 瓜子录屏帧实测：播放中下半屏像素持续缓慢变化、上半屏静止；其 FluidCoverAmbient 的确切变换
-    // 公式未从 jadx 抠到（无着色器、参数藏在 Compose 状态里）——此处按可观察行为落：
-    // 糊层播放中缓慢缩放呼吸＋平移漂移、暂停冻结；只动糊层，不动上面的清晰封面。
+    private static int blend(int color, int target, float ratio) {
+        int r = Math.round(android.graphics.Color.red(color) + (android.graphics.Color.red(target) - android.graphics.Color.red(color)) * ratio);
+        int g = Math.round(android.graphics.Color.green(color) + (android.graphics.Color.green(target) - android.graphics.Color.green(color)) * ratio);
+        int b = Math.round(android.graphics.Color.blue(color) + (android.graphics.Color.blue(target) - android.graphics.Color.blue(color)) * ratio);
+        return android.graphics.Color.rgb(r, g, b);
+    }
+
+    private static int withAlpha(int color, float alpha) {
+        return android.graphics.Color.argb(Math.round(alpha * 255),
+                android.graphics.Color.red(color), android.graphics.Color.green(color), android.graphics.Color.blue(color));
+    }
+
+    // ===== 流体氛围（瓜子 FluidCoverAmbient 真值，gz-smali-missing-dig 流体节，昨晚已抠在案）=====
+    // 四相位帧驱动：速率＝速度系数（标准 1.0）×（节拍量×0.3＋流体量×0.65＋1.0），星辰无节拍/流体量
+    // 输入（＝瓜子的音乐律动关）→倍率 1.0；相位增量＝速率×2π/周期，周期 19/27/34/13。
+    // 变换：缩放＝sin(φ4)×0.3＋2.1；平移X＝72dp·sin(φ2)；平移Y＝52dp·cos(φ3)；旋转＝sin(φ1)×8°。
+    // 播放推进、暂停冻结；只动糊层，不动上面的清晰封面。
+    // （订正：今早一版曾写自编近似值并误称公式未抠到——公式一直在案，是落码时没翻案。）
     private boolean mAmbientPlaying;
     private boolean mDriftRunning;
-    private double mDriftSec;
+    private double mPh1, mPh2, mPh3, mPh4;
     private long mDriftLastNs;
-    private float mDriftScale = 1.07f;
+    private float mDriftScale = 2.1f;
     private float mDriftTx;
     private float mDriftTy;
+    private float mDriftRot;
     private final android.view.Choreographer.FrameCallback mDriftCallback = new android.view.Choreographer.FrameCallback() {
         @Override
         public void doFrame(long frameTimeNanos) {
@@ -201,22 +220,27 @@ public class CoverAmbientView extends View {
                 mDriftLastNs = 0;
                 return;
             }
-            if (mDriftLastNs != 0) {
-                mDriftSec += Math.min(0.1, (frameTimeNanos - mDriftLastNs) / 1e9);
-            }
+            double dt = 0;
+            if (mDriftLastNs != 0) dt = Math.min(0.1, (frameTimeNanos - mDriftLastNs) / 1e9);
             mDriftLastNs = frameTimeNanos;
-            double t = mDriftSec;
-            int w = Math.max(1, getWidth()), h = Math.max(1, getHeight());
-            mDriftScale = (float) (1.07 + 0.04 * Math.sin(t * 2 * Math.PI / 26.0));
-            mDriftTx = (float) (0.02 * w * Math.sin(t * 2 * Math.PI / 31.0 + 1.3));
-            mDriftTy = (float) (0.016 * h * Math.cos(t * 2 * Math.PI / 23.0));
+            mPh1 += dt * 2 * Math.PI / 19.0;
+            mPh2 += dt * 2 * Math.PI / 27.0;
+            mPh3 += dt * 2 * Math.PI / 34.0;
+            mPh4 += dt * 2 * Math.PI / 13.0;
+            float density = getResources().getDisplayMetrics().density;
+            mDriftScale = (float) (2.1 + 0.3 * Math.sin(mPh4));
+            mDriftTx = 72f * density * (float) Math.sin(mPh2);
+            mDriftTy = 52f * density * (float) Math.cos(mPh3);
+            mDriftRot = 8f * (float) Math.sin(mPh1);
             if (mBlurNode != null) {
+                int w = Math.max(1, getWidth()), h = Math.max(1, getHeight());
                 mBlurNode.setPivotX(w / 2f);
                 mBlurNode.setPivotY(h / 2f);
                 mBlurNode.setScaleX(mDriftScale);
                 mBlurNode.setScaleY(mDriftScale);
                 mBlurNode.setTranslationX(mDriftTx);
                 mBlurNode.setTranslationY(mDriftTy);
+                mBlurNode.setRotation(mDriftRot);
             }
             invalidate();
             android.view.Choreographer.getInstance().postFrameCallback(this);
@@ -265,17 +289,18 @@ public class CoverAmbientView extends View {
             Paint p = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
             rec.drawBitmap(mBlurBitmap, null, new android.graphics.RectF(0, 0, w, h), p);
             mBlurNode.endRecording();
-            float r = 24f * getResources().getDisplayMetrics().density;
+            float r = 18f * getResources().getDisplayMetrics().density; // 流体版模糊修饰 18.0（dig 流体节）
             mBlurNode.setRenderEffect(RenderEffect.createBlurEffect(r, r, Shader.TileMode.CLAMP));
             mBlurNode.setAlpha(0.8f);
         }
-        // 重录会把节点变换清零：每帧按当前漂移相位重贴，保证暂停冻结/切歌后构图不跳
+        // 重录会把节点变换清零：每帧按当前流体相位重贴，保证暂停冻结/切歌后构图不跳
         mBlurNode.setPivotX(w / 2f);
         mBlurNode.setPivotY(h / 2f);
         mBlurNode.setScaleX(mDriftScale);
         mBlurNode.setScaleY(mDriftScale);
         mBlurNode.setTranslationX(mDriftTx);
         mBlurNode.setTranslationY(mDriftTy);
+        mBlurNode.setRotation(mDriftRot);
         canvas.drawRenderNode(mBlurNode);
     }
 }

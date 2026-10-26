@@ -1033,6 +1033,7 @@ public class CloudDriveActivity extends BaseActivity {
     }
 
     private void showSaveShareDialog() {
+        TargetFolder target = new TargetFolder(currentCid(), currentCidName());
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         int pad = (int) (8 * getResources().getDisplayMetrics().density);
@@ -1041,6 +1042,7 @@ public class CloudDriveActivity extends BaseActivity {
         EditText pwd = makeInput("提取码（可选）");
         layout.addView(link);
         layout.addView(pwd);
+        layout.addView(makeTargetRow(target));
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("转存分享链接")
                 .setView(layout)
@@ -1050,7 +1052,7 @@ public class CloudDriveActivity extends BaseActivity {
                         Notify.show("分享链接不能为空");
                         return;
                     }
-                    doSaveShare(shareUrl, pwd.getText().toString().trim());
+                    doSaveShare(shareUrl, pwd.getText().toString().trim(), target.cid);
                 })
                 .setNegativeButton("取消", null)
                 .create();
@@ -1058,8 +1060,7 @@ public class CloudDriveActivity extends BaseActivity {
         dialog.show();
     }
 
-    private void doSaveShare(String shareUrl, String password) {
-        String cid = currentCid();
+    private void doSaveShare(String shareUrl, String password, String cid) {
         new Thread(() -> {
             try {
                 boolean ok = drive.saveShare(shareUrl, password, cid);

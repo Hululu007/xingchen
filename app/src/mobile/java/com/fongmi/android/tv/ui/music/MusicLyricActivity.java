@@ -12,6 +12,7 @@ import android.text.TextUtils;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.ImageView;
+import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
@@ -33,10 +34,9 @@ import com.fongmi.android.tv.music.MusicStore;
 import com.fongmi.android.tv.music.RichLyrics;
 import com.fongmi.android.tv.player.lyrics.LyricsParser;
 import com.fongmi.android.tv.ui.dialog.MusicLyricVersionsDialog;
-import com.fongmi.android.tv.ui.dialog.MusicQualityPanelDialog;
 import com.fongmi.android.tv.ui.dialog.MusicQueueDialog;
-import com.fongmi.android.tv.ui.music.view.ClassicScrubberView;
 import com.fongmi.android.tv.ui.music.view.CoverAmbientView;
+import com.fongmi.android.tv.ui.music.view.FadingCoverView;
 import com.fongmi.android.tv.ui.music.view.MusicLyricStageView;
 import com.fongmi.android.tv.utils.ImgUtil;
 
@@ -44,9 +44,11 @@ import java.util.List;
 
 /**
  * 全屏歌词页（独立页，照瓜子全屏歌词面构成＋gz-player-values 第八节）：
- * 封面氛围拉满整屏垫底（与播放页同一 CoverAmbientView 外壳）→歌名行（右三裸键：
- * 队列／歌词样式／播放暂停）→歌手♡专辑→歌词大字沉浸区（MusicLyricStageView）→
- * 底部进度栈（与播放页同一 ClassicScrubberView：音质/歌词双筹＋轨道＋时间底行）。
+ * 封面氛围拉满整屏垫底（与播放页同一 CoverAmbientView 外壳）＋原封面整屏垫底
+ * 向下溶入氛围（与播放页同一 FadingCoverView、同一份 512 位图同源派生）→
+ * 歌词大字沉浸区铺满整屏（MusicLyricStageView，行可穿标题之下）→歌名行（右三裸键：
+ * 队列／歌词样式／播放暂停）与歌手♡专辑行为覆盖层→底部只留逐行/逐字双筹＋
+ * 一条发丝进度线（不可拖；本页不带音质筹/轨道/时间行，音质入口归播放页）。
  * 与播放页共用同一播放状态与歌词数据：同走 MusicController 单例（同一队列/进度）、
  * 同读 MusicLyricCache、先行歌词监听与切歌回调同路，不另起播放链。
  * 进页方向＝播放页左划（歌词页在播放页右侧）；回页走系统返回（铁律：不放自带返回箭头）。
@@ -62,10 +64,12 @@ public class MusicLyricActivity extends AppCompatActivity implements MusicContro
 
     private final Handler mTickHandler = new Handler(Looper.getMainLooper());
     private CoverAmbientView mAmbient;
+    private FadingCoverView mCover;
     private TextView mTitle, mArtist, mAlbum;
     private ImageView mBtnQueue, mBtnStyle, mBtnPlay, mBtnFav;
     private MusicLyricStageView mLyrics;
-    private ClassicScrubberView mScrubber;
+    private TextView mChipLine, mChipWord;
+    private ProgressBar mProgress;
 
     private MusicTrack mTrack;
     private String mTrackKey;
@@ -83,7 +87,8 @@ public class MusicLyricActivity extends AppCompatActivity implements MusicContro
         public void run() {
             if (isFinishing() || isDestroyed()) return;
             MusicController ctl = MusicController.get();
-            if (!mScrubber.isDragging()) mScrubber.setProgress(ctl.position(), ctl.duration());
+            long pos = ctl.position(), dur = ctl.duration();
+            mProgress.setProgress(dur > 0 ? (int) Math.min(1000L, pos * 1000L / Math.max(1L, dur)) : 0);
             mLyrics.setPosition(ctl.position());
             mTickHandler.postDelayed(this, 250L);
         }
@@ -106,11 +111,14 @@ public class MusicLyricActivity extends AppCompatActivity implements MusicContro
         mBtnStyle = findViewById(R.id.lyricBtnStyle);
         mBtnPlay = findViewById(R.id.lyricBtnPlay);
         mBtnFav = findViewById(R.id.lyricBtnFav);
+        mCover = findViewById(R.id.lyricCover);
         mLyrics = findViewById(R.id.lyricStage);
-        mScrubber = findViewById(R.id.lyricScrubber);
+        mChipLine = findViewById(R.id.lyricChipLine);
+        mChipWord = findViewById(R.id.lyricChipWord);
+        mProgress = findViewById(R.id.lyricProgress);
 
-        // 状态栏留白按系统嵌饰实给（不编数值）：内容列顶避开状态栏，背景氛围仍拉满整屏
-        final View content = findViewById(R.id.lyricContent);
+        // 状态栏留白按系统嵌饰实给（不编数值）：只给标题行覆盖层，舞台与背景仍拉满整屏
+        final View content = findViewById(R.id.lyricMeta);
         ViewCompat.setOnApplyWindowInsetsListener(content, (v, insets) -> {
             int top = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top;
             v.setPadding(v.getPaddingLeft(), top, v.getPaddingRight(), v.getPaddingBottom());
@@ -126,16 +134,6 @@ public class MusicLyricActivity extends AppCompatActivity implements MusicContro
 
         applyKeepScreenOn();
         wireActions();
-        // 音质/歌词版本面板关掉时进度条恢复全宽（与播放页同一接线：收缩画法的菜单态来源）
-        getSupportFragmentManager().registerFragmentLifecycleCallbacks(
-                new androidx.fragment.app.FragmentManager.FragmentLifecycleCallbacks() {
-                    @Override
-                    public void onFragmentViewDestroyed(@androidx.annotation.NonNull androidx.fragment.app.FragmentManager fm,
-                                                        @androidx.annotation.NonNull androidx.fragment.app.Fragment f) {
-                        if (f instanceof MusicQualityPanelDialog || f instanceof MusicLyricVersionsDialog) mScrubber.setMenuOpen(false);
-                    }
-                }, false);
-
         MusicController.get().bind(this);
         MusicController.get().addListener(this);
         MusicLibrary.addFavoritesListener(mFavListener);
@@ -225,45 +223,14 @@ public class MusicLyricActivity extends AppCompatActivity implements MusicContro
         });
         // 点歌词行＝快进到那行（与播放页同口径）
         mLyrics.setListener(timeMs -> MusicController.get().seekTo(timeMs));
-        mScrubber.setListener(new ClassicScrubberView.Listener() {
-            @Override
-            public void onSeek(long ms) {
-                MusicController.get().seekTo(ms);
-            }
-
-            @Override
-            public void onScrubPreview(long ms) {
-                mLyrics.setPreviewPosition(ms >= 0 ? ms : null);
-            }
-
-            @Override
-            public void onQualityChip() {
-                showQualityPanel();
-            }
-
-            @Override
-            public void onLyricChip() {
-                showLyricVersions();
-            }
-        });
-    }
-
-    /** 音质筹：开音质面板（与播放页同一面板与口径）。 */
-    private void showQualityPanel() {
-        if (mTrack == null) return;
-        mScrubber.setMenuOpen(true);
-        MusicQualityPanelDialog.show(this, mTrack,
-                MusicController.get().getQuality(),
-                q -> {
-                    MusicController.get().setQuality(q);
-                    refreshChips();
-                });
+        // 底部双筹（逐行/逐字）都是歌词版本面板的入口（瓜子 §八底部构成，无音质筹）
+        mChipLine.setOnClickListener(v -> showLyricVersions());
+        mChipWord.setOnClickListener(v -> showLyricVersions());
     }
 
     /** 歌词筹：歌词版本面板（与播放页同口径，点选同走存档＋覆缓存＋换屏）。 */
     private void showLyricVersions() {
         if (mTrack == null) return;
-        mScrubber.setMenuOpen(true);
         MusicLyric cur = MusicLyricCache.get(mTrack);
         MusicLyricVersionsDialog.show(this, mTrack, cur,
                 version -> {
@@ -318,22 +285,25 @@ public class MusicLyricActivity extends AppCompatActivity implements MusicContro
         }
         loadAmbientCover(track);
         refreshFavorite(track);
-        refreshChips();
-        mScrubber.resetForTrack();
-        mScrubber.setProgress(0, track.duration > 0 ? track.duration : MusicController.get().duration());
+        updateLyricChips();
+        mProgress.setProgress(0);
         mLyrics.setLines(null);
         tryLoadLyric(track);
         updatePlayUi(MusicController.get().isPlaying());
     }
 
     /**
-     * 氛围底封面派生（与播放页同口径）：本页没有锐封面层，封面位图按播放页同尺寸
-     * （512）取到后交氛围层当场派生糊底与取色——同源同裁切，氛围层不再独立取图。
+     * 封面同源派生（与播放页同一套）：封面位图按播放页同尺寸（512）只取一份，
+     * 同一份位图两处用——交氛围层当场派生糊底与取色（氛围由封面本体派生），
+     * 同时喂整屏原封面层（FadingCoverView）向下溶入氛围；两边同图同裁切，
+     * 不许各取各的。无封面地址走素垫图口径（与播放页 bindCover 同路）；
+     * 有址加载失败两层都清成透明（占位令：失败不许变素图）。
      */
     private void loadAmbientCover(final MusicTrack track) {
         String url = track.cover;
         if (TextUtils.isEmpty(url)) {
             mAmbient.setCoverBitmap(null, url);
+            ImgUtil.load(track.displayTitle(), "", mCover);
             return;
         }
         final String want = url;
@@ -342,11 +312,15 @@ public class MusicLyricActivity extends AppCompatActivity implements MusicContro
             public void onResourceReady(@NonNull Bitmap resource, @Nullable Transition<? super Bitmap> transition) {
                 if (mTrack != track || !want.equals(mTrack.cover)) return;
                 mAmbient.setCoverBitmap(resource, want);
+                mCover.setImageBitmap(resource);
             }
 
             @Override
             public void onLoadFailed(@Nullable Drawable errorDrawable) {
-                if (mTrack == track && want.equals(mTrack.cover)) mAmbient.setCoverBitmap(null, want);
+                if (mTrack == track && want.equals(mTrack.cover)) {
+                    mAmbient.setCoverBitmap(null, want);
+                    mCover.setImageDrawable(null);
+                }
             }
 
             @Override
@@ -393,24 +367,20 @@ public class MusicLyricActivity extends AppCompatActivity implements MusicContro
         return s;
     }
 
-    private void refreshChips() {
-        boolean local = mTrack != null
-                && com.fongmi.android.tv.music.MusicDownloadStore.isLocal(mTrack);
-        mScrubber.setLocalTrack(local);
-        String q = "";
-        try {
-            com.fongmi.android.tv.music.MusicAudioInfo info = MusicController.get().audioInfo();
-            if (info != null && info.describe() != null) q = info.describe();
-        } catch (Throwable ignored) {
-        }
-        mScrubber.setChips(q, mLyricChip);
+    /** 底部双筹当前态：与现词形态对应的那颗全亮，另一颗压暗（瓜子未抠到更多状态，不自创）。 */
+    private void updateLyricChips() {
+        if (mChipLine == null || mChipWord == null) return;
+        boolean word = "逐字".equals(mLyricChip);
+        boolean line = "逐行".equals(mLyricChip) || "纯文本".equals(mLyricChip);
+        mChipWord.setAlpha(word ? 1f : 0.55f);
+        mChipLine.setAlpha(line ? 1f : 0.55f);
     }
 
     private void tryLoadLyric(MusicTrack track) {
         MusicLyric lyric = MusicLyricCache.get(track);
         if (lyric == null || !lyric.hasLyric()) {
             mLyricChip = "无词";
-            refreshChips();
+            updateLyricChips();
             return;
         }
         applyLyric(track, lyric);
@@ -441,11 +411,10 @@ public class MusicLyricActivity extends AppCompatActivity implements MusicContro
         else if (main != null && !main.isEmpty() && main.get(0) != null && main.get(0).getTimeMs() > 0) mLyricChip = "逐行";
         else if (main != null && !main.isEmpty()) mLyricChip = "纯文本";
         else mLyricChip = "无词";
-        refreshChips();
+        updateLyricChips();
     }
 
     private void updatePlayUi(boolean playing) {
-        mScrubber.setPlaying(playing);
         mBtnPlay.setImageResource(playing ? R.drawable.ic_music_pause : R.drawable.ic_music_play);
         int toPad = Math.round(dp(playing ? 6 : 7.5f));
         mBtnPlay.setPadding(toPad, toPad, toPad, toPad);
@@ -478,7 +447,7 @@ public class MusicLyricActivity extends AppCompatActivity implements MusicContro
 
     @Override
     public void onAudioInfoChanged() {
-        refreshChips();
+        // 本页底部无音质筹（瓜子 §八构成），音质信息变化在本页无落点，不刷新任何控件
     }
 
     @Override

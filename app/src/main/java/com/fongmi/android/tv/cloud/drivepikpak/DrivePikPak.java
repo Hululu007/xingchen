@@ -556,6 +556,129 @@ public class DrivePikPak implements CloudDrive {
         clearSession();
     }
 
+    // ---------- 账号信息（容量 / 会员 / 用户名） ----------
+
+    /** 账号信息（fetchAccountInfo 填充，未取到时 vipText 为空、容量为 -1） */
+    private String vipText = "";
+    private long spaceUsed = -1;
+    private long spaceTotal = -1;
+    private String spaceText = "";
+    private boolean acctTried = false;
+
+    /** 带 Bearer 的 USER_HOST GET（userApi 只支持 POST，这里补 GET 形态，401 刷新后重试一次） */
+    private JSONObject userGet(String path) throws Exception {
+        return userGet(path, 0);
+    }
+
+    private JSONObject userGet(String path, int authRetry) throws Exception {
+        rateLimit();
+        ensureToken();
+        Request.Builder rb = new Request.Builder().url(USER_HOST + path);
+        rb.header("User-Agent", UA);
+        rb.header("Accept", "application/json");
+        rb.header("X-Device-ID", deviceId);
+        rb.header("Authorization", "Bearer " + accessToken);
+        rb.get();
+        try (Response resp = client.newCall(rb.build()).execute()) {
+            String txt = resp.body() != null ? resp.body().string() : "";
+            if (resp.code() == 401 && authRetry < 1) {
+                refresh();
+                return userGet(path, authRetry + 1);
+            }
+            if (!resp.isSuccessful()) {
+                throw new Exception("PikPak 用户接口错误 " + resp.code() + ": " + txt);
+            }
+            return new JSONObject(txt.isEmpty() ? "{}" : txt);
+        }
+    }
+
+    /**
+     * 取账号信息：GET /drive/v1/about 拿配额与会员到期；用户名为空时
+     * （网页登录路径从不写用户名，此前恒空）再用 /v1/user/me 补名并存档。
+     * about 响应形态未经真机验过，解析按字符串/数字两形态防御，并留痕待对。
+     *
+     * @return about 拿到并完成解析返回 true
+     */
+    public boolean fetchAccountInfo() {
+        acctTried = true;
+        boolean ok = false;
+        try {
+            JSONObject about = api("GET", "/drive/v1/about", null, null, true);
+            JSONObject quota = about.optJSONObject("quota");
+            if (quota != null) {
+                spaceTotal = bytesOf(quota.opt("limit"));
+                spaceUsed = bytesOf(quota.opt("usage"));
+                if (spaceTotal > 0 && spaceUsed >= 0) {
+                    spaceText = "已用 " + formatSize(spaceUsed) + " / 共 " + formatSize(spaceTotal);
+                } else if (spaceUsed >= 0) {
+                    spaceText = "已用 " + formatSize(spaceUsed);
+                }
+            }
+            String expiresAt = about.optString("expires_at", "").trim();
+            if (!expiresAt.isEmpty()) {
+                vipText = "会员 · " + (expiresAt.length() >= 10 ? expiresAt.substring(0, 10) : expiresAt) + " 到期";
+            }
+            try {
+                com.github.catvod.crawler.SpiderDebug.log("panacct", "pikpak about=%s", String.valueOf(about));
+            } catch (Throwable ignored) {
+            }
+            ok = quota != null;
+        } catch (Exception ignored) {
+        }
+        if (TextUtils.isEmpty(userName)) {
+            try {
+                JSONObject me = userGet("/v1/user/me");
+                String name = me.optString("name", me.optString("email", "")).trim();
+                if (!name.isEmpty()) {
+                    userName = name;
+                    saveSession();
+                }
+                try {
+                    com.github.catvod.crawler.SpiderDebug.log("panacct", "pikpak user/me keys=%s",
+                            String.valueOf(me.names()));
+                } catch (Throwable ignored) {
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return ok;
+    }
+
+    private static long bytesOf(Object v) {
+        if (v instanceof Number) return ((Number) v).longValue();
+        if (v instanceof String) {
+            try {
+                return Long.parseLong(((String) v).trim());
+            } catch (Exception e) {
+                return -1;
+            }
+        }
+        return -1;
+    }
+
+    private static String formatSize(long size) {
+        if (size < 0) return "";
+        if (size < 1024) return size + "B";
+        int z = (63 - Long.numberOfLeadingZeros(size)) / 10;
+        return String.format(Locale.US, "%.1f%sB", (double) size / (1L << (z * 10)), " KMGTPE".charAt(z));
+    }
+
+    /** VIP 文案（如「会员 · 2027-01-01 到期」），须先 fetchAccountInfo */
+    public String getVipText() {
+        return vipText;
+    }
+
+    /** 容量摘要（如「已用 12GB / 共 10TB」），未取到返回空 */
+    public String getSpaceText() {
+        return spaceText;
+    }
+
+    @Override
+    public String storageSummary() {
+        if (!acctTried) fetchAccountInfo();
+        return spaceText;
+    }
+
     /**
      * 按目录缓存的 page_token 链：offset/limit 兑页号（page = offset / limit），
      * 每页响应里的 next_page_token 记下来供下一页用；offset==0 时重建该目录的链。

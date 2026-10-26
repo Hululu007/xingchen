@@ -38,6 +38,7 @@ public class Drive115 implements CloudDrive {
 
     private static final String API_SSO = "https://passportapi.115.com/app/1.0/web/1.0/check/sso";
     private static final String API_NAV = "https://my.115.com/?ct=ajax&ac=nav";
+    private static final String API_USER_INFO = "https://proapi.115.com/app/user/info";
     private static final String API_FILES = "https://webapi.115.com/files";
     private static final String API_SEARCH = "https://webapi.115.com/files/search";
     private static final String API_FILE_INFO = "https://webapi.115.com/files/get_info";
@@ -239,15 +240,18 @@ public class Drive115 implements CloudDrive {
     }
 
     /**
-     * 取账号信息（对照 PY Api.nav）：用户名之外，把容量与 VIP 一并解析出来。
-     * 字段名以在役 SDK 源码为活证据（OpenListTeam/115-sdk-go 的 UserInfoResp，
-     * 与本接口同一份后端用户数据）：容量在 data.rt_space_info 里，
-     * all_total/all_use 每项是 {size 字节数, size_format 格式化串}；
-     * VIP 在 data.vip_info 里，level_name 是等级名、expire 是到期时间戳（秒）。
-     * 此前按 space_info/{size,str}＋expire_time 一套臆测键解析，真机恒取空——
-     * 副标题只剩「VIP」、空间与到期都拼不出来，病根即在此。旧键保留为兜底候选。
+     * 取账号信息：nav（对照 PY Api.nav）只给用户名/user_id——它是网页导航接口，
+     * 回包里没有容量与 VIP 明细（nap511 等真实消费者也只从它取 user_name/face/expire）。
+     * 容量与 VIP 全量在 proapi 的 user/info 接口里（在役 SDK 115-sdk-go 源码互证：
+     * 其端点分类表 User 类别归 proapi.115.com 的 ApiUserInfo，UserInfoResp 才带
+     * data.rt_space_info｛all_total/all_use 每项 {size 字节数, size_format 格式化串}｝
+     * 与 data.vip_info｛level_name 等级名、expire 到期时间戳（秒）｝）。
+     * 上一轮把这套键安到 nav 头上解析，真机恒空——副标题只剩靠 is_vip 兜底蒙出的
+     * 裸「VIP」，病根即在此。本轮 nav 照旧取用户名，空间/VIP 改打 user/info 解析、
+     * 结果优先；proapi 在本类已被 downurl 取链以同一网页 Cookie 真机证明可通。
      *
-     * @return 拿到 data 并完成解析返回 true
+     * @return nav 与 user/info 都拿到 data 返回 true；user/info 失败返回 false，
+     *         让 PanAccountInfo 走 5 分钟重试而不是把空空间冻进 6 小时缓存
      */
     public boolean fetchAccountInfo() {
         try {
@@ -260,18 +264,30 @@ public class Drive115 implements CloudDrive {
             if (data.optLong("user_id", 0) > 0) userId = data.optLong("user_id");
             parseSpace(data);
             vipText = parseVip(data);
-            try {
-                com.github.catvod.crawler.SpiderDebug.log("panacct",
-                        "115 nav keys=%s rt_space_info=%s vip_info=%s",
-                        String.valueOf(data.names()),
-                        String.valueOf(data.opt("rt_space_info")),
-                        String.valueOf(data.opt("vip_info")));
-            } catch (Throwable ignored) {
-            }
-            return true;
         } catch (Exception e) {
             return false;
         }
+        boolean infoOk = false;
+        try {
+            JSONObject d = reqJson(API_USER_INFO, null, null, UA_115, "https://115.com/");
+            JSONObject data = d.optJSONObject("data");
+            if (data != null) {
+                infoOk = true;
+                String v = parseVip(data);
+                if (!v.isEmpty()) vipText = v;
+                parseSpace(data);
+                try {
+                    com.github.catvod.crawler.SpiderDebug.log("panacct",
+                            "115 userinfo keys=%s rt_space_info=%s vip_info=%s",
+                            String.valueOf(data.names()),
+                            String.valueOf(data.opt("rt_space_info")),
+                            String.valueOf(data.opt("vip_info")));
+                } catch (Throwable ignored) {
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return infoOk;
     }
 
     /** 空间：data.rt_space_info 的 all_total/all_use（真键，SDK 活证据），每项是 {size,size_format} 对象；

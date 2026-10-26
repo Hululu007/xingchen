@@ -2,15 +2,15 @@ package com.fongmi.android.tv.bean.music;
 
 /**
  * 音乐音质四档：key 是给 FreeJS 插件的 quality 参数（不变），
- * label 是显示名（真规格词）：128k／320k／FLAC／母带。
- * 落雪映射在 LxMusicSource.lxQuality：128k/320k/flac/flac24bit（母带＝flac24bit）。
+ * label 是显示名（照瓜子面板）：标准／极高／无损／Hi-Res。
+ * 落雪映射在 LxMusicSource.lxQuality：128k/320k/flac/flac24bit（Hi-Res＝flac24bit）。
  */
 public enum MusicQuality {
 
-    LOW("low", "128k"),
-    STANDARD("standard", "320k"),
-    HIGH("high", "FLAC"),
-    SUPER("super", "母带");
+    LOW("low", "标准"),
+    STANDARD("standard", "极高"),
+    HIGH("high", "无损"),
+    SUPER("super", "Hi-Res");
 
     private final String key;
     private final String label;

@@ -42,8 +42,9 @@ import java.util.Set;
 /**
  * 播放音质面板（GZ 播放音质面板形态）：标题“播放音质”＋X、歌行（封面＋歌名歌手＋“N 档可选 · 当前 X”）、
  * 档行自上而下（高→低），每行带图标，选中行粉底红字。
- * Q2：行名与已定四档名统一（母带／FLAC／320k／128k），不再与面板旧名（Hi-Res／无损／极高／标准）两套并存；
- * SUPER 行规格按本批指令为“24bit / 192kHz · FLAC”（不要贴 HIRES 的 96kHz）；FLAC 行规格只写编码名“FLAC”，
+ * Q2：行名不在本类硬编码——一律走共享定义 MusicStore.qualityName（Hi-Res／无损／极高／标准，照瓜子面板），
+ * 面板与设置等处同源同名，不许两套并存；
+ * SUPER 行规格按本批指令为“24bit / 192kHz · FLAC”（不要贴 HIRES 的 96kHz）；无损行规格只写编码名“FLAC”，
  * 采样率（赫兹）按已定口径不另列一行；播放页音质格口径不动（本面板只改面板内行名与规格）。
  * 按歌列档（不许写死 4 行）：只列当前歌／源实际提供的档——落雪取各启用插件声明的 qualitys 并集
  * （桥加载阻塞，走后台线程，算出前先以 4 档占位、算出后刷新）；FreeJS 取条目 qualities 键；
@@ -79,10 +80,10 @@ public class MusicQualityPanelDialog extends BaseBottomSheetDialog {
     }
 
     private static final Row[] ROWS = {
-            new Row(MusicStore.QUALITY_SUPER, R.drawable.ic_quality_hires, "母带", "FLAC"),
-            new Row(MusicStore.QUALITY_HIGH, R.drawable.ic_quality_lossless, "FLAC", "FLAC"),
-            new Row(MusicStore.QUALITY_STANDARD, R.drawable.ic_quality_high, "320k", "320 kbps"),
-            new Row(MusicStore.QUALITY_LOW, R.drawable.ic_quality_standard, "128k", "128 kbps"),
+            new Row(MusicStore.QUALITY_SUPER, R.drawable.ic_quality_hires, MusicStore.qualityName(MusicStore.QUALITY_SUPER), "FLAC"),
+            new Row(MusicStore.QUALITY_HIGH, R.drawable.ic_quality_lossless, MusicStore.qualityName(MusicStore.QUALITY_HIGH), "FLAC"),
+            new Row(MusicStore.QUALITY_STANDARD, R.drawable.ic_quality_high, MusicStore.qualityName(MusicStore.QUALITY_STANDARD), "320 kbps"),
+            new Row(MusicStore.QUALITY_LOW, R.drawable.ic_quality_standard, MusicStore.qualityName(MusicStore.QUALITY_LOW), "128 kbps"),
     };
 
     private static class Binding implements ViewBinding {

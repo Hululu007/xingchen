@@ -170,6 +170,15 @@
 # 没装。整类保名。
 -keep class com.fongmi.android.tv.ui.lab.LabNodeProcessHost { *; }
 
+# 实验室自启触发（同族第 3 步口径）：App 在 main 源集按类名 Class.forName
+# 调 LabBoot.kick（main 不能直引 mobile 源集的实验室类），此前漏了保名——
+# 1.4.44 成品解包实证：ui.lab 非组件类被 R8 全改成单字母名，LabBoot 亦在
+# 其中，反射必抛 ClassNotFoundException 又被 catch 静默吞掉，冷启自启的
+# 头一个触发点（抢在配置首读之前那一脚）在成品里从来没响过，总开关只剩
+# HomeActivity 的延迟 schedule 一条腿。整类保名保成员（getMethod 按名找
+# kick，方法名同样要保）。
+-keep class com.fongmi.android.tv.ui.lab.LabBoot { *; }
+
 # 实验室落盘模型（注册表 registry.json＋包内 lab.json）：全是 Gson 反射
 # 落盘、跨版本读回的表。成员被 R8 改名/剥离时，旧版写的文件新版按新名
 # 读回——字段对不上轻则全空、重则类型冲突令整表被当坏文件改名清空

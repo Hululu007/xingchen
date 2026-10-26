@@ -396,9 +396,32 @@ public class DriveQuark implements CloudDrive {
             f.setName(o.optString("file_name"));
             f.setSize(o.optLong("size", 0));
             f.setParentCid(TextUtils.isEmpty(cid) ? "0" : cid);
+            // 缩略图（来源：OpenList quark_uc types.go 的 File.Thumbnail `json:"thumbnail"`——
+            // 条目里有这个字段，OpenList 模型里注释保留未用，星辰此前也没取；
+            // 真实回包未在本机抓到，命中情况打 pancover 日志待真机对死）
+            f.setThumbUrl(o.optString("thumbnail", ""));
             files.add(f);
         }
+        logCoverKeys("list", arr);
         return files;
+    }
+
+    /** 封面对账日志：首条条目的键名＋本页有几个条目带缩略图（tag pancover，真机一跑即可对字段）。 */
+    private static void logCoverKeys(String where, JSONArray arr) {
+        try {
+            if (arr == null || arr.length() == 0) return;
+            int thumbs = 0;
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject o = arr.optJSONObject(i);
+                if (o != null && !TextUtils.isEmpty(o.optString("thumbnail", ""))) thumbs++;
+            }
+            JSONObject first = arr.optJSONObject(0);
+            com.github.catvod.crawler.SpiderDebug.log("pancover",
+                    "quark %s keys=%s thumbs=%s/%s",
+                    where, first == null ? "null" : String.valueOf(first.names()),
+                    thumbs, arr.length());
+        } catch (Throwable ignored) {
+        }
     }
 
     /**
@@ -443,8 +466,11 @@ public class DriveQuark implements CloudDrive {
             f.setName(o.optString("file_name").replaceAll("<[^>]+>", ""));
             f.setSize(o.optLong("size", 0));
             f.setParentCid(o.optString("pdir_fid", "0"));
+            // 缩略图字段与列表同名（thumbnail，证据见 listDir 处注释）
+            f.setThumbUrl(o.optString("thumbnail", ""));
             files.add(f);
         }
+        logCoverKeys("search", arr);
         return files;
     }
 

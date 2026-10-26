@@ -627,14 +627,18 @@ public class InPageLyricsView extends View {
         Paint tint = new Paint(Paint.FILTER_BITMAP_FLAG);
         tint.setColorFilter(new PorterDuffColorFilter(COLOR_SUNG, PorterDuff.Mode.SRC_IN));
         oc.drawBitmap(alphaBmp, 0, 0, tint);
+        // 掏空位置与原点都按 extractAlpha 契约取 −offset：alpha 位图内的字形内容在
+        // 「原位置 −offset」处（瓜子 createGlyphEdgeGlow 同理：alpha 画在 glyph 位置
+        // ＋offset 才对齐）。旧写法用 ＋offset，掏空错位 2×offset，模糊晕没掏净、
+        // 剩一团近白压在正在唱的字上（他点名「字上有个白色的东西」）。
         Paint cut = new Paint();
         cut.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.DST_OUT));
-        oc.drawBitmap(glyph, offset[0], offset[1], cut);
+        oc.drawBitmap(glyph, -offset[0], -offset[1], cut);
         alphaBmp.recycle();
         glyph.recycle();
         out.bmp = bmp;
-        out.originX = offset[0] + pad;
-        out.originBase = offset[1] + base;
+        out.originX = pad - offset[0];
+        out.originBase = base - offset[1];
         return out;
     }
 

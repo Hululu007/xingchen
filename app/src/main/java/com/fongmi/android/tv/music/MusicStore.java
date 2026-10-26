@@ -1291,4 +1291,27 @@ public class MusicStore {
     public static void setSleepFinishCurrent(boolean on) {
         Prefers.put(K_SLEEP_FINISH_CURRENT, on);
     }
+
+    // ===== 上次播放失败记录（2026-10-26 落槌信号：哪一环＋错误大类＋域名，只记最近一次） =====
+    private static final String K_LAST_FAIL_KEY = "music_last_fail_key";
+    private static final String K_LAST_FAIL_RING = "music_last_fail_ring";
+    private static final String K_LAST_FAIL_CLASS = "music_last_fail_class";
+    private static final String K_LAST_FAIL_DOMAIN = "music_last_fail_domain";
+
+    public static void recordMusicFailure(String trackKey, String ring, String clazz, String domain) {
+        Prefers.put(K_LAST_FAIL_KEY, trackKey == null ? "" : trackKey);
+        Prefers.put(K_LAST_FAIL_RING, ring == null ? "" : ring);
+        Prefers.put(K_LAST_FAIL_CLASS, clazz == null ? "" : clazz);
+        Prefers.put(K_LAST_FAIL_DOMAIN, domain == null ? "" : domain);
+    }
+
+    /** 返回 [trackKey, 环, 错误大类, 域名]；从没记过返回 null。读端必须按 trackKey 认歌，不许串歌显。 */
+    public static String[] lastMusicFailure() {
+        String key = Prefers.getString(K_LAST_FAIL_KEY, "");
+        if (key == null || key.isEmpty()) return null;
+        return new String[]{key,
+                Prefers.getString(K_LAST_FAIL_RING, ""),
+                Prefers.getString(K_LAST_FAIL_CLASS, ""),
+                Prefers.getString(K_LAST_FAIL_DOMAIN, "")};
+    }
 }

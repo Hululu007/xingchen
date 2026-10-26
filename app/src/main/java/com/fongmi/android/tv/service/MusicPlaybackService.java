@@ -8,6 +8,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ServiceInfo;
+import android.media.AudioManager;
 import android.media.audiofx.AudioEffect;
 import android.net.ConnectivityManager;
 import android.net.Network;
@@ -35,7 +36,10 @@ import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.common.Tracks;
 import androidx.media3.common.util.StuckPlayerException;
+import androidx.media3.datasource.DefaultDataSource;
+import androidx.media3.datasource.okhttp.OkHttpDataSource;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.common.audio.AudioProcessor;
 import androidx.media3.exoplayer.DefaultRenderersFactory;
 import androidx.media3.exoplayer.audio.AudioSink;
@@ -300,6 +304,15 @@ public class MusicPlaybackService extends MediaSessionService {
     private int consecutiveFails;
     /** 最近一次失败的原因文案（onPlayFailed 收口发通知用，四个调用点先填好） */
     private int lastFailReasonRes;
+    // 失败分环（2026-10-26 他批准的落槌信号）：取链环＝没取到播放地址；拉流环＝地址
+    // 拿到了但播放器拉不出来。四个失败入口在调 onPlayFailed 前先填环与错误码，
+    // onPlayFailed 收口时落盘（MusicStore.recordMusicFailure），歌曲信息页按歌认领显一行。
+    private static final int FAIL_RING_LINK = 1;
+    private static final int FAIL_RING_STREAM = 2;
+    private int lastFailRing;
+    private int lastFailErrorCode;
+    /** 本次失败的一行摘要（环＋错误大类＋域名），onPlayFailed 组好、通知正文直接用 */
+    private String lastFailSummary;
     /** S9：定时“本首结束”绑定的歌（trackKey，setSleep 时记当前歌）；换歌／该歌失败即失效，
      * 不许跟到下一首去。null＝设定时无当前歌，沿用旧口径（到本首尾即停）。 */
     private String sleepTargetKey;
@@ -315,6 +328,100 @@ public class MusicPlaybackService extends MediaSessionService {
 
     /** 播放器里有没有真装过媒体项（D5 收口判断用：装过且停播走的是媒体通知自己的生命周期） */
     private boolean hasMediaItem;
+
+    // ================= 音频焦点（2026-10-26 他亲报：刷抖音被抢声后退出来不自动恢复） =================
+    // 此前焦点整个交给 media3 内部管理（setAudioAttributes 第二参 true）：永久 LOSS 时
+    // 它只把 playWhenReady 压掉、GAIN 回来永不续播——抖音播视频抢的是永久焦点，
+    // 退出后焦点明明回到栈顶，歌却停着。改服务自己接管（handleAudioFocus=false）：
+    // 被抢停时记 focusResumePending（非用户暂停），GAIN 回来自动续播；用户亲手暂停
+    // 绝不能被拉起来——标记的清除点逐个钉死在 clearFocusResume 的注释里。
+    private AudioManager audioManager;
+    private boolean focusHeld;
+    /** 被抢焦点暂停、等焦点回来续播的标记（只由焦点监听置位，只由明确的用户/收口动作清除） */
+    private boolean focusResumePending;
+    /** 被短暂打断要求降音量（duck）中：没暂停、只压音量，GAIN 时还原 */
+    private boolean focusDucked;
+
+    private final AudioManager.OnAudioFocusChangeListener focusListener = focusChange -> {
+        switch (focusChange) {
+            case AudioManager.AUDIOFOCUS_GAIN:
+                focusHeld = true;
+                if (focusDucked) {
+                    focusDucked = false;
+                    if (player != null) player.setVolume(1f);
+                }
+                if (focusResumePending) {
+                    focusResumePending = false;
+                    // 直接 player.play()：不走 service.play()（那是用户入口、带断点/重备语义）
+                    if (player != null && hasMediaItem) player.play();
+                }
+                break;
+            case AudioManager.AUDIOFOCUS_LOSS:
+            case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
+                // 永久与短暂同口径（他的定版：不是用户亲手停的，声还回来就续播）：
+                // 抖音/别的播放器＝永久 LOSS，来电/微信语音＝短暂 LOSS，两者都记标记等 GAIN。
+                focusHeld = false;
+                if (player != null && hasMediaItem && (player.isPlaying() || player.getPlayWhenReady())) {
+                    focusResumePending = true;
+                    // 直调 player.pause()，不走 service.pause()——后者是用户暂停口径、会清标记
+                    player.pause();
+                }
+                break;
+            case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
+                // 导航播报这类短打断：不暂停、只压到 0.2（media3 旧口径同值），GAIN 还原
+                if (player != null && player.isPlaying()) {
+                    focusDucked = true;
+                    player.setVolume(0.2f);
+                }
+                break;
+            default:
+                break;
+        }
+    };
+
+    /** 申请音乐焦点（起播的唯一收口：playerListener.onPlayWhenReadyChanged 见 true 即调）。 */
+    private void requestMusicFocus() {
+        if (audioManager == null) {
+            try {
+                audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+            } catch (Throwable ignored) {
+            }
+        }
+        if (audioManager == null) return;
+        try {
+            int r = audioManager.requestAudioFocus(focusListener,
+                    AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
+            if (r == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) focusHeld = true;
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void abandonMusicFocus() {
+        focusHeld = false;
+        if (audioManager == null) return;
+        try {
+            audioManager.abandonAudioFocus(focusListener);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * 清「被抢停待续播」标记＋还原 duck 音量。调用点逐个钉死（多一个都会把用户暂停拉起来、
+     * 少一个都会把该续的吞掉）：
+     * · service.pause()——一切经服务口径的暂停：用户点暂停/通知切换、睡眠到点、曲终停尾，
+     *   全是「就该停」，焦点回来不许复活；
+     * · service.play() 与会话包层 play()/pause()——用户（或系统面）亲手播/停，意图接管；
+     * · prepareTrack 入口——新歌已受理（用户点歌/切歌、自动推进），旧歌的待续播作废；
+     * · stopPlayback()/stopAtFailed()——停机收口，顺带 abandon 焦点；
+     * 焦点监听自己的暂停/续播直调 player，不经这些口，不会自清。
+     */
+    private void clearFocusResume() {
+        focusResumePending = false;
+        if (focusDucked) {
+            focusDucked = false;
+            if (player != null) player.setVolume(1f);
+        }
+    }
 
     /** 播放器里真装着的那首（setMediaItem 成功时记下）：新歌取链失败时回滚到它，
      * 别让界面把播不了的歌当成「当前」展示（封面/歌名换了、进度还是旧歌的实证根因） */
@@ -337,6 +444,10 @@ public class MusicPlaybackService extends MediaSessionService {
         // 节拍分析器（瓜子 cg0 移植）：串在均衡之后，分析最终信号、透传不改声，
         // 帧发布到 MusicBeatState 供播放页流体背景消费；开关门由 MusicBeatState.requestEnabled 控。
         beatAnalyzer = new MusicBeatAnalyzer();
+        // 律动门初值（体检高危「假开关」接通）：requestEnabled 此前无任何置位者、恒 false，
+        // 分析器永不发布、氛围层恒 0 输入。初值＝流体背景开且律动开；运行中由播放页/歌词页
+        // 氛围层 refreshSettings 同步（同口径重算），面板改开关经 onSettingsChanged 即达。
+        MusicBeatState.requestEnabled = MusicStore.isFluidBg() && MusicStore.isFluidBeat();
         // 本机 Media3 分支的 ExoPlayer.Builder 没有 setAudioProcessors，均衡链改走 AudioSink 注入：
         // DefaultRenderersFactory.createRenderers 调 buildAudioSink 取 AudioSink，子类覆写它即可把处理链串进音频渲染器（默认实现只设两个开关，本覆写原样照搬再加处理链）。
         DefaultRenderersFactory renderersFactory = new DefaultRenderersFactory(this) {
@@ -353,7 +464,17 @@ public class MusicPlaybackService extends MediaSessionService {
                 .setAudioAttributes(new AudioAttributes.Builder()
                         .setUsage(C.USAGE_MEDIA)
                         .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
-                        .build(), true)
+                        .build(), false)
+                // 拉流同源（2026-10-26 他批准的落槌路径）：此前没挂任何数据源工厂，
+                // 拉流走 media3 默认栈（HttpURLConnection＋系统 DNS），不吃壳子 OkHttp
+                // 的 DoH／代理／节点策略——搜索/取链/验链全在壳子栈内、唯独真正出声
+                // 的最后一拉在栈外，他网络下 CDN 解析污染即全源播不了（调查报告定根）。
+                // 改挂壳子同源：OkHttp.player()（视频播放器同款客户端）＋DefaultDataSource
+                // 分流（http(s) 走 OkHttp、file/content 仍走本地源，本地歌不受影响）。
+                // 只换传输层：起播时序、预加载、降档链一律不动。
+                .setMediaSourceFactory(new DefaultMediaSourceFactory(
+                        new DefaultDataSource.Factory(this,
+                                new OkHttpDataSource.Factory(com.github.catvod.net.OkHttp.player()))))
                 .setHandleAudioBecomingNoisy(true)
                 .setWakeMode(C.WAKE_MODE_NETWORK)
                 .setRenderersFactory(renderersFactory)
@@ -507,6 +628,8 @@ public class MusicPlaybackService extends MediaSessionService {
         // 置 false，定时停机/onTaskRemoved 的 stopSelf 都不走 demote；不复位的话服务
         // 重建后 startForegroundNow 恒被「已在岗」短路，新实例可能永不调 startForeground。
         sMediaNotificationPosted = false;
+        clearFocusResume();
+        abandonMusicFocus();
         // 扫描 H4：销毁时取消在途取链，不让僵尸任务继续占音乐池打源
         cancelPrepareFuture();
         saveBreakpoint(); // M4：failedStopNoBreakpoint 为 true 时内部直接返回，断点保持此前好歌
@@ -673,6 +796,7 @@ public class MusicPlaybackService extends MediaSessionService {
     }
 
     public void play() {
+        clearFocusResume(); // 用户亲手播：接管意图，清掉被抢停的待续播标记
         if (player == null) return;
         if (queue.current() == null) return;
         // 没准备过（断点恢复态）则先准备，进度走断点（R12 失败态的 0 进度由
@@ -694,6 +818,9 @@ public class MusicPlaybackService extends MediaSessionService {
     }
 
     public void pause() {
+        // 用户/收口口径的暂停（睡眠到点、曲终停尾也走这里）：清待续播标记，
+        // 焦点回来不许把用户亲手停的歌拉起来。焦点监听的暂停直调 player.pause() 不经这里。
+        clearFocusResume();
         if (player != null) player.pause();
         saveBreakpoint();
     }
@@ -788,7 +915,16 @@ public class MusicPlaybackService extends MediaSessionService {
     private ForwardingPlayer wrapPlayer(Player base) {
         return new ForwardingPlayer(base) {
             @Override
+            public void pause() {
+                // 系统面（锁屏/通知/耳机）亲手暂停同样是用户意图：清待续播标记，
+                // 不许焦点回来又把他刚停的歌拉起来（与 service.pause() 同口径）。
+                clearFocusResume();
+                super.pause();
+            }
+
+            @Override
             public void play() {
+                clearFocusResume(); // 系统面亲手播：意图接管（与 service.play() 同口径）
                 // S1：空闲态（失败停机／被杀重启断点恢复后，播放器里无媒体项）时系统面按播放
                 // 不许空转——走服务 play()，它会先 prepareTrack(断点位置) 再播；服务 play()
                 // 调的是原始 player，不会递归回包层。非空闲态沿用 media3 默认播停。
@@ -1016,6 +1152,8 @@ public class MusicPlaybackService extends MediaSessionService {
     }
 
     private void stopPlayback() {
+        clearFocusResume();
+        abandonMusicFocus();
         autoAdvancing = false;
         startFromHistory = false;
         // Q6/P1：停播即顶掉在途取链——序号＋取消任务双保险，不许清队／停机后取链回来
@@ -1061,6 +1199,8 @@ public class MusicPlaybackService extends MediaSessionService {
             stopPlayback();
             return;
         }
+        clearFocusResume();
+        abandonMusicFocus();
         autoAdvancing = false;
         startFromHistory = false;
         prepareSeq++;
@@ -1898,6 +2038,7 @@ public class MusicPlaybackService extends MediaSessionService {
     private void prepareTrack(int index, long startPosition, boolean autoplay) {
         MusicTrack track = queue.get(index);
         if (track == null || player == null) return;
+        clearFocusResume(); // 新歌受理（点歌/切歌/自动推进）：旧歌的被抢停待续播作废
         // P-3d＋第二波堵-4：新一次取链开始时清掉上次取链的死插件／死通道记录（本次取链内有效，
         // 换歌／重试都重新算，不许跨取链拉黑好插件；同一次取链内的降档循环不再重进已死指派插件，
         // 见 MusicRepository）。仓库层、Lx 源内、FreeJs 桥内三处一起清，不许只清仓库层
@@ -1936,6 +2077,8 @@ public class MusicPlaybackService extends MediaSessionService {
             cancelPrepareFuture();
             SpiderDebug.log("music", "prepare timeout id=%s", track.id);
             lastFailReasonRes = autoAdvancing ? R.string.music_fail_next_timeout : R.string.music_fail_timeout;
+            lastFailRing = FAIL_RING_LINK;
+            lastFailErrorCode = 0;
             onPlayFailed(track);
         }, PREPARE_TIMEOUT_MS);
         // 标题与声音同步（下一曲／自动推进）：自动推进时受理即换标题会让 App 内标题先切、
@@ -1992,11 +2135,15 @@ public class MusicPlaybackService extends MediaSessionService {
                         // 自动跳歌会越过它往后找（不拉黑会原地反复试同一首直至熔断，别的歌永远轮不到）。
                         failedBlacklist.add(MusicQueue.trackKey(track));
                         lastFailReasonRes = R.string.music_mobile_play_blocked;
+                        lastFailRing = FAIL_RING_LINK;
+                        lastFailErrorCode = 0;
                         onPlayFailed(track);
                         return;
                     }
                     // R12 手动拦歌：停在被拦歌的失败态（见 onPlayFailed），不回滚、不静默
                     lastFailReasonRes = R.string.music_mobile_play_blocked;
+                    lastFailRing = FAIL_RING_LINK;
+                    lastFailErrorCode = 0;
                     onPlayFailed(track);
                     return;
                 }
@@ -2004,6 +2151,8 @@ public class MusicPlaybackService extends MediaSessionService {
                     SpiderDebug.log("music", "playUrl empty id=%s", track.id);
                     currentPlayUrl = null;
                     lastFailReasonRes = autoAdvancing ? R.string.music_fail_next_url : R.string.music_fail_url;
+                    lastFailRing = FAIL_RING_LINK;
+                    lastFailErrorCode = 0;
                     onPlayFailed(track);
                     return;
                 }
@@ -2018,6 +2167,8 @@ public class MusicPlaybackService extends MediaSessionService {
                     SpiderDebug.log("music", "playUrl non-http scheme=%s id=%s", fScheme, track.id);
                     currentPlayUrl = null;
                     lastFailReasonRes = autoAdvancing ? R.string.music_fail_next_url : R.string.music_fail_url;
+                    lastFailRing = FAIL_RING_LINK;
+                    lastFailErrorCode = 0;
                     onPlayFailed(track);
                     return;
                 }
@@ -2111,7 +2262,61 @@ public class MusicPlaybackService extends MediaSessionService {
      * 失败计数记在 failed 这首上（不是 queue.current()）：自动推进时 current 还是已播完的旧歌，
      * 记错会把好歌拉黑、把坏歌漏掉；播放器报错时调用方传 queue.current()，与旧行为一致。
      */
+    /** 拉流错误大类（只报大类不报全码链）：IO 2xxx 按细分，解析 3xxx、其余按段归类。 */
+    private static String streamErrorClass(int code) {
+        switch (code) {
+            case PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED:
+                return "网络连不上";
+            case PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT:
+                return "网络超时";
+            case PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS:
+                return "服务器拒绝";
+            case PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND:
+                return "文件不存在";
+            case PlaybackException.ERROR_CODE_IO_INVALID_HTTP_CONTENT_TYPE:
+            case PlaybackException.ERROR_CODE_IO_NO_PERMISSION:
+            case PlaybackException.ERROR_CODE_IO_CLEARTEXT_NOT_PERMITTED:
+                return "访问被拒";
+            default:
+                if (code >= 2000 && code < 3000) return "网络错误";
+                if (code >= 3000 && code < 4000) return "音频格式解析失败";
+                if (code >= 5000 && code < 6000) return "播放器渲染失败";
+                return "播放器错误 " + code;
+        }
+    }
+
+    /** 组本次失败摘要并落盘：环（取链/拉流）＋错误大类＋域名（只域名不全链）。 */
+    private void recordFailure(MusicTrack failed) {
+        lastFailSummary = null;
+        if (failed == null) return;
+        try {
+            String ringText;
+            String clazz;
+            String domain = "";
+            if (lastFailRing == FAIL_RING_STREAM) {
+                ringText = "地址拿到了但播不出来";
+                clazz = streamErrorClass(lastFailErrorCode);
+                if (currentPlayUrl != null && !currentPlayUrl.isEmpty()) {
+                    String host = android.net.Uri.parse(currentPlayUrl).getHost();
+                    if (host != null) domain = host;
+                }
+            } else {
+                ringText = "没取到播放地址";
+                clazz = lastFailReasonRes == R.string.music_fail_timeout
+                        || lastFailReasonRes == R.string.music_fail_next_timeout ? "取链超时"
+                        : lastFailReasonRes == R.string.music_mobile_play_blocked ? "移动网络播放已关闭"
+                        : "没取到播放地址";
+            }
+            lastFailSummary = ringText + "（" + clazz + (domain.isEmpty() ? "" : " · " + domain) + "）";
+            MusicStore.recordMusicFailure(MusicQueue.trackKey(failed),
+                    lastFailRing == FAIL_RING_STREAM ? "拉流" : "取链", clazz, domain);
+            SpiderDebug.log("music", "failRecord %s", lastFailSummary);
+        } catch (Throwable ignored) {
+        }
+    }
+
     private void onPlayFailed(MusicTrack failed) {
+        recordFailure(failed);
         startFromHistory = false;
         // P1：失败计数记在 failed 这首上（不是 queue.current()），键用 trackKey；
         // S9：失败的就是定时绑定的那首时定时失效（它不会再“播完”，不许跟到下一首）
@@ -2132,7 +2337,16 @@ public class MusicPlaybackService extends MediaSessionService {
         }
         // 自动跳歌链后台不断链：失败收口前先顶回前台，免得后台跳歌时回调被推迟到回前台才执行。
         if (autoAdvancing) startForegroundNow();
-        if (MusicStore.isAutoSkipOnError() && advancePastFailed(failed)) return;
+        // 心情电台豁免（M 片定根转派，他当面改口的终版口径）：电台队列是全源聚合、
+        // 无版权不可播条目占比高，只系全局「自动跳下一首」开关时第二首起撞不可播就停机，
+        // 表象是「播完一首不接下一首」。电台队列（入队 routeParams mode=home_mood，
+        // 全树仅心情电台入口写）绕过全局开关、无条件走既有 advancePastFailed 跳歌路
+        // （不另起一套）；随心听/榜单/歌单各自 mode 不同，仍系全局开关，豁免不外溢。
+        // 兜底不动：advancePastFailed 双界（consecutiveFails≥size 即停、至多 size 轮），
+        // 全灭仍落下面的停机支＋notifyPlayFailedStopped 给状态，不无限重试。
+        boolean moodRadio = queue.getRouteParams() != null
+                && "home_mood".equals(queue.getRouteParams().get("mode"));
+        if ((moodRadio || MusicStore.isAutoSkipOnError()) && advancePastFailed(failed)) return;
         // 第三波 G-B5：lx: 歌且无支撑落雪脚本时，提示改指缺脚本而非通用失败
         if (!lxNoSupportNotified(failed)) Notify.show(R.string.music_play_failed_stopped);
         if (autoAdvancing) {
@@ -2296,7 +2510,9 @@ public class MusicPlaybackService extends MediaSessionService {
     private void notifyPlayFailedStopped(MusicTrack failed, boolean hasNext) {
         try {
             int reasonRes = lastFailReasonRes != 0 ? lastFailReasonRes : R.string.music_fail_unknown;
-            String text = getString(reasonRes);
+            // 分环摘要优先（哪一环＋错误大类＋域名，他一眼能报）；没组出来才回落旧原因串
+            String text = lastFailSummary != null && !lastFailSummary.isEmpty()
+                    ? lastFailSummary : getString(reasonRes);
             if (failed != null) {
                 String title = failed.displayTitle();
                 String src = failSourceName(failed);
@@ -2441,12 +2657,21 @@ public class MusicPlaybackService extends MediaSessionService {
                 }
                 preparing = false;
                 lastFailReasonRes = R.string.music_fail_play_error;
+                lastFailRing = FAIL_RING_STREAM;
+                lastFailErrorCode = error.errorCode;
                 onPlayFailed(loadedTrack != null ? loadedTrack : queue.current());
             } catch (Throwable t) {
                 // X-31：错误处理自己再抛错不许静默吞——落日志留痕再收口，
                 // 否则失败收口断在哪一步无从查起。
                 SpiderDebug.log("music", "onPlayerError handler failed %s", t);
             }
+        }
+
+        @Override
+        public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
+            // 起播唯一收口：任何路径把 playWhenReady 打开（服务 play/prepare 装歌后 play/
+            // 会话包层/焦点续播）都在这里统一申请焦点，不许各入口各申请一遍漏一处。
+            if (playWhenReady) requestMusicFocus();
         }
 
         @Override

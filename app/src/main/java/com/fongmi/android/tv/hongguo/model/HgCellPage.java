@@ -1,0 +1,32 @@
+package com.fongmi.android.tv.hongguo.model;
+
+import com.google.gson.JsonObject;
+
+import java.util.Collections;
+import java.util.List;
+
+/**
+ * cell 驱动接口（剧场分类/搜索结果/计划位/追剧架）的通用回包（不可变）。
+ *
+ * <p>这类接口的 cell 结构由服务端编排、字段口径未在样本里定版：本类保留原始
+ * JsonObject 不丢信息，同时尽力抽出剧条目列表供上层直接用。</p>
+ */
+public final class HgCellPage {
+
+    private final int code;
+    private final String message;
+    private final List<HgSeriesItem> items;
+    private final JsonObject raw;
+
+    HgCellPage(int code, String message, List<HgSeriesItem> items, JsonObject raw) {
+        this.code = code;
+        this.message = message;
+        this.items = Collections.unmodifiableList(items);
+        this.raw = raw;
+    }
+
+    public int getCode() { return code; }
+    public String getMessage() { return message; }
+    public List<HgSeriesItem> getItems() { return items; }
+    public JsonObject getRaw() { return raw; }
+}

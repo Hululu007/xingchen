@@ -395,7 +395,7 @@ public class HomeActivity extends BaseActivity implements XcBottomBar.OnItemSele
      */
     private void initBottomTabs() {
         List<BottomTabs.Spec> tabs = new ArrayList<>();
-        tabs.add(new BottomTabs.Spec(R.id.vod, R.drawable.ic_nav_home_outline, R.drawable.ic_nav_home_filled, getString(R.string.nav_vod), true));
+        tabs.add(new BottomTabs.Spec(R.id.vod, R.drawable.ic_nav_home_outline, R.drawable.ic_nav_home_filled, getString(R.string.nav_home), true));
         tabs.add(new BottomTabs.Spec(R.id.live, R.drawable.ic_nav_live, 0, getString(R.string.nav_live), LiveConfig.hasUrl()));
         tabs.add(new BottomTabs.Spec(R.id.music, R.drawable.ic_nav_music, 0, getString(R.string.nav_music), true));
         tabs.add(new BottomTabs.Spec(R.id.reading, R.drawable.ic_nav_reading, 0, getString(R.string.nav_reading), true));

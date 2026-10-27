@@ -10,6 +10,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,16 +21,18 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -42,14 +45,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.fongmi.android.tv.ui.music.MusicPlayerSettings
+import kotlinx.coroutines.launch
 
 /**
- * Apple Music 主题主页（瓜子 AppleMusicPlayer 内容 lambda，PlayerScreenKt.java:2853 起；
- * 数值认 gz-player-values.md §五）：内部三页交叉淡入栈的页 1——页 2 歌词页即根的 FullLyricPlayer
- * （同一 AppleLyricsView），页 0 歌曲信息页不在本单范围（后续单）。
- * 纵列：封面盒（weight 1 铺满、切歌 600ms/bs4.a 缩放淡入）→ 标题列（相对封面下沿上叠 −12）
- * → Scrubber（轨 6、无顶盒无底行）→ 控制行（高 96、上叠 −18）→ 间隔 6 → 音量行
- * → 间隔 2 → 功能行（高 52）→ 底部间隔 22。
+ * Apple Music 主题（gz-player-values.md §五）：封面盒 weight=1 铺满、横滑 pager 三页
+ * （信息/封面/全屏歌词）；标题列相对封面下沿上叠 −12dp、横边距 24；底部栈＝
+ * Scrubber（轨 6、填充 .58/.9、无顶盒无底行＝不显时间）→控制行（高 96、上叠 −18）→
+ * 音量行→功能行（歌词/音质/播放列表）。封面切歌转场 600ms/bs4.a 缩放系。
  */
 @Composable
 fun ApplePlayer(
@@ -58,201 +61,266 @@ fun ApplePlayer(
     onToolsClick: () -> Unit,
     onQueueClick: () -> Unit,
     onQualityClick: () -> Unit,
-    onLyricClick: () -> Unit,
-    modifier: Modifier = Modifier
+    onLyricClick: () -> Unit
 ) {
+    val pagerState = rememberPagerState(initialPage = 1, pageCount = { 3 })
+    val scope = rememberCoroutineScope()
     val track = state.track
-    Column(modifier.fillMaxSize()) {
-        // 封面盒：weight 1 铺满（AppleMusicCoverArt:1622，Crop 铺满；圆角值未抠到、不自造方角直铺）
-        Box(Modifier.weight(1f).fillMaxWidth()) {
-            AnimatedContent(
-                targetState = state.coverUrl,
-                transitionSpec = {
-                    (fadeIn(tween(600, easing = EaseBs4A)) + scaleIn(
-                        initialScale = 0.97f,
-                        animationSpec = tween(600, easing = EaseBs4A)
-                    )) togetherWith (fadeOut(tween(600, easing = EaseBs4A)) + scaleOut(
-                        targetScale = 1.03f,
-                        animationSpec = tween(600, easing = EaseBs4A)
-                    ))
-                },
-                label = "appleCover",
-                modifier = Modifier.fillMaxSize()
-            ) { _ ->
-                // 位图由中枢按 url 守卫发布（切歌先清旧图）：过渡期两层同图或空，不挂上一首的脸
-                CoverImage(state, ContentScale.Crop, Modifier.fillMaxSize())
-            }
-        }
-        // 标题列：相对封面下沿上叠 −12dp、横边距 24
-        Column(
-            Modifier
-                .offset(y = (-12).dp)
+    val album = track?.displayAlbum() ?: ""
+    val showAlbum = album.isNotEmpty() && album != "未知专辑"
+
+    Column(Modifier.fillMaxSize()) {
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 24.dp)
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.weight(1f).height(30.dp), contentAlignment = Alignment.CenterStart) {
-                    AnimatedSongTitle(
-                        text = track?.displayTitle() ?: "",
-                        style = TextStyle(
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.W800,
-                            lineHeight = 26.sp,
-                            letterSpacing = (-0.4).sp
-                        ),
-                        color = Color.White.copy(alpha = 0.96f)
+                .weight(1f)
+        ) { page ->
+            when (page) {
+                0 -> Box(
+                    Modifier
+                        .fillMaxSize()
+                        .statusBarsPadding()
+                        .padding(24.dp)
+                ) {
+                    SongInfoFace(
+                        state = state,
+                        colors = SongInfoColors(
+                            high = Color.White.copy(alpha = 0.96f),
+                            medium = Color.White.copy(alpha = 0.6f),
+                            low = Color.White.copy(alpha = 0.42f),
+                            inset = Color.White.copy(alpha = 0.10f),
+                            accent = Color(0xFFFA243C)
+                        )
                     )
                 }
-                Spacer(Modifier.width(8.dp))
-                // 爱心（34dp 圆玻璃、图标 20 白 0.85、按压 0.88）
-                GlassCircleButton(34, 20, onClick = { PlayerStateHolder.toggleFavorite() }) { tint ->
-                    HeartIcon(20.dp, if (state.isFavorite) Color.White else tint, filled = state.isFavorite)
+                2 -> LyricStage(
+                    lines = state.lyricLines,
+                    untimed = state.lyricUntimed,
+                    wordByWord = MusicPlayerSettings.isFullLyricWordByWord(),
+                    fontSizeSp = MusicPlayerSettings.getFullLyricFontSize(),
+                    lineHeightFactor = 1.3f,
+                    lineGapDp = 6f,
+                    fullAnchor = true,
+                    anchorFraction = 0f,
+                    windowBefore = 3,
+                    windowAfter = 15,
+                    blurGroupB = true,
+                    blurCoefficient = MusicPlayerSettings.blurCoefficient(),
+                    palette = LyricPalette.ImmersiveDark,
+                    showTranslation = MusicPlayerSettings.isShowTranslation(),
+                    alignMode = MusicPlayerSettings.getLyricAlign(),
+                    weightLevel = MusicPlayerSettings.getLyricWeight(),
+                    lyricOffsetMs = MusicPlayerSettings.getLyricOffsetMs().toLong(),
+                    maxVisualLines = 0,
+                    topFadeDp = 40f,
+                    letterSpacingEm = -0.2f / MusicPlayerSettings.getFullLyricFontSize(),
+                    onLineSeek = { PlayerStateHolder.seekTo(it) },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 28.dp)
+                )
+                else -> AnimatedContent(
+                    targetState = track?.id ?: "",
+                    transitionSpec = {
+                        (scaleIn(initialScale = 0.97f, animationSpec = tween(600, easing = EaseBs4A)) +
+                            fadeIn(tween(600, easing = EaseBs4A))) togetherWith
+                            (scaleOut(targetScale = 1.03f, animationSpec = tween(600, easing = EaseBs4A)) +
+                                fadeOut(tween(600, easing = EaseBs4A)))
+                    },
+                    label = "appleCoverSwap"
+                ) {
+                    CoverImage(state, ContentScale.Crop, Modifier.fillMaxSize())
                 }
-                Spacer(Modifier.width(12.dp))
-                // 三个点 → 工具面板（本主题的主题切换入口）
-                GlassCircleButton(34, 20, onClick = onToolsClick) { tint ->
+            }
+        }
+        // 标题列＋底部栈（整列上叠 −12dp：标题压封面下沿；末间隔按 22−12 补回视觉底距）
+        Column(Modifier.offset(y = (-12).dp)) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Box(Modifier.height(30.dp), contentAlignment = Alignment.CenterStart) {
+                        AnimatedSongTitle(
+                            text = track?.displayTitle() ?: "",
+                            style = TextStyle(
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.W800,
+                                lineHeight = 26.sp,
+                                letterSpacing = (-0.4).sp
+                            ),
+                            color = Color.White.copy(alpha = 0.96f)
+                        )
+                    }
+                    Spacer(Modifier.height(5.dp))
+                    Box(Modifier.height(22.dp), contentAlignment = Alignment.CenterStart) {
+                        Text(
+                            text = track?.displayArtist() ?: "",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.W500,
+                            lineHeight = 18.sp,
+                            color = Color.White.copy(alpha = 0.6f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    if (showAlbum) {
+                        Box(Modifier.height(18.dp), contentAlignment = Alignment.CenterStart) {
+                            Text(
+                                text = album,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.W500,
+                                lineHeight = 16.sp,
+                                color = Color.White.copy(alpha = 0.42f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.size(8.dp))
+                GlassCircleButton(
+                    sizeDp = 34,
+                    iconSizeDp = 20,
+                    onClick = { PlayerStateHolder.toggleFavorite() }
+                ) { tint ->
+                    HeartIcon(20.dp, tint, filled = state.isFavorite)
+                }
+                Spacer(Modifier.size(12.dp))
+                GlassCircleButton(
+                    sizeDp = 34,
+                    iconSizeDp = 20,
+                    onClick = onToolsClick
+                ) { tint ->
                     MoreDotsIcon(20.dp, tint)
                 }
             }
-            Spacer(Modifier.height(8.dp))
-            Spacer(Modifier.height(5.dp))
-            // 歌手（高 22、14sp/500/白 0.6）
-            Box(Modifier.fillMaxWidth().height(22.dp), contentAlignment = Alignment.CenterStart) {
-                Text(
-                    text = track?.displayArtist() ?: "",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.W500,
-                    lineHeight = 18.sp,
-                    color = Color.White.copy(alpha = 0.6f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            // 专辑（高 18、12sp/500/白 0.42；仅专辑非空且非「未知专辑」时画）
-            val album = track?.displayAlbum()?.takeIf { it.isNotEmpty() && it != "未知专辑" }
-            if (album != null) {
-                Box(Modifier.fillMaxWidth().height(18.dp), contentAlignment = Alignment.CenterStart) {
-                    Text(
-                        text = album,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.W500,
-                        lineHeight = 16.sp,
-                        color = Color.White.copy(alpha = 0.42f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+            PlaybackScrubber(
+                progress = progress,
+                audioLabel = null,
+                lyricLabel = null,
+                onSeek = { PlayerStateHolder.seekTo(it) },
+                onQualityClick = onQualityClick,
+                onLyricChipClick = onLyricClick,
+                modifier = Modifier.padding(horizontal = 24.dp),
+                trackHeightDp = 6f,
+                fillFromAlpha = 0.58f,
+                fillToAlpha = 0.9f,
+                showTopBox = false,
+                showBottomRow = false
+            )
+            // 控制行（高 96、上叠 −18）
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .height(96.dp)
+                    .offset(y = (-18).dp),
+                horizontalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                val canPrev = state.queueIndex > 0
+                Box(
+                    Modifier
+                        .size(56.dp)
+                        .pressScale(0.88f)
+                        .clickableNoRipple(enabled = canPrev) { PlayerStateHolder.prev() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    PathIconBox(
+                        48.dp, 42.dp,
+                        Color.White.copy(alpha = if (canPrev) 0.9f else 0.35f),
+                        PATH_PREV
+                    )
+                }
+                Box(
+                    Modifier
+                        .size(84.dp)
+                        .pressScale(0.9f)
+                        .clickableNoRipple { PlayerStateHolder.toggle() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    PathIconBox(
+                        60.dp, 52.5.dp,
+                        Color.White.copy(alpha = 0.95f),
+                        if (state.isPlaying) GZ_PAUSE_PATH else GZ_PLAY_PATH
+                    )
+                }
+                Box(
+                    Modifier
+                        .size(56.dp)
+                        .pressScale(0.88f)
+                        .clickableNoRipple(enabled = state.canNext) { PlayerStateHolder.next() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    PathIconBox(
+                        48.dp, 42.dp,
+                        Color.White.copy(alpha = if (state.canNext) 0.9f else 0.35f),
+                        PATH_NEXT
                     )
                 }
             }
-        }
-        // Scrubber（横 24、轨 6dp、填充 0.58→0.9、无顶盒、无底行——Apple 不显示时间，§五定谳）
-        PlaybackScrubber(
-            progress = progress,
-            audioLabel = null,
-            lyricLabel = null,
-            onSeek = { PlayerStateHolder.seekTo(it) },
-            onQualityClick = onQualityClick,
-            onLyricChipClick = {},
-            modifier = Modifier.padding(horizontal = 24.dp),
-            trackHeightDp = 6f,
-            fillFromAlpha = 0.58f,
-            fillToAlpha = 0.9f,
-            showTopBox = false,
-            showBottomRow = false
-        )
-        // 控制行（高 96、上叠 −18；三键间距 24）
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .offset(y = (-18).dp)
-                .height(96.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(
-                24.dp, Alignment.CenterHorizontally
+            Spacer(Modifier.height(6.dp))
+            VolumeRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .height(32.dp)
             )
-        ) {
-            val canPrev = state.queueIndex > 0
-            Box(
+            Spacer(Modifier.height(2.dp))
+            // 功能行（高 52、图标间距 48、共用 alpha .5）
+            Row(
                 Modifier
-                    .size(56.dp)
-                    .pressScale(0.88f)
-                    .alpha(if (canPrev) 0.9f else 0.35f)
-                    .clickableNoRipple(enabled = canPrev) { PlayerStateHolder.prev() },
-                contentAlignment = Alignment.Center
+                    .fillMaxWidth()
+                    .height(52.dp),
+                horizontalArrangement = Arrangement.spacedBy(48.dp, Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                PathIconBox(48.dp, 42.dp, Color.White, PATH_PREV)
-            }
-            Box(
-                Modifier
-                    .size(84.dp)
-                    .pressScale(0.9f)
-                    .alpha(0.95f)
-                    .clickableNoRipple { PlayerStateHolder.toggle() },
-                contentAlignment = Alignment.Center
-            ) {
-                if (state.isPlaying) {
-                    PathIconBox(60.dp, 52.5.dp, Color.White, PATH_PAUSE_BARS)
-                } else {
-                    PathIconBox(60.dp, 52.5.dp, Color.White, PATH_PLAY_TRIANGLE)
+                Box(
+                    Modifier
+                        .size(40.dp)
+                        .pressScale(0.88f)
+                        .clickableNoRipple {
+                            // Apple 歌词面就是 pager 第三页（§五），不另开根级全屏歌词页
+                            scope.launch { pagerState.animateScrollToPage(2) }
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    LyricStyleGlyph(24.dp, Color.White.copy(alpha = 0.5f))
+                }
+                Box(
+                    Modifier
+                        .size(40.dp)
+                        .pressScale(0.88f)
+                        .clickableNoRipple(onClick = onQualityClick),
+                    contentAlignment = Alignment.Center
+                ) {
+                    QualityBarsIcon(24.dp, Color.White.copy(alpha = 0.5f))
+                }
+                Box(
+                    Modifier
+                        .size(40.dp)
+                        .pressScale(0.88f)
+                        .clickableNoRipple(onClick = onQueueClick),
+                    contentAlignment = Alignment.Center
+                ) {
+                    PathIcon(28.dp, Color.White.copy(alpha = 0.5f), GZ_QUEUE_PATH)
                 }
             }
-            Box(
-                Modifier
-                    .size(56.dp)
-                    .pressScale(0.88f)
-                    .alpha(if (state.canNext) 0.9f else 0.35f)
-                    .clickableNoRipple(enabled = state.canNext) { PlayerStateHolder.next() },
-                contentAlignment = Alignment.Center
-            ) {
-                PathIconBox(48.dp, 42.dp, Color.White, PATH_NEXT)
-            }
+            Spacer(Modifier.height(10.dp))
         }
-        Spacer(Modifier.height(6.dp))
-        // 音量行（横 24、行高 32）：瓜子走播放器音量、星辰无此口 → 系统媒体音量（口径差注名）；
-        // 两端图标尺寸与滑杆浓度未逐项抠到，按同族值装配（交卷注名）
-        AppleVolumeRow(Modifier.padding(horizontal = 24.dp))
-        Spacer(Modifier.height(2.dp))
-        // 功能行（高 52、图标间距 48：歌词 24/音质 24/播放列表 28；启用 alpha 0.5）
-        Row(
-            Modifier.fillMaxWidth().height(52.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(
-                48.dp, Alignment.CenterHorizontally
-            )
-        ) {
-            Box(
-                Modifier.pressScale(0.9f).alpha(0.5f).clickableNoRipple(onClick = onLyricClick),
-                contentAlignment = Alignment.Center
-            ) {
-                LyricStyleGlyph(24.dp, Color.White)
-            }
-            Box(
-                Modifier.pressScale(0.9f).alpha(0.5f)
-                    .clickableNoRipple(onClick = onQualityClick),
-                contentAlignment = Alignment.Center
-            ) {
-                QualityBarsIcon(24.dp, Color.White)
-            }
-            Box(
-                Modifier.pressScale(0.9f).alpha(0.5f).clickableNoRipple(onClick = onQueueClick),
-                contentAlignment = Alignment.Center
-            ) {
-                QueueIcon(28.dp, Color.White)
-            }
-        }
-        Spacer(Modifier.height(22.dp))
     }
 }
 
-/** 音量行：低/高音图标＋滑杆（拖动写系统媒体音量）。 */
+/** 系统音量行（瓜子 SystemVolumeCard 同型；星辰落系统媒体音量，ThemeCommon 口）。 */
 @Composable
-private fun AppleVolumeRow(modifier: Modifier = Modifier) {
+private fun VolumeRow(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     var fraction by remember { mutableFloatStateOf(systemVolumeFraction(context)) }
-    Row(
-        modifier.fillMaxWidth().height(32.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        PathIcon(18.dp, Color.White.copy(alpha = 0.5f), PATH_VOLUME_LOW)
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+        PathIcon(18.dp, Color.White.copy(alpha = 0.55f), PATH_VOLUME_LOW)
         Canvas(
             Modifier
                 .weight(1f)
@@ -262,7 +330,9 @@ private fun AppleVolumeRow(modifier: Modifier = Modifier) {
                     awaitEachGesture {
                         val down = awaitFirstDown()
                         fun apply(x: Float) {
-                            val f = if (size.width > 0) (x / size.width).coerceIn(0f, 1f) else 0f
+                            val f = if (size.width > 0) {
+                                (x / size.width).coerceIn(0f, 1f)
+                            } else 0f
                             fraction = f
                             setSystemVolumeFraction(context, f)
                         }
@@ -281,7 +351,7 @@ private fun AppleVolumeRow(modifier: Modifier = Modifier) {
             val trackH = 4.dp.toPx()
             val radius = CornerRadius(trackH / 2f, trackH / 2f)
             drawRoundRect(
-                color = Color.White.copy(alpha = 0.20f),
+                color = Color.White.copy(alpha = 0.14f),
                 topLeft = Offset(0f, midY - trackH / 2f),
                 size = Size(size.width, trackH),
                 cornerRadius = radius
@@ -289,16 +359,13 @@ private fun AppleVolumeRow(modifier: Modifier = Modifier) {
             val fillW = size.width * fraction
             if (fillW > 0f) {
                 drawRoundRect(
-                    color = Color.White.copy(alpha = 0.58f),
+                    color = Color.White.copy(alpha = 0.85f),
                     topLeft = Offset(0f, midY - trackH / 2f),
                     size = Size(fillW, trackH),
                     cornerRadius = radius
                 )
             }
         }
-        PathIcon(18.dp, Color.White.copy(alpha = 0.5f), PATH_VOLUME_HIGH)
+        PathIcon(18.dp, Color.White.copy(alpha = 0.55f), PATH_VOLUME_HIGH)
     }
 }
-
-private const val PATH_PLAY_TRIANGLE = "M8 5v14l11-7z"
-private const val PATH_PAUSE_BARS = "M6 19h4V5H6v14zm8-14v14h4V5h-4z"

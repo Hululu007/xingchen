@@ -1,9 +1,11 @@
 package com.fongmi.android.tv.ui.music
 
+import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.core.view.WindowCompat
 import com.fongmi.android.tv.music.MusicController
 import com.fongmi.android.tv.ui.music.player.PlayerOpenContract
 import com.fongmi.android.tv.ui.music.player.PlayerRoot
@@ -16,12 +18,21 @@ import com.fongmi.android.tv.utils.CoverColor
  * 把根交给 PlayerRoot。不在本类堆业务状态：状态一份归 PlayerStateHolder 中枢，
  * 条（ListenMiniBar 里的 PlayerBar）与本页 collect 同一份快照，条是页的收起态。
  * 开页路不变：迷你条/通知按类名反射 Intent 找本类（FQCN 不动）。
+ * 全屏沉浸：内容铺到系统栏底下（封面顶到屏幕最上沿、状态栏区不露底色带），
+ * 系统栏图标走浅色（页面恒深底/封面底，唱片架浅底页由其自有顶行压住状态栏区）。
  */
 class MusicPlayerActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         overridePendingTransition(0, 0)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.statusBarColor = Color.TRANSPARENT
+        window.navigationBarColor = Color.TRANSPARENT
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = false
+            isAppearanceLightNavigationBars = false
+        }
         window.setBackgroundDrawable(ColorDrawable(CoverColor.FALLBACK_COLOR))
         PlayerStateHolder.attach(this)
         MusicController.get().bind(this)

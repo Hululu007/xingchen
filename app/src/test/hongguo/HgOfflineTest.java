@@ -135,6 +135,17 @@ public class HgOfflineTest {
                 System.out.println("  bookmall 首条目 " + page.getItems().get(0).getSeriesId()
                         + " 《" + page.getItems().get(0).getTitle() + "》");
             }
+            // category_schema 在真回包里是字符串化 JSON（验收 B1）：解不开 tags 恒空、
+            // 系列剧款标签筹永不显——断言至少一条抽出标签且含「灾难」。
+            boolean hasTagZainan = false;
+            if (page.getItems() != null) {
+                for (com.fongmi.android.tv.hongguo.model.HgSeriesItem it : page.getItems()) {
+                    if (it.getTags() != null && it.getTags().contains("灾难")) hasTagZainan = true;
+                }
+            }
+            check("bookmall tags 含「灾难」(category_schema 字符串化 JSON)", hasTagZainan,
+                    "各条 tags=" + (page.getItems() == null ? null : page.getItems().stream()
+                            .map(it -> String.valueOf(it.getTags())).toList()));
         }
 
         System.out.println(fail == 0 ? "ALL PASS" : ("FAILURES=" + fail));

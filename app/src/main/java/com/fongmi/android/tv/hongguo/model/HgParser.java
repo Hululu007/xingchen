@@ -242,8 +242,9 @@ public final class HgParser {
         // 以前解析器没读、被容忍吞掉，未上线剧的预约态从这里进模型。
         JsonObject appt = obj(o, "appointment");
         // 短片面（研究账 §2.5，bookmall/tab 真回包逐字）：短片自身 vid、
-        // 角标 tag_info.text、热度 rec_text、分类 category_schema[].name、
-        // 朝向 vertical——流改短片流后条目靠这组字段成立。
+        // 角标 tag_info.text、热度 rec_text、分类 category_schema（真回包是
+        // 字符串化 JSON，解开后 [].name——验收 B1）、朝向 vertical——
+        // 流改短片流后条目靠这组字段成立。
         String vid = firstStr(o, "vid", "video_id");
         JsonObject tagInfo = obj(o, "tag_info");
         String badge = tagInfo == null ? null : str(tagInfo, "text");
@@ -254,7 +255,7 @@ public final class HgParser {
             }
         }
         List<String> tags = new ArrayList<>();
-        JsonArray schema = arr(o, "category_schema");
+        JsonArray schema = asArray(o.get("category_schema"));
         if (schema != null) {
             for (JsonElement te : schema) {
                 if (te.isJsonObject()) {
@@ -326,6 +327,21 @@ public final class HgParser {
     private static JsonArray arr(JsonObject o, String key) {
         JsonElement e = o == null ? null : o.get(key);
         return e != null && e.isJsonArray() ? e.getAsJsonArray() : null;
+    }
+
+    /** 元素可能是数组，也可能是字符串化 JSON（真回包 category_schema 即此形态，验收 B1）；解不开安静返回 null。 */
+    private static JsonArray asArray(JsonElement e) {
+        if (e == null) return null;
+        if (e.isJsonArray()) return e.getAsJsonArray();
+        if (e.isJsonPrimitive() && e.getAsJsonPrimitive().isString()) {
+            try {
+                JsonElement p = JsonParser.parseString(e.getAsString());
+                return p.isJsonArray() ? p.getAsJsonArray() : null;
+            } catch (Exception ex) {
+                return null;
+            }
+        }
+        return null;
     }
 
     /** 元素可能是对象，也可能是字符串化 JSON。 */

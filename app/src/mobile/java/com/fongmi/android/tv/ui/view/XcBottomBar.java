@@ -84,12 +84,11 @@ public class XcBottomBar extends LinearLayout {
         super(context, attrs, defStyleAttr);
         setOrientation(HORIZONTAL);
         setGravity(Gravity.CENTER_VERTICAL);
-        // 未选色：与原底栏图标同一来源（主题 colorControlNormal，图标矢量自身的 tint 也是它）
-        TypedValue value = new TypedValue();
-        context.getTheme().resolveAttribute(android.R.attr.colorControlNormal, value, true);
-        normalColor = value.data;
-        // 选中色：底栏现成的 selector_nav 高亮（直播页底栏一直在用，不引入新色）
+        // 未选色＋选中色同源：都取自底栏现成的 selector_nav（旧 Material 底栏的图标色表，
+        // 未选 #171B23／选中 #F0A400）。不再从主题 colorControlNormal 取未选色——该 attr
+        // 在当前主题上解析出的值让未选格图标与文字看不见（1.4.52 真机实证：只剩选中格可见）。
         ColorStateList navColors = ContextCompat.getColorStateList(context, R.color.selector_nav);
+        normalColor = navColors.getColorForState(new int[]{-android.R.attr.state_checked}, navColors.getDefaultColor());
         selectedColor = navColors.getColorForState(new int[]{android.R.attr.state_checked}, navColors.getDefaultColor());
         iconSizePx = getResources().getDimensionPixelSize(R.dimen.xc_bottombar_icon_size);
         labelGapPx = getResources().getDimensionPixelSize(R.dimen.xc_bottombar_label_gap);

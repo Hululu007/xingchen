@@ -3920,7 +3920,21 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             return null;
         });
         putFunction("refreshReadData", args -> {
-            // 8.83 JSEngine.refreshReadData：发应用内事件刷新阅读数据。星辰无此事件，空实现。
+            // 8.83 JSEngine.refreshReadData(Object p)（smali 22151）：p 为 undefined/null 直接无操作；
+            // 否则调整后串化 parseObject 成 CommonReadPageData{currentUrl,id,nextPage,title 四个 String}，
+            // 把 bean 本身当事件 post。消费侧：HkArticleFragment.onRefreshReadData
+            //（原版 ArticleListFragment.refreshReadData 的等价面）。
+            if (args == null || args.length == 0 || args[0] == null || isUndefined(args[0])) return null;
+            Object o = argsNativeObjectAdjust(args[0]);
+            if (!(o instanceof java.util.Map)) return null;
+            java.util.Map<?, ?> map = (java.util.Map<?, ?>) o;
+            com.fongmi.android.tv.api.hk.event.rule.RefreshReadDataEvent data =
+                    new com.fongmi.android.tv.api.hk.event.rule.RefreshReadDataEvent();
+            data.setCurrentUrl(map.get("currentUrl") instanceof String ? (String) map.get("currentUrl") : null);
+            data.setId(map.get("id") instanceof String ? (String) map.get("id") : null);
+            data.setNextPage(map.get("nextPage") instanceof String ? (String) map.get("nextPage") : null);
+            data.setTitle(map.get("title") instanceof String ? (String) map.get("title") : null);
+            EventBus.getDefault().post(data);
             return null;
         });
         putFunction("refreshVideoSource", args -> {

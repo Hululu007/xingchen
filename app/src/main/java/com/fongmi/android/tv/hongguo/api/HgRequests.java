@@ -181,6 +181,20 @@ public final class HgRequests {
      * 口同一道签名门，2026-10-28 A/B 实证）。
      */
     /**
+     * 搜索框提示词有序参数（openhongguo SignedCuePairs 逐字）：
+     * cue_type=1、limit=20、search_source=1、tab_name=feed、user_is_login=0。
+     */
+    public static java.util.List<String[]> cuePairs() {
+        java.util.List<String[]> pairs = HgDevice.deviceQueryPairs();
+        pairs.add(new String[]{"cue_type", "1"});
+        pairs.add(new String[]{"limit", "20"});
+        pairs.add(new String[]{"search_source", "1"});
+        pairs.add(new String[]{"tab_name", "feed"});
+        pairs.add(new String[]{"user_is_login", "0"});
+        return pairs;
+    }
+
+    /**
      * 搜索联想有序参数（openhongguo SignedSuggestPairs 逐字）：
      * 设备公共参 ＋ query/count=10/search_source=1（SearchSourceHome）/
      * user_is_login=0。

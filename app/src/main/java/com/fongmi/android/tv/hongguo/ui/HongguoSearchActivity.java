@@ -67,6 +67,14 @@ public class HongguoSearchActivity extends BaseActivity {
     private String currentKeyword = "";
     private boolean loadingMore;
     private boolean lastPageFull;
+    private final List<String> cues = new ArrayList<>();
+    private int cueIndex;
+    private final Runnable cueTicker = new Runnable() {
+        @Override
+        public void run() {
+            rotateCueHint();
+        }
+    };
 
     @Override
     protected ViewBinding getBinding() {
@@ -185,6 +193,39 @@ public class HongguoSearchActivity extends BaseActivity {
             }
         });
         showHistory();
+        loadCues();
+    }
+
+    /** 提示词：拉一次 cue 词表，进框占位轮播（4 秒一条，只在输入为空时转）。 */
+    private void loadCues() {
+        session.client.searchCues(new HgCallback<List<String>>() {
+            @Override
+            public void onSuccess(List<String> list) {
+                runOnUiThread(() -> {
+                    if (list == null || list.isEmpty()) return;
+                    cues.clear();
+                    cues.addAll(list);
+                    cueIndex = 0;
+                    rotateCueHint();
+                });
+            }
+
+            @Override
+            public void onError(int httpCode, String message) {
+                // 提示词拉不到不打扰：占位保持布局自带文案
+            }
+        });
+    }
+
+    private void rotateCueHint() {
+        mainHandler.removeCallbacks(cueTicker);
+        if (isFinishing() || isDestroyed() || cues.isEmpty()) return;
+        Editable cur = binding.hgSearchInput.getText();
+        if (cur == null || cur.toString().isEmpty()) {
+            binding.hgSearchInput.setHint(cues.get(cueIndex % cues.size()));
+            cueIndex++;
+        }
+        mainHandler.postDelayed(cueTicker, 4000);
     }
 
     @Override
@@ -219,6 +260,13 @@ public class HongguoSearchActivity extends BaseActivity {
             public void afterTextChanged(Editable s) {
             }
         });
+    }
+
+    @Override
+    protected void onDestroy() {
+        mainHandler.removeCallbacks(cueTicker);
+        if (pendingSuggest != null) mainHandler.removeCallbacks(pendingSuggest);
+        super.onDestroy();
     }
 
     private void showHistory() {

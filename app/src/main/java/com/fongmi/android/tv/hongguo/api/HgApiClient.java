@@ -449,11 +449,22 @@ public final class HgApiClient {
         });
     }
 
-    /** 搜索提示 GET /reading/bookapi/search/cue。 */
-    public void searchCue(String keyword, HgCallback<HgCellPage> cb) {
-        Map<String, String> q = new HashMap<>();
-        q.put("keyword", keyword);
-        get(HOST + "/reading/bookapi/search/cue" + BV, q, cellCallback(cb));
+    /**
+     * 搜索框提示词 GET /reading/bookapi/search/cue/v1/（已签名）：旧无签名
+     * 形同门回空体、界面也从没用过，已换签名口（openhongguo SearchCues 同口）。
+     */
+    public void searchCues(HgCallback<java.util.List<String>> cb) {
+        getSigned("/reading/bookapi/search/cue/v1/", HgRequests.cuePairs(), new BodyCallback() {
+            @Override
+            void onBody(String text) {
+                cb.onSuccess(com.fongmi.android.tv.hongguo.model.HgParser.parseCue(text));
+            }
+
+            @Override
+            void onFail(int code, String msg) {
+                cb.onError(code, msg);
+            }
+        });
     }
 
     /**

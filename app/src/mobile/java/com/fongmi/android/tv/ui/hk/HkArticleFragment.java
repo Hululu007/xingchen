@@ -328,6 +328,59 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
         }
     }
 
+    /**
+     * 原版 OnRefreshX5Height 订阅（ArticleListFragment.OnRefreshX5Height）：规则 JS 调 refreshX5Desc(desc) 后，
+     * 先按 desc 更新 holder 的模式/extra，再落高度——FLOAT 走页级容器定高（未挂载则挂载，不触发加载/刷新，
+     * 对应原版 updateWebViewHeight 的职责）；LIST 把新 desc 同步进行内条目并重绑该行，行高由 bind 时重算。
+     * 此前宿主侧无此订阅且 JS 侧是空实现，网页型规则恒停在默认小高（只剩顶部一小条）。
+     */
+    @org.greenrobot.eventbus.Subscribe(threadMode = org.greenrobot.eventbus.ThreadMode.MAIN)
+    public void onRefreshX5Desc(com.fongmi.android.tv.api.hk.event.rule.RefreshX5DescEvent event) {
+        if (!isResumed() || event == null || webViewHolder == null) return;
+        updateModeByDesc(event.getDesc());
+        if (webViewHolder.getMode() == HkWebViewHolder.Mode.FLOAT) {
+            applyFloatWebViewHeight();
+        } else {
+            if (webViewContainer != null && webViewContainer.getChildCount() > 0) {
+                webViewContainer.removeAllViews();
+            }
+            if (adapter != null) {
+                List<HkItem> items = adapter.getList();
+                for (int i = 0; i < items.size(); i++) {
+                    HkItem item = items.get(i);
+                    if (item != null && HkColType.byCode(item.getType()) == HkColType.X5_WEB_VIEW) {
+                        item.setDesc(event.getDesc());
+                        adapter.notifyItemChanged(i);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    /** FLOAT 模式下按 holder 当前 extra 给页级容器定高；WebView 未挂载时从旧父级摘下挂入。与 updateWebView 的 FLOAT 支同款，但不碰地址加载。 */
+    private void applyFloatWebViewHeight() {
+        android.webkit.WebView wv = webViewHolder.getWebView();
+        if (wv == null || webViewContainer == null || getContext() == null) return;
+        int heightDp = HkWebViewHolder.getHeightByExtra(getContext(),
+                webViewHolder.getUrl(), webViewHolder.getExtra());
+        int heightPx = heightDp < 0 ? heightDp : dpToPx(heightDp);
+        android.view.ViewGroup.LayoutParams lp = webViewContainer.getLayoutParams();
+        if (webViewContainer.getChildCount() <= 0) {
+            lp.height = heightPx;
+            webViewContainer.setLayoutParams(lp);
+            webViewHolder.setHeight(lp.height);
+            if (wv.getParent() != null) {
+                ((android.view.ViewGroup) wv.getParent()).removeView(wv);
+            }
+            webViewContainer.addView(wv);
+        } else if (lp.height != heightPx) {
+            lp.height = heightPx;
+            webViewContainer.setLayoutParams(lp);
+            webViewHolder.setHeight(heightPx);
+        }
+    }
+
     /** 照抄原版 initAdapter。 */
     private void initAdapter() {
         adapter = new HkArticleAdapter(requireContext(), recyclerView, new ArrayList<>()) {

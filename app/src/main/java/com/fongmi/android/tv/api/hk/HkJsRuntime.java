@@ -3396,7 +3396,6 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         stub("refreshReadData", null);
         stub("refreshVideoSource", null);
         stub("refreshVideoUrl", null);
-        stub("refreshX5Desc", null);
         stub("refreshX5WebView", null);
         // 8.83 JSEngine.startQRScanPage(25977)：请求相机权限后 startActivityForResult
         // 扫码页（8.83 用 MyCaptureActivity，星辰用已有的 ScanActivity），扫码结果经
@@ -3955,7 +3954,12 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             return null;
         });
         putFunction("refreshX5Desc", args -> {
-            // 8.83 JSEngine.refreshX5Desc：星辰无 X5 内核，空实现。
+            // 8.83 JSEngine.refreshX5Desc：post OnRefreshX5HeightEvent(desc)，列表页据此改 WebView 的模式与高度。
+            // 此函数与 X5 内核无关——系统 WebView 同样靠它定高（规则先以默认小高建条目、加载后调它改成 float&&100% 全屏）。
+            // 此前以「星辰无 X5 内核」空实现，网页型规则的高度永远停在默认 240，只剩顶部一小条（2026-10-27 他真机点名）。
+            String desc = args != null && args.length > 0 ? argStr(args[0]) : "";
+            EventBus.getDefault().post(
+                    new com.fongmi.android.tv.api.hk.event.rule.RefreshX5DescEvent(desc));
             return null;
         });
         putFunction("refreshX5WebView", args -> {

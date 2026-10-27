@@ -129,6 +129,26 @@ private val COLOR_UNSUNG = Color.White.copy(alpha = 0.42f)
 private val COLOR_INACTIVE = Color.White.copy(alpha = 0.30f)
 private val COLOR_TRANSLATION = Color.White.copy(alpha = 0.55f)
 
+/**
+ * 歌词色板（瓜子 palette 供给链，数值表 §八）：palette 在场用 palette 值，不在场按
+ * immersiveDark 分流。手机三主题（经典/封面/Apple）不供 palette → 下列沉浸默认值；
+ * 流光 CD 供 cdLyricPalette、唱片架供 h0 色板，两个主题把自家色板作参传进同一引擎，
+ * 引擎本体不按主题分叉（瓜子同一 AnchoredLyricEngine 口径）。
+ */
+data class LyricPaletteColors(
+    val sung: Color,
+    val activeUnsung: Color,
+    val inactive: Color,
+    val translation: Color
+)
+
+val ImmersiveLyricPalette = LyricPaletteColors(
+    sung = COLOR_SUNG,
+    activeUnsung = COLOR_UNSUNG,
+    inactive = COLOR_INACTIVE,
+    translation = COLOR_TRANSLATION
+)
+
 private const val WRAP_PUNCTUATION = ",.;:!?，。；：！？、）】》」』’”)]}>~…\""
 private const val WRAP_PUNCT_REWARD = 0.6
 private const val WRAP_SPACE_REWARD = 0.4
@@ -356,7 +376,7 @@ private fun wrapText(
  * 纯文本无时间轴恒回偏移量（调用方按 untimed 分流、不用此时钟定位当前行）。
  */
 @Composable
-private fun rememberLyricNowMs(
+internal fun rememberLyricNowMs(
     lines: List<RichLyrics.Line>,
     untimed: Boolean,
     progress: PlayerProgress,
@@ -400,7 +420,8 @@ fun ClassicLyricWindow(
     isPlaying: Boolean,
     wordMode: Boolean,
     onLineClick: (Int) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    palette: LyricPaletteColors = ImmersiveLyricPalette
 ) {
     if (lines.isEmpty()) return
     val density = LocalDensity.current
@@ -520,6 +541,7 @@ fun ClassicLyricWindow(
                     transStyle = transStyle,
                     align = align,
                     fontSizePx = fontSizePx,
+                    palette = palette,
                     onClick = if (untimed) null else ({ onLineClick(i) })
                 )
                 if (i < to - 1) Spacer(Modifier.height(LINE_GAP_DP.dp))
@@ -558,6 +580,7 @@ private fun LyricLineBlock(
     transStyle: TextStyle,
     align: Int,
     fontSizePx: Float,
+    palette: LyricPaletteColors,
     onClick: (() -> Unit)?
 ) {
     // 模糊目标＝装配传入的存档值（封面窗 A 组／全屏 B 组）×档位系数，半径减半（§十八）；200ms/bs4.a 动画（瓜子 lyricRowBlur）
@@ -587,7 +610,7 @@ private fun LyricLineBlock(
         else -> Arrangement.Start
     }
     // 标准模式当前行整行上色、已唱行同色（瓜子色链）；逐字模式走 WordCell 不用此色
-    val rowColor = if (isCurrent || sung) COLOR_SUNG else COLOR_INACTIVE
+    val rowColor = if (isCurrent || sung) palette.sung else palette.inactive
     Column(mod) {
         Column(Modifier.lyricSkew()) {
             val mainRows = wrap?.mainRows ?: listOf(
@@ -605,14 +628,15 @@ private fun LyricLineBlock(
                                     lineStartMs = line.main.timeMs,
                                     nowMs = nowMs,
                                     style = mainStyle,
-                                    fontSizePx = fontSizePx
+                                    fontSizePx = fontSizePx,
+                                    palette = palette
                                 )
                             } else {
                                 // 当前行无逐字数据：回落标准模式整行上色
                                 Text(
                                     text = seg.text,
                                     style = mainStyle,
-                                    color = COLOR_SUNG,
+                                    color = palette.sung,
                                     maxLines = 1,
                                     softWrap = false,
                                     overflow = TextOverflow.Clip
@@ -637,7 +661,7 @@ private fun LyricLineBlock(
                     Text(
                         text = row.joinToString("") { it.text },
                         style = transStyle,
-                        color = COLOR_TRANSLATION,
+                        color = palette.translation,
                         maxLines = 1,
                         softWrap = false,
                         overflow = TextOverflow.Clip
@@ -660,7 +684,8 @@ private fun WordCell(
     lineStartMs: Long,
     nowMs: Long,
     style: TextStyle,
-    fontSizePx: Float
+    fontSizePx: Float,
+    palette: LyricPaletteColors
 ) {
     val startAbs = lineStartMs + word.startOffsetMs
     val duration = word.durationMs
@@ -689,7 +714,7 @@ private fun WordCell(
             Text(
                 text = word.text,
                 style = style,
-                color = COLOR_SUNG.copy(alpha = 0.55f * emphasis),
+                color = palette.sung.copy(alpha = 0.55f * emphasis),
                 maxLines = 1,
                 softWrap = false,
                 overflow = TextOverflow.Clip,
@@ -699,7 +724,7 @@ private fun WordCell(
         Text(
             text = word.text,
             style = style,
-            color = COLOR_UNSUNG,
+            color = palette.activeUnsung,
             maxLines = 1,
             softWrap = false,
             overflow = TextOverflow.Clip
@@ -708,7 +733,7 @@ private fun WordCell(
             Text(
                 text = word.text,
                 style = style,
-                color = COLOR_SUNG,
+                color = palette.sung,
                 maxLines = 1,
                 softWrap = false,
                 overflow = TextOverflow.Clip,
@@ -751,7 +776,8 @@ fun FullLyricList(
     isPlaying: Boolean,
     wordMode: Boolean,
     onLineClick: (Int) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    palette: LyricPaletteColors = ImmersiveLyricPalette
 ) {
     if (lines.isEmpty()) return
     val density = LocalDensity.current
@@ -977,6 +1003,7 @@ fun FullLyricList(
                         transStyle = transStyle,
                         align = align,
                         fontSizePx = fontSizePx,
+                        palette = palette,
                         onClick = null
                     )
                     usedPx += h
@@ -1028,6 +1055,7 @@ fun FullLyricList(
                         transStyle = transStyle,
                         align = align,
                         fontSizePx = fontSizePx,
+                        palette = palette,
                         onClick = {
                             // 点行 seek 立即回锚（瓜子口径）：浏览偏移即清、对齐走 seek 弹簧
                             reanchorJob?.cancel()

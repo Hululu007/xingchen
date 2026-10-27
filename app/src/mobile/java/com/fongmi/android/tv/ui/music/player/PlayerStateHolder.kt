@@ -142,8 +142,45 @@ object PlayerStateHolder {
         }
         _progress.value = PlayerProgress(ctl.position(), ctl.duration())
         loadCover(track?.cover)
+        loadSideCovers(ctl.queue(), ctl.index())
         loadLyrics(track)
         refreshFavorite(track)
+    }
+
+    private var sideSeq = 0
+    private var sideKey: String? = null
+
+    /** 前后曲封面（唱片架三槽）：队列或序号变了才重取，序号守卫防串图；无封面地址不垫图。 */
+    private fun loadSideCovers(queue: List<MusicTrack>, index: Int) {
+        val prev = queue.getOrNull(index - 1)
+        val next = queue.getOrNull(index + 1)
+        val key = (prev?.id ?: "-") + "|" + (next?.id ?: "-")
+        if (key == sideKey) return
+        sideKey = key
+        val seq = ++sideSeq
+        _state.update { it.copy(prevCoverBitmap = null, nextCoverBitmap = null) }
+        loadSide(prev, true, seq)
+        loadSide(next, false, seq)
+    }
+
+    private fun loadSide(track: MusicTrack?, isPrev: Boolean, seq: Int) {
+        val url = track?.cover
+        if (url.isNullOrEmpty()) return
+        ImgUtil.load(url, object : CustomTarget<Bitmap>() {
+            override fun onResourceReady(resource: Bitmap, transition: Transition<in Bitmap>?) {
+                if (seq != sideSeq) return
+                _state.update {
+                    if (isPrev) it.copy(prevCoverBitmap = resource) else it.copy(nextCoverBitmap = resource)
+                }
+            }
+
+            override fun onLoadCleared(placeholder: Drawable?) {
+            }
+
+            override fun onLoadFailed(errorDrawable: Drawable?) {
+                // 加载失败保持无图（有地址不垫素图，同封面占位口径）
+            }
+        })
     }
 
     /**
@@ -197,7 +234,7 @@ object PlayerStateHolder {
             _state.update {
                 it.copy(
                     coverUrl = null, coverBitmap = null, ambientBitmap = null,
-                    baseColor = CoverColor.FALLBACK_COLOR
+                    baseColor = CoverColor.FALLBACK_COLOR, toneColor = null
                 )
             }
             return
@@ -206,7 +243,7 @@ object PlayerStateHolder {
         _state.update {
             it.copy(
                 coverUrl = url, coverBitmap = null, ambientBitmap = null,
-                baseColor = CoverColor.FALLBACK_COLOR
+                baseColor = CoverColor.FALLBACK_COLOR, toneColor = null
             )
         }
         ImgUtil.load(url, object : CustomTarget<Bitmap>() {
@@ -217,6 +254,12 @@ object PlayerStateHolder {
                     } catch (t: Throwable) {
                         CoverColor.FALLBACK_COLOR
                     }
+                    // tone 同批算（瓜子 o()→d() 链本体）；算不出回落 null，主题侧按各自口径回落
+                    val tone = try {
+                        CoverColor.toneAdjust(CoverColor.cdToneColor(resource))
+                    } catch (t: Throwable) {
+                        null
+                    }
                     val ambient = try {
                         Bitmap.createScaledBitmap(resource, 64, 64, true)
                     } catch (t: Throwable) {
@@ -224,7 +267,10 @@ object PlayerStateHolder {
                     }
                     if (seq == coverSeq && url == _state.value.coverUrl) {
                         _state.update {
-                            it.copy(coverBitmap = resource, ambientBitmap = ambient, baseColor = color)
+                            it.copy(
+                                coverBitmap = resource, ambientBitmap = ambient,
+                                baseColor = color, toneColor = tone
+                            )
                         }
                     }
                 }

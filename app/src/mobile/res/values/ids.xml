@@ -33,6 +33,8 @@
     <item type="id" name="item_rect_text_desc" />
     <!-- 液态玻璃动态背景（HkDynamicBgView），各海阔页根第一个孩子 -->
     <item type="id" name="hk_dynamic_bg" />
-    <!-- 实验室 tab：代码动态加到底栏菜单，id 在此预声明（菜单 XML 里不再放第 7 项，Material 写死最多 6 项） -->
+    <!-- 实验室 tab：底栏注册表（XcBottomBar）按 id 引用，在此预声明 -->
     <item type="id" name="lab" />
+    <!-- 红果 tab：正式版条件格，id 先预声明；本体与图标随红果批带入，未注册时底栏不出现此格、不留空位 -->
+    <item type="id" name="hongguo" />
 </resources>

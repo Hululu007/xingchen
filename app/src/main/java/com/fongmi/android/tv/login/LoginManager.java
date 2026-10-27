@@ -183,9 +183,9 @@ public class LoginManager {
 
     /**
      * 弹红果网页登录框（{@link PanLoginDialog}，与 QQ/谷歌/快手同款壳子
-     * 统一弹窗）：WebView 内在番茄小说网页版完成登录（与红果同属
-     * com.dragon.read 同一账号系，同手机号同号），抓到的 Cookie 校验
-     * （须含 sessionid/sessionid_ss）后落盘托管，供红果接口带态请求。
+     * 统一弹窗）：WebView 内在红果短剧网页版（hongguoduanju.com，
+     * 笔墨留香官方物业，2026-10-28 实查定版）完成登录，抓到的 Cookie
+     * 校验（须含 sessionid/sessionid_ss）后落盘托管，供红果接口带态请求。
      * 原生短信链缺 TTNet 签名头被官方 403 判死、已整删（证据账
      * hongguo/web-login-dig-20261028.md）。异步，登录成功走 callback；
      * 用户直接关弹窗视为取消，不回调。

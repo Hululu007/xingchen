@@ -14,6 +14,9 @@ import com.fongmi.android.tv.hongguo.proxy.HgStreamRegistry;
 import com.fongmi.android.tv.hongguo.proxy.HgStreamSpec;
 import com.fongmi.android.tv.server.Server;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -78,6 +81,14 @@ public final class HgPlayResolver {
     private final Map<String, String> tokenByVideo = new ConcurrentHashMap<>();
     private final Map<String, String> urlByVideo = new ConcurrentHashMap<>();
     private final Set<String> resolving = ConcurrentHashMap.newKeySet();
+    /**
+     * 在途任务的挂载 listener：某条先被 warm（无 listener）占住时，后来的带
+     * listener resolve 不再被静默吞掉，而是挂到在途任务上，完成时一并回
+     * Ready/Failed（定罪账第三节的独立隐患）。pendingLock 同时罩住
+     * resolving 的 add/remove，保证「挂载」与「收尾摘表」不交错丢人。
+     */
+    private final Object pendingLock = new Object();
+    private final Map<String, List<Listener>> pendingListeners = new HashMap<>();
 
     public HgPlayResolver(HgApiClient client, HgModelCache cache) {
         this.client = client;
@@ -104,28 +115,46 @@ public final class HgPlayResolver {
             }
             return;
         }
-        if (!resolving.add(videoId)) return; // 已在解，页面 settle 时会再查 readyUrl
-        worker.execute(() -> {
-            try {
-                Outcome outcome = resolveSync(videoId);
-                resolving.remove(videoId);
-                if (outcome.url == null) {
-                    // 失败出口编号同步进日志（诊断用，定罪后撤）
-                    Log.e(TAG, "resolveSync " + videoId + " 失败出口 " + outcome.code);
-                    if (listener != null) fail(listener, videoId, outcome.code, "解链失败");
-                } else if (listener != null) {
-                    HgVideoModel m = cache.getFresh(videoId);
-                    int w = m == null ? 0 : m.getVideoWidth();
-                    int h = m == null ? 0 : m.getVideoHeight();
-                    String url = outcome.url;
-                    main.post(() -> listener.onReady(videoId, url, w, h));
-                }
-            } catch (Exception e) {
-                resolving.remove(videoId);
-                Log.e(TAG, "resolveSync " + videoId + " 异常: " + e);
-                if (listener != null) fail(listener, videoId, null, e.getMessage());
+        synchronized (pendingLock) {
+            if (listener != null) {
+                List<Listener> ls = pendingListeners.computeIfAbsent(videoId, k -> new ArrayList<>());
+                if (!ls.contains(listener)) ls.add(listener);
             }
+            if (!resolving.add(videoId)) return; // 已在解：listener 已挂在途任务，完成时由 finishResolve 一并回
+        }
+        worker.execute(() -> {
+            Outcome outcome;
+            try {
+                outcome = resolveSync(videoId);
+            } catch (Exception e) {
+                Log.e(TAG, "resolveSync " + videoId + " 异常: " + e);
+                outcome = Outcome.fail(null);
+            }
+            if (outcome.url == null) {
+                // 失败出口编号同步进日志（诊断用，定罪后撤）
+                Log.e(TAG, "resolveSync " + videoId + " 失败出口 " + outcome.code);
+            }
+            finishResolve(videoId, outcome);
         });
+    }
+
+    /** 在途任务收尾：摘 resolving 与挂载表，结果逐个回挂着的 listener（主线程）。 */
+    private void finishResolve(String videoId, Outcome outcome) {
+        List<Listener> ls;
+        synchronized (pendingLock) {
+            resolving.remove(videoId);
+            ls = pendingListeners.remove(videoId);
+        }
+        if (ls == null || ls.isEmpty()) return;
+        if (outcome.url == null) {
+            for (Listener l : ls) fail(l, videoId, outcome.code, "解链失败");
+        } else {
+            HgVideoModel m = cache.getFresh(videoId);
+            int w = m == null ? 0 : m.getVideoWidth();
+            int h = m == null ? 0 : m.getVideoHeight();
+            String url = outcome.url;
+            for (Listener l : ls) main.post(() -> l.onReady(videoId, url, w, h));
+        }
     }
 
     /** 预热一条流：解链注册后 warmAsync（盒解析＋首段取数在代理层后台线程）。 */

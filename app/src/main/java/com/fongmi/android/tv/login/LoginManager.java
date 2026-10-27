@@ -182,34 +182,31 @@ public class LoginManager {
     }
 
     /**
-     * 弹红果原生短信登录页（{@link HongguoSmsLoginDialog}，照谷歌版登录页
-     * 定案构成：手机号＋验证码＋协议勾选，不走网页框）。异步，登录成功
-     * 落托管走 callback；用户关页视为取消，不回调。
+     * 弹红果网页登录框（{@link PanLoginDialog}，与 QQ/谷歌/快手同款壳子
+     * 统一弹窗）：WebView 内在番茄小说网页版完成登录（与红果同属
+     * com.dragon.read 同一账号系，同手机号同号），抓到的 Cookie 校验
+     * （须含 sessionid/sessionid_ss）后落盘托管，供红果接口带态请求。
+     * 原生短信链缺 TTNet 签名头被官方 403 判死、已整删（证据账
+     * hongguo/web-login-dig-20261028.md）。异步，登录成功走 callback；
+     * 用户直接关弹窗视为取消，不回调。
      */
     public void loginHongguo(FragmentActivity activity, LoginCallback callback) {
         if (activity == null || activity.isFinishing()) {
             if (callback != null) callback.onError("界面不可用");
             return;
         }
-        HongguoSmsLoginDialog.create()
-                .callback(new LoginCallback() {
-                    @Override
-                    public void onSuccess(String providerId, String cookie) {
-                        HongguoLoginProvider.putCookie(cookie);
-                        if (callback != null) callback.onSuccess(HongguoLoginProvider.ID, cookie);
-                    }
-
-                    @Override
-                    public void onError(String msg) {
-                        if (callback != null) callback.onError(msg);
-                    }
-
-                    @Override
-                    public void onCancel() {
-                        if (callback != null) callback.onCancel();
-                    }
+        PanLoginDialog.create()
+                .title("红果")
+                .loginUrl(HongguoLoginProvider.LOGIN_URL)
+                .cookieDomain(HongguoLoginProvider.COOKIE_DOMAIN)
+                .userAgent(PanLoginDialog.DESKTOP_UA)
+                .hint("请在下方页面完成红果登录，然后点「完成登录」")
+                .cookieValidator(HongguoLoginProvider::isCookieValid)
+                .onLogin(cookie -> {
+                    HongguoLoginProvider.putCookie(cookie);
+                    if (callback != null) callback.onSuccess(HongguoLoginProvider.ID, cookie);
                 })
-                .show(activity);
+                .showLogin(activity);
     }
 
     private void openMethod(FragmentActivity activity, LoginMethod method, LoginCallback callback) {
@@ -349,7 +346,7 @@ public class LoginManager {
         return true;
     }
 
-    /** 弹红果原生短信登录页（异步）。 */
+    /** 弹红果网页登录框（异步）。 */
     public static void loginHongguo() {
         FragmentActivity activity = currentActivity();
         if (activity == null) return;
@@ -364,7 +361,7 @@ public class LoginManager {
         return true;
     }
 
-    /** 红果是否已登录（托管 Cookie 含 passport 会话键） */
+    /** 红果是否已登录（托管 Cookie 含会话键 sessionid） */
     public static boolean isHongguoLoggedIn() {
         return isLoggedIn(HongguoLoginProvider.ID);
     }

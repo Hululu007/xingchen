@@ -184,6 +184,23 @@ public final class HgFeedItem {
         return copy;
     }
 
+    /** 剧名正名后的页：短片自带文案当标题入流时，详情到手后换回真剧名。 */
+    public HgFeedItem withSeriesTitle(String seriesTitle) {
+        if (seriesTitle == null || seriesTitle.isEmpty() || seriesTitle.equals(title)) return this;
+        HgFeedItem copy = new HgFeedItem(seriesId, videoId, episodeIndex, episodeCount, seriesTitle,
+                category, authorName, authorAvatar, desc, coverUrl, videoWidth, videoHeight,
+                seriesHead, clip, badge, recText, tags, multiSeason, albumId,
+                albumSerialCount, siblings, likeCount, commentCount, seriesStatus);
+        copy.expandTried = expandTried;
+        copy.reservable = reservable;
+        copy.dueStartText = dueStartText;
+        copy.hotComment = hotComment;
+        copy.hotKind = hotKind;
+        copy.statement = statement;
+        copy.landscapeHint = landscapeHint;
+        return copy;
+    }
+
     /**
      * 详情富集后的页：补作者/头像/简介（短片定形态与富集共用）。
      * 只在短片语境调用（剧头定形态/短片富集），产物恒为短片形态；

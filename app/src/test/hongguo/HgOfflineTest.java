@@ -161,16 +161,21 @@ public class HgOfflineTest {
 
         // 7) bookmall 频道面真回包（2026-10-28 签名探针实拉存档 tabprobe-20261028/）：
         //    parseDiscoverTab 三频道各抽到真条目＋续页凭证在；parseCellChange
-        //    续页能追加且游标推进。条目数钉探针实测值（开页 3、续页 6）。
+        //    续页能追加且游标推进。条目数钉探针实测值（开页 推荐4/漫剧3/真人剧3、
+        //    续页 推荐9/漫剧6/真人剧6；2026-10-28 逐项重对修订：video_data 条目
+        //    的短片指针在 highlight.vid、单元格本体短片在 video_detail.video_list
+        //    首条，两处此前漏接——条目曾全是剧头且推荐开页少一条本体短片）。
         {
             String probeDir = dir + "tabprobe-20261028/";
-            String[][] chans = {{"chan_recommend.json", "16"}, {"chan_comic.json", "36"}, {"chan_live.json", "39"}};
+            String[][] chans = {{"chan_recommend.json", "16", "4", "9"}, {"chan_comic.json", "36", "3", "6"}, {"chan_live.json", "39", "3", "6"}};
             for (String[] c : chans) {
                 String raw = Files.readString(Paths.get(probeDir + c[0]));
                 com.fongmi.android.tv.hongguo.model.HgCellPage page =
                         HgParser.parseDiscoverTab(raw, Integer.parseInt(c[1]));
-                check(c[0] + " 开页条目=3", page.getItems().size() == 3,
+                check(c[0] + " 开页条目=" + c[2], page.getItems().size() == Integer.parseInt(c[2]),
                         "实际=" + page.getItems().size());
+                long clips = page.getItems().stream().filter(it -> it.getVid() != null).count();
+                check(c[0] + " 开页短片带 vid≥3", clips >= 3, "实际=" + clips);
                 check(c[0] + " 续页凭证在", page.getContinuation() != null
                                 && page.getContinuation().getCellId() != null
                                 && page.getContinuation().getSessionId() != null,
@@ -180,7 +185,7 @@ public class HgOfflineTest {
                 check(c[0] + " 条目 id/标题齐", idsOk, null);
                 String moreRaw = Files.readString(Paths.get(probeDir + c[0].replace(".json", "_more.json")));
                 com.fongmi.android.tv.hongguo.model.HgCellPage more = HgParser.parseCellChange(moreRaw);
-                check(c[0] + " 续页条目=6", more.getItems().size() == 6,
+                check(c[0] + " 续页条目=" + c[3], more.getItems().size() == Integer.parseInt(c[3]),
                         "实际=" + more.getItems().size());
                 check(c[0] + " 续页 hasMore 且 nextOffset=6",
                         more.isHasMore() && "6".equals(more.getNextOffset()),

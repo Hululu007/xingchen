@@ -381,6 +381,17 @@ public final class HgParser {
         }
         JsonObject detail = obj(cell, "video_detail");
         if (detail != null) {
+            // 单元格自身的短片（video_detail.video_list 首条自带 vid/封面/
+            // 时长/计数，是完整短片对象）先入流——此前只收 video_detail_list
+            // 的跨推卡、把单元格本体短片整条丢了（存档实证：推荐 tab16
+            // inner[0]，audit-1455-identical.md）
+            JsonArray own = arr(detail, "video_list");
+            if (own != null && own.size() > 0 && own.get(0).isJsonObject()) {
+                JsonObject first = own.get(0).getAsJsonObject();
+                if (firstStr(first, "vid") != null && firstStr(first, "series_id") != null) {
+                    addDiscoverItem(first, out);
+                }
+            }
             JsonArray cards = arr(detail, "video_detail_list");
             if (cards != null) {
                 for (JsonElement card : cards) addDiscoverItem(card, out);
@@ -448,7 +459,25 @@ public final class HgParser {
         if (firstStr(merged, "desc") == null) {
             putIfPresent(merged, "desc", firstStr(merged, "series_intro"));
         }
+        if (firstStr(merged, "vid", "video_id") == null) {
+            // 频道 video_data 条目的 vid 恒空（存档 24 条全量实证），短片
+            // 指针在 highlight.vid（数值型，指向 video_detail.video_list
+            // 中的被推集，不恒为首集）——不接它条目永远是剧头、播前被迫
+            // 先拉详情（2026-10-28 逐项重对定罪，audit-1455-identical.md）
+            JsonObject hl = obj(o, "highlight");
+            String hv = hl == null ? null : flexStr(hl, "vid");
+            if (hv != null) merged.addProperty("vid", hv);
+        }
         return merged;
+    }
+
+    /** 数值/字符串两形的 id 读取（highlight.vid 是数值型）。 */
+    private static String flexStr(JsonObject o, String key) {
+        JsonElement e = o.get(key);
+        if (e == null || !e.isJsonPrimitive()) return null;
+        if (e.getAsJsonPrimitive().isNumber()) return String.valueOf(e.getAsLong());
+        String s = e.getAsString();
+        return s == null || s.isEmpty() ? null : s;
     }
 
     private static void putIfPresent(JsonObject o, String key, String value) {

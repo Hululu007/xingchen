@@ -267,7 +267,8 @@ public final class HgFeedSession {
         if (cached != null) {
             items.set(position, item.withDetail(null, -1,
                     cached.getAuthorName(), avatarOf(cached),
-                    cached.getDesc() != null ? cached.getDesc() : item.desc));
+                    cached.getDesc() != null ? cached.getDesc() : item.desc)
+                    .withSeriesTitle(cached.getTitle()));
             changed.accept(position);
             return;
         }
@@ -283,7 +284,8 @@ public final class HgFeedSession {
                     }
                     items.set(at, item.withDetail(null, -1,
                             detail.getAuthorName(), avatarOf(detail),
-                            detail.getDesc() != null ? detail.getDesc() : item.desc));
+                            detail.getDesc() != null ? detail.getDesc() : item.desc)
+                            .withSeriesTitle(detail.getTitle()));
                     changed.accept(at);
                 });
             }

@@ -38,7 +38,7 @@ public class Drive115 implements CloudDrive {
 
     private static final String API_SSO = "https://passportapi.115.com/app/1.0/web/1.0/check/sso";
     private static final String API_NAV = "https://my.115.com/?ct=ajax&ac=nav";
-    private static final String API_USER_INFO = "https://proapi.115.com/app/user/info";
+    private static final String API_BASE_INFO = "https://webapi.115.com/user/base_info";
     private static final String API_FILES = "https://webapi.115.com/files";
     private static final String API_SEARCH = "https://webapi.115.com/files/search";
     private static final String API_FILE_INFO = "https://webapi.115.com/files/get_info";
@@ -240,18 +240,23 @@ public class Drive115 implements CloudDrive {
     }
 
     /**
-     * 取账号信息：nav（对照 PY Api.nav）只给用户名/user_id——它是网页导航接口，
-     * 回包里没有容量与 VIP 明细（nap511 等真实消费者也只从它取 user_name/face/expire）。
-     * 容量与 VIP 全量在 proapi 的 user/info 接口里（在役 SDK 115-sdk-go 源码互证：
-     * 其端点分类表 User 类别归 proapi.115.com 的 ApiUserInfo，UserInfoResp 才带
-     * data.rt_space_info｛all_total/all_use 每项 {size 字节数, size_format 格式化串}｝
-     * 与 data.vip_info｛level_name 等级名、expire 到期时间戳（秒）｝）。
-     * 上一轮把这套键安到 nav 头上解析，真机恒空——副标题只剩靠 is_vip 兜底蒙出的
-     * 裸「VIP」，病根即在此。本轮 nav 照旧取用户名，空间/VIP 改打 user/info 解析、
-     * 结果优先；proapi 在本类已被 downurl 取链以同一网页 Cookie 真机证明可通。
+     * 取账号信息，两条腿各管一段、互不连坐：
+     * 一是 nav（对照 PY Api.nav）取用户名/user_id——它是网页导航接口，回包里没有
+     * 容量与 VIP 明细（nap511 等真实消费者也只从它取 user_name/face/expire），
+     * 它身上的 parseSpace/parseVip 只作兜底（is_vip 能蒙出裸「VIP」）。
+     * 二是 webapi 的 /user/base_info 取容量与 VIP 全量——这是第三方 115 客户端
+     * Pang5 的活口径（其 src/api/user.rs：GET /user/base_info 一次拿 user_name、
+     * vip、is_forever_vip、expire_date、size_used、size_total，另带 _text/_raw
+     * 两种形态），与文件列表同域（webapi.115.com）同 Cookie，本类文件链真机已通。
      *
-     * @return nav 与 user/info 都拿到 data 返回 true；user/info 失败返回 false，
-     *         让 PanAccountInfo 走 5 分钟重试而不是把空空间冻进 6 小时缓存
+     * 前两轮为什么恒空（留档防再犯）：e0e2c32f 把 SDK 的 rt_space_info 键名安到
+     * nav 头上解析——键是对的、接口不对，nav 根本不带这套数据；846f51d0 改打
+     * proapi.115.com/app/user/info——它引的 115-sdk-go 里这条接口真身是
+     * /open/user/info 且走 OAuth 令牌（AuthRequest），路径差一段、鉴权体系不符，
+     * 网页 Cookie 打过去永远拿不到 data。两轮都没拿到过一回真回包。
+     *
+     * @return base_info 拿到 data 返回 true；失败返回 false，让 PanAccountInfo
+     *         走 5 分钟重试而不是把空空间冻进 6 小时缓存
      */
     public boolean fetchAccountInfo() {
         try {
@@ -259,35 +264,91 @@ public class Drive115 implements CloudDrive {
             p.put("_", nowMs());
             JSONObject d = reqJson(API_NAV, p, null, null, null);
             JSONObject data = d.optJSONObject("data");
-            if (data == null) return false;
-            userName = data.optString("user_name", data.optString("uname", ""));
-            if (data.optLong("user_id", 0) > 0) userId = data.optLong("user_id");
-            parseSpace(data);
-            vipText = parseVip(data);
-        } catch (Exception e) {
-            return false;
+            if (data != null) {
+                userName = data.optString("user_name", data.optString("uname", ""));
+                if (data.optLong("user_id", 0) > 0) userId = data.optLong("user_id");
+                parseSpace(data);
+                vipText = parseVip(data);
+            }
+        } catch (Exception ignored) {
         }
         boolean infoOk = false;
         try {
-            JSONObject d = reqJson(API_USER_INFO, null, null, UA_115, "https://115.com/");
+            JSONObject d = reqJson(API_BASE_INFO, null, null, null, null);
             JSONObject data = d.optJSONObject("data");
             if (data != null) {
                 infoOk = true;
-                String v = parseVip(data);
-                if (!v.isEmpty()) vipText = v;
-                parseSpace(data);
+                if (userName.isEmpty()) userName = data.optString("user_name", "");
+                parseBaseInfo(data);
                 try {
                     com.github.catvod.crawler.SpiderDebug.log("panacct",
-                            "115 userinfo keys=%s rt_space_info=%s vip_info=%s",
+                            "115 baseinfo keys=%s size_used=%s size_total=%s vip=%s expire_date=%s",
                             String.valueOf(data.names()),
-                            String.valueOf(data.opt("rt_space_info")),
-                            String.valueOf(data.opt("vip_info")));
+                            String.valueOf(data.opt("size_used")),
+                            String.valueOf(data.opt("size_total")),
+                            String.valueOf(data.opt("vip")),
+                            String.valueOf(data.opt("expire_date")));
                 } catch (Throwable ignored) {
                 }
             }
         } catch (Exception ignored) {
         }
         return infoOk;
+    }
+
+    /**
+     * base_info 解析（Pang5 src/api/user.rs 活口径）：容量 size_used/size_total，
+     * 值可能是字节数、数字串或格式化串，回包另带 size_used_text/size_total_text
+     * 文案与 size_used_raw/size_total_raw 原始值——能拿字节数就自己拼，
+     * 拿不到用文案兜底；VIP 看 vip 旗/名、is_forever_vip、expire_date。
+     * 只在解析出非空结果时才覆盖 nav 兜底，缺哪截不拼哪截、不编假数。
+     */
+    private void parseBaseInfo(JSONObject data) {
+        long used = baseInfoBytes(data, "size_used");
+        long total = baseInfoBytes(data, "size_total");
+        if (total > 0 && used >= 0) {
+            spaceUsed = used;
+            spaceTotal = total;
+            spaceText = "已用 " + formatSize(used) + " / 共 " + formatSize(total);
+        } else {
+            String usedStr = data.optString("size_used_text", "");
+            String totalStr = data.optString("size_total_text", "");
+            if (usedStr.isEmpty()) usedStr = spaceStr(data.opt("size_used"));
+            if (totalStr.isEmpty()) totalStr = spaceStr(data.opt("size_total"));
+            if (!usedStr.isEmpty() && !totalStr.isEmpty()) {
+                spaceText = "已用 " + usedStr + " / 共 " + totalStr;
+            }
+        }
+        String v = parseBaseInfoVip(data);
+        if (!v.isEmpty()) vipText = v;
+    }
+
+    /** base_info 单项字节数：优先 _raw 原始值，其次本体（数字/数字串/{size} 对象都收） */
+    private static long baseInfoBytes(JSONObject data, String key) {
+        long raw = spaceBytes(data.opt(key + "_raw"));
+        if (raw >= 0) return raw;
+        return spaceBytes(data.opt(key));
+    }
+
+    /** base_info 的 VIP 文案：vip 可能是旗（数字/布尔）或等级名字符串 */
+    private static String parseBaseInfoVip(JSONObject data) {
+        boolean forever = flagOn(data.opt("is_forever_vip"));
+        Object vip = data.opt("vip");
+        String name = "";
+        boolean isVip = forever || flagOn(vip);
+        if (vip instanceof String) {
+            String s = ((String) vip).trim();
+            if (!s.isEmpty() && !"0".equals(s) && !"false".equalsIgnoreCase(s)) {
+                isVip = true;
+                if (!"1".equals(s) && !"true".equalsIgnoreCase(s)) name = s;
+            }
+        }
+        if (!isVip) return "";
+        String base = name.isEmpty() ? "VIP" : name;
+        if (forever) return base + " · 永久";
+        String expire = data.optString("expire_date", "").trim();
+        if (expire.length() >= 10) expire = expire.substring(0, 10);
+        return expire.isEmpty() ? base : base + " · " + expire + " 到期";
     }
 
     /** 空间：data.rt_space_info 的 all_total/all_use（真键，SDK 活证据），每项是 {size,size_format} 对象；

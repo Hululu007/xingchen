@@ -35,7 +35,7 @@ import com.fongmi.android.tv.music.MusicController;
 import com.fongmi.android.tv.music.MusicLibrary;
 import com.fongmi.android.tv.music.MusicRepository;
 import com.fongmi.android.tv.music.MusicStore;
-import com.fongmi.android.tv.ui.base.BaseActivity;
+import com.fongmi.android.tv.ui.base.MusicBaseActivity;
 import com.fongmi.android.tv.ui.dialog.AccountPlaylistDialog;
 import com.fongmi.android.tv.ui.dialog.MusicOptionsDialog;
 import com.fongmi.android.tv.ui.dialog.MusicPlaylistImportDialog;
@@ -67,7 +67,7 @@ import java.util.zip.GZIPInputStream;
  * 导入歌单面板／登录导入／.lxmc 文件导入的接线只在本页可达，随本页自带。
  * 顶栏在旧页 sheets 下恒隐藏、本页不带；无返回箭头，走系统返回。
  */
-public class MusicPlaylistsActivity extends BaseActivity {
+public class MusicPlaylistsActivity extends MusicBaseActivity {
 
     /** 布局壳（BaseActivity 要求 getBinding；本页不用生成 Binding，视图一律 findViewById）。 */
     private static final class SimpleBinding implements ViewBinding {

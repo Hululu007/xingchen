@@ -25,7 +25,7 @@ import com.fongmi.android.tv.music.MusicLibrary;
 import com.fongmi.android.tv.music.MusicQueue;
 import com.fongmi.android.tv.music.MusicRepository;
 import com.fongmi.android.tv.music.MusicStore;
-import com.fongmi.android.tv.ui.base.BaseActivity;
+import com.fongmi.android.tv.ui.base.MusicBaseActivity;
 import com.fongmi.android.tv.ui.dialog.MusicOptionsDialog;
 import com.fongmi.android.tv.ui.music.MusicGlassWire;
 import com.fongmi.android.tv.utils.CoverTextDrawable;
@@ -50,7 +50,7 @@ import java.util.Set;
  * 回页重拉（首个 onResume 除外）：在别处取消收藏/新下载后回页必须见新账，不许留旧池；
  * 行菜单/下载选档/删本地/收藏/加歌单照旧口径自带。
  */
-public class MusicGuessActivity extends BaseActivity {
+public class MusicGuessActivity extends MusicBaseActivity {
 
     private static final class SimpleBinding implements ViewBinding {
         private final View root;

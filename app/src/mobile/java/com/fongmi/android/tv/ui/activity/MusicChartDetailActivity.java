@@ -22,7 +22,7 @@ import com.fongmi.android.tv.bean.music.MusicChart;
 import com.fongmi.android.tv.bean.music.MusicTrack;
 import com.fongmi.android.tv.music.MusicController;
 import com.fongmi.android.tv.music.MusicRepository;
-import com.fongmi.android.tv.ui.base.BaseActivity;
+import com.fongmi.android.tv.ui.base.MusicBaseActivity;
 import com.fongmi.android.tv.ui.music.MusicGlassWire;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
@@ -42,7 +42,7 @@ import java.util.Map;
  *（mode=chartDetail＋keyword/sitePlatform 空＋playlistId=-1＋title）。
  * 顶栏只留标题，无返回箭头，走系统返回。
  */
-public class MusicChartDetailActivity extends BaseActivity {
+public class MusicChartDetailActivity extends MusicBaseActivity {
 
     /** 布局壳（BaseActivity 要求 getBinding；本页不用生成 Binding，视图一律 findViewById）。 */
     private static final class SimpleBinding implements ViewBinding {

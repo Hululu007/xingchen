@@ -27,7 +27,7 @@ import com.fongmi.android.tv.music.MusicLibrary;
 import com.fongmi.android.tv.music.MusicQueue;
 import com.fongmi.android.tv.music.MusicRepository;
 import com.fongmi.android.tv.music.MusicStore;
-import com.fongmi.android.tv.ui.base.BaseActivity;
+import com.fongmi.android.tv.ui.base.MusicBaseActivity;
 import com.fongmi.android.tv.ui.dialog.MusicOptionsDialog;
 import com.fongmi.android.tv.ui.music.MusicGlassWire;
 import com.fongmi.android.tv.utils.ImgUtil;
@@ -46,7 +46,7 @@ import java.util.List;
  * 队列 route=list、参数 mode=history，队列面板来源跳转落回本页。
  * 顶栏只留标题，无返回箭头，走系统返回。
  */
-public class MusicHistoryActivity extends BaseActivity {
+public class MusicHistoryActivity extends MusicBaseActivity {
 
     /** 布局壳（BaseActivity 要求 getBinding；本页不用生成 Binding，视图一律 findViewById）。 */
     private static final class SimpleBinding implements ViewBinding {

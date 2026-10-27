@@ -25,7 +25,7 @@ import com.fongmi.android.tv.bean.music.MusicTrack;
 import com.fongmi.android.tv.music.MusicController;
 import com.fongmi.android.tv.music.MusicRepository;
 import com.fongmi.android.tv.music.MusicStore;
-import com.fongmi.android.tv.ui.base.BaseActivity;
+import com.fongmi.android.tv.ui.base.MusicBaseActivity;
 import com.fongmi.android.tv.ui.dialog.MusicOptionsDialog;
 import com.fongmi.android.tv.utils.CoverTextDrawable;
 import com.fongmi.android.tv.utils.ImgUtil;
@@ -43,7 +43,7 @@ import java.util.List;
  * 顶栏无返回箭头，走系统返回。2026-10-26 他亲点：计数行/刷新钮/排序箭头整带已删，
  * 本页只在进页时加载一次（无任何刷新入口），标题行保持他截图的样子不增不减。
  */
-public class MusicChartsActivity extends BaseActivity {
+public class MusicChartsActivity extends MusicBaseActivity {
 
     /** 布局壳（BaseActivity 要求 getBinding；本页不用生成 Binding，视图一律 findViewById）。 */
     private static final class SimpleBinding implements ViewBinding {

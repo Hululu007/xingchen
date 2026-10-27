@@ -29,7 +29,7 @@ import com.fongmi.android.tv.music.MusicLibrary;
 import com.fongmi.android.tv.music.MusicQueue;
 import com.fongmi.android.tv.music.MusicRepository;
 import com.fongmi.android.tv.music.MusicStore;
-import com.fongmi.android.tv.ui.base.BaseActivity;
+import com.fongmi.android.tv.ui.base.MusicBaseActivity;
 import com.fongmi.android.tv.ui.dialog.MusicOptionsDialog;
 import com.fongmi.android.tv.ui.music.MusicGlassWire;
 import com.fongmi.android.tv.utils.ImgUtil;
@@ -55,7 +55,7 @@ import java.util.List;
  * 队列面板来源跳转经 MusicQueueDialog 的 site 专支落回本页。
  * 无返回箭头，走系统返回。
  */
-public class MusicSiteActivity extends BaseActivity {
+public class MusicSiteActivity extends MusicBaseActivity {
 
     /** 布局壳（BaseActivity 要求 getBinding；本页不用生成 Binding，视图一律 findViewById）。 */
     private static final class SimpleBinding implements ViewBinding {

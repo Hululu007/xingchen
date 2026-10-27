@@ -31,7 +31,7 @@ import com.fongmi.android.tv.music.MusicDownloadStore;
 import com.fongmi.android.tv.music.MusicLibrary;
 import com.fongmi.android.tv.music.MusicRepository;
 import com.fongmi.android.tv.music.MusicStore;
-import com.fongmi.android.tv.ui.base.BaseActivity;
+import com.fongmi.android.tv.ui.base.MusicBaseActivity;
 import com.fongmi.android.tv.ui.dialog.MusicOptionsDialog;
 import com.fongmi.android.tv.ui.music.MusicFrostDrawable;
 import com.fongmi.android.tv.ui.music.MusicGlassWire;
@@ -69,7 +69,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * 源 chips 名单＝MusicRepository.searchableSites() 快照：壳子五家（落雪合成项）、油管
  * （落雪 yt 项）、115 网盘（pan://115，登录才出）、FreeJS／Py 插件源都自动进片，点片只看该源。
  */
-public class MusicSearchActivity extends BaseActivity {
+public class MusicSearchActivity extends MusicBaseActivity {
 
     /** 布局壳（BaseActivity 要求 getBinding；本页不用生成 Binding，视图一律 findViewById）。 */
     private static final class SimpleBinding implements ViewBinding {
@@ -234,6 +234,10 @@ public class MusicSearchActivity extends BaseActivity {
             }
         });
         MusicGlassWire.glassifyTree(rootView);
+        // 两框无缝·提示字同色：首页框的提示字运行时是磨砂翻字的主字色 #F1F4F5，
+        // 本页输入框提示被翻字口径压成副字（白 .60），切换瞬间亮度对不上——钉回同色，
+        // 与首页框严丝合缝（几何对齐在 activity_music_search.xml：左右 16／框顶距 76／取消占 ⋮ 位）。
+        etKeyword.setHintTextColor(0xFFF1F4F5);
         recycler.setAdapter(adapter = new SearchAdapter());
         sourceRow.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
         sourceRow.setAdapter(chipAdapter = new ChipAdapter());

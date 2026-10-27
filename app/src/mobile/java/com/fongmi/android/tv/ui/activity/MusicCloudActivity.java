@@ -40,7 +40,7 @@ import com.fongmi.android.tv.cloud.drivequark.DriveQuark;
 import com.fongmi.android.tv.login.LoginManager;
 import com.fongmi.android.tv.music.CloudMusicSource;
 import com.fongmi.android.tv.music.MusicController;
-import com.fongmi.android.tv.ui.base.BaseActivity;
+import com.fongmi.android.tv.ui.base.MusicBaseActivity;
 import com.fongmi.android.tv.ui.music.MusicGlassWire;
 import com.fongmi.android.tv.ui.dialog.PanLoginDialog;
 import com.fongmi.android.tv.utils.ImgUtil;
@@ -65,7 +65,7 @@ import java.util.Map;
  * 经代理递音乐播放器（115 走本机代理，与 115 视频一个路子）。
  * 别的网盘以后再加。登录态是搜索的前提：未登录先走各家现有登录法。
  */
-public class MusicCloudActivity extends BaseActivity {
+public class MusicCloudActivity extends MusicBaseActivity {
 
     public static void start(Activity activity) {
         activity.startActivity(new Intent(activity, MusicCloudActivity.class));

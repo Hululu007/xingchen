@@ -39,7 +39,7 @@ import com.fongmi.android.tv.music.MusicQueue;
 import com.fongmi.android.tv.music.MusicRepository;
 import com.fongmi.android.tv.music.MusicStore;
 import com.fongmi.android.tv.music.DeviceMusicStore;
-import com.fongmi.android.tv.ui.base.BaseActivity;
+import com.fongmi.android.tv.ui.base.MusicBaseActivity;
 import com.fongmi.android.tv.ui.minibar.ListenMiniBar;
 import com.fongmi.android.tv.ui.music.MusicFrostDrawable;
 import com.fongmi.android.tv.ui.music.MusicFrostWire;
@@ -66,7 +66,7 @@ import java.util.Map;
  * 同源暗磨砂（钉死深灰 #333333@.85、不从背景取色，糊底＝身后照片缓冲缩微糊化、只剩明暗色影）；其它音乐页照旧。
  * 迷你条只在首页显示：白名单在 ListenMiniBar，本页只负责回页补注册（refreshMiniBar）。
  */
-public class MusicActivity extends BaseActivity {
+public class MusicActivity extends MusicBaseActivity {
 
     /** 布局壳（BaseActivity 要求 getBinding；本页不用生成 Binding，视图一律 findViewById）。 */
     private static final class SimpleBinding implements ViewBinding {
@@ -148,19 +148,7 @@ public class MusicActivity extends BaseActivity {
         activity.startActivity(new android.content.Intent(activity, MusicActivity.class));
     }
 
-    // 主导航整页跳转（主页↔音乐）：进出都走页签交叉淡出（250ms＋缓动），
-    // 覆盖 BaseActivity 的全 App 通用 200ms 线性对，与底栏页签互切同款。
-    @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        overridePendingTransition(R.anim.xc_tab_fade_in, R.anim.xc_tab_fade_out);
-    }
-
-    @Override
-    public void finish() {
-        super.finish();
-        overridePendingTransition(R.anim.xc_tab_fade_in, R.anim.xc_tab_fade_out);
-    }
+    // 切页过渡已收口到 MusicBaseActivity（音乐各页共用 xc_tab 交叉淡入淡出），本页不再自带覆盖。
 
     /** 榜单快照清缓存的同名静态入口（其它页调用点契约不变）：转调 MusicHomeChartStore。
      * 只清快照不够：已活首页实例手里还攥着旧 chartTabs，onResume 的重拉判据是

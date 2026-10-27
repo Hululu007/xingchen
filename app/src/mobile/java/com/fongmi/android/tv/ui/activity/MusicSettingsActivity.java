@@ -25,7 +25,7 @@ import com.fongmi.android.tv.music.MusicController;
 import com.fongmi.android.tv.music.MusicDownloadStore;
 import com.fongmi.android.tv.music.MusicQueue;
 import com.fongmi.android.tv.music.MusicStore;
-import com.fongmi.android.tv.ui.base.BaseActivity;
+import com.fongmi.android.tv.ui.base.MusicBaseActivity;
 import com.fongmi.android.tv.ui.dialog.MusicFxDialog;
 import com.fongmi.android.tv.ui.dialog.MusicOptionsDialog;
 import com.fongmi.android.tv.ui.dialog.ParametricEqDialog;
@@ -51,7 +51,7 @@ import java.util.List;
  * 批 6（2026-10-24）：背景收口全域玻璃（布局侧）；
  * 摘除左手布局／过滤词曲信息两行假开关（全树无读取方，证据见布局头注）。
  */
-public class MusicSettingsActivity extends BaseActivity {
+public class MusicSettingsActivity extends MusicBaseActivity {
 
     private ActivityMusicSettingsBinding binding;
     /** 在线歌词优先级行右侧值（动态插行生成，布局文件未动时由 insertLyricPriorityRow 赋值） */

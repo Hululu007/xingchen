@@ -28,7 +28,7 @@ import com.fongmi.android.tv.music.MusicQueue;
 import com.fongmi.android.tv.music.MusicStore;
 import com.fongmi.android.tv.music.PyMusicSource;
 import com.fongmi.android.tv.ui.music.MusicGlassWire;
-import com.fongmi.android.tv.ui.base.BaseActivity;
+import com.fongmi.android.tv.ui.base.MusicBaseActivity;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.Task;
@@ -64,7 +64,7 @@ import java.util.Map;
  * 与模式泄漏不同根（那是离页写回）。修法：找歌／取链态挂 15 秒看门狗（星辰侧自定值），
  * 到期先复查服务当前曲是否已装载（宣告丢失时直接显示），仍未落位转失败态给重试出口。
  */
-public class MusicRandomActivity extends BaseActivity {
+public class MusicRandomActivity extends MusicBaseActivity {
 
     private ActivityMusicRandomBinding binding;
     private ObjectAnimator discAnim;

@@ -10,6 +10,9 @@
      玻璃件用全 App 共用 bg_music_glass_* 一套。
      2026-10-27 潇洒哥改令恢复本构成（608b4c51 摘除的页签＋源 chips 整套回滚恢复）；
      源 chips 名单含壳子五家、油管、115 网盘（登录才出）与已装插件源。
+     两框无缝（2026-10-27 他亲定，学瓜子）：本页搜索框与首页框几何严丝合缝——
+     内容左右 16、框顶边同在状态栏下 76（标题 64＋框上距 12）、高 48、取消定宽 40＋左距 4
+     正占首页 ⋮ 位、框内边距 16／图标 20／字 15sp／提示词与首页同一句；改任一框须两边同改。
      无返回箭头（铁律），关页走系统返回／搜索框行「取消」；界面只放名字和状态，无介绍文字。 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
@@ -26,8 +29,8 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:orientation="vertical"
-        android:paddingStart="20dp"
-        android:paddingEnd="20dp"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
         android:paddingBottom="16dp">
 
         <RelativeLayout
@@ -51,7 +54,7 @@
             android:id="@+id/searchBar"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
+            android:layout_marginTop="12dp"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
@@ -62,15 +65,15 @@
                 android:background="@drawable/bg_music_glass_search"
                 android:gravity="center_vertical"
                 android:orientation="horizontal"
-                android:paddingStart="14dp"
-                android:paddingEnd="8dp">
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp">
 
                 <ImageView
-                    android:layout_width="18dp"
-                    android:layout_height="18dp"
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
                     android:contentDescription="@null"
                     android:src="@drawable/ic_music_search"
-                    android:tint="#8E8E93" />
+                    android:tint="#F1F3F5" />
 
                 <EditText
                     android:id="@+id/etKeyword"
@@ -79,23 +82,21 @@
                     android:layout_marginStart="8dp"
                     android:layout_weight="1"
                     android:background="@null"
-                    android:hint="@string/music_search_hint"
+                    android:hint="@string/home_search_hint"
                     android:imeOptions="actionSearch"
                     android:inputType="text"
                     android:singleLine="true"
                     android:textColor="#1C1C1E"
                     android:textColorHint="#8E8E93"
-                    android:textSize="14sp" />
+                    android:textSize="15sp" />
             </LinearLayout>
 
             <TextView
                 android:id="@+id/searchCancel"
-                android:layout_width="wrap_content"
+                android:layout_width="40dp"
                 android:layout_height="48dp"
-                android:layout_marginStart="6dp"
+                android:layout_marginStart="4dp"
                 android:gravity="center"
-                android:paddingStart="6dp"
-                android:paddingEnd="2dp"
                 android:text="@string/music_search_cancel"
                 android:textColor="#1A1A1A"
                 android:textSize="14sp" />

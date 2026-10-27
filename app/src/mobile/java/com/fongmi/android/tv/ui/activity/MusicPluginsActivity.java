@@ -33,7 +33,7 @@ import com.fongmi.android.tv.bean.music.MusicRuntimeStatus;
 import com.fongmi.android.tv.bean.music.MusicSite;
 import com.fongmi.android.tv.music.MusicRepository;
 import com.fongmi.android.tv.music.MusicStore;
-import com.fongmi.android.tv.ui.base.BaseActivity;
+import com.fongmi.android.tv.ui.base.MusicBaseActivity;
 import com.fongmi.android.tv.ui.dialog.MusicOptionsDialog;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.Task;
@@ -55,7 +55,7 @@ import java.util.List;
  * 布局单滚动流写死（见 activity_music_plugins.xml 头注），无运行时重排。
  * 无返回箭头，走系统返回。
  */
-public class MusicPluginsActivity extends BaseActivity {
+public class MusicPluginsActivity extends MusicBaseActivity {
 
     /** 布局壳（BaseActivity 要求 getBinding；本页不用生成 Binding，视图一律 findViewById）。 */
     private static final class SimpleBinding implements ViewBinding {

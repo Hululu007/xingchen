@@ -27,7 +27,7 @@ import com.fongmi.android.tv.music.MusicLibrary;
 import com.fongmi.android.tv.music.MusicQueue;
 import com.fongmi.android.tv.music.MusicRepository;
 import com.fongmi.android.tv.music.MusicStore;
-import com.fongmi.android.tv.ui.base.BaseActivity;
+import com.fongmi.android.tv.ui.base.MusicBaseActivity;
 import com.fongmi.android.tv.ui.dialog.MusicOptionsDialog;
 import com.fongmi.android.tv.ui.music.MusicGlassWire;
 import com.fongmi.android.tv.utils.ImgUtil;
@@ -49,7 +49,7 @@ import java.util.List;
  * 播放偏移 +3（英雄卡／操作行／区头）在本页 adapter 内落实。
  * 旧页大标题行在 sheet 下恒隐藏、本页不带；无返回箭头，走系统返回。
  */
-public class MusicPlaylistActivity extends BaseActivity {
+public class MusicPlaylistActivity extends MusicBaseActivity {
 
     /** 布局壳（BaseActivity 要求 getBinding；本页不用生成 Binding，视图一律 findViewById）。 */
     private static final class SimpleBinding implements ViewBinding {

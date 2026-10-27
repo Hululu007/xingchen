@@ -969,7 +969,8 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                 public void onSuccess(java.util.List<com.fongmi.android.tv.hongguo.model.HgSeriesItem> seasons) {
                     session.putAlbum(sid, seasons);
                     runOnUiThread(() -> {
-                        if (isFinishing() || isDestroyed()) return;
+                        // 迟到回调防串面：页签已切/条目已不在当前表就丢弃
+                        if (isFinishing() || isDestroyed() || !session.items.contains(item)) return;
                         if (seasons != null && seasons.size() >= 2) showSeriesSheet(item, seasons);
                         else startSeries(HongguoFeedActivity.this, sid, title, cover);
                     });
@@ -979,7 +980,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                 public void onError(int httpCode, String message) {
                     session.putAlbum(sid, java.util.Collections.emptyList());
                     runOnUiThread(() -> {
-                        if (!isFinishing() && !isDestroyed()) {
+                        if (!isFinishing() && !isDestroyed() && session.items.contains(item)) {
                             startSeries(HongguoFeedActivity.this, sid, title, cover);
                         }
                     });

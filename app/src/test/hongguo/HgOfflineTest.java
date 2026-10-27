@@ -106,6 +106,37 @@ public class HgOfflineTest {
         check("V2 请求体带 dr_scene 且无 content_type/video_id",
                 "default".equals(v2.get("dr_scene").getAsString()) && !v2.has("content_type") && !v2.has("video_id"),
                 "实际=" + v2);
+        // 5) 单集 video_model 解析（兜底路）：用存档 multi 回包的单集 wrap
+        //    重塑成单集回包形状 {data:{video_model,video_width,video_height}}，
+        //    数据是真的、只换外层包法，验新解析器吃得对不对。
+        {
+            com.google.gson.JsonObject mroot = com.google.gson.JsonParser.parseString(multi).getAsJsonObject();
+            com.google.gson.JsonObject wrap = mroot.getAsJsonObject("data").getAsJsonObject("7694897951721655320");
+            com.google.gson.JsonObject single = new com.google.gson.JsonObject();
+            single.add("data", wrap);
+            HgVideoModel sm = HgParser.parseSingleVideoModel(single.toString(), "7694897951721655320");
+            check("单集解析非空且档位数=5", sm != null && sm.getEntries().size() == 5,
+                    "实际=" + (sm == null ? null : sm.getEntries().size()));
+            check("单集解析 fallback_api 非空", sm != null && sm.getFallbackApi() != null
+                    && sm.getFallbackApi().startsWith("https://vas-"), "实际=" + (sm == null ? null : sm.getFallbackApi()));
+            check("单集解析无 data 返回 null",
+                    HgParser.parseSingleVideoModel("{\"code\":0}", "x") == null, null);
+        }
+
+        // 6) bookmall/tab 真回包（2026-10-27 带 /v1/ 段实拉）解析回归：
+        //    刷剧页推荐兜底面就是它，解析必须抽得出剧条目。
+        {
+            String bookmall = Files.readString(Paths.get(dir + "bookmall_tab_resp.json"));
+            com.fongmi.android.tv.hongguo.model.HgCellPage page = HgParser.parseCellPage(bookmall);
+            check("bookmall code=0", page.getCode() == 0, "实际=" + page.getCode());
+            check("bookmall 抽出剧条目>0", page.getItems() != null && !page.getItems().isEmpty(),
+                    "实际=" + (page.getItems() == null ? -1 : page.getItems().size()));
+            if (page.getItems() != null && !page.getItems().isEmpty()) {
+                System.out.println("  bookmall 首条目 " + page.getItems().get(0).getSeriesId()
+                        + " 《" + page.getItems().get(0).getTitle() + "》");
+            }
+        }
+
         System.out.println(fail == 0 ? "ALL PASS" : ("FAILURES=" + fail));
         System.exit(fail == 0 ? 0 : 1);
     }

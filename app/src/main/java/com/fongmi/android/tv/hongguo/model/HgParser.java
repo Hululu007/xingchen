@@ -48,6 +48,22 @@ public final class HgParser {
         return out;
     }
 
+    /**
+     * 单集 video_model 回包（Outer=3 口径，海阔 hgApiOnce 同形态）→ 单集模型：
+     * data.video_model 是字符串化 JSON（也容忍对象形态），宽高在 data 一层。
+     * 无 data / 无 video_model 返回 null（hgApiOnce 同判据）。
+     */
+    public static HgVideoModel parseSingleVideoModel(String json, String requestedId) {
+        JsonObject root = JsonParser.parseString(json).getAsJsonObject();
+        JsonObject data = obj(root, "data");
+        if (data == null) return null;
+        JsonObject vm = asObject(data.get("video_model"));
+        if (vm == null) return null;
+        int vw = intOf(data, "video_width", 0);
+        int vh = intOf(data, "video_height", 0);
+        return buildModel(requestedId, vm, vw, vh);
+    }
+
     /** fplay 回包（fallback_api 的返回）→ 单集模型。 */
     public static HgVideoModel parseFplay(String json) {
         JsonObject root = JsonParser.parseString(json).getAsJsonObject();
@@ -184,9 +200,15 @@ public final class HgParser {
         return new HgCellPage(code, msg, items, root);
     }
 
-    /** 在 data 子树里（深度 ≤3）找数组，抽出带剧 id + 标题的对象为条目。 */
+    /**
+     * 在 data 子树里找数组，抽出带剧 id + 标题的对象为条目。深度上限 8：
+     * bookmall/tab 真回包（2026-10-27 实拉存档）的剧条目在
+     * tab_item[].cell_data[].cell_data[].video_data[] 里（带 series_id /
+     * title / cover / episode_cnt），嵌套 7 层——旧上限 3 永远抽不到，
+     * 是路径修好后解析面剩下的第二个坑。
+     */
     private static void collectSeries(JsonElement el, List<HgSeriesItem> out, int depth) {
-        if (el == null || depth > 3) return;
+        if (el == null || depth > 8) return;
         if (el.isJsonArray()) {
             for (JsonElement child : el.getAsJsonArray()) {
                 HgSeriesItem item = asSeriesItem(child);
@@ -208,7 +230,7 @@ public final class HgParser {
         String title = firstStr(o, "title", "series_name", "name", "book_name");
         if (id == null || title == null) return null;
         String cover = firstStr(o, "cover", "poster_url", "thumb_url", "cover_url", "image_url");
-        String desc = firstStr(o, "desc", "description", "intro");
+        String desc = firstStr(o, "desc", "description", "intro", "video_desc");
         int count = intOf(o, "episode_count", -1);
         if (count < 0) count = intOf(o, "episode_cnt", -1);
         // 预约面：rpc 模型 Feed 带 appointment: Appointment{is_subscribed /

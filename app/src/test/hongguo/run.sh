@@ -65,6 +65,15 @@ cat > "$WORK/stub/okhttp3/OkHttpClient.java" << 'EOF'
 package okhttp3;
 public class OkHttpClient { public Call newCall(Request r){ return null; } }
 EOF
+mkdir -p "$WORK/stub/android/util"
+cat > "$WORK/stub/android/util/Log.java" << 'EOF'
+package android.util;
+public final class Log {
+  public static int e(String tag, String msg) { System.err.println("E/" + tag + ": " + msg); return 0; }
+  public static int w(String tag, String msg) { return 0; }
+  public static int d(String tag, String msg) { return 0; }
+}
+EOF
 mkdir -p "$WORK/stub/com/fongmi/android/tv/login"
 cat > "$WORK/stub/com/fongmi/android/tv/login/LoginManager.java" << 'EOF'
 package com.fongmi.android.tv.login;

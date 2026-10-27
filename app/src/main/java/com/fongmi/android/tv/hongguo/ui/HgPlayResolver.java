@@ -165,10 +165,46 @@ public final class HgPlayResolver {
         return HgUrlCrypto.decryptUrl(raw, model.getKeySeed());
     }
 
+    /**
+     * 取模型链：批量 multi 先行；multi 失败/空体/回包无该集时换单集口兜底
+     * （fqnovel 网关 Outer=3，海阔 hgApi 实证：同指纹连发被限速，故每试一次
+     * 都是全新指纹——postJson 每次都拼 freshQuery，最多 3 次）。fplay 兜底
+     * 只能跟在拿到模型之后（fallback_api 在回包里），multi 本身拿不到时
+     * 无从走 fplay，这条单集口就是那一级的兜底。
+     */
     private HgVideoModel fetchModel(String videoId) {
+        HgVideoModel m = fetchMulti(videoId);
+        if (m != null) return m;
+        for (int attempt = 0; attempt < 3; attempt++) {
+            m = fetchSingle(videoId);
+            if (m != null) return m;
+        }
+        return null;
+    }
+
+    private HgVideoModel fetchMulti(String videoId) {
         CountDownLatch latch = new CountDownLatch(1);
         HgVideoModel[] box = new HgVideoModel[1];
         client.fetchVideoModel(videoId, new HgCallback<HgVideoModel>() {
+            @Override
+            public void onSuccess(HgVideoModel result) {
+                box[0] = result;
+                latch.countDown();
+            }
+
+            @Override
+            public void onError(int httpCode, String message) {
+                latch.countDown();
+            }
+        });
+        await(latch);
+        return box[0];
+    }
+
+    private HgVideoModel fetchSingle(String videoId) {
+        CountDownLatch latch = new CountDownLatch(1);
+        HgVideoModel[] box = new HgVideoModel[1];
+        client.fetchSingleVideoModel(videoId, new HgCallback<HgVideoModel>() {
             @Override
             public void onSuccess(HgVideoModel result) {
                 box[0] = result;

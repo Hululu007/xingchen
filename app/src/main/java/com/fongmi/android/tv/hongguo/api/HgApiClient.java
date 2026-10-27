@@ -32,6 +32,15 @@ import okhttp3.ResponseBody;
  * 第 2 条实证，连已知能成的单集口径在本机也是空体），客户端按官方真口径实现，
  * 不因本机试发结果阉割；离线验只走存档回包解析。</p>
  *
+ * <p>路径定罪（2026-10-27 真机「加载失败」案）：bookapi 家族在样本里的路径
+ * 模板全部带版本段（classes11.dex 逐字：{@code $GET /reading/bookapi/plan/
+ * v:version/} 等，user/subscribe/list 同），无段路径在网关直接 404
+ * "Page not found"（本机对照实测：无段 404、带段 200 回真数据，版本段取值
+ * 网关不敏感，v1/v2/v668/v725 均路由）。本类早期所有 bookapi 路径都漏了
+ * 版本段，真机上 plan→bookmall 两级兜底连环 404、刷剧页只剩「加载失败」。
+ * 现统一走 {@link #BV} 拼段；版本段的官方替换值未在样本里抠到定版，
+ * 先用 v1（实测回真数据），待真机回包再校准。</p>
+ *
  * <p>feed 面说明：推荐流逐条 feed 请求的原始报文未在拆解中定到（structure.md
  * 标未定），本类只落 video_tab/plan + bookmall/tab + cell/change 这套能落的
  * 体系入口，逐条 feed 请求不编造。</p>
@@ -39,6 +48,14 @@ import okhttp3.ResponseBody;
 public final class HgApiClient {
 
     public static final String HOST = "https://reading.snssdk.com";
+
+    /** 单集取址的网关（海阔线实测活口，hgApiOnce 同址）：批量失败时的单集兜底路。 */
+    public static final String SINGLE_HOST = "https://api5-normal-sinfonlinea.fqnovel.com";
+
+    /** bookapi 路径版本段（样本模板 v:version 的替换值，见类头定罪注）。 */
+    private static final String BV = "/v1/";
+
+    private static final String TAG = "HgApi";
 
     private static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
 
@@ -142,6 +159,31 @@ public final class HgApiClient {
         });
     }
 
+    /**
+     * 单集取模型兜底路 POST /novel/player/video_model/v1/（fqnovel 网关，
+     * Outer=3 口径）：批量 multi 失败/空体时的换路取址——multi 的 fallback_api
+     * 藏在 multi 回包里，multi 本身拿不到时无从走 fplay，这条单集口是海阔线
+     * 实证过的活口（lib_hg_lib.js hgApiOnce，同一指纹连发会被限速，故每次
+     * 请求都换全新指纹、由调用方换指纹重试）。回包 data.video_model 解析
+     * 见 HgParser.parseSingleVideoModel。
+     */
+    public void fetchSingleVideoModel(String videoId, HgCallback<HgVideoModel> cb) {
+        JsonObject body = HgRequests.singleVideoModelBody(videoId);
+        postJson(SINGLE_HOST + "/novel/player/video_model/v1/", body, new BodyCallback() {
+            @Override
+            void onBody(String text) {
+                HgVideoModel m = HgParser.parseSingleVideoModel(text, videoId);
+                if (m == null) cb.onError(-1, "单集回包无 video_model");
+                else cb.onSuccess(m);
+            }
+
+            @Override
+            void onFail(int code, String msg) {
+                cb.onError(code, msg);
+            }
+        });
+    }
+
     // ---------- 剧集详情 ----------
 
     /**
@@ -195,69 +237,69 @@ public final class HgApiClient {
     public void searchTab(String keyword, HgCallback<HgCellPage> cb) {
         Map<String, String> q = new HashMap<>();
         q.put("keyword", keyword);
-        get(HOST + "/reading/bookapi/search/tab", q, cellCallback(cb));
+        get(HOST + "/reading/bookapi/search/tab" + BV, q, cellCallback(cb));
     }
 
     /** 搜索提示 GET /reading/bookapi/search/cue。 */
     public void searchCue(String keyword, HgCallback<HgCellPage> cb) {
         Map<String, String> q = new HashMap<>();
         q.put("keyword", keyword);
-        get(HOST + "/reading/bookapi/search/cue", q, cellCallback(cb));
+        get(HOST + "/reading/bookapi/search/cue" + BV, q, cellCallback(cb));
     }
 
     /** 搜索联想 GET /reading/bookapi/search/suggest。 */
     public void searchSuggest(String keyword, HgCallback<HgCellPage> cb) {
         Map<String, String> q = new HashMap<>();
         q.put("keyword", keyword);
-        get(HOST + "/reading/bookapi/search/suggest", q, cellCallback(cb));
+        get(HOST + "/reading/bookapi/search/suggest" + BV, q, cellCallback(cb));
     }
 
     /** 搜索结果翻页 GET /reading/bookapi/search/cell/change（翻页游标参数未定版，透传 params）。 */
     public void searchCellChange(Map<String, String> params, HgCallback<HgCellPage> cb) {
-        get(HOST + "/reading/bookapi/search/cell/change", params, cellCallback(cb));
+        get(HOST + "/reading/bookapi/search/cell/change" + BV, params, cellCallback(cb));
     }
 
     // ---------- 剧场分类 ----------
 
     public void categoryFront(HgCallback<HgCellPage> cb) {
-        get(HOST + "/reading/bookapi/new_category/front", null, cellCallback(cb));
+        get(HOST + "/reading/bookapi/new_category/front" + BV, null, cellCallback(cb));
     }
 
     public void categoryLanding(Map<String, String> params, HgCallback<HgCellPage> cb) {
-        get(HOST + "/reading/bookapi/new_category/landing", params, cellCallback(cb));
+        get(HOST + "/reading/bookapi/new_category/landing" + BV, params, cellCallback(cb));
     }
 
     public void categoryCell(Map<String, String> params, HgCallback<HgCellPage> cb) {
-        get(HOST + "/reading/bookapi/new_category/cell", params, cellCallback(cb));
+        get(HOST + "/reading/bookapi/new_category/cell" + BV, params, cellCallback(cb));
     }
 
     // ---------- 首页/剧场计划位（feed 面能落的部分） ----------
 
     /** GET /reading/bookapi/plan：服务端编排的计划位。 */
     public void plan(HgCallback<HgCellPage> cb) {
-        get(HOST + "/reading/bookapi/plan", null, cellCallback(cb));
+        get(HOST + "/reading/bookapi/plan" + BV, null, cellCallback(cb));
     }
 
     /** GET /reading/bookapi/bookmall/tab：剧场页签。 */
     public void bookmallTab(HgCallback<HgCellPage> cb) {
-        get(HOST + "/reading/bookapi/bookmall/tab", null, cellCallback(cb));
+        get(HOST + "/reading/bookapi/bookmall/tab" + BV, null, cellCallback(cb));
     }
 
     /** GET /reading/bookapi/bookmall/cell/change：剧场 cell 翻页（参数透传）。 */
     public void bookmallCellChange(Map<String, String> params, HgCallback<HgCellPage> cb) {
-        get(HOST + "/reading/bookapi/bookmall/cell/change", params, cellCallback(cb));
+        get(HOST + "/reading/bookapi/bookmall/cell/change" + BV, params, cellCallback(cb));
     }
 
     // ---------- 追剧架（账号维度，靠登录态注入） ----------
 
     public void bookshelfVideoList(HgCallback<HgCellPage> cb) {
-        get(HOST + "/reading/bookapi/bookshelf/video/list", null, cellCallback(cb));
+        get(HOST + "/reading/bookapi/bookshelf/video/list" + BV, null, cellCallback(cb));
     }
 
     public void bookshelfVideoInfo(String seriesId, HgCallback<HgCellPage> cb) {
         Map<String, String> q = new HashMap<>();
         q.put("series_id", seriesId);
-        get(HOST + "/reading/bookapi/bookshelf/video/info", q, cellCallback(cb));
+        get(HOST + "/reading/bookapi/bookshelf/video/info" + BV, q, cellCallback(cb));
     }
 
     /**
@@ -269,7 +311,7 @@ public final class HgApiClient {
      */
     public void bookshelfVideoUpdate(String seriesId, boolean add, HgCallback<Boolean> cb) {
         JsonObject body = HgRequests.bookshelfVideoUpdateBody(seriesId, add, System.currentTimeMillis());
-        postJson(HOST + "/reading/bookapi/bookshelf/video/update", body, new BodyCallback() {
+        postJson(HOST + "/reading/bookapi/bookshelf/video/update" + BV, body, new BodyCallback() {
             @Override
             void onBody(String text) {
                 if (isOkCode(text)) cb.onSuccess(Boolean.TRUE);
@@ -293,7 +335,7 @@ public final class HgApiClient {
      */
     public void subscribeSeries(String seriesId, boolean subscribe, HgCallback<Boolean> cb) {
         JsonObject body = HgRequests.searchUncoverSubscribeBody(seriesId, subscribe);
-        postJson(HOST + "/reading/bookapi/search/uncover_subscribe", body, new BodyCallback() {
+        postJson(HOST + "/reading/bookapi/search/uncover_subscribe" + BV, body, new BodyCallback() {
             @Override
             void onBody(String text) {
                 if (isOkCode(text)) cb.onSuccess(Boolean.TRUE);
@@ -314,7 +356,7 @@ public final class HgApiClient {
      * 样本逐字命中。解析走容忍抽取（见 HgParser.parseSubscribeList 注）。
      */
     public void fetchMyReservations(HgCallback<java.util.List<com.fongmi.android.tv.hongguo.model.HgSeriesItem>> cb) {
-        get(HOST + "/reading/user/subscribe/list", HgRequests.subscribeListParams(), new BodyCallback() {
+        get(HOST + "/reading/user/subscribe/list" + BV, HgRequests.subscribeListParams(), new BodyCallback() {
             @Override
             void onBody(String text) {
                 cb.onSuccess(HgParser.parseSubscribeList(text));
@@ -380,7 +422,7 @@ public final class HgApiClient {
         String url = path + (path.contains("?") ? "&" : "?") + HgRequests.freshQuery();
         RequestBody rb = RequestBody.create(JSON, body.toString());
         Call call = OkHttp.newCall(url, headers(), rb);
-        enqueue(call, cb);
+        enqueue(call, cb, path);
     }
 
     private void get(String path, Map<String, String> params, BodyCallback cb) {
@@ -392,17 +434,25 @@ public final class HgApiClient {
             }
         }
         Call call = OkHttp.newCall(url.toString(), headers());
-        enqueue(call, cb);
+        enqueue(call, cb, path);
     }
 
-    private void enqueue(Call call, BodyCallback cb) {
+    /**
+     * 失败一律留全日志（tag=HgApi）：异常类名＋HTTP 状态＋路径都进 logcat，
+     * 页面只给人话文案——2026-10-27「加载失败」案就是因为真错误被吞掉、
+     * 只剩一句通用提示，无从定罪。此后任何一环失败，先看这行日志。
+     */
+    private void enqueue(Call call, BodyCallback cb, String path) {
         if (call == null) {
+            android.util.Log.e(TAG, path + " 无法创建请求");
             cb.onFail(-1, "无法创建请求");
             return;
         }
         call.enqueue(new Callback() {
             @Override
             public void onFailure(Call c, IOException e) {
+                android.util.Log.e(TAG, path + " 网络失败 "
+                        + e.getClass().getName() + ": " + e.getMessage());
                 cb.onFail(-1, e.getMessage());
             }
 
@@ -413,17 +463,26 @@ public final class HgApiClient {
                     ResponseBody rb = r.body();
                     String text = rb == null ? "" : rb.string();
                     if (!r.isSuccessful()) {
+                        android.util.Log.e(TAG, path + " HTTP " + r.code()
+                                + (text.isEmpty() ? "" : " body=" + abbrev(text)));
                         cb.onFail(r.code(), "HTTP " + r.code());
                     } else if (text.isEmpty()) {
+                        android.util.Log.e(TAG, path + " 回包空体 HTTP " + r.code());
                         cb.onFail(r.code(), "回包空体");
                     } else {
                         cb.onBody(text);
                     }
                 } catch (Exception e) {
+                    android.util.Log.e(TAG, path + " 读体失败 "
+                            + e.getClass().getName() + ": " + e.getMessage());
                     cb.onFail(-1, e.getMessage());
                 }
             }
         });
+    }
+
+    private static String abbrev(String text) {
+        return text.length() <= 120 ? text : text.substring(0, 120);
     }
 
     private static String enc(String s) {

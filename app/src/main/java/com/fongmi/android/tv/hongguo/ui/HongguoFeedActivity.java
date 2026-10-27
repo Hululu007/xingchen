@@ -241,6 +241,11 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         playerView.setShutterBackgroundColor(0xFF000000);
         playerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_ZOOM);
         setupTabs();
+        // 加载失败态可点重试（列表为空时点状态文案重拉当前页签）：
+        // 此前失败只剩切页签/杀进程两条路，文案写着「稍后再试」却没给试的口
+        binding.hgState.setOnClickListener(v -> {
+            if (session.items.isEmpty() && !mineShowing) loadTab(tab);
+        });
         setupShellFaces();
         mode = getIntent().getIntExtra(EXTRA_MODE, MODE_FEED);
         if (mode == MODE_SERIES) {

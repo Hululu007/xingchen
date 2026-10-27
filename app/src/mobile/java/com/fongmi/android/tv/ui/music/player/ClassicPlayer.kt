@@ -18,15 +18,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -47,13 +46,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import com.fongmi.android.tv.ui.music.MusicPlayerSettings
 
 /**
- * 经典页（瓜子竖屏经典装配逐项对照 PlayerScreenKt 调用序）：
- * 氛围层（糊封面）→ CoverArt 锐封面整页垫底 → SongMeta（28dp 横边距，状态栏 insets＋上 12 下 8）
- * → 页内歌词区（weight 1，LyricEngine 封面窗装配，无词时空态）→ 6dp → PlaybackScrubber（横 28dp）
- * → 45dp 收尾。经典页没有运输行：播停在标题行第三键，切歌走封面手势（下一单）。
+ * 经典页（瓜子竖屏经典装配，2026-10-27 源码对死订正）：
+ * 氛围层（糊封面）整页垫底 → 前景纵列：封面台（整宽、zIndex 1）→ 页内歌词区（weight 1，
+ * LyricEngine 封面窗装配，无词时空态）→ 6dp → PlaybackScrubber（横 28dp）→ 45dp 收尾。
+ * 封面台内：CoverArt 整宽置顶，高由封面图自身宽高比量出（瓜子测量驱动，方封面即整宽方形块，
+ * 非整页垫底）；SongMeta 锚在封面台左下（BoxScope.align BottomStart）＋下移 12dp，骑在封面块
+ * 下沿——不在屏顶、无状态栏 insets。歌词区只压氛围层，不压锐封面。
+ * 经典页没有运输行：播停在标题行第三键，切歌走封面手势（下一单）。
  * 根底色不在本件画：PlayerRoot 用中枢 baseColor 以 450ms/bs4.a 动画铺满整窗，形变长开时不露空。
  */
 @Composable
@@ -73,15 +76,23 @@ fun ClassicPlayer(
     val hasLyricWords = state.lyricLines.any { it.main.hasWords() }
     Box(modifier.fillMaxSize()) {
         AmbientLayer(state)
-        CoverArtLayer(state)
         Column(Modifier.fillMaxSize()) {
-            SongMeta(
-                state = state,
-                onMenuClick = onMenuClick,
-                onQueueClick = onQueueClick,
-                onArtistClick = onArtistClick,
-                onAlbumClick = onAlbumClick
-            )
+            // 封面台（整宽、zIndex 1 压歌词区）：封面块置顶＋歌名行锚台底左下、下移 12dp
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .zIndex(1f)
+            ) {
+                CoverArtLayer(state)
+                SongMeta(
+                    state = state,
+                    onMenuClick = onMenuClick,
+                    onQueueClick = onQueueClick,
+                    onArtistClick = onArtistClick,
+                    onAlbumClick = onAlbumClick,
+                    modifier = Modifier.align(Alignment.BottomStart)
+                )
+            }
             // 页内歌词区（LyricEngine 封面窗装配；空态与骨架期同文同位）
             Box(
                 Modifier
@@ -172,7 +183,11 @@ internal fun AmbientLayer(state: PlayerUiState) {
     }
 }
 
-/** 锐封面整页垫底：暂停缩 0.9；切歌 400ms/bs4.e 转场（新下入半高＋.94 起、旧缩 .96 淡出）；底部向下溶进氛围。 */
+/**
+ * 锐封面块（封面台内整宽置顶）：高由封面图自身宽高比量出（瓜子测量驱动口径——调用方只给
+ * 整宽，图按自身比例定高；方封面即整宽方形块，无图时按 1:1 占位）。暂停缩 0.9；
+ * 切歌 400ms/bs4.e 转场（新下入半高＋.94 起、旧缩 .96 淡出）；底部向下溶进氛围。
+ */
 @Composable
 private fun CoverArtLayer(state: PlayerUiState) {
     val coverScale by animateFloatAsState(
@@ -180,6 +195,12 @@ private fun CoverArtLayer(state: PlayerUiState) {
         animationSpec = tween(300, easing = EaseBs4A),
         label = "coverPauseScale"
     )
+    val bmp = state.coverBitmap
+    val coverRatio = if (bmp != null && bmp.width > 0 && bmp.height > 0) {
+        bmp.width.toFloat() / bmp.height.toFloat()
+    } else {
+        1f
+    }
     AnimatedContent(
         targetState = state.coverBitmap,
         transitionSpec = {
@@ -190,7 +211,8 @@ private fun CoverArtLayer(state: PlayerUiState) {
         },
         label = "coverArt",
         modifier = Modifier
-            .fillMaxSize()
+            .fillMaxWidth()
+            .aspectRatio(coverRatio)
             .graphicsLayer {
                 scaleX = coverScale
                 scaleY = coverScale
@@ -234,7 +256,9 @@ private fun shiftLightness(color: Color, delta: Float): Color {
 }
 
 /**
- * 歌名行（SongMeta，内部逐项对照 jadx 24695–25217）：
+ * 歌名行（SongMeta，内部逐项对照 jadx 24695–25217；落位 2026-10-27 对死）：
+ * 调用方给封面台 BoxScope 的 align(BottomStart)；自身链＝整宽＋横 28＋下移 12dp＋下 8dp
+ * （瓜子经典调用点修饰链逐件对位，无状态栏 insets、无上边距——行骑在封面块下沿）。
  * 标题容器高 28dp——歌名 18sp/800/行高 24/字距 −0.4/白 0.95、长名滚动；空名兜底「未在播放」。
  * 第二行距标题容器 2dp、高 22dp：歌手 14sp/500 白 0.45（可点）＋爱心 13dp（左右 padding 7、
  * 已收藏实心 0.45／未收藏描边 0.30、按压 0.85）＋专辑 14sp/500 白 0.45（空不画）。
@@ -246,7 +270,8 @@ private fun SongMeta(
     onMenuClick: () -> Unit,
     onQueueClick: () -> Unit,
     onArtistClick: () -> Unit,
-    onAlbumClick: () -> Unit
+    onAlbumClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val track = state.track
     val title = track?.displayTitle()?.takeIf { it.isNotEmpty() } ?: "未在播放"
@@ -254,11 +279,11 @@ private fun SongMeta(
     val album = track?.displayAlbum()?.takeIf { it.isNotEmpty() }
 
     Column(
-        Modifier
+        modifier
             .fillMaxWidth()
             .padding(horizontal = 28.dp)
-            .windowInsetsPadding(WindowInsets.statusBars)
-            .padding(top = 12.dp, bottom = 8.dp)
+            .offset(y = 12.dp)
+            .padding(bottom = 8.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {

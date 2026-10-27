@@ -1,9 +1,12 @@
 package com.fongmi.android.tv.hongguo.ui;
 
+import android.view.GestureDetector;
 import android.view.LayoutInflater;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
@@ -31,6 +34,9 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         void onAction(int position, Action action);
 
         void onSeriesBar(int position);
+
+        /** 进这部剧（短片流）：点系列胶囊条/系列标题行或条目上左滑（账 §4/§5.4）；系列先弹半屏单、单季直进集流。 */
+        void onEnterSeries(int position);
 
         void onDanmakuToggle(int position);
 
@@ -62,7 +68,29 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
     public Holder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
         ItemHongguoFeedBinding binding = ItemHongguoFeedBinding.inflate(
                 LayoutInflater.from(parent.getContext()), parent, false);
-        return new Holder(binding);
+        Holder holder = new Holder(binding);
+        // 左滑进剧（账 §4）：挂整页根、只认 fling 终点位移——阈值口径：
+        // 水平位移 dx ≤ −80dp 且 |dx| ≥ 1.5×|dy| 才算左滑进剧；点按、
+        // 上下滑、斜滑一律不消费，交给点击与竖滑分页，互不抢事件。
+        GestureDetector detector = new GestureDetector(parent.getContext(),
+                new GestureDetector.SimpleOnGestureListener() {
+                    @Override
+                    public boolean onFling(MotionEvent e1, MotionEvent e2,
+                                           float velocityX, float velocityY) {
+                        if (e1 == null || e2 == null) return false;
+                        float density = holder.itemView.getResources().getDisplayMetrics().density;
+                        float dx = e2.getX() - e1.getX();
+                        float dy = e2.getY() - e1.getY();
+                        if (dx <= -80f * density && Math.abs(dx) >= 1.5f * Math.abs(dy)) {
+                            int pos = holder.getBindingAdapterPosition();
+                            if (pos != RecyclerView.NO_POSITION) host.onEnterSeries(pos);
+                            return true;
+                        }
+                        return false;
+                    }
+                });
+        binding.hgPageRoot.setOnTouchListener((v, ev) -> detector.onTouchEvent(ev));
+        return holder;
     }
 
     @Override
@@ -75,8 +103,10 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         b.hgError.setVisibility(View.GONE);
         b.hgPauseIcon.setVisibility(View.GONE);
         b.hgProgressFill.setScaleX(0f);
-        // 作者：有真名才带 @；无名整行藏
-        if (item.authorName != null && !item.authorName.isEmpty()) {
+        // 条目款式（账 §3/§5）：挂多季/专辑关系的走系列剧款，其余作者款
+        boolean seriesStyle = item.multiSeason || item.albumId != null || !item.siblings.isEmpty();
+        // 作者：有真名才带 @；无名整行藏；系列剧款不走作者行
+        if (!seriesStyle && item.authorName != null && !item.authorName.isEmpty()) {
             b.hgAuthor.setVisibility(View.VISIBLE);
             b.hgAuthor.setText("@" + item.authorName);
         } else {
@@ -97,7 +127,7 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         // 简介：空则整行藏；长文给展开
         String key = descKey(item);
         boolean expanded = expandedDescKeys.contains(key);
-        if (item.desc == null || item.desc.isEmpty()) {
+        if (seriesStyle || item.desc == null || item.desc.isEmpty()) {
             b.hgDesc.setVisibility(View.GONE);
             b.hgDescMore.setVisibility(View.GONE);
         } else {
@@ -107,9 +137,18 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
             b.hgDescMore.setVisibility(item.desc.length() > 40 ? View.VISIBLE : View.GONE);
             b.hgDescMore.setText(expanded ? "收起" : "展开");
         }
+        bindSeriesStyle(b, item, seriesStyle);
+        bindHotRow(holder, item);
+        // 作者声明：数据有才显，没有不编（账 §3.5，字段名未定 U4、数据槽已留）
+        if (!seriesStyle && item.statement != null && !item.statement.isEmpty()) {
+            b.hgStatement.setVisibility(View.VISIBLE);
+            b.hgStatement.setText("ⓘ 作者声明：" + item.statement);
+        } else {
+            b.hgStatement.setVisibility(View.GONE);
+        }
         b.hgSeriesText.setText(item.seriesBarText());
-        // 横屏剧才给全屏观看钮（尺寸由取模型回包定，未知先不给，解链后刷新）
-        b.hgFullscreenWatch.setVisibility(item.isLandscape() ? View.VISIBLE : View.GONE);
+        // 横屏短片给全屏观看钮（账 §3.8）：取模型宽高定真朝向，未知先按 cell vertical 预判
+        b.hgFullscreenWatch.setVisibility(item.isLandscape() || item.landscapeHint ? View.VISIBLE : View.GONE);
         bindInteractionState(holder, item);
         bindDanmakuState(holder);
         bindClicks(holder, position);
@@ -156,6 +195,62 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         holder.binding.hgDanmaku.setAlpha(HgStore.isDanmakuOn() ? 1f : 0.55f);
     }
 
+    /** 系列剧款（账 §5.2）：胶囊文案只拼有实证的部分——季数来自 album_serial_count；在追人数无字段（U5）不拼。 */
+    private void bindSeriesStyle(ItemHongguoFeedBinding b, HgFeedItem item, boolean seriesStyle) {
+        if (!seriesStyle) {
+            b.hgSeriesStyle.setVisibility(View.GONE);
+            return;
+        }
+        b.hgSeriesStyle.setVisibility(View.VISIBLE);
+        StringBuilder sb = new StringBuilder("系列剧");
+        if (item.albumSerialCount > 0) sb.append(" · 已上线").append(item.albumSerialCount).append("季");
+        b.hgAlbumText.setText(sb.toString());
+        if (item.badge != null && !item.badge.isEmpty()) {
+            b.hgBadgeChip.setVisibility(View.VISIBLE);
+            b.hgBadgeChip.setText(item.badge);
+        } else {
+            b.hgBadgeChip.setVisibility(View.GONE);
+        }
+        b.hgSeriesTitle.setText((item.title == null ? "" : item.title) + " ›");
+        b.hgTagsRow.removeAllViews();
+        float density = b.getRoot().getResources().getDisplayMetrics().density;
+        int shown = 0;
+        for (String tag : item.tags) {
+            if (shown >= 4) break;
+            android.widget.TextView chip = new android.widget.TextView(b.getRoot().getContext());
+            chip.setText(tag);
+            chip.setTextSize(12);
+            chip.setTextColor(0xFFFFFFFF);
+            chip.setBackgroundResource(R.drawable.bg_hg_chip);
+            int hPad = Math.round(8 * density);
+            int vPad = Math.round(3 * density);
+            chip.setPadding(hPad, vPad, hPad, vPad);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            if (shown > 0) lp.setMarginStart(Math.round(6 * density));
+            chip.setLayoutParams(lp);
+            b.hgTagsRow.addView(chip);
+            shown++;
+        }
+        b.hgTagsRow.setVisibility(shown > 0 ? View.VISIBLE : View.GONE);
+    }
+
+    /** 热评/主演说行（账 §3.4）：文案有才显；前缀按种类（2＝主演说，其余热评）。 */
+    private void bindHotRow(Holder holder, HgFeedItem item) {
+        ItemHongguoFeedBinding b = holder.binding;
+        if (item.hotComment == null || item.hotComment.isEmpty()) {
+            b.hgHotRow.setVisibility(View.GONE);
+            return;
+        }
+        b.hgHotRow.setVisibility(View.VISIBLE);
+        String prefix = item.hotKind == 2 ? "主演说：" : "💧热评：";
+        b.hgHotComment.setText(prefix + item.hotComment);
+        boolean expanded = expandedDescKeys.contains(descKey(item) + "#hot");
+        b.hgHotComment.setMaxLines(expanded ? Integer.MAX_VALUE : 1);
+        b.hgHotMore.setVisibility(item.hotComment.length() > 24 ? View.VISIBLE : View.GONE);
+        b.hgHotMore.setText(expanded ? "收起" : "展开");
+    }
+
     private void setCount(View view, String count) {
         if (count == null || count.isEmpty()) {
             view.setVisibility(View.GONE);
@@ -191,6 +286,15 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         };
         b.hgDesc.setOnClickListener(descToggle);
         b.hgDescMore.setOnClickListener(descToggle);
+        b.hgAlbumBar.setOnClickListener(v -> host.onEnterSeries(holder.getBindingAdapterPosition()));
+        b.hgSeriesTitleRow.setOnClickListener(v -> host.onEnterSeries(holder.getBindingAdapterPosition()));
+        b.hgHotMore.setOnClickListener(v -> {
+            int p = holder.getBindingAdapterPosition();
+            if (p < 0 || p >= items.size()) return;
+            String key = descKey(items.get(p)) + "#hot";
+            if (!expandedDescKeys.remove(key)) expandedDescKeys.add(key);
+            notifyItemChanged(p);
+        });
     }
 
     @Override

@@ -225,6 +225,128 @@
             android:textSize="16sp"
             android:textStyle="bold" />
 
+        <!-- 系列剧款（账 §5/§3）：多季系列条目的另一副样子，默认藏；
+             胶囊条＝系列剧入口（与剧条/左滑同去处），角标＋剧名、标签筹一排在其下 -->
+        <LinearLayout
+            android:id="@+id/hg_series_style"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:id="@+id/hg_album_bar"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_hg_chip"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="10dp"
+                android:paddingTop="7dp"
+                android:paddingEnd="10dp"
+                android:paddingBottom="7dp">
+
+                <ImageView
+                    android:layout_width="14dp"
+                    android:layout_height="14dp"
+                    android:contentDescription="@null"
+                    android:src="@drawable/ic_hg_play" />
+
+                <TextView
+                    android:id="@+id/hg_album_text"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="6dp"
+                    android:textColor="#FFFFFF"
+                    android:textSize="13sp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:text="›"
+                    android:textColor="#CCFFFFFF"
+                    android:textSize="16sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/hg_series_title_row"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/hg_badge_chip"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/bg_hg_badge"
+                    android:paddingStart="7dp"
+                    android:paddingTop="3dp"
+                    android:paddingEnd="7dp"
+                    android:paddingBottom="3dp"
+                    android:textColor="#FFFFFF"
+                    android:textSize="12sp"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/hg_series_title"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:shadowColor="#80000000"
+                    android:shadowDx="0"
+                    android:shadowDy="1"
+                    android:shadowRadius="3"
+                    android:textColor="#FFFFFF"
+                    android:textSize="20sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/hg_tags_row"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:orientation="horizontal" />
+        </LinearLayout>
+
+        <!-- 热评/主演说行（账 §3.4）：数据有才显，长文带「展开」 -->
+        <LinearLayout
+            android:id="@+id/hg_hot_row"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:gravity="top"
+            android:orientation="horizontal"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/hg_hot_comment"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:shadowColor="#80000000"
+                android:shadowDx="0"
+                android:shadowDy="1"
+                android:shadowRadius="3"
+                android:textColor="#E6FFFFFF"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/hg_hot_more"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="展开"
+                android:textColor="#CCFFFFFF"
+                android:textSize="13sp"
+                android:visibility="gone" />
+        </LinearLayout>
+
         <TextView
             android:id="@+id/hg_desc"
             android:layout_width="match_parent"
@@ -247,6 +369,20 @@
             android:text="展开"
             android:textColor="#CCFFFFFF"
             android:textSize="13sp"
+            android:visibility="gone" />
+
+        <!-- 作者声明（账 §3.5）：数据有才显，没有不编 -->
+        <TextView
+            android:id="@+id/hg_statement"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:shadowColor="#80000000"
+            android:shadowDx="0"
+            android:shadowDy="1"
+            android:shadowRadius="3"
+            android:textColor="#B3FFFFFF"
+            android:textSize="12sp"
             android:visibility="gone" />
 
         <!-- 未上线剧的预约片：回包带 appointment 才亮（适配器控制），文案照官方串（点击预约/已预约＋上线文案） -->

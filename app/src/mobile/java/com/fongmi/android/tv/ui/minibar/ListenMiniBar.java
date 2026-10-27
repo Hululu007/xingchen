@@ -117,8 +117,6 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
     private ImageView ivVinyl;
     /** 音乐条已绑定的封面地址（批 7 防挂旧脸：切歌换址时先清旧图再加载，见 bindMusicSession）。 */
     private String musicBoundCover;
-    /** 音乐条是否为新树 Compose 件（true 时旧 XML 字段恒空、老刷新口对它为空操作）。 */
-    private boolean musicBarCompose;
     // 以下成员只服务音乐分支（buildMusicBar/bindMusicSession），听书条不读写
     private HomeProgressRingView homeRing;
     private ImageView homeNextBtn;
@@ -251,7 +249,6 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
     /** 刷新音乐条文案与图标 */
     public void refreshMusic() {
         if (!"music".equals(policy.visibleId())) return;
-        if (musicBarCompose) return;
         if (barView != null && barMusicMode) {
             bindMusicSession();
             refreshPlayIcon();
@@ -492,7 +489,6 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
      * ＋暂停主钮＋下一集小图标，不堆控件。行为规矩不变。
      */
     private void buildBar() {
-        musicBarCompose = false;
         Context c = app;
         LinearLayout bar = new LinearLayout(c);
         bar.setOrientation(LinearLayout.HORIZONTAL);
@@ -732,37 +728,57 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
     // ================= 音乐条：暗磨砂胶囊（圆封面旋转＋外圈进度环＋歌名＋下一首＋大圆播放键） =================
 
     /**
-     * 音乐条建条（2026-10-27 起由新树 Compose 播放条接管，见方法内注）：
-     * 定案形态（2026-10-21）不变——圆封面旋转＋外圈进度环＋歌名＋下一首 44dp＋
-     * 大圆播放键 56dp、暗磨砂胶囊、条上无关闭钮、点条身进播放页——实现整体
-     * 移交 PlayerBar（ui/music/player），数据订 PlayerStateHolder 一份中枢。
-     * 本方法只被 attachBar 的音乐分支调用，听书条走 buildBar()，互不影响。
+     * 音乐条建条（从零重写，spec §5.4/§5.5；定案形态 2026-10-21）：充气 home_minibar_music——
+     * 56dp 方框（进度环满框＋45dp 圆封面居中）＋歌名＋下一首 44dp＋大圆播放键 56dp。
+     * 条底两段式：布局先挂 home_bg_minibar 作 XML 可见下限（暗磨砂同色），这里换同源
+     * MusicFrostDrawable(999) 暗磨砂（2026-10-27 试点：液态玻璃/QmDeve 实时背板整段撤下，
+     * 钉死深灰＋身后照片糊底，形态与浮起 elevation 不动）；播放键同法（布局 bg_home_frost_circle
+     * 下限＋这里 MusicFrostDrawable(999)），refreshPlayIcon 只换 src、不碰底。
+     * 条上没有关闭钮（spec §5.5）；点条身进播放页。本方法只被 attachBar 的音乐分支调用，
+     * 听书条走 buildBar()，互不影响。
      */
     private void buildMusicBar() {
         stopHomeSpin();
-        // 新树播放条接管（2026-10-27 播放条单）：条画面由 Compose 件供（订中枢一份
-        // 状态：圆封面＋外圈进度＋滚动歌名＋下一首＋大圆播放键＋横划切歌＋点条形变开页），
-        // 本类只保留挂/摘与可见性职责。上下文用宿主 Activity（ComposeView 要生命周期宿主，
-        // attachBar 在调本方法前已置 hostRef）。旧 XML 条字段一律置空——老刷新口
-        // （bindMusicSession/refreshPlayIcon/updateHomeProgress）全靠字段判空，
-        // 对 Compose 条自动成空操作；听书条走 buildBar() 重建时逐个重赋值，不受影响。
-        Activity host = hostRef == null ? null : hostRef.get();
-        Context c = host != null ? host : app;
-        View bar = com.fongmi.android.tv.ui.music.player.PlayerBarHost.createBarView(
-                c, rect -> {
-                    openMusicPlayerFromBar(rect);
-                    return kotlin.Unit.INSTANCE;
-                });
-        musicBarCompose = true;
-        ivVinyl = null;
-        homeRing = null;
-        tvTitle = null;
-        homeNextBtn = null;
+        Context c = app;
+        View bar = LayoutInflater.from(c).inflate(R.layout.home_minibar_music, null, false);
+        bar.setBackground(new MusicFrostDrawable(bar.getContext(), 999));
+        ivVinyl = bar.findViewById(R.id.homeCover);
+        // 条重建＝封面视图是新的：已绑地址记账清掉，bindMusicSession 会在新视图上重新加载
+        musicBoundCover = null;
+        // 新封面先写回摘条时记下的转角再续转，不从 0 重转
+        if (ivVinyl != null) ivVinyl.setRotation(savedHomeRotation);
+        homeRing = bar.findViewById(R.id.homeRing);
+        tvTitle = bar.findViewById(R.id.homeTitle);
+        homeNextBtn = bar.findViewById(R.id.homeNext);
+        if (homeNextBtn != null) {
+            homeNextBtn.setImageTintList(ColorStateList.valueOf(0xFFFFFFFF));
+            // 下一首防呆：先判 canNext() 为真才 next()（置灰逻辑在 bindMusicSession）
+            homeNextBtn.setOnClickListener(v -> {
+                try {
+                    if (musicCtl().canNext()) musicCtl().next();
+                } catch (Throwable ignored) {
+                }
+            });
+        }
         btnNext = null;
         btnPrev = null;
-        btnPlay = null;
-        musicBoundCover = null;
+        btnPlay = bar.findViewById(R.id.homePlay);
+        if (btnPlay != null) {
+            // 大圆播放键与条底同源暗磨砂 MusicFrostDrawable(999)；refreshPlayIcon 只换 src、不碰底
+            btnPlay.setBackground(new MusicFrostDrawable(bar.getContext(), 999));
+            btnPlay.setImageTintList(ColorStateList.valueOf(0xFFFFFFFF));
+            btnPlay.setOnClickListener(v -> {
+                try {
+                    musicCtl().toggle();
+                } catch (Throwable ignored) {
+                }
+                refreshPlayIcon();
+            });
+        }
+        // 条身（非按钮区，含封面）点按进播放页
+        bar.setOnClickListener(v -> openMusicPlayer());
         barView = bar;
+        startHomeProgress();
     }
 
     /**
@@ -778,15 +794,6 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
      * 此前本支只有裸 NEW_TASK、落点无约束，与 e02c822a 摘掉的无条件 NEW_TASK 同型。
      */
     private void openMusicPlayer() {
-        openMusicPlayerInternal(null);
-    }
-
-    /** 带条矩形开页：播放页拿条的窗口矩形作容器形变起点（条⇄页同体开合）。 */
-    private void openMusicPlayerFromBar(android.graphics.Rect rect) {
-        openMusicPlayerInternal(rect);
-    }
-
-    private void openMusicPlayerInternal(android.graphics.Rect barRect) {
         try {
             Activity host = hostRef == null ? null : hostRef.get();
             if (host == null) host = currentHost();
@@ -796,9 +803,6 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
                 it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
                         | Intent.FLAG_ACTIVITY_CLEAR_TOP
                         | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-            }
-            if (barRect != null) {
-                com.fongmi.android.tv.ui.music.player.PlayerOpenContract.writeBarRect(it, barRect);
             }
             ctx.startActivity(it);
         } catch (Throwable ignored) {

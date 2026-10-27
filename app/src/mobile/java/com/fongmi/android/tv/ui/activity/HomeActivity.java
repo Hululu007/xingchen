@@ -39,6 +39,7 @@ import com.fongmi.android.tv.event.ConfigEvent;
 import com.fongmi.android.tv.event.RefreshEvent;
 import com.fongmi.android.tv.event.ServerEvent;
 import com.fongmi.android.tv.event.StateEvent;
+import com.fongmi.android.tv.hongguo.ui.HongguoFeedActivity;
 import com.fongmi.android.tv.impl.Callback;
 import com.fongmi.android.tv.player.Source;
 import com.fongmi.android.tv.receiver.ShortcutReceiver;
@@ -400,21 +401,23 @@ public class HomeActivity extends BaseActivity implements XcBottomBar.OnItemSele
         tabs.add(new BottomTabs.Spec(R.id.reading, R.drawable.ic_nav_reading, 0, getString(R.string.nav_reading), true));
         tabs.add(new BottomTabs.Spec(R.id.miniapp, R.drawable.ic_nav_miniapp, 0, getString(R.string.nav_miniapp), false));
         tabs.add(new BottomTabs.Spec(R.id.lab, R.drawable.ic_nav_lab, 0, getString(R.string.nav_lab), false));
-        // 红果格：只在正式版条件成立时才注册（未注册＝底栏根本没这一格，
-        // 不留空位不摆占位）；本体、图标与文案随红果批带入，在此插入（设置格之前）。
+        // 短剧格（红果）：只在正式版条件成立时才注册（未注册＝底栏根本没这一格，
+        // 不留空位不摆占位）；在设置格之前插入，标签用他亲定的「短剧」
+        // （nav_duanju），图标 ic_nav_duanju 双态（规格见 hongguo/duanju-tab-spec.md）。
         if (isHongguoTabEnabled()) {
-            // 红果批接入点：tabs.add(hongguo 的 Spec)（R.id.hongguo 已在 ids.xml 预声明）
+            tabs.add(new BottomTabs.Spec(R.id.hongguo, R.drawable.ic_nav_duanju_outline, R.drawable.ic_nav_duanju_filled, getString(R.string.nav_duanju), true));
         }
         tabs.add(new BottomTabs.Spec(R.id.setting, R.drawable.ic_nav_setting, 0, getString(R.string.nav_setting), true));
         mBinding.navigation.setTabs(tabs);
     }
 
     /**
-     * 红果格的正式版条件位：红果本体落地时改由正式版开关驱动
-     * （朋友版整套剥离、此条件恒不成立）；本体未落地前恒 false，格子不注册。
+     * 短剧格的正式版条件位：红果本体（HongguoFeedActivity 与前四阶段全套）
+     * 已落地，正式版恒 true 开格；朋友版由 strip-hongguo.sh 在构建前把整套
+     * 连同本格注册删净（此方法在朋友版临时检出里被改回 false），不在此留开关。
      */
     private boolean isHongguoTabEnabled() {
-        return false;
+        return true;
     }
 
     private void setNavigation() {
@@ -551,6 +554,11 @@ public class HomeActivity extends BaseActivity implements XcBottomBar.OnItemSele
         }
         if (itemId == R.id.lab) {
             LabHomeActivity.start(this);
+            overridePendingTransition(R.anim.xc_tab_fade_in, R.anim.xc_tab_fade_out);
+            return true;
+        }
+        if (itemId == R.id.hongguo) {
+            HongguoFeedActivity.start(this);
             overridePendingTransition(R.anim.xc_tab_fade_in, R.anim.xc_tab_fade_out);
             return true;
         }

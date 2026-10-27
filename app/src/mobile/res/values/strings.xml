@@ -11,6 +11,7 @@
     <string name="nav_reading">Reading</string>
     <string name="nav_miniapp">Mini App</string>
     <string name="nav_lab">实验室</string>
+    <string name="nav_duanju">短剧</string>
     <string name="nav_setting">Setting</string>
 
     <!-- Reading source mark (not-miss layer 1) -->

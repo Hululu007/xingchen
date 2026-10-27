@@ -45,6 +45,8 @@ public final class HgFeedSession {
     private final Handler main = new Handler(Looper.getMainLooper());
 
     private HgFeedSession() {
+        // 登录态回填：凭证由壳子统一登录托管（红果提供方）持有，这里只挂取口
+        client.setAuthProvider(new com.fongmi.android.tv.hongguo.api.HgLoginAuthProvider());
         this.prefetcher = new HgPrefetcher(client, cache);
         this.resolver = new HgPlayResolver(client, cache);
     }

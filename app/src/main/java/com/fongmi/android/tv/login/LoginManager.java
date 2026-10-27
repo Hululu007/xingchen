@@ -46,6 +46,7 @@ public class LoginManager {
         register(new KuaishouLoginProvider());
         register(new GoogleLoginProvider());
         register(new QQLoginProvider());
+        register(new HongguoLoginProvider());
     }
 
     public static LoginManager get() {
@@ -176,6 +177,35 @@ public class LoginManager {
                 .onLogin(cookie -> {
                     QQLoginProvider.putCookie(cookie);
                     if (callback != null) callback.onSuccess(QQLoginProvider.ID, cookie);
+                })
+                .showLogin(activity);
+    }
+
+    /**
+     * 弹红果网页登录框：走壳子统一弹窗（与 QQ/快手同款 PanLoginDialog，
+     * 中间弹窗、WebView 内完成登录），抓到的 Cookie 校验（须含 passport
+     * 会话键 sessionid 系）后落盘托管，供红果账号维度接口经 HgAuthProvider
+     * 回填带态。异步，登录成功走 callback；用户直接关弹窗视为取消，不回调。
+     * <p>
+     * 注意：红果官方登录是 passport 原生 SDK 短信登录，请求体与签名未在样本
+     * 里定版（见 HongguoLoginProvider 类头），短信登录本体待补；本入口是托管
+     * 链的网页口，地址未经样本定版，不代表网页登录已通。
+     */
+    public void loginHongguo(FragmentActivity activity, LoginCallback callback) {
+        if (activity == null || activity.isFinishing()) {
+            if (callback != null) callback.onError("界面不可用");
+            return;
+        }
+        PanLoginDialog.create()
+                .title("红果")
+                .loginUrl(HongguoLoginProvider.LOGIN_URL)
+                .cookieDomain(HongguoLoginProvider.COOKIE_DOMAIN)
+                .userAgent(PanLoginDialog.DESKTOP_UA)
+                .hint("请在下方页面完成红果登录，然后点「完成登录」")
+                .cookieValidator(HongguoLoginProvider::isCookieValid)
+                .onLogin(cookie -> {
+                    HongguoLoginProvider.putCookie(cookie);
+                    if (callback != null) callback.onSuccess(HongguoLoginProvider.ID, cookie);
                 })
                 .showLogin(activity);
     }
@@ -317,6 +347,36 @@ public class LoginManager {
         return true;
     }
 
+    /** 弹壳子统一的红果网页登录框（异步）。 */
+    public static void loginHongguo() {
+        FragmentActivity activity = currentActivity();
+        if (activity == null) return;
+        App.post(() -> get().loginHongguo(activity, null));
+    }
+
+    /** 同 loginHongguo，但带回执：无前台界面时弹窗投不出去、回 false（与 QQ 同口径）。 */
+    public static boolean loginHongguoDelivered() {
+        FragmentActivity activity = currentActivity();
+        if (activity == null || activity.isFinishing()) return false;
+        App.post(() -> get().loginHongguo(activity, null));
+        return true;
+    }
+
+    /** 红果是否已登录（托管 Cookie 含 passport 会话键） */
+    public static boolean isHongguoLoggedIn() {
+        return isLoggedIn(HongguoLoginProvider.ID);
+    }
+
+    /** 红果登录 cookie，未登录返回空串（HgLoginAuthProvider 即读此口） */
+    public static String getHongguoCookie() {
+        return getCookie(HongguoLoginProvider.ID);
+    }
+
+    /** 退出红果登录 */
+    public static void logoutHongguo() {
+        get().logout(HongguoLoginProvider.ID);
+    }
+
     /** QQ 是否已登录（托管 Cookie 含账号标识＋音乐钥匙） */
     public static boolean isQQLoggedIn() {
         return isLoggedIn(QQLoginProvider.ID);
@@ -353,6 +413,9 @@ public class LoginManager {
         }
         if ("115".equals(providerId)) {
             return login115Delivered();
+        }
+        if (HongguoLoginProvider.ID.equals(providerId)) {
+            return loginHongguoDelivered();
         }
         return false;
     }

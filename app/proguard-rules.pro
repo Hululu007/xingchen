@@ -19,6 +19,10 @@
 -keep class com.fongmi.android.tv.player.lyrics.AudioPlaylistStore$* { *; }
 -keep class com.fongmi.android.tv.music.ParametricEq$Band { *; }
 -keep class com.fongmi.android.tv.player.lyrics.LyricsResult { *; }
+# AI 实时字幕插件桥（2026-10-27 真机定罪）：插件 dex 里的 SherpaBridge 按全名实现宿主的
+# IAiAsrBridge，AiAsrPluginManager 靠 instanceof 认亲。无此 keep 时 R8 把接口改名，
+# 插件只能用自带的那份接口副本，两份接口对不上 → 「插件类型不匹配」，下载再对也加载不了。
+-keep interface com.fongmi.android.tv.ai.asr.IAiAsrBridge { *; }
 
 # MPV JNI bridge
 -keep class is.xyz.mpv.MPVLib { *; }

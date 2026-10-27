@@ -60,6 +60,16 @@ public class HkArticleListModel {
         /** 对应原版 JSEngine.getInstance().evalJS(getMyRule(rule) + js, input)。 */
         String evalWithRule(HkRule rule, String js, String input);
 
+        /**
+         * 对应原版 ArticleListFragment.lambda$initData$11 的缓存代码重建链：
+         * evalJS(getMyRule(rule) + code, url) 求值缓存代码（cacheCode(...) 声明的那段），
+         * 结果为 JSON 数组串时 convertArticleLists 转条目；求值无数组产出/失败返回 null，
+         * 调用方回落缓存 data。默认无实现（宿主未绑定引擎时缓存只走 data 路径）。
+         */
+        default List<HkItem> evalCacheCode(HkRule rule, String code, String url) {
+            return null;
+        }
+
         /** 对应原版 $15 的 fileSelect 回流求值：evalJS(getMyRule + generateMY(MY_URL=fragment.myUrl) + generateMY(MY_PATH=文件真实路径) + js, input)；默认实现退化为 evalWithRule，引擎绑定阶段覆盖以注入 MY_URL/MY_PATH。 */
         default String evalFileSelect(HkRule rule, String js, String input, String myUrl, String myPath) {
             return evalWithRule(rule, js, input);

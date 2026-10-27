@@ -240,6 +240,29 @@ public final class HkEngineBridge implements HkArticleListModel.EngineBridge {
         }
     }
 
+    /**
+     * 照原版 lambda$initData$11（ArticleListFragment.smali）：先 evalJS(getMyRule+code, url)
+     * 原样求值（putVar 等副作用与原版同一时机发生），结果是 JSON 数组串时再经运行时
+     * setResult 通道转条目——走 collectResult 原装映射（img&gt;pic&gt;pic_url、extra 语义），
+     * 不另写第二份 JSON→条目映射。任一步失败/无产出返回 null，调用方回落缓存 data。
+     */
+    @Override
+    public List<HkItem> evalCacheCode(HkRule rule, String code, String url) {
+        try {
+            String result = evalWithRule(rule, code, url);
+            if (result == null) return null;
+            result = result.trim();
+            if (!result.startsWith("[") || !result.endsWith("]")) return null;
+            HkJsRuntime rt = HkEngineManager.runtimeFor(rule);
+            HkEngineManager.ensureInit(rt);
+            List<HkItem> items = rt.parseList(rule, "setResult(" + result + ")", url, 1);
+            return items == null || items.isEmpty() ? null : items;
+        } catch (Exception e) {
+            Log.e(TAG, "hk evalCacheCode", e);
+            return null;
+        }
+    }
+
     @Override
     public String evalFileSelect(HkRule rule, String js, String input, String myUrl, String myPath) {
         try {

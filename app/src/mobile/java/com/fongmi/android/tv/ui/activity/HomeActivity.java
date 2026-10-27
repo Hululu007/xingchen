@@ -11,8 +11,6 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.provider.OpenableColumns;
 import android.text.TextUtils;
-import android.view.Menu;
-import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.RelativeLayout;
@@ -49,6 +47,8 @@ import com.fongmi.android.tv.service.PlaybackService;
 import com.fongmi.android.tv.setting.Setting;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.ui.custom.FragmentStateManager;
+import com.fongmi.android.tv.ui.view.BottomTabs;
+import com.fongmi.android.tv.ui.view.XcBottomBar;
 import com.fongmi.android.tv.ui.fragment.SettingDanmakuFragment;
 import com.fongmi.android.tv.ui.fragment.SettingFragment;
 import com.fongmi.android.tv.ui.fragment.ModuleFragment;
@@ -68,7 +68,6 @@ import com.fongmi.android.tv.web.WebHomeChrome;
 import com.fongmi.android.tv.web.WebHomeChromeStartup;
 import com.fongmi.android.tv.web.WebHomeViewport;
 import com.github.catvod.net.OkHttp;
-import com.google.android.material.navigation.NavigationBarView;
 import com.google.gson.JsonObject;
 
 import org.greenrobot.eventbus.Subscribe;
@@ -81,9 +80,10 @@ import java.io.File;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 
-public class HomeActivity extends BaseActivity implements NavigationBarView.OnItemSelectedListener, WebHomeChromeController.Host, com.fongmi.android.tv.ui.minibar.MiniBarHost, AiFloatManager.AiFloatHost {
+public class HomeActivity extends BaseActivity implements XcBottomBar.OnItemSelectedListener, WebHomeChromeController.Host, com.fongmi.android.tv.ui.minibar.MiniBarHost, AiFloatManager.AiFloatHost {
 
     public static final String EXTRA_NAV_POSITION = "nav_position";
     private static final String STATE_CURRENT_POSITION = "currentPosition";
@@ -136,6 +136,7 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
         mChrome = new WebHomeChromeController(this, mBinding, this, savedInstanceState, WebHomeChromeStartup.restore(mStartupConfig));
         mBinding.getRoot().addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> checkWindowShape(right - left, bottom - top));
         mBinding.navigation.setOnItemSelectedListener(this);
+        initBottomTabs();
         initNavigationInsets();
         PermissionUtil.requestFile(this, allGranted -> PermissionUtil.requestNotify(this));
         initFragment(savedInstanceState);
@@ -384,40 +385,58 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
         });
     }
 
+    /**
+     * 底栏页签注册表（自家 XcBottomBar，替代 Material 菜单）：顺序即注册顺序，
+     * 全集＝点播／直播／音乐／阅读／小程序／实验室（共用格，二选一占位）／
+     * 红果（正式版条件格）／设置，最多 7 格。显隐不在这里定，分别由
+     * setNavigation（直播看有没有直播源）与 syncOptionalTabs（共用格归谁）维护。
+     * 标签文案取各格现有的 nav_* 标题资源，不另造。
+     */
+    private void initBottomTabs() {
+        List<BottomTabs.Spec> tabs = new ArrayList<>();
+        tabs.add(new BottomTabs.Spec(R.id.vod, R.drawable.ic_nav_home_outline, R.drawable.ic_nav_home_filled, getString(R.string.nav_vod), true));
+        tabs.add(new BottomTabs.Spec(R.id.live, R.drawable.ic_nav_live, 0, getString(R.string.nav_live), LiveConfig.hasUrl()));
+        tabs.add(new BottomTabs.Spec(R.id.music, R.drawable.ic_nav_music, 0, getString(R.string.nav_music), true));
+        tabs.add(new BottomTabs.Spec(R.id.reading, R.drawable.ic_nav_reading, 0, getString(R.string.nav_reading), true));
+        tabs.add(new BottomTabs.Spec(R.id.miniapp, R.drawable.ic_nav_miniapp, 0, getString(R.string.nav_miniapp), false));
+        tabs.add(new BottomTabs.Spec(R.id.lab, R.drawable.ic_nav_lab, 0, getString(R.string.nav_lab), false));
+        // 红果格：只在正式版条件成立时才注册（未注册＝底栏根本没这一格，
+        // 不留空位不摆占位）；本体、图标与文案随红果批带入，在此插入（设置格之前）。
+        if (isHongguoTabEnabled()) {
+            // 红果批接入点：tabs.add(hongguo 的 Spec)（R.id.hongguo 已在 ids.xml 预声明）
+        }
+        tabs.add(new BottomTabs.Spec(R.id.setting, R.drawable.ic_nav_setting, 0, getString(R.string.nav_setting), true));
+        mBinding.navigation.setTabs(tabs);
+    }
+
+    /**
+     * 红果格的正式版条件位：红果本体落地时改由正式版开关驱动
+     * （朋友版整套剥离、此条件恒不成立）；本体未落地前恒 false，格子不注册。
+     */
+    private boolean isHongguoTabEnabled() {
+        return false;
+    }
+
     private void setNavigation() {
-        mBinding.navigation.getMenu().findItem(R.id.vod).setVisible(true);
-        mBinding.navigation.getMenu().findItem(R.id.setting).setVisible(true);
-        mBinding.navigation.getMenu().findItem(R.id.live).setVisible(LiveConfig.hasUrl());
-        mBinding.navigation.getMenu().findItem(R.id.music).setVisible(true);
-        mBinding.navigation.getMenu().findItem(R.id.reading).setVisible(true);
+        mBinding.navigation.setTabVisible(R.id.vod, true);
+        mBinding.navigation.setTabVisible(R.id.setting, true);
+        mBinding.navigation.setTabVisible(R.id.live, LiveConfig.hasUrl());
+        mBinding.navigation.setTabVisible(R.id.music, true);
+        mBinding.navigation.setTabVisible(R.id.reading, true);
         syncOptionalTabs();
         syncNavigationSelection();
     }
 
-    /** 底部导航菜单总数上限：Material 库写死，加第 7 个直接崩，1.3.53 就是这么死的。 */
-    private static final int MAX_BOTTOM_TABS = 6;
-
     private void syncOptionalTabs() {
-        // 可选格（实验室／小程序）与 6 格上限的关系，先把结论写死：
-        // XML 本身已占 6 项（含不可见的小程序格），基础格（点播／直播／音乐／阅读）＋设置格
-        // 已占 5 项，所以可选格永远只能二选一——实验室＋小程序同时上底栏就是 7 项，必崩，
-        // 共存做不了，不是没做。实验室优先是旧口径，保持不变。
-        // 限制做扎实：每次加格前都对总数守门，绝不加出第 7 项；小程序丢格时不丢数据：
-        // 开关状态仍存着（FeaturesActivity），实验室关掉后底栏自动回来；且功能页小程序卡
-        // 点开就能进小程序首页（见 FeaturesActivity），不靠底栏也能到。
-        Menu menu = mBinding.navigation.getMenu();
+        // 共用格（实验室／小程序）二选一是他的老规矩，永不同时上底栏，实验室优先，
+        // 保持不变；两边开关各自独立存着，丢格不丢数据（实验室关掉后小程序格自动
+        // 回来；功能页小程序卡点开也能进小程序首页，见 FeaturesActivity）。
+        // 历史背景：旧实现跑在 Material 菜单上，写死最多 6 项（MAX_BOTTOM_TABS，
+        // 1.3.53 加第 7 项崩过），所以每次都要先摘再加、逐项对总数守门。自家底栏
+        // （XcBottomBar）没有项数上限，这里退化为纯显隐，不再摘加、不再守门。
         boolean wantLab = LabSettingActivity.isTabEnabled(this);
-        menu.removeItem(R.id.lab);
-        menu.removeItem(R.id.miniapp);
-        menu.removeItem(R.id.setting);
-        if (wantLab && menu.size() < MAX_BOTTOM_TABS) {
-            menu.add(Menu.NONE, R.id.lab, Menu.NONE, getString(R.string.nav_lab)).setIcon(R.drawable.ic_nav_lab);
-        } else if (FeaturesActivity.isMiniAppEnabled(this) && menu.size() < MAX_BOTTOM_TABS) {
-            menu.add(Menu.NONE, R.id.miniapp, Menu.NONE, getString(R.string.nav_miniapp)).setIcon(R.drawable.ic_nav_miniapp);
-        }
-        if (menu.size() < MAX_BOTTOM_TABS) {
-            menu.add(Menu.NONE, R.id.setting, Menu.NONE, getString(R.string.nav_setting)).setIcon(R.drawable.ic_nav_setting);
-        }
+        mBinding.navigation.setTabVisible(R.id.lab, wantLab);
+        mBinding.navigation.setTabVisible(R.id.miniapp, !wantLab && FeaturesActivity.isMiniAppEnabled(this));
     }
 
     private boolean openLive() {
@@ -509,28 +528,28 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
     }
 
     @Override
-    public boolean onNavigationItemSelected(@NonNull MenuItem item) {
+    public boolean onItemSelected(int itemId) {
         EmbyMode.exit(); // 任何底部 tab 被点都先撤 Emby 专属首页的全屏盖子（没进时空转）
         setNavigationVisible(true);
-        if (item.getItemId() == R.id.setting) return changeFragment(1);
-        if (item.getItemId() == R.id.vod) return changeFragment(0);
-        if (item.getItemId() == R.id.live) return openLive();
-        if (item.getItemId() == R.id.music) {
+        if (itemId == R.id.setting) return changeFragment(1);
+        if (itemId == R.id.vod) return changeFragment(0);
+        if (itemId == R.id.live) return openLive();
+        if (itemId == R.id.music) {
             MusicActivity.start(this);
             overridePendingTransition(R.anim.xc_tab_fade_in, R.anim.xc_tab_fade_out);
             return true;
         }
-        if (item.getItemId() == R.id.reading) {
+        if (itemId == R.id.reading) {
             ReadingShelfActivity.start(this);
             overridePendingTransition(R.anim.xc_tab_fade_in, R.anim.xc_tab_fade_out);
             return true;
         }
-        if (item.getItemId() == R.id.miniapp) {
+        if (itemId == R.id.miniapp) {
             HkPageActivity.start(this);
             overridePendingTransition(R.anim.xc_tab_fade_in, R.anim.xc_tab_fade_out);
             return true;
         }
-        if (item.getItemId() == R.id.lab) {
+        if (itemId == R.id.lab) {
             LabHomeActivity.start(this);
             overridePendingTransition(R.anim.xc_tab_fade_in, R.anim.xc_tab_fade_out);
             return true;

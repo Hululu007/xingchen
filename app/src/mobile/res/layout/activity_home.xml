@@ -9,7 +9,7 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:layout_above="@+id/navigation" />
-    <com.google.android.material.bottomnavigation.BottomNavigationView
+    <com.fongmi.android.tv.ui.view.XcBottomBar
         android:id="@+id/navigation"
         android:layout_width="match_parent"
         android:layout_height="@dimen/xc_bottombar_height"
@@ -18,10 +18,5 @@
         android:layout_marginEnd="@dimen/xc_float_margin"
         android:layout_marginBottom="@dimen/xc_bottombar_margin_bottom"
         android:background="@drawable/xc_bottombar_pill"
-        android:elevation="@dimen/xc_elevation_float"
-        app:elevation="0dp"
-        app:itemIconTint="@null"
-        app:labelVisibilityMode="unlabeled"
-        app:menu="@menu/menu_nav"
-        app:itemActiveIndicatorStyle="@null" />
+        android:elevation="@dimen/xc_elevation_float" />
 </RelativeLayout>

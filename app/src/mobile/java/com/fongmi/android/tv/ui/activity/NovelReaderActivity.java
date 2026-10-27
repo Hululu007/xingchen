@@ -84,6 +84,10 @@ public class NovelReaderActivity extends AppCompatActivity {
     private boolean wasBottom = false;
     private int autoAdvancedFor = -1;
     private long loadUiDoneAt = 0;
+    // 本章内是否观察到过"未到底"：恢复进度打开就停在章末的不算读完，不自动接
+    private boolean sawNotBottom = false;
+    private final Runnable autoNextRecheck = this::maybeAutoNext;
+    private int preloadingFor = -1;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -1022,8 +1026,10 @@ public class NovelReaderActivity extends AppCompatActivity {
                 loading = false;
                 // 新章上屏：自动接下一章的状态复位（防本章滚动事件串扰）
                 wasBottom = false;
+                sawNotBottom = false;
                 autoAdvancedFor = -1;
                 loadUiDoneAt = System.currentTimeMillis();
+                preloadNextChapter();
                 currentText = text;
                 if (TextUtils.isEmpty(text)) {
                     tvContent.setText("正文抓取失败，换一章试试");
@@ -1122,13 +1128,53 @@ public class NovelReaderActivity extends AppCompatActivity {
             return;
         }
         boolean bottom = currentFraction() >= 0.995f;
-        if (bottom && !wasBottom && autoAdvancedFor != session.chapterIndex
-                && System.currentTimeMillis() - loadUiDoneAt > 1500) {
+        if (!bottom) {
+            wasBottom = false;
+            sawNotBottom = true;
+            return;
+        }
+        // 已到底。加载后 1.5 秒内到底多半是短章快滑或恢复进度：旧写法在这里把
+        // wasBottom 一并置真、把这次到底"吃掉"，此后停在章末再无跳变，自动接
+        // 永远不再触发（真机"不灵"的定罪点）。改：窗口内不吞事件、排一次复查；
+        // 复查时仍在章末、且本章内确实滚动过（sawNotBottom），才接下一章。
+        long sinceLoad = System.currentTimeMillis() - loadUiDoneAt;
+        if (sinceLoad <= 1500) {
+            scrollView.removeCallbacks(autoNextRecheck);
+            scrollView.postDelayed(autoNextRecheck, 1500 - sinceLoad + 100);
+            return;
+        }
+        if (!wasBottom && sawNotBottom && autoAdvancedFor != session.chapterIndex) {
             autoAdvancedFor = session.chapterIndex;
             ToastUtil.show(this, "已自动进入下一章", Toast.LENGTH_SHORT);
             goChapter(session.chapterIndex + 1);
         }
-        wasBottom = bottom;
+        wasBottom = true;
+    }
+
+    /** 预存下一章：当前章上屏后后台把下一章正文抓进章节缓存，接章时直接命中。 */
+    private void preloadNextChapter() {
+        if (session == null || !TextUtils.isEmpty(session.localId)) return;
+        java.util.List<ReadingSession.Chapter> chs = session.chapters;
+        if (chs == null || session.chapterIndex + 1 >= chs.size()) return;
+        final ReadingSession s = session;
+        final int nextIdx = session.chapterIndex + 1;
+        if (preloadingFor == nextIdx) return;
+        preloadingFor = nextIdx;
+        final String key = bookKey();
+        Task.execute(() -> {
+            try {
+                if (!TextUtils.isEmpty(com.fongmi.android.tv.read.ReadingDownload
+                        .loadNovelChapter(this, key, nextIdx))) return;
+                String text = resolveText(s, chs.get(nextIdx));
+                if (!TextUtils.isEmpty(text)) {
+                    com.fongmi.android.tv.read.ReadingDownload
+                            .saveNovelChapter(this, key, nextIdx, text);
+                }
+            } catch (Throwable ignored) {
+            } finally {
+                if (preloadingFor == nextIdx) preloadingFor = -1;
+            }
+        });
     }
 
     /** 书签跳转：可带章内进度。 */
@@ -1183,6 +1229,9 @@ public class NovelReaderActivity extends AppCompatActivity {
 
     private float currentFraction() {
         try {
+            // 一屏装得下的短章：没有可滚距离，本身就是已到底（旧口径算成 0，
+            // 进度恒 0%、自动接也永远判不到底）
+            if (tvContent.getHeight() <= scrollView.getHeight()) return 1f;
             int max = Math.max(1, tvContent.getHeight() - scrollView.getHeight());
             return Math.min(1f, Math.max(0f, scrollView.getScrollY() * 1f / max));
         } catch (Throwable t) {

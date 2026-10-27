@@ -62,8 +62,8 @@ public class EdgeTtsClient {
      * Edge 浏览器标识（与 GEC 版本号配套）。
      * 以后微软再升级，只改这两个常量即可。
      */
-    public static final String EDGE_CHROMIUM_FULL = "155.0.4283.45";
-    public static final String EDGE_CHROMIUM_MAJOR = "155";
+    public static final String EDGE_CHROMIUM_FULL = "143.0.3650.75";
+    public static final String EDGE_CHROMIUM_MAJOR = "143";
 
     public static final String EDGE_UA =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "

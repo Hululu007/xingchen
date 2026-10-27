@@ -391,6 +391,46 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
         applyRefreshWebView(event.getUrl());
     }
 
+    /**
+     * 规则 JS 调 refreshReadData(data) 的订阅（8.83 ArticleListFragment.refreshReadData）：
+     * 守卫等价落法——页面在前台（原版 activity 存活＋!isFinishing）、且 data.id 与本页规则标题
+     * 相等（原版 StringUtils.equals(rule.title, data.id) 的身份门）才认；命中后 nextPage 非空
+     * 更新 nextPageUrl、currentUrl 非空更新 myUrl（与原版同两项状态更新）。
+     * 缺口如实记：原版另有两项星辰无消费面——①isReadTheme 门与 read_chapter 章节标题 View
+     * 未移植（星辰 isReadTheme 字段从未被赋值、恒 false，章节标题条不在本页装配里），data.title
+     * 的「显示当前章节名＋记阅读历史」无落点；②原版经 HeavyTaskUtil 投的阅读历史任务星辰无等价队列。
+     * 故本订阅不拿 isReadTheme 当门（否则永不触发、等于假接），只落状态两项，标题面待阅读主题装配补入时再接。
+     */
+    @org.greenrobot.eventbus.Subscribe(threadMode = org.greenrobot.eventbus.ThreadMode.MAIN)
+    public void onRefreshReadData(com.fongmi.android.tv.api.hk.event.rule.RefreshReadDataEvent event) {
+        if (!isResumed() || event == null || articleListRule == null) return;
+        if (!TextUtils.equals(articleListRule.getTitle(), event.getId())) return;
+        if (HkStringUtil.isNotEmpty(event.getNextPage())) nextPageUrl = event.getNextPage();
+        if (HkStringUtil.isNotEmpty(event.getCurrentUrl())) myUrl = event.getCurrentUrl();
+    }
+
+    /**
+     * 规则 JS 调 refreshVideoSource(url, headers) 的订阅（8.83 ArticleListFragment.onRefreshVideoUrl
+     * → ArticleWebViewHolder.updateVideoUrl）：把新视频地址与请求头存进 holder 的视频面；
+     * 当前正展示视频条目时按新址立即重载（holder 建面时对视频条目本就直载 videoUrl，此处与之同义）。
+     * 原版 updateVideoUrl 另有悬浮播放器重弹（floatVideoController.show），星辰无悬浮播放器件，不做。
+     * 原版门是 !isOnPause 且 holder 有 WebView，星辰同口径用 isResumed。
+     */
+    @org.greenrobot.eventbus.Subscribe(threadMode = org.greenrobot.eventbus.ThreadMode.MAIN)
+    public void onRefreshVideoUrl(com.fongmi.android.tv.api.hk.event.rule.RefreshVideoUrlEvent event) {
+        if (!isResumed() || event == null || webViewHolder == null) return;
+        webViewHolder.setVideoUrl(event.getUrl());
+        webViewHolder.setVideoHeaders(event.getHeaders());
+        if (webViewHolder.isVideoItem() && webViewHolder.getWebView() != null
+                && HkStringUtil.isNotEmpty(event.getUrl())) {
+            if (event.getHeaders() != null && !event.getHeaders().isEmpty()) {
+                webViewHolder.getWebView().loadUrl(event.getUrl(), event.getHeaders());
+            } else {
+                webViewHolder.getWebView().loadUrl(event.getUrl());
+            }
+        }
+    }
+
     private void applyRefreshWebView(String url) {
         if (!isResumed()) return;
         if (webViewHolder == null || webViewHolder.getWebView() == null) return;

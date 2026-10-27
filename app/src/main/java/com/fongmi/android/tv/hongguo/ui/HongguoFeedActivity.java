@@ -43,6 +43,11 @@ import java.util.Locale;
  * settle 后只把 PlayerView 移进当前页的表面挂载口，播放器不重建。起播链：
  * HgPrefetcher 预取模型→HgPlayResolver 解链注册→本地代理 URL→engine.start。</p>
  *
+ * <p>两种模式（研究账 §2/§6）：MODE_FEED＝首页短片流（每条是不同剧的
+ * 单条短片、上下滑跨剧、点剧条/左滑进剧、播完循环当前条、浏览不写剧
+ * 断点）；MODE_SERIES＝进剧后的集流（逐集竖滑、断点记剧一级、播完按
+ * 自动连播开关切下集）。播放内核一律 Exo、不走 MPV（账 §6.5）。</p>
+ *
  * <p>全屏口径：竖屏剧在本页内沉浸（元素全隐＋系统栏隐，点屏唤极简控制、自动再隐）；
  * 横屏剧信箱式播＋「全屏观看」在本窗内把整页转 90° 铺满（窗内转、窗口不转——
  * 官方主界面 screenOrientation="behind"＋configChanges 自管，见四阶段回报横屏节；
@@ -88,6 +93,8 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     private Player player;
     private HgFeedSources.Tab tab = HgFeedSources.Tab.RECOMMEND;
     private int currentPos = -1;
+    /** 本页模式：MODE_FEED 短片流 / MODE_SERIES 集流（initView 自 intent 定）。 */
+    private int mode = MODE_FEED;
     private String playingVideoId;
     private boolean chromeHidden;
     /** 红果自家底栏当前面：false=首页（刷剧流本体） true=我的（壳内「我的」面）。 */
@@ -119,7 +126,17 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
 
         @Override
         public void onPlaybackStateChanged(int state) {
-            if (state == Player.STATE_ENDED && HgStore.isAutoNext()) advanceNext();
+            if (state == Player.STATE_ENDED) {
+                if (mode == MODE_FEED) {
+                    // 短片播完循环当前条（账 §4.2；官方行为未定 U7 的兜底口径），不自动滑走
+                    if (player != null) {
+                        player.seekTo(0);
+                        player.play();
+                    }
+                } else if (HgStore.isAutoNext()) {
+                    advanceNext();
+                }
+            }
             if (state == Player.STATE_READY) updateFsBar();
         }
 
@@ -209,7 +226,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         playerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_ZOOM);
         setupTabs();
         setupShellFaces();
-        int mode = getIntent().getIntExtra(EXTRA_MODE, MODE_FEED);
+        mode = getIntent().getIntExtra(EXTRA_MODE, MODE_FEED);
         if (mode == MODE_SERIES) {
             String seriesId = getIntent().getStringExtra(EXTRA_SERIES_ID);
             session.items.clear();
@@ -222,12 +239,8 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                 onSettle(0);
             }
         } else {
-            // 重进续播：上次的剧置顶（详情展开后跳到上次集与位置）
-            String last = HgStore.lastSeriesId();
-            if (last != null && session.items.isEmpty()) {
-                session.items.add(HgFeedItem.head(last, null, null, null, null, -1));
-                adapter.notifyItemInserted(0);
-            }
+            // 首页短片流（账 §2）：cell 条目逐条成页，不预置「上次的剧」——
+            // 断点记在剧一级，从剧条/左滑进剧时才续（账 §2.4/§6.1）
             loadTab(tab);
         }
         ui.post(ticker);
@@ -240,7 +253,9 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         binding.hgMenu.setOnClickListener(v -> openDrawer());
         binding.hgFsPlay.setOnClickListener(v -> togglePlayPause());
         binding.hgFsSeries.setOnClickListener(v -> {
-            if (currentPos >= 0) HgEpisodeSheet.show(this, session, currentPos, this::jumpTo);
+            if (currentPos < 0) return;
+            if (mode == MODE_FEED) enterSeries(currentPos);
+            else HgEpisodeSheet.show(this, session, currentPos, this::jumpTo);
         });
         binding.hgFsSeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
@@ -321,25 +336,17 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                     if (tab != target) return;
                     String category = target == HgFeedSources.Tab.COMIC ? "漫剧"
                             : target == HgFeedSources.Tab.LIVE ? "真人剧" : null;
-                    int resumeAt = 0;
                     for (int i = 0; i < result.size(); i++) {
                         HgSeriesItem s = result.get(i);
                         if (s.getSeriesId() != null) {
                             HgStore.putMeta(s.getSeriesId(), s.getTitle(), s.getCoverUrl(), s.getEpisodeCount());
-                        }
-                        HgFeedItem head = HgFeedItem.head(s.getSeriesId(), s.getTitle(), category,
-                                s.getDesc(), s.getCoverUrl(), s.getEpisodeCount());
-                        if (s.hasAppointment()) {
-                            // 未上线剧：亮预约面，服务端预约态同步进镜像
-                            head.reservable = true;
-                            head.dueStartText = s.getDueStartText();
-                            if (s.getSeriesId() != null) {
+                            if (s.hasAppointment()) {
+                                // 未上线剧：服务端预约态同步进镜像
                                 HgStore.setReserved(s.getSeriesId(), s.isAppointmentSubscribed());
                             }
                         }
-                        session.items.add(head);
-                        // 续播剧若在流里，优先落它
-                        if (s.getSeriesId() != null && s.getSeriesId().equals(HgStore.lastSeriesId())) resumeAt = i;
+                        // 短片流（账 §2.5）：cell 带 vid 直接成短片、无 vid 成剧头待定形态
+                        session.items.add(HgFeedItem.fromSeries(s, category));
                     }
                     adapter.notifyDataSetChanged();
                     if (session.items.isEmpty()) {
@@ -347,8 +354,8 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                         binding.hgState.setText(source.emptyHint());
                     } else {
                         binding.hgState.setVisibility(View.GONE);
-                        binding.hgPager.setCurrentItem(resumeAt, false);
-                        onSettle(resumeAt);
+                        binding.hgPager.setCurrentItem(0, false);
+                        onSettle(0);
                     }
                 });
             }
@@ -377,8 +384,33 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         HgFeedAdapter.Holder holder = currentHolder();
         if (holder != null) attachSurface(holder);
         if (item.seriesHead) {
+            if (mode == MODE_FEED) {
+                // 短片流的剧头（账 §2.3）：只定形态成短片、不展开整剧；
+                // 预约面（未上线剧）不取播，停在封面＋预约片
+                if (!item.reservable) {
+                    session.resolveClip(position, at -> {
+                        if (at >= 0) adapter.notifyItemChanged(at);
+                        if (at == position && currentPos == position) {
+                            HgFeedItem now = session.items.get(position);
+                            if (!now.seriesHead && now.videoId != null) {
+                                HgFeedAdapter.Holder h = currentHolder();
+                                if (h != null) attachSurface(h);
+                                startCurrentPlayback();
+                                afterSettleSideWork(position);
+                            }
+                        }
+                    });
+                }
+                return;
+            }
             expandAndContinue(position);
             return;
+        }
+        if (mode == MODE_FEED && item.clip) {
+            // 短片富集：后台补作者/头像/简介（账 §3.3），不挡起播
+            session.enrichClip(position, at -> {
+                if (at >= 0) adapter.notifyItemChanged(at);
+            });
         }
         startCurrentPlayback();
         afterSettleSideWork(position);
@@ -473,24 +505,42 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     /** settle 后的预备工作：同剧预取后 2 集数据、预热后 1–2 条流、回收滑远的流、预展开下一剧头。 */
     private void afterSettleSideWork(int position) {
         HgFeedItem item = session.items.get(position);
-        if (item.seriesId != null) {
-            session.prefetcher.prefetchAround(session.seriesVideoIds(item.seriesId),
-                    session.indexWithinSeries(item), null);
-        }
-        for (int i = position + 1; i <= Math.min(position + 2, session.items.size() - 1); i++) {
-            HgFeedItem next = session.items.get(i);
-            if (next.videoId != null) session.resolver.warm(next.videoId);
-            else if (next.seriesHead && i == position + 1) {
-                int sizeBefore = session.items.size();
-                int at = i;
-                session.expandHead(at, changedAt -> {
-                    if (changedAt < 0) return;
-                    adapter.notifyItemChanged(changedAt);
-                    int inserted = session.items.size() - sizeBefore;
-                    if (inserted > 0) adapter.notifyItemRangeInserted(changedAt + 1, inserted);
-                    HgFeedItem first = session.items.get(changedAt);
-                    if (first.videoId != null) session.resolver.warm(first.videoId);
-                });
+        if (mode == MODE_FEED) {
+            // 短片流的预热只管相邻短片（账 §2.3）：下一条是剧头先定形态再 warm；
+            // 不展开整剧、不预取当前短片所属剧的其它集
+            for (int i = position + 1; i <= Math.min(position + 2, session.items.size() - 1); i++) {
+                HgFeedItem next = session.items.get(i);
+                if (next.videoId != null) session.resolver.warm(next.videoId);
+                else if (next.seriesHead && i == position + 1 && !next.reservable) {
+                    int at = i;
+                    session.resolveClip(at, changedAt -> {
+                        if (changedAt < 0) return;
+                        adapter.notifyItemChanged(changedAt);
+                        HgFeedItem clip = session.items.get(changedAt);
+                        if (clip.videoId != null) session.resolver.warm(clip.videoId);
+                    });
+                }
+            }
+        } else {
+            if (item.seriesId != null) {
+                session.prefetcher.prefetchAround(session.seriesVideoIds(item.seriesId),
+                        session.indexWithinSeries(item), null);
+            }
+            for (int i = position + 1; i <= Math.min(position + 2, session.items.size() - 1); i++) {
+                HgFeedItem next = session.items.get(i);
+                if (next.videoId != null) session.resolver.warm(next.videoId);
+                else if (next.seriesHead && i == position + 1) {
+                    int sizeBefore = session.items.size();
+                    int at = i;
+                    session.expandHead(at, changedAt -> {
+                        if (changedAt < 0) return;
+                        adapter.notifyItemChanged(changedAt);
+                        int inserted = session.items.size() - sizeBefore;
+                        if (inserted > 0) adapter.notifyItemRangeInserted(changedAt + 1, inserted);
+                        HgFeedItem first = session.items.get(changedAt);
+                        if (first.videoId != null) session.resolver.warm(first.videoId);
+                    });
+                }
             }
         }
         for (int i = 0; i < session.items.size(); i++) {
@@ -581,6 +631,8 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     }
 
     private void saveProgress() {
+        // 短片流浏览不写剧断点（账 §2.4：短片不是「在看这部剧」），断点只记集流
+        if (mode == MODE_FEED) return;
         if (player == null || currentPos < 0 || currentPos >= session.items.size()) return;
         HgFeedItem item = session.items.get(currentPos);
         if (item.seriesId == null || item.episodeIndex <= 0) return;
@@ -749,7 +801,34 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
 
     @Override
     public void onSeriesBar(int position) {
+        // 短片流里点剧条＝进这部剧；集流里才是开选集（账 §4/§6.3）
+        if (mode == MODE_FEED) {
+            enterSeries(position);
+            return;
+        }
         HgEpisodeSheet.show(this, session, position, this::jumpTo);
+    }
+
+    @Override
+    public void onEnterSeries(int position) {
+        if (mode == MODE_FEED) enterSeries(position);
+    }
+
+    /**
+     * 短片流进剧（账 §4/§5.4）：回包带专辑兄弟部时先弹系列半屏单选部，
+     * 单季剧（或无专辑数据）直进该剧集流；断点在集流展开链里续。
+     */
+    private void enterSeries(int position) {
+        if (position < 0 || position >= session.items.size()) return;
+        HgFeedItem item = session.items.get(position);
+        if (item.seriesId == null) return;
+        if (!item.siblings.isEmpty()) {
+            HgSeriesSheet.show(this, item.siblings, item, session.interactions,
+                    picked -> startSeries(this, picked.getSeriesId(), picked.getTitle(),
+                            picked.getCoverUrl()));
+        } else {
+            startSeries(this, item.seriesId, item.title, item.coverUrl);
+        }
     }
 
     @Override

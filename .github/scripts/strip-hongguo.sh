@@ -6,7 +6,7 @@
 # 删的只有本功能（2026-10-27 立项的原生红果，一至五阶段）新增的东西：
 #   - 红果本体包 app/src/main/java/com/fongmi/android/tv/hongguo/（api/model/crypto/proxy/ui 全包）
 #     与它的离线单测 app/src/test/hongguo/；
-#   - 本体资源（main 源集）：activity/item/dialog_hongguo_* 布局 12 份、bg_hg_*/ic_hg_* 图形 19 份；
+#   - 本体资源（main 源集）：activity/item/dialog/view_hongguo_* 布局 13 份、bg_hg_*/ic_hg_* 图形 20 份；
 #   - 登录提供方 HongguoLoginProvider 与它在 LoginManager 里的注册行／loginHongguo 入口／
 #     三个静态桥／requestLogin 的红果分发支；
 #   - Nano 本地服务器的红果代理解密 process（HongguoStream 本体＋Nano 的 import 与注册行）；
@@ -73,10 +73,13 @@ app/src/main/res/layout/item_hongguo_comment.xml
 app/src/main/res/layout/item_hongguo_episode.xml
 app/src/main/res/layout/item_hongguo_feed.xml
 app/src/main/res/layout/item_hongguo_search.xml
+app/src/main/res/layout/item_hongguo_series_row.xml
 app/src/main/res/layout/item_hongguo_theater.xml
 app/src/main/res/layout/view_hongguo_mine.xml
 app/src/main/res/layout/view_hongguo_drawer.xml
+app/src/main/res/layout/view_hongguo_series_sheet.xml
 app/src/main/res/drawable/bg_hg_avatar_circle.xml
+app/src/main/res/drawable/bg_hg_badge.xml
 app/src/main/res/drawable/bg_hg_bottom_scrim.xml
 app/src/main/res/drawable/bg_hg_chip.xml
 app/src/main/res/drawable/bg_hg_episode_chip.xml

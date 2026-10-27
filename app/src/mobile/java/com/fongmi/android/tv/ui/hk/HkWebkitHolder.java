@@ -395,7 +395,12 @@ public class HkWebkitHolder implements HkWebViewHelper.ServiceWorkerInterceptor 
             Log.e(TAG, "hk error", e);
         }
         BrowserProxyHook hook = browserProxyHook;
-        return hook == null ? null : hook.proxy(myUrl, request, requestHeaderMap);
+        if (hook != null) return hook.proxy(myUrl, request, requestHeaderMap);
+        // 网页代理规则的默认消费面（8.83 BrowserProxy.proxy 等价）：规则 JS 经 addWebProxyRule
+        // 注册的规则由 api/hk/browser/HkBrowserProxy 维护，hook 未被外部接管时回落到此；
+        // 命中规则（match 全串正则、静态资源只认 force）由宿主抓取改写，未命中回 null 走原生加载。
+        return com.fongmi.android.tv.api.hk.browser.HkBrowserProxy
+                .proxyRequest(myUrl, request, requestHeaderMap);
     }
 
     // —— $2 WebViewClient ——

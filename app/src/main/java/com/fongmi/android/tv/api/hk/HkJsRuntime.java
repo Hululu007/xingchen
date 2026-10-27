@@ -3877,15 +3877,39 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             return Boolean.FALSE;
         });
         putFunction("addWebProxyRule", args -> {
-            // 8.83 JSEngine.addWebProxyRule：星辰无网页代理规则能力，空实现。
+            // 8.83 JSEngine.addWebProxyRule(Object obj)（smali 10577）：入参须是 JSON 对象，
+            // 否则抛 RuntimeException("参数格式不对")；串化后 parseObject 成 BrowserProxyRule，
+            // name 或 match 为空抛 RuntimeException("name和match不能为空")；再 BrowserProxy.addProxyRule
+            //（同名先移除再追加）。星辰等价：api/hk/browser/HkBrowserProxy 注册表维护，消费在
+            // HkWebkitHolder.shouldInterceptRequest → HkBrowserProxy.proxyRequest。
+            Object o = args != null && args.length > 0 ? argsNativeObjectAdjust(args[0]) : null;
+            if (!(o instanceof java.util.Map)) throw new RuntimeException("参数格式不对");
+            com.fongmi.android.tv.api.hk.browser.HkBrowserProxyRule rule;
+            try {
+                rule = GSON.fromJson(GSON.toJson(o),
+                        com.fongmi.android.tv.api.hk.browser.HkBrowserProxyRule.class);
+            } catch (Throwable t) {
+                throw new RuntimeException("参数格式不对");
+            }
+            if (rule == null) throw new RuntimeException("参数格式不对");
+            if (TextUtils.isEmpty(rule.name) || TextUtils.isEmpty(rule.match)) {
+                throw new RuntimeException("name和match不能为空");
+            }
+            com.fongmi.android.tv.api.hk.browser.HkBrowserProxy.addProxyRule(rule);
             return null;
         });
         putFunction("removeWebProxyRule", args -> {
-            // 8.83 JSEngine.removeWebProxyRule：星辰无网页代理规则能力，空实现。
+            // 8.83 JSEngine.removeWebProxyRule(Object name)（smali 22785）：tryGetString 取名，
+            // 空抛 RuntimeException("参数不能为空")；BrowserProxy.removeProxyRule 按名移除第一个同名。
+            String name = args != null && args.length > 0 ? getString(args[0]) : null;
+            if (TextUtils.isEmpty(name)) throw new RuntimeException("参数不能为空");
+            com.fongmi.android.tv.api.hk.browser.HkBrowserProxy.removeProxyRule(name);
             return null;
         });
         putFunction("refreshWebProxyRule", args -> {
-            // 8.83 JSEngine.refreshWebProxyRule：星辰无网页代理规则能力，空实现。
+            // 8.83 JSEngine.refreshWebProxyRule()（smali 22398）：BrowserProxy.initProxyRules()
+            // 从 hiker://files/rules/browser_proxy_rules.json 重读规则表。
+            com.fongmi.android.tv.api.hk.browser.HkBrowserProxy.initProxyRules();
             return null;
         });
         putFunction("refreshReadData", args -> {

@@ -563,6 +563,14 @@
             android:configChanges="screenSize|smallestScreenSize|screenLayout"
             android:screenOrientation="fullUser" />
 
+        <!-- 红果刷剧页（三阶段）：点进就是竖屏刷剧流，独立一套界面与控制，
+             不借 VideoActivity。底栏接线在五阶段，本阶段只静态入口。 -->
+        <activity
+            android:name="com.fongmi.android.tv.hongguo.ui.HongguoFeedActivity"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|uiMode|orientation"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
         <!-- 外部本地媒体直达门（2026-10-27）：文件管理器/相册等外部应用点开
              content/file 的音视频直接投到本页，不再先把 HomeActivity 的主任务
              整个拉到前台。独立 taskAffinity 与主任务分家（外部播完退出即回来源

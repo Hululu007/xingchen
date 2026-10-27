@@ -35,6 +35,10 @@ public final class HgSeriesItem {
     private final int albumSerialCount;
     /** 同专辑的兄弟部（album_data_list 逐条抽，§5.3）；回包没带为空表。 */
     private final List<HgSeriesItem> siblings;
+    /** 评论数（cell video_data.comment_count，2026-10-28 频道真回包实证）；没带为 -1。 */
+    private final long commentCount;
+    /** 点赞数（cell video_data.digged_count，同上实证）；没带为 -1。 */
+    private final long diggCount;
 
     HgSeriesItem(String seriesId, String title, String coverUrl, String desc, int episodeCount) {
         this(seriesId, title, coverUrl, desc, episodeCount, false, false, null);
@@ -51,14 +55,14 @@ public final class HgSeriesItem {
                  boolean hasAppointment, boolean appointmentSubscribed, String dueStartText) {
         this(seriesId, title, coverUrl, desc, episodeCount, hasAppointment, appointmentSubscribed,
                 dueStartText, null, null, null, Collections.emptyList(), null, false, null, -1,
-                Collections.emptyList());
+                Collections.emptyList(), -1, -1);
     }
 
     HgSeriesItem(String seriesId, String title, String coverUrl, String desc, int episodeCount,
                  boolean hasAppointment, boolean appointmentSubscribed, String dueStartText,
                  String vid, String badge, String recText, List<String> tags, Boolean vertical,
                  boolean multiSeason, String albumId, int albumSerialCount,
-                 List<HgSeriesItem> siblings) {
+                 List<HgSeriesItem> siblings, long commentCount, long diggCount) {
         this.seriesId = seriesId;
         this.title = title;
         this.coverUrl = coverUrl;
@@ -76,6 +80,8 @@ public final class HgSeriesItem {
         this.albumId = albumId;
         this.albumSerialCount = albumSerialCount;
         this.siblings = siblings == null ? Collections.emptyList() : siblings;
+        this.commentCount = commentCount;
+        this.diggCount = diggCount;
     }
 
     public String getSeriesId() { return seriesId; }
@@ -96,4 +102,6 @@ public final class HgSeriesItem {
     public String getAlbumId() { return albumId; }
     public int getAlbumSerialCount() { return albumSerialCount; }
     public List<HgSeriesItem> getSiblings() { return siblings; }
+    public long getCommentCount() { return commentCount; }
+    public long getDiggCount() { return diggCount; }
 }

@@ -60,10 +60,15 @@ public final class HgSign {
         return signRequest(path, pairs, nowMillis, deviceId, versionName, body, entropy);
     }
 
-    /** GET 签名（路径写死 search/tab，对照 Go SignGET；本轮取址链以 POST 为主）。 */
-    public static Signed signGet(List<String[]> pairs, long nowMillis,
+    /**
+     * GET 签名：path 由调用方传真实请求路径（定罪账 2026-10-28 点名——旧版把
+     * 签名内路径写死 search/tab，feed 频道面 GET 若照此签会被服务端拒）。
+     * 注：Go 原版 SignGET 同样写死该路径且 ohg 实跑能通，两种签法哪种被
+     * 服务端接受以本机探针 A/B 实证为准，证据见 fix-batch-1455.md。
+     */
+    public static Signed signGet(String path, List<String[]> pairs, long nowMillis,
                                  String deviceId, String versionName, Entropy entropy) {
-        return signRequest("/reading/bookapi/search/tab/v", pairs, nowMillis, deviceId, versionName, null, entropy);
+        return signRequest(path, pairs, nowMillis, deviceId, versionName, null, entropy);
     }
 
     private static Signed signRequest(String path, List<String[]> pairs, long nowMillis,

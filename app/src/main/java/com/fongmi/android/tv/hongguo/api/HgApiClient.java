@@ -41,8 +41,17 @@ import okhttp3.ResponseBody;
  * 网关一律回 200 空体（A/B 隔离实测：同出口同分钟，带签名全回、剥签名即空，
  * Cookie 不是门、本机海外出口也不是门）。现取模型/详情改走 fqnovel 已签名口：
  * HgDevice 匿名注册拿真 device_id/iid 落盘复用＋HgSign 逐请求签名；
- * 旧 multi 口（reading.snssdk.com、platform=1024、无签名）已从主链摘除。
- * feed 列表类 GET 口（bookmall/tab 等已通的）维持原样不动。</p>
+ * 旧 multi 口（reading.snssdk.com、platform=1024、无签名）已从主链摘除。</p>
+ *
+ * <p>feed 面重建（2026-10-28，tab-fail-dig-20261028.md 两案定罪）：漫剧/
+ * 真人剧页签原接的 new_category/front 是小说分类页壳接口（结构上永远不带
+ * 剧条目）且无签名发法恒回空体；推荐页签走的 plan/无参 bookmall/tab 不是
+ * 官方推荐频道（无参回书城首页壳，只有找剧位 6 张卡）、且从不续页、流封顶
+ * 6 条。三页签现统一改走已签名 bookmall/tab 频道面（openhongguo 频道口径：
+ * tab_type 开页请求 -1/36/39、响应频道 16/36/39、bottom_tab_type=7、
+ * client_req_type=3）＋ cell/change 续页（client_req_type=2），见
+ * {@link #bookmallChannel} / {@link #bookmallCellChange}；plan、category*
+ * 与无参 bookmallTab 已从 feed 面摘除删除。</p>
  *
  * <p>路径定罪（2026-10-27 真机「加载失败」案）：bookapi 家族在样本里的路径
  * 模板全部带版本段（classes11.dex 逐字：{@code $GET /reading/bookapi/plan/
@@ -53,9 +62,8 @@ import okhttp3.ResponseBody;
  * 现统一走 {@link #BV} 拼段；版本段的官方替换值未在样本里抠到定版，
  * 先用 v1（实测回真数据），待真机回包再校准。</p>
  *
- * <p>feed 面说明：推荐流逐条 feed 请求的原始报文未在拆解中定到（structure.md
- * 标未定），本类只落 video_tab/plan + bookmall/tab + cell/change 这套能落的
- * 体系入口，逐条 feed 请求不编造。</p>
+ * <p>feed 面说明（已更新，见上「feed 面重建」段）：feed 三页签的原始报文
+ * 已由 openhongguo 频道面定版并在本机实跑验通，旧「未定」口径作废。</p>
  */
 public final class HgApiClient {
 
@@ -286,6 +294,83 @@ public final class HgApiClient {
         });
     }
 
+    /**
+     * 已签名 GET（feed 频道面专用）：与 postSigned 同路——先确保设备注册，
+     * 再用注册身份对有序参数逐请求签名（HgSign.signGet 传真实路径），
+     * 发往 fqnovel 宿主；头组装照 openhongguo anonymousHeaders 口径
+     * （UA 换设备面 UA、x-ss-dp / lc / x-reading-request、游客 Cookie 兜底）。
+     */
+    private void getSigned(String path, List<String[]> pairs, BodyCallback cb) {
+        ensureDevice(new HgCallback<Boolean>() {
+            @Override
+            public void onSuccess(Boolean ok) {
+                long ticket = System.currentTimeMillis();
+                HgSign.Signed signed = HgSign.signGet(path, pairs, ticket,
+                        HgDevice.profile().deviceId, HgDevice.VERSION_NAME, null);
+                String url = HgDevice.API_HOST + path + "?" + signed.query;
+                Map<String, String> h = headers();
+                h.put("user-agent", HgDevice.userAgent());
+                h.putAll(signed.headers);
+                if (!h.containsKey("Cookie")) {
+                    String guest = HgDevice.guestCookieHeader();
+                    if (guest != null) h.put("Cookie", guest);
+                }
+                h.put("x-ss-dp", "8662");
+                h.put("lc", "101");
+                h.put("x-reading-request", HgDevice.readingRequestId(ticket));
+                Call call = OkHttp.newCall(url, h);
+                enqueue(call, cb, path);
+            }
+
+            @Override
+            public void onError(int httpCode, String message) {
+                cb.onFail(httpCode, message);
+            }
+        });
+    }
+
+    // ---------- bookmall 频道面（feed 三页签，openhongguo 频道口径） ----------
+
+    /**
+     * 频道开页 GET /reading/bookapi/bookmall/tab/v（已签名）：
+     * requestTabType 为开页请求值（推荐 -1、漫剧 36、真人剧 39），
+     * responseTabType 为回包里要读的频道（推荐 16、漫剧 36、真人剧 39）。
+     * 解析按 tab_type 过滤＋抽续页凭证，见 HgParser.parseDiscoverTab。
+     */
+    public void bookmallChannel(int requestTabType, int responseTabType, HgCallback<HgCellPage> cb) {
+        getSigned(HgDevice.PATH_BOOKMALL_TAB, HgRequests.discoverPairs(requestTabType), new BodyCallback() {
+            @Override
+            void onBody(String text) {
+                cb.onSuccess(HgParser.parseDiscoverTab(text, responseTabType));
+            }
+
+            @Override
+            void onFail(int code, String msg) {
+                cb.onError(code, msg);
+            }
+        });
+    }
+
+    /**
+     * 频道续页 GET /reading/bookapi/bookmall/cell/change/v（已签名）：
+     * 凭证来自开页回包（HgContinuation），回包再带新的 next_offset /
+     * session_id 供上层推进凭证。解析见 HgParser.parseCellChange。
+     */
+    public void bookmallCellChange(com.fongmi.android.tv.hongguo.model.HgContinuation cont,
+                                   HgCallback<HgCellPage> cb) {
+        getSigned(HgDevice.PATH_BOOKMALL_CELL_CHANGE, HgRequests.cellChangePairs(cont), new BodyCallback() {
+            @Override
+            void onBody(String text) {
+                cb.onSuccess(HgParser.parseCellChange(text));
+            }
+
+            @Override
+            void onFail(int code, String msg) {
+                cb.onError(code, msg);
+            }
+        });
+    }
+
     // ---------- 剧集详情（fqnovel 已签名口，openhongguo SeriesBody/SeriesBatchBody） ----------
 
     /** 批量剧集详情 POST /novel/player/multi_video_detail/player/v1 → 以剧 id 为键的详情表。 */
@@ -324,11 +409,25 @@ public final class HgApiClient {
 
     // ---------- 搜索 ----------
 
-    /** 搜索结果页签 GET /reading/bookapi/search/tab（keyword 参数名未定版，现用 keyword）。 */
+    /**
+     * 搜索结果页签 GET /reading/bookapi/search/tab/v（已签名，fqnovel 宿主）：
+     * 2026-10-28 A/B 实证——旧形（reading 宿主、无签名、freshQuery 假指纹、
+     * keyword 参数）回 HTTP 200 空体，与取模型口同一道签名门，搜索在真机上
+     * 同样恒空；现改走 getSigned＋openhongguo SignedSearchPairs（query 参数），
+     * 探针实跑回 63,856 字节真结果。路径尾段字面 v 同频道面口径。
+     */
     public void searchTab(String keyword, HgCallback<HgCellPage> cb) {
-        Map<String, String> q = new HashMap<>();
-        q.put("keyword", keyword);
-        get(HOST + "/reading/bookapi/search/tab" + BV, q, cellCallback(cb));
+        getSigned("/reading/bookapi/search/tab/v", HgRequests.searchPairs(keyword), new BodyCallback() {
+            @Override
+            void onBody(String text) {
+                cb.onSuccess(HgParser.parseCellPage(text));
+            }
+
+            @Override
+            void onFail(int code, String msg) {
+                cb.onError(code, msg);
+            }
+        });
     }
 
     /** 搜索提示 GET /reading/bookapi/search/cue。 */
@@ -348,37 +447,6 @@ public final class HgApiClient {
     /** 搜索结果翻页 GET /reading/bookapi/search/cell/change（翻页游标参数未定版，透传 params）。 */
     public void searchCellChange(Map<String, String> params, HgCallback<HgCellPage> cb) {
         get(HOST + "/reading/bookapi/search/cell/change" + BV, params, cellCallback(cb));
-    }
-
-    // ---------- 剧场分类 ----------
-
-    public void categoryFront(HgCallback<HgCellPage> cb) {
-        get(HOST + "/reading/bookapi/new_category/front" + BV, null, cellCallback(cb));
-    }
-
-    public void categoryLanding(Map<String, String> params, HgCallback<HgCellPage> cb) {
-        get(HOST + "/reading/bookapi/new_category/landing" + BV, params, cellCallback(cb));
-    }
-
-    public void categoryCell(Map<String, String> params, HgCallback<HgCellPage> cb) {
-        get(HOST + "/reading/bookapi/new_category/cell" + BV, params, cellCallback(cb));
-    }
-
-    // ---------- 首页/剧场计划位（feed 面能落的部分） ----------
-
-    /** GET /reading/bookapi/plan：服务端编排的计划位。 */
-    public void plan(HgCallback<HgCellPage> cb) {
-        get(HOST + "/reading/bookapi/plan" + BV, null, cellCallback(cb));
-    }
-
-    /** GET /reading/bookapi/bookmall/tab：剧场页签。 */
-    public void bookmallTab(HgCallback<HgCellPage> cb) {
-        get(HOST + "/reading/bookapi/bookmall/tab" + BV, null, cellCallback(cb));
-    }
-
-    /** GET /reading/bookapi/bookmall/cell/change：剧场 cell 翻页（参数透传）。 */
-    public void bookmallCellChange(Map<String, String> params, HgCallback<HgCellPage> cb) {
-        get(HOST + "/reading/bookapi/bookmall/cell/change" + BV, params, cellCallback(cb));
     }
 
     // ---------- 追剧架（账号维度，靠登录态注入） ----------

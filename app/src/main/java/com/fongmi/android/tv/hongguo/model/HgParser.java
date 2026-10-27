@@ -223,6 +223,210 @@ public final class HgParser {
         return new HgCellPage(code, msg, items, root);
     }
 
+    // ---------- bookmall 频道面（openhongguo parse.go 逐函数对照移植） ----------
+
+    /**
+     * 频道开页回包 → 指定 tab_type 的一页（对照 ParseDiscoverTab＋
+     * appendCatalogCell＋DiscoverContinuationTab）：只收 tab_type 命中的
+     * tab 项，单元格按 video_data / video_detail 卡 / 嵌套 cell_data 递归抽；
+     * has_more 取 tab 项的；续页凭证从同 tab 抽（session_id 在 tab 上、
+     * cell 取 cell_id_str 非空且 show_type≠0 的、优先带嵌套 cell_data 的）。
+     */
+    public static HgCellPage parseDiscoverTab(String json, int tabType) {
+        JsonObject root = JsonParser.parseString(json).getAsJsonObject();
+        int code = intOf(root, "code", 0);
+        String msg = str(root, "message");
+        List<HgSeriesItem> items = new ArrayList<>();
+        JsonObject data = obj(root, "data");
+        JsonObject tab = data == null ? null : findTab(data, tabType);
+        boolean hasMore = false;
+        HgContinuation cont = null;
+        if (tab != null) {
+            hasMore = boolOf(tab, "has_more");
+            JsonArray cells = arr(tab, "cell_data");
+            if (cells != null) {
+                for (JsonElement cell : cells) collectDiscoverCells(cell, items, 0);
+            }
+            cont = extractContinuation(tab, tabType);
+        }
+        return new HgCellPage(code, msg, items, root, hasMore,
+                cont == null ? null : cont.getOffset(),
+                cont == null ? null : cont.getSessionId(), cont);
+    }
+
+    /**
+     * 频道续页回包 → 一页（对照 ParseCellChange）：data{has_more,
+     * next_offset, session_id, cell_view}，cell_view 走同一套单元格抽取。
+     */
+    public static HgCellPage parseCellChange(String json) {
+        JsonObject root = JsonParser.parseString(json).getAsJsonObject();
+        int code = intOf(root, "code", 0);
+        String msg = str(root, "message");
+        List<HgSeriesItem> items = new ArrayList<>();
+        JsonObject data = obj(root, "data");
+        boolean hasMore = false;
+        String nextOffset = null;
+        String sessionId = null;
+        if (data != null) {
+            hasMore = boolOf(data, "has_more");
+            nextOffset = firstStr(data, "next_offset");
+            if (nextOffset == null) {
+                JsonElement no = data.get("next_offset");
+                if (no != null && no.isJsonPrimitive() && no.getAsJsonPrimitive().isNumber()) {
+                    nextOffset = String.valueOf(no.getAsLong());
+                }
+            }
+            sessionId = str(data, "session_id");
+            JsonElement view = data.get("cell_view");
+            if (view != null) collectDiscoverCells(view, items, 0);
+        }
+        return new HgCellPage(code, msg, items, root, hasMore, nextOffset, sessionId, null);
+    }
+
+    private static JsonObject findTab(JsonObject data, int tabType) {
+        JsonArray tabs = arr(data, "tab_item");
+        if (tabs == null) return null;
+        for (JsonElement el : tabs) {
+            if (el != null && el.isJsonObject()
+                    && intOf(el.getAsJsonObject(), "tab_type", -1) == tabType) {
+                return el.getAsJsonObject();
+            }
+        }
+        return null;
+    }
+
+    /** 续页凭证抽取（对照 DiscoverContinuationTab 的挑选顺序）。 */
+    private static HgContinuation extractContinuation(JsonObject tab, int tabType) {
+        String sessionId = str(tab, "session_id");
+        if (sessionId == null || sessionId.isEmpty()) return null;
+        String template = null;
+        JsonElement ct = tab.get("client_template");
+        if (ct != null && ct.isJsonPrimitive()) {
+            if (ct.getAsJsonPrimitive().isNumber()) {
+                if (ct.getAsLong() > 0) template = String.valueOf(ct.getAsLong());
+            } else {
+                String s = ct.getAsString();
+                if (s != null && !s.isEmpty()) template = s;
+            }
+        }
+        JsonArray cells = arr(tab, "cell_data");
+        if (cells == null) return null;
+        JsonObject first = null;
+        JsonObject nested = null;
+        for (JsonElement el : cells) {
+            if (el == null || !el.isJsonObject()) continue;
+            JsonObject cell = el.getAsJsonObject();
+            String cellId = firstStr(cell, "cell_id_str", "cell_id");
+            if (cellId == null) cellId = longStr(cell, "cell_id");
+            if (cellId == null) continue;
+            int showType = intOf(cell, "show_type", 0);
+            if (showType == 0) continue;
+            if (first == null) first = cell;
+            JsonElement inner = cell.get("cell_data");
+            if (inner != null && inner.isJsonArray() && inner.getAsJsonArray().size() > 0) {
+                nested = cell;
+                break;
+            }
+        }
+        JsonObject pick = nested != null ? nested : first;
+        if (pick == null) return null;
+        String pickId = firstStr(pick, "cell_id_str", "cell_id");
+        if (pickId == null) pickId = longStr(pick, "cell_id");
+        if (pickId == null) return null;
+        return new HgContinuation(pickId, sessionId,
+                template, String.valueOf(intOf(pick, "show_type", 0)),
+                String.valueOf(tabType), "0");
+    }
+
+    /** 单元格递归抽取（对照 appendCatalogCell 的三路：video_data 数组/对象、video_detail 卡表、嵌套 cell_data）。 */
+    private static void collectDiscoverCells(JsonElement el, List<HgSeriesItem> out, int depth) {
+        if (el == null || depth > 8) return;
+        if (el.isJsonArray()) {
+            for (JsonElement child : el.getAsJsonArray()) collectDiscoverCells(child, out, depth);
+            return;
+        }
+        if (!el.isJsonObject()) return;
+        JsonObject cell = el.getAsJsonObject();
+        JsonElement vd = cell.get("video_data");
+        if (vd != null) {
+            if (vd.isJsonArray()) {
+                for (JsonElement entry : vd.getAsJsonArray()) addDiscoverItem(entry, out);
+            } else {
+                addDiscoverItem(vd, out);
+            }
+        }
+        JsonObject detail = obj(cell, "video_detail");
+        if (detail != null) {
+            JsonArray cards = arr(detail, "video_detail_list");
+            if (cards != null) {
+                for (JsonElement card : cards) addDiscoverItem(card, out);
+            }
+        }
+        JsonElement inner = cell.get("cell_data");
+        if (inner != null) collectDiscoverCells(inner, out, depth + 1);
+    }
+
+    private static void addDiscoverItem(JsonElement entry, List<HgSeriesItem> out) {
+        if (entry == null || !entry.isJsonObject()) return;
+        HgSeriesItem item = asSeriesItem(normalizeDiscoverEntry(entry.getAsJsonObject()));
+        if (item != null) out.add(item);
+    }
+
+    /**
+     * 频道条目键名归一：video_data 条目的剧信息常嵌在 video_detail 子对象
+     * （series_title / series_cover / series_intro），video_detail_list 卡用
+     * series_id_str / series_title 等直名——统一映射到 asSeriesItem 的扁平
+     * 口径（条目自身字段优先，video_detail 只补缺）。
+     */
+    private static JsonObject normalizeDiscoverEntry(JsonObject o) {
+        JsonObject merged = new JsonObject();
+        JsonObject vd = obj(o, "video_detail");
+        if (vd != null) {
+            putIfPresent(merged, "title", str(vd, "series_title"));
+            putIfPresent(merged, "cover", str(vd, "series_cover"));
+            putIfPresent(merged, "desc", str(vd, "series_intro"));
+            if (intOf(vd, "episode_cnt", -1) >= 0) {
+                merged.addProperty("episode_cnt", intOf(vd, "episode_cnt", -1));
+            }
+            // 计数的位置随频道变（2026-10-28 存档回包逐层实测）：推荐频道在
+            // video_data 条目顶层（digged_count；comment_count 不下发），
+            // 漫剧/真人剧在 video_detail.video_list[0]（两项齐全）——归一到
+            // 条目顶层，asSeriesItem 一处读。条目自身带同名字段时以自身为准
+            // （下方 entrySet 覆盖循环会盖回来）
+            JsonArray vids = arr(vd, "video_list");
+            if (vids != null && vids.size() > 0 && vids.get(0).isJsonObject()) {
+                JsonObject v0 = vids.get(0).getAsJsonObject();
+                if (longOf(v0, "comment_count", -1) >= 0) {
+                    merged.addProperty("comment_count", longOf(v0, "comment_count", -1));
+                }
+                if (longOf(v0, "digged_count", -1) >= 0) {
+                    merged.addProperty("digged_count", longOf(v0, "digged_count", -1));
+                }
+            }
+            putIfPresent(merged, "series_id", firstStr(vd, "series_id", "series_id_str"));
+        }
+        for (Map.Entry<String, JsonElement> e : o.entrySet()) {
+            merged.add(e.getKey(), e.getValue());
+        }
+        if (firstStr(merged, "series_id", "book_id") == null) {
+            putIfPresent(merged, "series_id", firstStr(merged, "series_id_str"));
+        }
+        if (firstStr(merged, "title") == null) {
+            putIfPresent(merged, "title", firstStr(merged, "series_title"));
+        }
+        if (firstStr(merged, "cover") == null) {
+            putIfPresent(merged, "cover", firstStr(merged, "series_cover"));
+        }
+        if (firstStr(merged, "desc") == null) {
+            putIfPresent(merged, "desc", firstStr(merged, "series_intro"));
+        }
+        return merged;
+    }
+
+    private static void putIfPresent(JsonObject o, String key, String value) {
+        if (value != null && !value.isEmpty()) o.addProperty(key, value);
+    }
+
     /**
      * 在 data 子树里找数组，抽出带剧 id + 标题的对象为条目。深度上限 8：
      * bookmall/tab 真回包（2026-10-27 实拉存档）的剧条目在
@@ -310,7 +514,8 @@ public final class HgParser {
                 vid, badge, str(o, "rec_text"), tags, vertical,
                 boolOf(o, "is_multi_season"),
                 firstStr(o, "album_id_str", "album_id"),
-                intOf(o, "album_serial_count", -1), siblings);
+                intOf(o, "album_serial_count", -1), siblings,
+                longOf(o, "comment_count", -1), longOf(o, "digged_count", -1));
     }
 
     /**

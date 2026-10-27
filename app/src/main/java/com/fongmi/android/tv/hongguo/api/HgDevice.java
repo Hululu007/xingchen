@@ -42,6 +42,10 @@ public final class HgDevice {
     public static final String PATH_PLAYBACK = "/novel/player/video_model/v1/";
     public static final String PATH_SERIES = "/novel/player/video_detail/v1/";
     public static final String PATH_SERIES_BATCH = "/novel/player/multi_video_detail/player/v1";
+    /** bookmall 频道开页（尾段是字面 v 不是 v1，openhongguo app.go PathDiscover 实证）。 */
+    public static final String PATH_BOOKMALL_TAB = "/reading/bookapi/bookmall/tab/v";
+    /** bookmall 频道续页（openhongguo app.go PathCellChange 实证）。 */
+    public static final String PATH_BOOKMALL_CELL_CHANGE = "/reading/bookapi/bookmall/cell/change/v";
 
     // 注册档案描述的设备（openhongguo sdk/model DefaultDevice，与 medusa 内的
     // 写死设备串是两台，勿混）：Xiaomi 23127PN0CC / Android 14。

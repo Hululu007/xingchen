@@ -106,6 +106,79 @@ public final class HgRequests {
         return body;
     }
 
+    // ---------- bookmall 频道面（feed 三页签，openhongguo request.go 逐字口径） ----------
+
+    /** 频道开页请求 tab_type：推荐走 -1（响应频道 16）；漫剧 36 / 真人剧 39 请求响应同值。 */
+    public static final int TAB_REQUEST_RECOMMEND = -1;
+    public static final int TAB_RESPONSE_RECOMMEND = 16;
+    public static final int TAB_COMIC = 36;
+    public static final int TAB_LIVE = 39;
+    /** 短剧商城底栏（bottom_tab_type，三频道同值 7）。 */
+    public static final String BOTTOM_TAB_SHORT_DRAMA = "7";
+    public static final String BOTTOM_TAB_TYPE_LIST = "7,0,1,2,3,4";
+
+    /**
+     * 频道开页有序参数（openhongguo SignedDiscoverPairsIn 逐字）：
+     * 设备公共参（31 对）＋ tab_type ＋ offset=0 ＋ client_req_type=3 ＋
+     * bottom_tab_type ＋ bottom_tab_type_list。ts / _rticket 由签名器末尾追加。
+     */
+    public static java.util.List<String[]> discoverPairs(int requestTabType) {
+        java.util.List<String[]> pairs = HgDevice.deviceQueryPairs();
+        pairs.add(new String[]{"tab_type", String.valueOf(requestTabType)});
+        pairs.add(new String[]{"offset", "0"});
+        pairs.add(new String[]{"client_req_type", "3"});
+        pairs.add(new String[]{"bottom_tab_type", BOTTOM_TAB_SHORT_DRAMA});
+        pairs.add(new String[]{"bottom_tab_type_list", BOTTOM_TAB_TYPE_LIST});
+        return pairs;
+    }
+
+    /**
+     * 频道续页有序参数（openhongguo SignedCellChangePairs 逐字）：
+     * 设备公共参 ＋ cell_id ＋ offset ＋ limit=20 ＋ change_type=0 ＋ tab_type
+     * （响应频道值）＋ show_type ＋ client_req_type=2 ＋ session_id；
+     * client_template 仅在开页回包带了才回传。
+     */
+    public static java.util.List<String[]> cellChangePairs(
+            com.fongmi.android.tv.hongguo.model.HgContinuation cont) {
+        java.util.List<String[]> pairs = HgDevice.deviceQueryPairs();
+        pairs.add(new String[]{"cell_id", cont.getCellId()});
+        pairs.add(new String[]{"offset", cont.getOffset()});
+        pairs.add(new String[]{"limit", "20"});
+        pairs.add(new String[]{"change_type", "0"});
+        pairs.add(new String[]{"tab_type", cont.getTabType()});
+        pairs.add(new String[]{"show_type", cont.getShowType()});
+        pairs.add(new String[]{"client_req_type", "2"});
+        pairs.add(new String[]{"session_id", cont.getSessionId()});
+        if (cont.getClientTemplate() != null && !cont.getClientTemplate().isEmpty()) {
+            pairs.add(new String[]{"client_template", cont.getClientTemplate()});
+        }
+        return pairs;
+    }
+
+    /**
+     * 搜索结果有序参数（openhongguo SignedSearchPairs 逐字，tab=短剧 11）：
+     * 设备公共参 ＋ query（参数名是 query 不是 keyword——旧 App 侧 keyword
+     * 写法从未定版）＋ tab_type/count/offset ＋ use_correct ＋
+     * bookshelf_search_plan ＋ search_source=1 ＋ tab_name=feed ＋
+     * bookstore_tab=16 ＋ user_is_login=0。本机探针实证：此形签名 GET 回
+     * 63,856 字节真结果；旧无签名＋假指纹＋keyword 形回 200 空体（与取模型
+     * 口同一道签名门，2026-10-28 A/B 实证）。
+     */
+    public static java.util.List<String[]> searchPairs(String keyword) {
+        java.util.List<String[]> pairs = HgDevice.deviceQueryPairs();
+        pairs.add(new String[]{"query", keyword == null ? "" : keyword});
+        pairs.add(new String[]{"tab_type", "11"});
+        pairs.add(new String[]{"count", "20"});
+        pairs.add(new String[]{"offset", "0"});
+        pairs.add(new String[]{"use_correct", "true"});
+        pairs.add(new String[]{"bookshelf_search_plan", "4"});
+        pairs.add(new String[]{"search_source", "1"});
+        pairs.add(new String[]{"tab_name", "feed"});
+        pairs.add(new String[]{"bookstore_tab", "16"});
+        pairs.add(new String[]{"user_is_login", "0"});
+        return pairs;
+    }
+
     // ---------- 四阶段互动（样本实证，逐字段出处见各方法注） ----------
 
     /** 追剧架操作：加入收藏/追剧（AddShelf=0）。 */

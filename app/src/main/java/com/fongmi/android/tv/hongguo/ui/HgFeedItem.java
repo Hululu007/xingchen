@@ -39,7 +39,11 @@ public final class HgFeedItem {
     /** 视频宽/高（取模型回包的 video_width/video_height）；未知为 0。 */
     public final int videoWidth;
     public final int videoHeight;
-    /** 计数：样本回包无此字段，恒 null＝不显示；四阶段真接口给了才填。 */
+    /**
+     * 计数（已格式化文案）：评论数/点赞数来自 cell 的 comment_count /
+     * digged_count（2026-10-28 频道真回包实证，旧注「样本无此字段」作废）；
+     * 收藏数 cell 不下发、恒 null＝不显示，不编。
+     */
     public final String likeCount;
     public final String commentCount;
     public final String favCount;
@@ -85,7 +89,8 @@ public final class HgFeedItem {
                        String desc, String coverUrl, int videoWidth, int videoHeight,
                        boolean seriesHead, boolean clip, String badge, String recText,
                        List<String> tags, boolean multiSeason, String albumId,
-                       int albumSerialCount, List<HgSeriesItem> siblings) {
+                       int albumSerialCount, List<HgSeriesItem> siblings,
+                       String likeCount, String commentCount) {
         this.seriesId = seriesId;
         this.videoId = videoId;
         this.episodeIndex = episodeIndex;
@@ -98,8 +103,8 @@ public final class HgFeedItem {
         this.coverUrl = coverUrl;
         this.videoWidth = videoWidth;
         this.videoHeight = videoHeight;
-        this.likeCount = null;
-        this.commentCount = null;
+        this.likeCount = likeCount;
+        this.commentCount = commentCount;
         this.favCount = null;
         this.seriesHead = seriesHead;
         this.clip = clip;
@@ -116,7 +121,7 @@ public final class HgFeedItem {
                                   String desc, String coverUrl, int episodeCount) {
         return new HgFeedItem(seriesId, null, -1, episodeCount, title, category,
                 null, null, desc, coverUrl, 0, 0, true, false,
-                null, null, null, false, null, -1, null);
+                null, null, null, false, null, -1, null, null, null);
     }
 
     public static HgFeedItem episode(String seriesId, String videoId, int episodeIndex,
@@ -125,7 +130,20 @@ public final class HgFeedItem {
                                      String coverUrl) {
         return new HgFeedItem(seriesId, videoId, episodeIndex, episodeCount, title, category,
                 authorName, authorAvatar, desc, coverUrl, 0, 0, false, false,
-                null, null, null, false, null, -1, null);
+                null, null, null, false, null, -1, null, null, null);
+    }
+
+    /**
+     * 计数格式化（官方实拍口径）：万以下出原数（实拍 705/5808/934），
+     * 万起折「x.x万」（实拍 3.2万），一位小数去尾零；没数据（-1）返回 null 不显。
+     */
+    static String formatCount(long n) {
+        if (n < 0) return null;
+        if (n < 10000) return String.valueOf(n);
+        double wan = n / 10000.0;
+        String s = String.format(java.util.Locale.US, "%.1f", wan);
+        if (s.endsWith(".0")) s = s.substring(0, s.length() - 2);
+        return s + "万";
     }
 
     /**
@@ -137,7 +155,8 @@ public final class HgFeedItem {
                 s.getTitle(), category, null, null, s.getDesc(), s.getCoverUrl(), 0, 0,
                 s.getVid() == null, s.getVid() != null,
                 s.getBadge(), s.getRecText(), s.getTags(), s.isMultiSeason(),
-                s.getAlbumId(), s.getAlbumSerialCount(), s.getSiblings());
+                s.getAlbumId(), s.getAlbumSerialCount(), s.getSiblings(),
+                formatCount(s.getDiggCount()), formatCount(s.getCommentCount()));
         if (s.hasAppointment()) {
             item.reservable = true;
             item.dueStartText = s.getDueStartText();
@@ -151,7 +170,7 @@ public final class HgFeedItem {
         HgFeedItem copy = new HgFeedItem(seriesId, videoId, episodeIndex, episodeCount, title,
                 category, authorName, authorAvatar, desc, coverUrl, width, height,
                 seriesHead, clip, badge, recText, tags, multiSeason, albumId,
-                albumSerialCount, siblings);
+                albumSerialCount, siblings, likeCount, commentCount);
         copy.expandTried = expandTried;
         copy.reservable = reservable;
         copy.dueStartText = dueStartText;
@@ -177,7 +196,8 @@ public final class HgFeedItem {
                 avatar != null ? avatar : authorAvatar,
                 detailDesc != null ? detailDesc : desc,
                 coverUrl, videoWidth, videoHeight, false, true,
-                badge, recText, tags, multiSeason, albumId, albumSerialCount, siblings);
+                badge, recText, tags, multiSeason, albumId, albumSerialCount, siblings,
+                likeCount, commentCount);
         copy.expandTried = true;
         copy.reservable = reservable;
         copy.dueStartText = dueStartText;

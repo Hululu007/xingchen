@@ -2,24 +2,31 @@ package com.fongmi.android.tv.hongguo.ui;
 
 import com.fongmi.android.tv.hongguo.api.HgApiClient;
 import com.fongmi.android.tv.hongguo.api.HgCallback;
+import com.fongmi.android.tv.hongguo.api.HgRequests;
 import com.fongmi.android.tv.hongguo.model.HgCellPage;
+import com.fongmi.android.tv.hongguo.model.HgContinuation;
 import com.fongmi.android.tv.hongguo.model.HgSeriesItem;
 
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 顶部页签的数据源（可替换装配层）：每个页签只负责给出「剧条目」，
  * 展开成逐集页由 {@link HgFeedSession} 统一做。
  *
- * <p>数据来源与未定项（如实）：</p>
+ * <p>数据来源（2026-10-28 feed 面重建，定罪账 tab-fail-dig-20261028.md）：</p>
  * <ul>
- *   <li>推荐：plan（服务端编排计划位）取剧条目，无结果时退 bookmall/tab；
- *       逐条 feed 的原始报文在拆解中未定版（structure.md 第二节标未定），
- *       故先走这套已落的 plan/bookmall 面，这正是装配层存在的意义——
- *       feed 报文定版后只换本类。</li>
- *   <li>漫剧/真人剧：category/front 的 cell 条目。两类各自的服务端分类参数
- *       未定版，现都走 front 容忍解析，页签先按同一面装配，定版后在此分流。</li>
+ *   <li>推荐/漫剧/真人剧：统一走已签名 bookmall/tab 频道面（openhongguo
+ *       频道口径）——推荐开页请求 tab_type=-1、响应频道 16；漫剧 36、
+ *       真人剧 39 请求响应同值。旧装配已定罪摘除：漫剧/真人剧原接的
+ *       new_category/front 是小说分类页壳接口（结构上永远不带剧条目）；
+ *       推荐原走的 plan/无参 bookmall/tab 不是官方推荐频道（无参回书城
+ *       首页壳、只有找剧位 6 张卡且从不续页）。</li>
+ *   <li>续页：开页回包带 continuation（session_id/cell_id）＋ has_more，
+ *       滑到尾部走 cell/change 续页追加（去重），流不再封顶首批条数。</li>
  *   <li>关注：四阶段接壳子统一登录后，未登录仍给诚实空态（不发注定失败的
  *       请求）；已登录走追剧架 GET /reading/bookapi/bookshelf/video/list 拉
  *       他追的剧，回来的条目顺手把服务端态写进 HgStore 镜像（官方态为准）。</li>
@@ -45,6 +52,16 @@ public final class HgFeedSources {
 
         /** 空态文案（列表为空时页面显示）。 */
         String emptyHint();
+
+        /** 是否还有下一页（开页/续页回包的 has_more 与凭证齐备才算）。 */
+        default boolean hasMore() {
+            return false;
+        }
+
+        /** 续页：回调只给新增条目（已与已下发条目去重）。默认不支持续页。 */
+        default void loadMore(HgCallback<List<HgSeriesItem>> cb) {
+            cb.onSuccess(Collections.emptyList());
+        }
     }
 
     private HgFeedSources() {
@@ -86,59 +103,117 @@ public final class HgFeedSources {
                     }
                 };
             case COMIC:
+                return new ChannelSource(client, HgRequests.TAB_COMIC, HgRequests.TAB_COMIC);
             case LIVE:
-                return new Source() {
-                    @Override
-                    public void load(HgCallback<List<HgSeriesItem>> cb) {
-                        client.categoryFront(cellToItems(cb));
-                    }
-
-                    @Override
-                    public String emptyHint() {
-                        return "暂时没有内容";
-                    }
-                };
+                return new ChannelSource(client, HgRequests.TAB_LIVE, HgRequests.TAB_LIVE);
             case RECOMMEND:
             default:
-                return new Source() {
-                    @Override
-                    public void load(HgCallback<List<HgSeriesItem>> cb) {
-                        client.plan(new HgCallback<HgCellPage>() {
-                            @Override
-                            public void onSuccess(HgCellPage page) {
-                                if (page.getItems() != null && !page.getItems().isEmpty()) {
-                                    cb.onSuccess(page.getItems());
-                                } else {
-                                    client.bookmallTab(cellToItems(cb));
-                                }
-                            }
-
-                            @Override
-                            public void onError(int httpCode, String message) {
-                                client.bookmallTab(cellToItems(cb));
-                            }
-                        });
-                    }
-
-                    @Override
-                    public String emptyHint() {
-                        return "暂时没有内容，下拉或稍后再来";
-                    }
-                };
+                return new ChannelSource(client, HgRequests.TAB_REQUEST_RECOMMEND,
+                        HgRequests.TAB_RESPONSE_RECOMMEND);
         }
     }
 
-    private static HgCallback<HgCellPage> cellToItems(HgCallback<List<HgSeriesItem>> cb) {
-        return new HgCallback<HgCellPage>() {
-            @Override
-            public void onSuccess(HgCellPage page) {
-                cb.onSuccess(page.getItems() == null ? Collections.emptyList() : page.getItems());
-            }
+    /**
+     * bookmall 频道源：开页一发、续页按凭证推进。去重键与流内一致
+     * （seriesId + vid，见 HgFeedSession 的条目键口径）；续页回包的
+     * next_offset / session_id 每轮覆盖进凭证（对照 openhongguo
+     * finishDiscover 的游标推进语义）。
+     */
+    private static final class ChannelSource implements Source {
 
-            @Override
-            public void onError(int httpCode, String message) {
-                cb.onError(httpCode, message);
+        private final HgApiClient client;
+        private final int requestTabType;
+        private final int responseTabType;
+        private final Set<String> seenKeys = new HashSet<>();
+        private HgContinuation continuation;
+        private boolean moreAvailable;
+        private boolean loadingMore;
+
+        ChannelSource(HgApiClient client, int requestTabType, int responseTabType) {
+            this.client = client;
+            this.requestTabType = requestTabType;
+            this.responseTabType = responseTabType;
+        }
+
+        @Override
+        public void load(HgCallback<List<HgSeriesItem>> cb) {
+            client.bookmallChannel(requestTabType, responseTabType, new HgCallback<HgCellPage>() {
+                @Override
+                public void onSuccess(HgCellPage page) {
+                    seenKeys.clear();
+                    continuation = page.getContinuation();
+                    // 续页门只认凭证在不在：开页 tab 的 has_more 实测恒 false
+                    // （真回包 chan_recommend.json：tab16 has_more=false 但
+                    // cell/change 续页 has_more=true、next_offset=6），照
+                    // openhongguo finishDiscover 口径——开页后先探一页续页，
+                    // 续页自身的 has_more/next_offset 才决定还有没有下一页
+                    moreAvailable = continuation != null;
+                    cb.onSuccess(dedup(page.getItems()));
+                }
+
+                @Override
+                public void onError(int httpCode, String message) {
+                    continuation = null;
+                    moreAvailable = false;
+                    cb.onError(httpCode, message);
+                }
+            });
+        }
+
+        @Override
+        public boolean hasMore() {
+            return moreAvailable && continuation != null;
+        }
+
+        @Override
+        public void loadMore(HgCallback<List<HgSeriesItem>> cb) {
+            if (!hasMore() || loadingMore) {
+                cb.onSuccess(Collections.emptyList());
+                return;
             }
-        };
+            loadingMore = true;
+            client.bookmallCellChange(continuation, new HgCallback<HgCellPage>() {
+                @Override
+                public void onSuccess(HgCellPage page) {
+                    loadingMore = false;
+                    // 续页游标成立条件照 openhongguo finishDiscover：
+                    // has_more 且 next_offset>0 且本页真有条目，三者缺一即封口
+                    long next = -1;
+                    try {
+                        next = Long.parseLong(page.getNextOffset());
+                    } catch (Exception ignored) {
+                    }
+                    moreAvailable = page.isHasMore() && next > 0
+                            && page.getItems() != null && !page.getItems().isEmpty();
+                    if (continuation != null) {
+                        continuation = continuation.advanced(page.getNextOffset(), page.getSessionId());
+                    }
+                    cb.onSuccess(dedup(page.getItems()));
+                }
+
+                @Override
+                public void onError(int httpCode, String message) {
+                    loadingMore = false;
+                    // 续页失败不封死：凭证保留，下次滑到尾部可再试
+                    cb.onError(httpCode, message);
+                }
+            });
+        }
+
+        private List<HgSeriesItem> dedup(List<HgSeriesItem> items) {
+            List<HgSeriesItem> out = new ArrayList<>();
+            if (items == null) return out;
+            for (HgSeriesItem s : items) {
+                if (s == null || s.getSeriesId() == null) continue;
+                String key = s.getSeriesId() + "#" + (s.getVid() == null ? "" : s.getVid());
+                if (seenKeys.add(key)) out.add(s);
+            }
+            return out;
+        }
+
+        @Override
+        public String emptyHint() {
+            return "暂时没有内容";
+        }
     }
 }

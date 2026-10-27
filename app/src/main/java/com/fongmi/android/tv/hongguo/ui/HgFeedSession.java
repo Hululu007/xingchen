@@ -56,6 +56,16 @@ public final class HgFeedSession {
     private final Map<String, HgSeriesDetail> details = new HashMap<>();
     private final Handler main = new Handler(Looper.getMainLooper());
 
+    /**
+     * 「清红果缓存」落点：红果运行时的两份进程内缓存（取模型＋集表详情）整清。
+     * 旧版抽屉只清模型缓存一份、详情缓存清不到，与按钮字面不符（审计实证）。
+     * 图片缓存是全 App 共用的 Glide 池，不归红果单独清，不在此列。
+     */
+    public void clearRuntimeCache() {
+        cache.clear();
+        details.clear();
+    }
+
     private HgFeedSession() {
         // 登录态回填：凭证由壳子统一登录托管（红果提供方）持有，这里只挂取口
         com.fongmi.android.tv.hongguo.api.HgLoginAuthProvider auth =
@@ -95,8 +105,8 @@ public final class HgFeedSession {
 
     /**
      * 展开剧头：拉详情→页表里把剧头换成逐集页（首集占原位、其余集依次插入）。
-     * 详情字段口径未定版（见 HgApiClient.fetchVideoDetail 注）：集表为空时退化为
-     * 单集页（videoId＝seriesId，取模型时再兜底），不让页面卡在剧头。
+     * 详情没拿到/集表为空时不退化（旧「videoId＝seriesId 假单集」已定罪删除，
+     * 见 applyDetail 内注）：剧头原样保留、expandTried 解开待重试。
      * changed 回调在主线程执行，参数为受影响的起始下标与插入集数（-1 起始＝无变化）。
      */
     public void expandHead(int position, java.util.function.IntConsumer changed) {
@@ -150,8 +160,8 @@ public final class HgFeedSession {
      * 流里剧头定形态（短片流专用，研究账 §2.3）：拉详情只为定下这一条短片，
      * 不把整剧集表插进流页表（与 {@link #expandHead} 的集流展开相对）。
      * 有集表取首集为短片（vid＋集序＋作者/简介一并富集）；未上线剧
-     * （appointment 且无集）剧头原样留作预约面；详情拿不到时退化为
-     * videoId＝seriesId 的单条短片（取模型时再兜底，同旧退化口径）。
+     * （appointment 且无集）剧头原样留作预约面；详情拿不到/集表为空时
+     * 不退化（旧「videoId＝seriesId 假短片」已定罪删除，见 applyClip 内注）。
      * changed 回调在主线程执行（-1＝无变化）。
      */
     public void resolveClip(int position, java.util.function.IntConsumer changed) {
@@ -219,7 +229,13 @@ public final class HgFeedSession {
             return;
         }
         if (eps == null || eps.isEmpty()) {
-            items.set(position, head.withDetail(head.seriesId, -1, author, avatar, desc));
+            // 详情没拿到/集表为空：不退化。旧退化把 seriesId 当 videoId 喂
+            // 取模型口——服务端对剧 id 恒回 101000 错误体（本机探针实证：
+            // 176 字节、data={}）→ 模型恒空 → E1，且 expandTried 锁死后点
+            // 重试永远重复同一错（E1 案定罪，fix-batch-1455.md）。剧头原样
+            // 保留并解开 expandTried，下次落定或点重试时重新拉详情。
+            head.expandTried = false;
+            items.set(position, head);
             return;
         }
         List<HgSeriesDetail.Episode> sorted = new ArrayList<>(eps);
@@ -301,11 +317,10 @@ public final class HgFeedSession {
             return;
         }
         if (eps == null || eps.isEmpty()) {
-            // 退化单集：集 id 未知时用 seriesId 当 videoId 尝试取模型
-            HgStore.Progress p = HgStore.progressOf(head.seriesId);
-            items.set(position, HgFeedItem.episode(head.seriesId, head.seriesId,
-                    p == null ? 1 : Math.max(1, p.episodeIndex), count,
-                    title, head.category, author, avatar, desc, cover));
+            // 同 applyClip 口径：不退化成 videoId=seriesId 的假单集（E1 定罪，
+            // fix-batch-1455.md）——剧头保留、解开 expandTried 待重试拉详情
+            head.expandTried = false;
+            items.set(position, head);
             return;
         }
         List<HgSeriesDetail.Episode> sorted = new ArrayList<>(eps);

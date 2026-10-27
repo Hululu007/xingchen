@@ -159,6 +159,56 @@ public class HgOfflineTest {
                             .map(it -> String.valueOf(it.getTags())).toList()));
         }
 
+        // 7) bookmall 频道面真回包（2026-10-28 签名探针实拉存档 tabprobe-20261028/）：
+        //    parseDiscoverTab 三频道各抽到真条目＋续页凭证在；parseCellChange
+        //    续页能追加且游标推进。条目数钉探针实测值（开页 3、续页 6）。
+        {
+            String probeDir = dir + "tabprobe-20261028/";
+            String[][] chans = {{"chan_recommend.json", "16"}, {"chan_comic.json", "36"}, {"chan_live.json", "39"}};
+            for (String[] c : chans) {
+                String raw = Files.readString(Paths.get(probeDir + c[0]));
+                com.fongmi.android.tv.hongguo.model.HgCellPage page =
+                        HgParser.parseDiscoverTab(raw, Integer.parseInt(c[1]));
+                check(c[0] + " 开页条目=3", page.getItems().size() == 3,
+                        "实际=" + page.getItems().size());
+                check(c[0] + " 续页凭证在", page.getContinuation() != null
+                                && page.getContinuation().getCellId() != null
+                                && page.getContinuation().getSessionId() != null,
+                        "cont=" + page.getContinuation());
+                boolean idsOk = page.getItems().stream()
+                        .allMatch(it -> it.getSeriesId() != null && it.getTitle() != null);
+                check(c[0] + " 条目 id/标题齐", idsOk, null);
+                String moreRaw = Files.readString(Paths.get(probeDir + c[0].replace(".json", "_more.json")));
+                com.fongmi.android.tv.hongguo.model.HgCellPage more = HgParser.parseCellChange(moreRaw);
+                check(c[0] + " 续页条目=6", more.getItems().size() == 6,
+                        "实际=" + more.getItems().size());
+                check(c[0] + " 续页 hasMore 且 nextOffset=6",
+                        more.isHasMore() && "6".equals(more.getNextOffset()),
+                        "hasMore=" + more.isHasMore() + " next=" + more.getNextOffset());
+            }
+            // 频道过滤：同一回包并存四 tab（45/36/39/16），但只有被请求的
+            // 频道带 cells，其余是空壳（cell_data 缺失，存档实证）；拿推荐
+            // 回包按 36 解析必须 0 条——读错 tab 就会串频道
+            String recRaw = Files.readString(Paths.get(probeDir + "chan_recommend.json"));
+            com.fongmi.android.tv.hongguo.model.HgCellPage as36 =
+                    HgParser.parseDiscoverTab(recRaw, 36);
+            check("频道过滤：推荐回包按 36 解析条目=0", as36.getItems().isEmpty(),
+                    "实际=" + as36.getItems().size());
+            // 评论/点赞计数：位置随频道变（推荐 video_data 顶层只有
+            // digged_count；漫剧/真人剧在 video_detail.video_list[0] 两项
+            // 齐全）——三频道开页里至少一条两项真计数都解析得到
+            boolean counted = false;
+            for (String[] c : chans) {
+                String raw = Files.readString(Paths.get(probeDir + c[0]));
+                com.fongmi.android.tv.hongguo.model.HgCellPage p =
+                        HgParser.parseDiscoverTab(raw, Integer.parseInt(c[1]));
+                for (com.fongmi.android.tv.hongguo.model.HgSeriesItem it : p.getItems()) {
+                    if (it.getCommentCount() > 0 && it.getDiggCount() > 0) counted = true;
+                }
+            }
+            check("频道条目带评论/点赞真计数", counted, null);
+        }
+
         System.out.println(fail == 0 ? "ALL PASS" : ("FAILURES=" + fail));
         System.exit(fail == 0 ? 0 : 1);
     }

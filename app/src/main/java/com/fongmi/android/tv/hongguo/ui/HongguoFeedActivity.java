@@ -48,11 +48,14 @@ import java.util.Locale;
  * 断点）；MODE_SERIES＝进剧后的集流（逐集竖滑、断点记剧一级、播完按
  * 自动连播开关切下集）。播放内核一律 Exo、不走 MPV（账 §6.5）。</p>
  *
- * <p>全屏口径：竖屏剧在本页内沉浸（元素全隐＋系统栏隐，点屏唤极简控制、自动再隐）；
- * 横屏剧信箱式播＋「全屏观看」在本窗内把整页转 90° 铺满（窗内转、窗口不转——
- * 官方主界面 screenOrientation="behind"＋configChanges 自管，见四阶段回报横屏节；
- * 旧 HongguoLandActivity 单独横屏页真转窗口的路已废弃删除）。任何元素不常驻：
- * 播放中空闲 4 秒自动隐（进度细线除外，它随播放一直动）。</p>
+ * <p>全屏口径：横屏剧信箱式播＋「全屏观看」在本窗内把整页转 90° 铺满
+ * （窗内转、窗口不转——官方主界面 screenOrientation="behind"＋configChanges
+ * 自管，见四阶段回报横屏节；旧 HongguoLandActivity 单独横屏页真转窗口的路
+ * 已废弃删除）。显隐口径（2026-10-28 他真机亲点后改）：刷剧面常显件
+ * （顶栏页签/右列/剧条/弹幕筹/进度细线）不许自动隐藏——旧「播放中空闲
+ * 4 秒自动全隐」把界面播几秒全收走、被他当场点名；自动全隐只保留在
+ * 横屏全屏观看态（landMode，他定案全屏全隐藏＋防烧屏），竖屏点屏只切
+ * 播放/暂停、全屏控制条只在横屏态点屏唤出、自动再隐。</p>
  *
  * <p>弹幕：本阶段只做开关与状态落盘（HgStore）。弹幕数据源在红果样本回包里
  * 没实证，不编内容；树里另有 HongguoDanmakuApi（海阔规则线共建的壳子抓取器，
@@ -92,6 +95,15 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     private ExoPlayerEngine engine;
     private Player player;
     private HgFeedSources.Tab tab = HgFeedSources.Tab.RECOMMEND;
+    /** 当前页签的数据源实例（续页凭证挂在它身上，loadTab 时换新）。 */
+    private HgFeedSources.Source currentSource;
+    /** 页签加载代次：迟到的旧回调（切页签/重拉）按代次丢弃，不串新表。 */
+    private int loadSeq;
+    private boolean feedLoadingMore;
+    /** 本页曾被完全遮住（onStop）过：回前台时按 Open 语义重拉当前页签。 */
+    private boolean stoppedOnce;
+    /** 本次离台是自家页内跳转（搜索/进剧新开实例）：回来不刷新、不丢位置。 */
+    private boolean suppressResumeRefresh;
     private int currentPos = -1;
     /** 本页模式：MODE_FEED 短片流 / MODE_SERIES 集流（initView 自 intent 定）。 */
     private int mode = MODE_FEED;
@@ -107,7 +119,10 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     private boolean seeking;
     private long lastSaveMs;
     private final Handler ui = new Handler(Looper.getMainLooper());
-    private final Runnable hideChromeRunnable = () -> setChromeHidden(true);
+    private final Runnable hideChromeRunnable = () -> {
+        // 自动全隐只在横屏全屏观看态成立（见类头显隐口径）
+        if (landMode) setChromeHidden(true);
+    };
     private final Runnable hideFsRunnable = () -> binding.hgFsBar.setVisibility(View.GONE);
     private final Runnable ticker = new Runnable() {
         @Override
@@ -249,7 +264,10 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
 
     @Override
     protected void initEvent() {
-        binding.hgSearch.setOnClickListener(v -> HongguoSearchActivity.start(this));
+        binding.hgSearch.setOnClickListener(v -> {
+            suppressResumeRefresh = true;
+            HongguoSearchActivity.start(this);
+        });
         // ☰：四阶段落成真侧口——进「我的」集合页（追更/收藏/观看历史/登录行）
         binding.hgMenu.setOnClickListener(v -> openDrawer());
         binding.hgFsPlay.setOnClickListener(v -> togglePlayPause());
@@ -325,30 +343,20 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     private void loadTab(HgFeedSources.Tab target) {
         currentPos = -1;
         playingVideoId = null;
+        feedLoadingMore = false;
+        final int seq = ++loadSeq;
         binding.hgState.setVisibility(View.VISIBLE);
         binding.hgState.setText("加载中…");
         session.items.clear();
         adapter.notifyDataSetChanged();
         HgFeedSources.Source source = HgFeedSources.forTab(session.client, target);
+        currentSource = source;
         source.load(new HgCallback<List<HgSeriesItem>>() {
             @Override
             public void onSuccess(List<HgSeriesItem> result) {
                 runOnUiThread(() -> {
-                    if (tab != target) return;
-                    String category = target == HgFeedSources.Tab.COMIC ? "漫剧"
-                            : target == HgFeedSources.Tab.LIVE ? "真人剧" : null;
-                    for (int i = 0; i < result.size(); i++) {
-                        HgSeriesItem s = result.get(i);
-                        if (s.getSeriesId() != null) {
-                            HgStore.putMeta(s.getSeriesId(), s.getTitle(), s.getCoverUrl(), s.getEpisodeCount());
-                            if (s.hasAppointment()) {
-                                // 未上线剧：服务端预约态同步进镜像
-                                HgStore.setReserved(s.getSeriesId(), s.isAppointmentSubscribed());
-                            }
-                        }
-                        // 短片流（账 §2.5）：cell 带 vid 直接成短片、无 vid 成剧头待定形态
-                        session.items.add(HgFeedItem.fromSeries(s, category));
-                    }
+                    if (tab != target || seq != loadSeq) return;
+                    appendSeriesItems(result, target);
                     adapter.notifyDataSetChanged();
                     if (session.items.isEmpty()) {
                         binding.hgState.setVisibility(View.VISIBLE);
@@ -364,10 +372,64 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             @Override
             public void onError(int httpCode, String message) {
                 runOnUiThread(() -> {
-                    if (tab != target) return;
+                    if (tab != target || seq != loadSeq) return;
                     binding.hgState.setVisibility(View.VISIBLE);
                     binding.hgState.setText("加载失败，稍后再试");
                 });
+            }
+        });
+    }
+
+    /** cell 条目逐条进流（首拉与续页共用）：落 meta/预约镜像，再按账 §2.5 成短片或剧头。 */
+    private void appendSeriesItems(List<HgSeriesItem> result, HgFeedSources.Tab target) {
+        String category = target == HgFeedSources.Tab.COMIC ? "漫剧"
+                : target == HgFeedSources.Tab.LIVE ? "真人剧" : null;
+        for (int i = 0; i < result.size(); i++) {
+            HgSeriesItem s = result.get(i);
+            if (s.getSeriesId() != null) {
+                HgStore.putMeta(s.getSeriesId(), s.getTitle(), s.getCoverUrl(), s.getEpisodeCount());
+                if (s.hasAppointment()) {
+                    // 未上线剧：服务端预约态同步进镜像
+                    HgStore.setReserved(s.getSeriesId(), s.isAppointmentSubscribed());
+                }
+            }
+            // 短片流（账 §2.5）：cell 带 vid 直接成短片、无 vid 成剧头待定形态
+            session.items.add(HgFeedItem.fromSeries(s, category));
+        }
+    }
+
+    /**
+     * 滑到尾部续页（频道面）：距尾 ≤2 条时向当前源要下一页追加，流不再封顶
+     * 首批条数。在飞/无更多/非刷剧面一律不发；续页失败静默（凭证留在源里，
+     * 下次滑到尾部再试），不打扰当前播放。
+     */
+    private void maybeLoadMore() {
+        if (mode != MODE_FEED || mineShowing || landMode) return;
+        final HgFeedSources.Source source = currentSource;
+        if (source == null || feedLoadingMore || !source.hasMore()) return;
+        if (currentPos < 0 || currentPos < session.items.size() - 3) return;
+        feedLoadingMore = true;
+        final int seq = loadSeq;
+        source.loadMore(new HgCallback<List<HgSeriesItem>>() {
+            @Override
+            public void onSuccess(List<HgSeriesItem> result) {
+                runOnUiThread(() -> {
+                    feedLoadingMore = false;
+                    if (seq != loadSeq || source != currentSource) return;
+                    if (result == null || result.isEmpty()) return;
+                    int start = session.items.size();
+                    appendSeriesItems(result, tab);
+                    int added = session.items.size() - start;
+                    if (added > 0) {
+                        adapter.notifyItemRangeInserted(start, added);
+                        maybeLoadMore();
+                    }
+                });
+            }
+
+            @Override
+            public void onError(int httpCode, String message) {
+                runOnUiThread(() -> feedLoadingMore = false);
             }
         });
     }
@@ -389,6 +451,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                 // 短片流的剧头（账 §2.3）：只定形态成短片、不展开整剧；
                 // 预约面（未上线剧）不取播，停在封面＋预约片
                 if (!item.reservable) {
+                    maybeLoadMore();
                     session.resolveClip(position, at -> {
                         if (at >= 0) adapter.notifyItemChanged(at);
                         if (at == position && currentPos == position) {
@@ -518,6 +581,13 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         if (mode == MODE_FEED) {
             // 短片流的预热只管相邻短片（账 §2.3）：下一条是剧头先定形态再 warm；
             // 不展开整剧、不预取当前短片所属剧的其它集
+            // 模型先行：相邻短片的 video_model 走并发预取面先落缓存，解链队列
+            // （串行）轮到时直接命中，划过来基本直接起播（仍守未就绪不硬喂）
+            java.util.List<String> feedAhead = new java.util.ArrayList<>();
+            for (int i = position + 1; i <= Math.min(position + 2, session.items.size() - 1); i++) {
+                if (session.items.get(i).videoId != null) feedAhead.add(session.items.get(i).videoId);
+            }
+            if (!feedAhead.isEmpty()) session.prefetcher.prefetchIds(feedAhead, null);
             for (int i = position + 1; i <= Math.min(position + 2, session.items.size() - 1); i++) {
                 HgFeedItem next = session.items.get(i);
                 if (next.videoId != null) session.resolver.warm(next.videoId);
@@ -536,6 +606,12 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                 session.prefetcher.prefetchAround(session.seriesVideoIds(item.seriesId),
                         session.indexWithinSeries(item), null);
             }
+            // 集流同口径：后 2 集的模型也走并发预取面先行（解链队列是串行的）
+            java.util.List<String> seriesAhead = new java.util.ArrayList<>();
+            for (int i = position + 1; i <= Math.min(position + 2, session.items.size() - 1); i++) {
+                if (session.items.get(i).videoId != null) seriesAhead.add(session.items.get(i).videoId);
+            }
+            if (!seriesAhead.isEmpty()) session.prefetcher.prefetchIds(seriesAhead, null);
             for (int i = position + 1; i <= Math.min(position + 2, session.items.size() - 1); i++) {
                 HgFeedItem next = session.items.get(i);
                 if (next.videoId != null) session.resolver.warm(next.videoId);
@@ -559,6 +635,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                 if (far.videoId != null && !far.videoId.equals(playingVideoId)) session.resolver.close(far.videoId);
             }
         }
+        maybeLoadMore();
     }
 
     private void ensureEngine() {
@@ -655,7 +732,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         return String.format(Locale.US, "%d:%02d", sec / 60, sec % 60);
     }
 
-    // ---------- 显隐（防烧屏：播放中自动全隐） ----------
+    // ---------- 显隐（刷剧面常显；自动全隐只在横屏全屏观看态，防烧屏） ----------
 
     private void setChromeHidden(boolean hidden) {
         chromeHidden = hidden;
@@ -667,16 +744,22 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             h.binding.hgInfo.setVisibility(v);
             h.binding.hgSeriesBar.setVisibility(v);
             h.binding.hgDanmaku.setVisibility(v);
-            // 全屏观看钮非常驻件：隐藏时一并收；显示时只给横屏剧（与 bind 口径一致）
+            // 全屏观看钮非常驻件：隐藏时一并收；重显口径与适配器绑定一致
+            // （真实宽高判横屏或 cell 朝向预判，旧版重显只认真实宽高、与绑定
+            // 口径不一致，预判条目会把钮弄丢——审计实证）
             if (hidden) h.binding.hgFullscreenWatch.setVisibility(View.GONE);
             else if (currentPos >= 0 && currentPos < session.items.size()
-                    && session.items.get(currentPos).isLandscape()) {
+                    && (session.items.get(currentPos).isLandscape()
+                    || session.items.get(currentPos).landscapeHint)) {
                 h.binding.hgFullscreenWatch.setVisibility(View.VISIBLE);
             }
         }
         boolean portrait = currentPos < 0 || currentPos >= session.items.size()
                 || !session.items.get(currentPos).isLandscape();
-        if (hidden && portrait) {
+        // 横屏全屏观看态（landMode，窗内转、窗口仍竖）也要连系统栏一起隐：
+        // 旧条件只认条目朝向，landMode 下条目是横屏、portrait=false，系统栏
+        // 一直赖着不走，与「全屏全隐藏」定案对不上
+        if (hidden && (portrait || landMode)) {
             new WindowInsetsControllerCompat(getWindow(), getWindow().getDecorView())
                     .hide(WindowInsetsCompat.Type.systemBars());
         } else if (!hidden) {
@@ -688,6 +771,9 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
 
     private void armAutoHide() {
         ui.removeCallbacks(hideChromeRunnable);
+        // 刷剧面常显件不自动隐（他真机亲点，见类头显隐口径）；
+        // 自动全隐只在横屏全屏观看态（landMode）排期
+        if (!landMode) return;
         if (player != null && player.isPlaying()) ui.postDelayed(hideChromeRunnable, HIDE_DELAY_MS);
     }
 
@@ -832,6 +918,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         if (position < 0 || position >= session.items.size()) return;
         HgFeedItem item = session.items.get(position);
         if (item.seriesId == null) return;
+        suppressResumeRefresh = true;
         if (!item.siblings.isEmpty()) {
             HgSeriesSheet.show(this, item.siblings, item, session.interactions,
                     picked -> startSeries(this, picked.getSeriesId(), picked.getTitle(),
@@ -921,6 +1008,15 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     public void onRetry(int position) {
         if (position != currentPos) return;
         HgFeedItem item = session.items.get(position);
+        if (item.seriesHead) {
+            // 剧头没定形态（详情没拉到）：解开记账重新走落定链拉详情，
+            // 不去解一个不存在的 videoId（旧退化链的 E1 就是这么锁死的）
+            item.expandTried = false;
+            HgFeedAdapter.Holder hh = currentHolder();
+            if (hh != null) hh.binding.hgError.setVisibility(View.GONE);
+            onSettle(position);
+            return;
+        }
         if (item.videoId != null) session.resolver.close(item.videoId);
         playingVideoId = null;
         HgFeedAdapter.Holder h = currentHolder();
@@ -936,6 +1032,25 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     @Override
     protected void onResume() {
         super.onResume();
+        // 回前台刷新（定罪账案二次因）：页面没死时也要吃到新一批——按频道
+        // Open 语义重拉当前页签。自家页内跳转（搜索/进剧）回来不刷、不丢
+        // 位置；「我的」面与横屏态在场时也不刷（面状态优先）。
+        if (!stoppedOnce) return;
+        stoppedOnce = false;
+        if (suppressResumeRefresh) {
+            suppressResumeRefresh = false;
+            return;
+        }
+        if (mode == MODE_FEED && !mineShowing && !landMode) {
+            stopPlayback();
+            loadTab(tab);
+        }
+    }
+
+    @Override
+    protected void onStop() {
+        stoppedOnce = true;
+        super.onStop();
     }
 
     @Override
@@ -985,8 +1100,10 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     // 只放真能用的开关，第一项钉死「启动直达短剧」。
 
     private void setupShellFaces() {
-        binding.hgMine.getRoot().setOnOpenSeriesListener((seriesId, title, cover, episodeCount) ->
-                HongguoFeedActivity.startSeries(this, seriesId, title, cover));
+        binding.hgMine.getRoot().setOnOpenSeriesListener((seriesId, title, cover, episodeCount) -> {
+            suppressResumeRefresh = true;
+            HongguoFeedActivity.startSeries(this, seriesId, title, cover);
+        });
         binding.hgTabHome.setOnClickListener(v -> showFeedFace());
         binding.hgTabMine.setOnClickListener(v -> showMineFace());
         binding.hgDrawerScrim.setOnClickListener(v -> closeDrawer());
@@ -1004,7 +1121,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         autoNext.setChecked(HgStore.isAutoNext());
         autoNext.setOnCheckedChangeListener((b, on) -> HgStore.setAutoNext(on));
         binding.hgDrawer.hgDrawerClear.setOnClickListener(v -> {
-                    session.cache.clear();
+                    session.clearRuntimeCache();
                     android.widget.Toast.makeText(this, "已清红果缓存",
                             android.widget.Toast.LENGTH_SHORT).show();
                 });
@@ -1057,6 +1174,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         resumeAfterMine = player != null && player.isPlaying();
         if (resumeAfterMine) player.pause();
         updateBottomTabs();
+        applyStatusBarIconMode();
     }
 
     private void showFeedFace() {
@@ -1064,13 +1182,31 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         mineShowing = false;
         binding.hgMine.getRoot().setVisibility(View.GONE);
         updateBottomTabs();
+        applyStatusBarIconMode();
         if (resumeAfterMine && player != null) player.play();
         resumeAfterMine = false;
     }
 
+    /**
+     * 状态栏图标随面明暗：刷剧面深底用白图标，「我的」面白底必须换深图标
+     * ——旧版全程白图标，进「我的」面后白色图标压白色状态区几乎不可见
+     * （审计实证）。基类只在建页时按 useDarkSystemIcons 定一次，运行中
+     * 换面要在这里跟着换。
+     */
+    private void applyStatusBarIconMode() {
+        new WindowInsetsControllerCompat(getWindow(), getWindow().getDecorView())
+                .setAppearanceLightStatusBars(mineShowing);
+    }
+
+    /**
+     * 底栏随面变色（他真机亲点）：刷剧面＝黑色沉浸底（与流同面，选中白、
+     * 未选灰）；「我的」面＝白色底（与我的面同面，选中深、未选灰）。
+     * 旧版底色在布局里写死 #FFFFFF、两面恒白，刷剧面上像贴了条白带。
+     */
     private void updateBottomTabs() {
-        int on = 0xFF111111;
-        int off = 0xFF999999;
+        binding.hgBottomBar.setBackgroundColor(mineShowing ? 0xFFFFFFFF : 0xFF000000);
+        int on = mineShowing ? 0xFF111111 : 0xFFFFFFFF;
+        int off = mineShowing ? 0xFF999999 : 0xFF8E8E93;
         binding.hgTabHomeText.setTextColor(mineShowing ? off : on);
         binding.hgTabMineText.setTextColor(mineShowing ? on : off);
         binding.hgTabHomeIcon.setColorFilter(mineShowing ? off : on);

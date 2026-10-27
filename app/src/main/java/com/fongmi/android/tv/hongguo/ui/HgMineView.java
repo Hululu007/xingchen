@@ -118,8 +118,10 @@ public final class HgMineView extends LinearLayout {
     private void onAccountClick() {
         if (!LoginManager.isHongguoLoggedIn()) {
             // 走壳子统一托管的红果登录（短信链），回来轮询刷账号态
+            // 轮询窗 100 次×600ms＝60 秒：旧 20 次（12 秒）装不下验证码往返，
+            // 慢一点的登录回来就落「已登录但本面显未登录」的假态（审计实证）
             LoginManager.loginHongguoDelivered();
-            loginPollLeft = 20;
+            loginPollLeft = 100;
             removeCallbacks(loginPoll);
             postDelayed(loginPoll, 600);
             return;
@@ -129,7 +131,12 @@ public final class HgMineView extends LinearLayout {
                 .setNegativeButton("取消", null)
                 .setPositiveButton("退出", (d, w) -> {
                     LoginManager.logoutHongguo();
+                    // 账号维度的本地镜像（收藏/点赞/预约/追剧架）随登出清掉：
+                    // 不清则换号登录直接串上前一账号的格子（审计实证）；
+                    // 本地观看历史是设备维度数据，不在此列
+                    HgStore.clearAccountMirrors();
                     refreshAccount();
+                    renderTab();
                 })
                 .show();
     }
@@ -171,10 +178,12 @@ public final class HgMineView extends LinearLayout {
                 if (r.title == null) continue;
                 String meta;
                 if (r.episodeCount > 0) {
-                    int pct = Math.min(100, (r.episodeIndex + 1) * 100 / r.episodeCount);
+                    // 集序号是 1 起（HgStore.Progress 类注＋落盘口径）：旧写法按
+                    // 0 起再 +1，百分比与「看到第几集」恒偏一位（审计实证）
+                    int pct = Math.min(100, r.episodeIndex * 100 / r.episodeCount);
                     meta = "已看 " + pct + "% · 共" + r.episodeCount + "集";
                 } else {
-                    meta = "看到第" + (r.episodeIndex + 1) + "集";
+                    meta = "看到第" + r.episodeIndex + "集";
                 }
                 rows.add(new Row(r.seriesId, r.title, r.cover, r.episodeCount, meta));
             }
@@ -197,6 +206,48 @@ public final class HgMineView extends LinearLayout {
             emptyView.setText(currentTab == TAB_HISTORY ? "还没有观看记录"
                     : currentTab == TAB_FAV ? "还没有收藏" : "还没有点赞");
         }
+        if (currentTab == TAB_FAV && LoginManager.isHongguoLoggedIn()) {
+            refreshFavFromServer();
+        }
+    }
+
+    /**
+     * 收藏页签后台刷新：追剧架列表（收藏的服务端本体）回来后以服务端为准
+     * 重列，并同步本地镜像与元信息（与预约页签同口径）。旧版收藏只读本地
+     * 镜像——在官方 App/他端收藏的剧在本面永远看不到（审计实证）。
+     * 服务端回空时不冲掉已显的镜像行（与预约页签同一防冲空口径）。
+     */
+    private void refreshFavFromServer() {
+        HgFeedSession.get().client.bookshelfVideoList(new HgCallback<com.fongmi.android.tv.hongguo.model.HgCellPage>() {
+            @Override
+            public void onSuccess(com.fongmi.android.tv.hongguo.model.HgCellPage page) {
+                post(() -> {
+                    if (currentTab != TAB_FAV || page == null || page.getItems() == null) return;
+                    List<Row> fresh = new ArrayList<>();
+                    for (HgSeriesItem s : page.getItems()) {
+                        if (s.getSeriesId() == null) continue;
+                        HgStore.setShelfMirrored(s.getSeriesId(), true);
+                        HgStore.setFaved(s.getSeriesId(), true);
+                        String[] local = HgStore.metaOf(s.getSeriesId());
+                        String title = s.getTitle() != null ? s.getTitle()
+                                : local != null ? local[0] : null;
+                        String cover = s.getCoverUrl() != null ? s.getCoverUrl()
+                                : local != null ? local[1] : null;
+                        HgStore.putMeta(s.getSeriesId(), title, cover, s.getEpisodeCount());
+                        fresh.add(new Row(s.getSeriesId(), title, cover, s.getEpisodeCount(),
+                                s.getEpisodeCount() > 0 ? "共" + s.getEpisodeCount() + "集" : ""));
+                    }
+                    if (fresh.isEmpty()) return;
+                    adapter.setRows(fresh);
+                    emptyView.setVisibility(GONE);
+                });
+            }
+
+            @Override
+            public void onError(int httpCode, String message) {
+                // 镜像已先显，刷新失败不打扰
+            }
+        });
     }
 
     /** 预约页签后台刷新：服务端预约列表回来后以服务端为准重列，并同步本地镜像与元信息（口径同旧列表页）。 */

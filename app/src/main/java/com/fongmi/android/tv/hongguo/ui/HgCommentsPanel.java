@@ -253,7 +253,7 @@ public final class HgCommentsPanel {
                         if (r.replyTo != null && !r.replyTo.isEmpty()) sb.append(" 回复 ").append(r.replyTo);
                         sb.append("：").append(r.content);
                     }
-                    if (repliesMore.contains(c.id)) sb.append("\n\n（上滑本条可继续展开更多回复）");
+                    if (repliesMore.contains(c.id)) sb.append("\n\n（点按本条可继续展开更多回复）");
                     b.hgCReplies.setText(sb.toString());
                     b.hgCReplies.setOnClickListener(v -> {
                         if (repliesMore.contains(c.id)) loadReplies(c, true);

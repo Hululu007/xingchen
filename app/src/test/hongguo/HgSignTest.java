@@ -104,10 +104,34 @@ public class HgSignTest {
         check("x-ss-stub = MD5(body) 大写",
                 HgSign.contentMd5Hex(body).equals(s1.headers.get("x-ss-stub")),
                 "实际=" + s1.headers.get("x-ss-stub"));
-        check("查询串有序：iid 起头＋ts/_rticket 收尾",
+        // 注：_rticket 不能钉死 1700000000123——SM3 分支回路（对照 Go signRequest
+        // 原码，branch==1 时 ticket 自增至多 32 次）会按 query 内容推进它，
+        // 本向量实测推进 2–4 步。旧断言钉死原值与 Go 口径冲突（1.4.54 基线
+        // 同样 FAIL），2026-10-28 改为回路不变式：ts 钉秒、_rticket 落在
+        // [基准, 基准+32) 且与 ts 同秒。
+        long rticket = -1;
+        try {
+            int at = s1.query.lastIndexOf("&_rticket=");
+            rticket = Long.parseLong(s1.query.substring(at + "&_rticket=".length()));
+        } catch (Exception ignored) {
+        }
+        check("查询串有序：iid 起头＋ts/_rticket 收尾（分支回路内）",
                 s1.query.startsWith("iid=") && s1.query.contains("&device_id=")
-                        && s1.query.contains("&ts=1700000000&_rticket=1700000000123"),
+                        && s1.query.contains("&ts=1700000000&_rticket=")
+                        && rticket >= 1700000000123L && rticket < 1700000000123L + 32,
                 "实际尾=" + s1.query.substring(Math.max(0, s1.query.length() - 60)));
+
+        // 2b) GET 签名（feed 频道面用）：path 可传、确定性、无 body 时不带 x-ss-stub
+        HgSign.Signed g1 = HgSign.signGet(HgDevice.PATH_BOOKMALL_TAB, pairs, 1700000000123L,
+                "7100000000000011", HgDevice.VERSION_NAME, fixed);
+        HgSign.Signed g2 = HgSign.signGet(HgDevice.PATH_BOOKMALL_TAB, pairs, 1700000000123L,
+                "7100000000000011", HgDevice.VERSION_NAME, fixed);
+        check("GET 签名确定性（query/头集逐字一致）",
+                g1.query.equals(g2.query) && g1.headers.equals(g2.headers), null);
+        check("GET 签名头齐且无 x-ss-stub",
+                g1.headers.containsKey("x-gorgon") && g1.headers.containsKey("x-medusa")
+                        && !g1.headers.containsKey("x-ss-stub"),
+                "实际=" + g1.headers.keySet());
 
         // 3) 注册持久化：档案派生 → 回填真 id → 清缓存重读仍在（Prefers 桩为进程内存储）。
         HgDevice.Profile p1 = HgDevice.profile();

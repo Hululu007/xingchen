@@ -17,16 +17,35 @@ public final class HgCellPage {
     private final String message;
     private final List<HgSeriesItem> items;
     private final JsonObject raw;
+    /** 频道面续页态（bookmall/tab 与 cell/change 回包才有；其余面为 false/null）。 */
+    private final boolean hasMore;
+    private final String nextOffset;
+    private final String sessionId;
+    private final HgContinuation continuation;
 
     HgCellPage(int code, String message, List<HgSeriesItem> items, JsonObject raw) {
+        this(code, message, items, raw, false, null, null, null);
+    }
+
+    HgCellPage(int code, String message, List<HgSeriesItem> items, JsonObject raw,
+               boolean hasMore, String nextOffset, String sessionId,
+               HgContinuation continuation) {
         this.code = code;
         this.message = message;
         this.items = Collections.unmodifiableList(items);
         this.raw = raw;
+        this.hasMore = hasMore;
+        this.nextOffset = nextOffset;
+        this.sessionId = sessionId;
+        this.continuation = continuation;
     }
 
     public int getCode() { return code; }
     public String getMessage() { return message; }
     public List<HgSeriesItem> getItems() { return items; }
     public JsonObject getRaw() { return raw; }
+    public boolean isHasMore() { return hasMore; }
+    public String getNextOffset() { return nextOffset; }
+    public String getSessionId() { return sessionId; }
+    public HgContinuation getContinuation() { return continuation; }
 }

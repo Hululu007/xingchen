@@ -33,7 +33,7 @@
         android:layout_marginTop="6dp"
         android:ellipsize="end"
         android:maxLines="1"
-        android:textColor="#FFFFFF"
+        android:textColor="#111111"
         android:textSize="13sp" />
 
     <TextView
@@ -43,7 +43,7 @@
         android:layout_marginTop="2dp"
         android:ellipsize="end"
         android:maxLines="1"
-        android:textColor="#99FFFFFF"
+        android:textColor="#666666"
         android:textSize="11sp" />
 
     <!-- 未上线剧的预约钮：回包带 appointment 才亮（适配器控制），文案随预约态 -->

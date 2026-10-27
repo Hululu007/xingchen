@@ -98,8 +98,14 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         HgFeedItem item = items.get(position);
         ItemHongguoFeedBinding b = holder.binding;
         // 封面：走树里 ImgUtil 口径（有址加载、无址按标题素图）；播出首帧后由 Activity 撤掉
+        // 缩放按官方封面层同构（official-scale-dig 定版）：竖条目 CENTER_CROP
+        // 裁满、横条目 FIT_CENTER 整张显——旧版一律 centerCrop 把横封面裁满
+        // 是错的。ImgUtil 的 vod 参正是这两态的开关（true=CENTER_CROP /
+        // false=FIT_CENTER）；无址时退回默认口径（素图垫底不分朝向）。
         b.hgCover.setVisibility(View.VISIBLE);
-        ImgUtil.load(item.title == null ? "" : item.title, item.coverUrl, b.hgCover);
+        boolean landscapeCover = (item.isLandscape() || item.landscapeHint)
+                && item.coverUrl != null && !item.coverUrl.isEmpty();
+        ImgUtil.load(item.title == null ? "" : item.title, item.coverUrl, b.hgCover, !landscapeCover);
         b.hgError.setVisibility(View.GONE);
         b.hgPauseIcon.setVisibility(View.GONE);
         b.hgProgressFill.setScaleX(0f);

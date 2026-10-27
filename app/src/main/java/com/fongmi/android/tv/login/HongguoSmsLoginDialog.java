@@ -24,6 +24,9 @@ import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
 import androidx.fragment.app.DialogFragment;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentActivity;
@@ -123,6 +126,12 @@ public class HongguoSmsLoginDialog extends DialogFragment {
         params.height = WindowManager.LayoutParams.MATCH_PARENT;
         params.gravity = Gravity.CENTER;
         window.setAttributes(params);
+        // 本页是浅色渐变全屏：状态栏/导航栏图标要深色才看得清——旧版继承
+        // 宿主（刷剧页）的白图标，白压浅底几乎不可见（审计实证）
+        WindowInsetsControllerCompat ctl =
+                new WindowInsetsControllerCompat(window, window.getDecorView());
+        ctl.setAppearanceLightStatusBars(true);
+        ctl.setAppearanceLightNavigationBars(true);
     }
 
     @Override
@@ -155,7 +164,16 @@ public class HongguoSmsLoginDialog extends DialogFragment {
 
         LinearLayout content = new LinearLayout(requireContext());
         content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(dp(28), dp(54), dp(28), dp(24));
+        content.setPadding(dp(28), dp(24), dp(28), dp(24));
+        // 顶部留距按真实状态栏 insets 走，不写死：旧版写死 54dp 是全红果
+        // 唯一拿常数代偿 insets 的地方（审计实证）——窗口在状态栏之下时
+        // insets 报 0、基础 24dp 足够；窗口铺到状态栏之下时按实值补齐
+        ViewCompat.setOnApplyWindowInsetsListener(content, (v, insets) -> {
+            int top = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top;
+            int bottom = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom;
+            v.setPadding(dp(28), top + dp(24), dp(28), bottom + dp(24));
+            return insets;
+        });
         root.addView(content, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
 

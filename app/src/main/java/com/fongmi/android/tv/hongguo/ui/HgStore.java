@@ -159,6 +159,18 @@ public final class HgStore {
         return new java.util.ArrayList<>(readSet(K_FOLLOWED));
     }
 
+    /**
+     * 登出清理：账号维度的本地镜像（点赞/收藏/关注/预约四套 id 集）整清——
+     * 账号数据随账号走，登出后不清、换号登录会串上前一账号的格子（审计
+     * 实证）。观看历史/断点是设备维度数据、剧目元信息是公开数据，都不在此列。
+     */
+    public static void clearAccountMirrors() {
+        Prefers.put(K_LIKED, "");
+        Prefers.put(K_FAVED, "");
+        Prefers.put(K_FOLLOWED, "");
+        Prefers.put(K_RESERVED, "");
+    }
+
     // ---------- 剧目元信息（列表页用：标题/封面/集数，随详情与流条目顺手落） ----------
 
     private static final String K_META_PREFIX = "hongguo_meta_";

@@ -1,30 +1,49 @@
 package com.fongmi.android.tv.ui.music
 
+import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
+import com.fongmi.android.tv.music.MusicController
+import com.fongmi.android.tv.ui.music.player.PlayerOpenContract
+import com.fongmi.android.tv.ui.music.player.PlayerRoot
+import com.fongmi.android.tv.ui.music.player.PlayerStateHolder
+import com.fongmi.android.tv.utils.CoverColor
 
 /**
- * 播放页新一套的树根（瓜子渲染组织法，见 ~/workspace/gz-render-tree-map.md）。
- * 地基阶段：空壳——只证明 Compose 通路与开页路（迷你条/通知反射 Intent 按类名找本类）。
- * 本体（状态中枢 PlayerStateHolder、一份快照分发五主题、歌词引擎共用）后续单子在此长出，
- * 不许在本类里堆业务状态：状态一份归中枢，本类只负责 setContent 与根装配。
+ * 播放页（瓜子渲染组织法，见 ~/workspace/gz-render-tree-map.md）：
+ * 本类只管窗口与装配——关系统转场防闪、窗口底先铺外壳回落色、读开页契约的条矩形、
+ * 把根交给 PlayerRoot。不在本类堆业务状态：状态一份归 PlayerStateHolder 中枢，
+ * 条（ListenMiniBar 里的 PlayerBar）与本页 collect 同一份快照，条是页的收起态。
+ * 开页路不变：迷你条/通知按类名反射 Intent 找本类（FQCN 不动）。
  */
 class MusicPlayerActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { MusicPlayerShell() }
+        overridePendingTransition(0, 0)
+        window.setBackgroundDrawable(ColorDrawable(CoverColor.FALLBACK_COLOR))
+        PlayerStateHolder.attach(this)
+        MusicController.get().bind(this)
+        val barRect = PlayerOpenContract.readBarRect(intent)
+        setContent {
+            PlayerRoot(barRect = barRect, onClose = { closePage() })
+        }
     }
-}
 
-@Composable
-fun MusicPlayerShell() {
-    Box(Modifier.fillMaxSize()) {
-        // 空壳：PlayerRoot（氛围层＋主题分发＋同树面板）后续在此装配。
+    /** 收回动画走完才走这里：置回落免淡入旗再 finish，落点真条直接满显不闪。 */
+    private fun closePage() {
+        PlayerOpenContract.suppressNextBarFade()
+        finish()
+        overridePendingTransition(0, 0)
+    }
+
+    override fun onDestroy() {
+        try {
+            MusicController.get().unbind()
+        } catch (t: Throwable) {
+            // 控制器未就绪时解绑失败不许带崩页面销毁
+        }
+        super.onDestroy()
     }
 }

@@ -15,7 +15,6 @@ public class CloudFile {
     private String parentCid;
     private String thumbUrl;    // 缩略图直链（PikPak/夸克服务端返回；115 取回包 u 键、备选 thumb，个别文件可为空）
     private String icon;        // 115 回包 ico 键＝文件类型（值即扩展名，如 mp3/flac/mkv）；其它网盘不给、恒空
-    private int fc = -1;        // 115 回包 fc 目录旗：1＝目录、0＝文件、-1＝回包没给（退回 fid/cid 判定）
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
@@ -26,16 +25,8 @@ public class CloudFile {
     public long getSize() { return size; }
     public void setSize(long size) { this.size = size; }
 
-    /** 目录判定：回包带 fc 目录旗时以 fc 为准（1＝目录、0＝文件），没带才用 setDir 存的 fid/cid 判定结果。 */
-    public boolean isDir() {
-        if (fc == 1) return true;
-        if (fc == 0) return false;
-        return isDir;
-    }
+    public boolean isDir() { return isDir; }
     public void setDir(boolean dir) { isDir = dir; }
-
-    public int getFc() { return fc; }
-    public void setFc(int fc) { this.fc = fc; }
 
     public String getPickCode() { return pickCode; }
     public void setPickCode(String pickCode) { this.pickCode = pickCode; }
@@ -50,18 +41,7 @@ public class CloudFile {
     public void setThumbUrl(String thumbUrl) { this.thumbUrl = thumbUrl; }
 
     public String getIcon() { return icon; }
-
-    /** ico 入口归一：去空白、转小写、剥前导点——回包偶给 ".mkv"／" mkv " 这类带装饰的值，
-     * 不归一的话 isVideo/isAudio 的扩展名表永远命不中（判定在用时只做 trim+lowercase、不剥点）。 */
-    public void setIcon(String icon) {
-        if (icon == null) {
-            this.icon = null;
-            return;
-        }
-        String s = icon.trim().toLowerCase();
-        while (s.startsWith(".")) s = s.substring(1).trim();
-        this.icon = s;
-    }
+    public void setIcon(String icon) { this.icon = icon; }
 
     /** 音频双判：文件名后缀或 115 的 ico 类型任一命中音频表即认（115 侧 ico 值即扩展名）。
      * 后缀表与网盘音乐页 MusicCloudActivity.AUDIO_EXT 同表（mp3/flac/wav/aac/ogg/oga/m4a/opus/ape/wma/aif/aiff）。 */

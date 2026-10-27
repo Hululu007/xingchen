@@ -464,11 +464,9 @@ public class Drive115 implements CloudDrive {
             JSONObject o = arr.optJSONObject(i);
             if (o == null) continue;
             CloudFile f = new CloudFile();
-            // 115 返回：fid（文件）或 cid（目录）；回包带 fc 目录旗时以 fc 为准（CloudFile.isDir 口径）
+            // 115 返回：fid（文件）或 cid（目录）
             boolean isDir = o.has("cid") && !o.has("fid");
             f.setDir(isDir);
-            if (o.has("fc") && !o.isNull("fc")) f.setFc(o.optInt("fc", -1));
-            isDir = f.isDir();
             f.setId(isDir ? o.optString("cid") : o.optString("fid"));
             f.setName(o.optString("n"));
             f.setSize(o.optLong("s", 0));
@@ -533,11 +531,8 @@ public class Drive115 implements CloudDrive {
             JSONObject o = arr.optJSONObject(i);
             if (o == null) continue;
             CloudFile f = new CloudFile();
-            // 目录判定同 listDir：fc 目录旗优先，没给才退回 cid/fid（搜索回包同样带 fc）
             boolean isDir = o.has("cid") && !o.has("fid");
             f.setDir(isDir);
-            if (o.has("fc") && !o.isNull("fc")) f.setFc(o.optInt("fc", -1));
-            isDir = f.isDir();
             f.setId(isDir ? o.optString("cid") : o.optString("fid"));
             f.setName(o.optString("n"));
             f.setSize(o.optLong("s", 0));

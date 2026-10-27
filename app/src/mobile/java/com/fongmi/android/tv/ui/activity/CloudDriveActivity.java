@@ -942,19 +942,6 @@ public class CloudDriveActivity extends BaseActivity {
      * VideoActivity.startPan115，线路归「115网盘」，不经推送链合成详情。
      */
     public static void play115File(Activity activity, CloudFile file) {
-        play115FileInternal(activity, file, false);
-    }
-
-    /**
-     * 聚合搜索点击兜底（CollectFragment 用）：条目非文件夹、isVideo 判定又是假时不默默跳目录，
-     * 先走 play115File 同一条路试组装播放清单——有档直达起播，组装不出（无档/异常）按网盘页
-     * FileAdapter 对非视频文件的现行口径提示「暂不支持打开该文件类型」。
-     */
-    public static void tryPlay115File(Activity activity, CloudFile file) {
-        play115FileInternal(activity, file, true);
-    }
-
-    private static void play115FileInternal(Activity activity, CloudFile file, boolean unsupportedOnFail) {
         Notify.show("正在获取播放地址…");
         new Thread(() -> {
             try {
@@ -971,10 +958,6 @@ public class CloudDriveActivity extends BaseActivity {
                 activity.runOnUiThread(() -> VideoActivity.startPan115(activity, firstUrl, file.getName(), episodesJson, selIdx));
             } catch (Exception e) {
                 Log.e(TAG, "115 播放失败", e); // 完整堆栈打到 Logcat
-                if (unsupportedOnFail) {
-                    activity.runOnUiThread(() -> Notify.show("暂不支持打开该文件类型"));
-                    return;
-                }
                 String m = msg(e);
                 String toast;
                 if (m.contains("代理启动失败")) {

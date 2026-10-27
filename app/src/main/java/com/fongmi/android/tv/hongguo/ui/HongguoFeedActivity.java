@@ -879,8 +879,10 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                     case FOLLOW -> session.interactions.toggleFollow(item.seriesId);
                     case RESERVE -> {
                         boolean now = session.interactions.toggleReserve(item.seriesId);
+                        // 点击时只报本地状态（已预约/已取消）：服务端写失败会
+                        // 回滚＋另行提示，不在点击瞬间假报「成功」
                         android.widget.Toast.makeText(this,
-                                now ? "预约成功，上线后会通知你" : "预约已取消",
+                                now ? "已预约，上线后会通知你" : "已取消预约",
                                 android.widget.Toast.LENGTH_SHORT).show();
                     }
                     default -> {

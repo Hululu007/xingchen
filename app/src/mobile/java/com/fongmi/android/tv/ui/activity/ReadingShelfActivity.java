@@ -105,8 +105,8 @@ public class ReadingShelfActivity extends AppCompatActivity {
         buildUi();
         refresh();
 
-        // 页面进出统一渐入渐出（与 BaseActivity 一致）
-        overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
+        // 主导航整页跳转（主页↔阅读）：进出都走页签交叉淡出（250ms＋缓动），与底栏页签互切同款
+        overridePendingTransition(R.anim.xc_tab_fade_in, R.anim.xc_tab_fade_out);
 }
 
     @Override
@@ -118,7 +118,7 @@ public class ReadingShelfActivity extends AppCompatActivity {
     @Override
     public void finish() {
         super.finish();
-        overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
+        overridePendingTransition(R.anim.xc_tab_fade_in, R.anim.xc_tab_fade_out);
     }
 
 

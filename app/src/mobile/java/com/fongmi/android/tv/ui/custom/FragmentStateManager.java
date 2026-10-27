@@ -28,11 +28,18 @@ public class FragmentStateManager {
         Fragment expected = factory.apply(position);
         if (expected == null) return false;
         Fragment fragment = fm.findFragmentByTag(tag);
-        FragmentTransaction ft = fm.beginTransaction().setCustomAnimations(R.anim.xc_frag_fade_in, R.anim.xc_frag_fade_out);
+        // 同页签重复点：已是当前页且可见就不起事务，过渡不重播
+        Fragment current0 = fm.getPrimaryNavigationFragment();
+        if (fragment != null && fragment == current0 && fragment.isVisible()
+                && fragment.getClass() == expected.getClass()) return true;
+        // 页签互切过渡：新页淡入＋旧页淡出同一事务同时进行（交叉淡入淡出，
+        // xc_tab_fade_*＝250ms＋Material 标准缓动），不用横滑（页签无左右次序、
+        // 横滑会跟页内手势打架）。切换只 hide/show，Fragment 与视图状态全保留。
+        FragmentTransaction ft = fm.beginTransaction().setCustomAnimations(R.anim.xc_tab_fade_in, R.anim.xc_tab_fade_out);
         if (fragment != null && fragment.getClass() != expected.getClass()) {
             ft.remove(fragment).commitNowAllowingStateLoss();
             fragment = null;
-            ft = fm.beginTransaction().setCustomAnimations(R.anim.xc_frag_fade_in, R.anim.xc_frag_fade_out);
+            ft = fm.beginTransaction().setCustomAnimations(R.anim.xc_tab_fade_in, R.anim.xc_tab_fade_out);
         }
         if (fragment == null) {
             fragment = expected;

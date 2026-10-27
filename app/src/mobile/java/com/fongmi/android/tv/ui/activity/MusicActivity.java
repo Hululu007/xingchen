@@ -148,6 +148,20 @@ public class MusicActivity extends BaseActivity {
         activity.startActivity(new android.content.Intent(activity, MusicActivity.class));
     }
 
+    // 主导航整页跳转（主页↔音乐）：进出都走页签交叉淡出（250ms＋缓动），
+    // 覆盖 BaseActivity 的全 App 通用 200ms 线性对，与底栏页签互切同款。
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        overridePendingTransition(R.anim.xc_tab_fade_in, R.anim.xc_tab_fade_out);
+    }
+
+    @Override
+    public void finish() {
+        super.finish();
+        overridePendingTransition(R.anim.xc_tab_fade_in, R.anim.xc_tab_fade_out);
+    }
+
     /** 榜单快照清缓存的同名静态入口（其它页调用点契约不变）：转调 MusicHomeChartStore。
      * 只清快照不够：已活首页实例手里还攥着旧 chartTabs，onResume 的重拉判据是
      * 「失效位‖chartTabs 空」——必须同时置失效位，回页才真重拉（插件增删/启停走这条）。 */

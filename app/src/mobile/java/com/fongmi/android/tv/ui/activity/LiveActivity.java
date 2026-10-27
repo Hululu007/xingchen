@@ -234,6 +234,14 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
         requestOrientation("launch", getLaunchOrient());
         super.onCreate(savedInstanceState);
         updateSystemUI();
+        // 主导航整页跳转（主页↔直播）：进出都走页签交叉淡出（250ms＋缓动），与底栏页签互切同款
+        overridePendingTransition(R.anim.xc_tab_fade_in, R.anim.xc_tab_fade_out);
+    }
+
+    @Override
+    public void finish() {
+        super.finish();
+        overridePendingTransition(R.anim.xc_tab_fade_in, R.anim.xc_tab_fade_out);
     }
 
     @Override

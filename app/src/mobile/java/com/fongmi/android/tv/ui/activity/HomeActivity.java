@@ -422,6 +422,7 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
 
     private boolean openLive() {
         LiveActivity.start(this);
+        overridePendingTransition(R.anim.xc_tab_fade_in, R.anim.xc_tab_fade_out);
         return true;
     }
 
@@ -516,18 +517,22 @@ public class HomeActivity extends BaseActivity implements NavigationBarView.OnIt
         if (item.getItemId() == R.id.live) return openLive();
         if (item.getItemId() == R.id.music) {
             MusicActivity.start(this);
+            overridePendingTransition(R.anim.xc_tab_fade_in, R.anim.xc_tab_fade_out);
             return true;
         }
         if (item.getItemId() == R.id.reading) {
             ReadingShelfActivity.start(this);
+            overridePendingTransition(R.anim.xc_tab_fade_in, R.anim.xc_tab_fade_out);
             return true;
         }
         if (item.getItemId() == R.id.miniapp) {
             HkPageActivity.start(this);
+            overridePendingTransition(R.anim.xc_tab_fade_in, R.anim.xc_tab_fade_out);
             return true;
         }
         if (item.getItemId() == R.id.lab) {
             LabHomeActivity.start(this);
+            overridePendingTransition(R.anim.xc_tab_fade_in, R.anim.xc_tab_fade_out);
             return true;
         }
         return false;

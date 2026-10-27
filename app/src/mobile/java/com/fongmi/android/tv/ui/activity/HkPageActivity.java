@@ -272,6 +272,15 @@ public class HkPageActivity extends BaseActivity {
         HkDynamicBgView.attachTo(this);
         // 历史数据迁移（一次性）：此前误入主 App Keep 的海阔收藏搬回海阔侧（后台线程，幂等）
         HkFavoriteStore.migrateIfNeeded();
+        // 主导航整页跳转（主页↔小程序）：进出都走页签交叉淡出（250ms＋缓动），
+        // 覆盖 BaseActivity 的全 App 通用 200ms 线性对，与底栏页签互切同款。
+        overridePendingTransition(R.anim.xc_tab_fade_in, R.anim.xc_tab_fade_out);
+    }
+
+    @Override
+    public void finish() {
+        super.finish();
+        overridePendingTransition(R.anim.xc_tab_fade_in, R.anim.xc_tab_fade_out);
     }
 
     @Override

@@ -400,7 +400,7 @@ public class HkWebkitHolder implements HkWebViewHelper.ServiceWorkerInterceptor 
         // 注册的规则由 api/hk/browser/HkBrowserProxy 维护，hook 未被外部接管时回落到此；
         // 命中规则（match 全串正则、静态资源只认 force）由宿主抓取改写，未命中回 null 走原生加载。
         return com.fongmi.android.tv.api.hk.browser.HkBrowserProxy
-                .proxyRequest(myUrl, request, requestHeaderMap);
+                .proxyRequest(myUrl, request, request.getRequestHeaders());
     }
 
     // —— $2 WebViewClient ——

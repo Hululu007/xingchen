@@ -338,7 +338,7 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
                     vod.setName(f.getName());
                     vod.setSite(site);
                     // 封面口径同他的铁规：服务端给了缩略图（thumbUrl）就填 pic；
-                    // 没给的视频走截帧兜底，实在没有才留空走素图。
+                    // 没给的文件走截帧兜底，实在没有才留空走素图。
                     if (!TextUtils.isEmpty(f.getThumbUrl())) vod.setPic(f.getThumbUrl());
                     else fillFrameCover(drive, f, vod);
                     items.add(vod);
@@ -352,14 +352,16 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
     }
 
     /**
-     * 115 搜索结果封面兜底（与网盘页 bindRowCover 同口径的第二路）：服务端没给缩略图的
-     * 视频走 Pan115Cover 截帧——已有缓存直接把本地路径填进 pic（ImgUtil 对真实存在的
+     * 115 搜索结果封面兜底（与网盘页 bindRowCover 同源的第二路）：服务端没给缩略图的
+     * 文件走 Pan115Cover 截帧——已有缓存直接把本地路径填进 pic（ImgUtil 对真实存在的
      * 本地文件原样放行给 Glide）；没有就请求截帧，截好后回主线程补 pic 并定点刷那一行
      * （同网盘页 D1 口径：整表重绑会在滑动期打脉冲；Vod 是同一对象引用，当前列表里
-     * 找不到这一条就不用刷，pic 已在对象上、切过去自然带出）。文件夹/非视频/无 pickcode 不走。
+     * 找不到这一条就不用刷，pic 已在对象上、切过去自然带出）。文件夹/无 pickcode 不走；
+     * 判不出类型的真文件也放进来试一次——截不到 Pan115Cover 自有失败标记（.none 24h
+     * 不重试）兜底，成本有界。此放宽仅搜索面，网盘页那面的门不动。
      */
     private void fillFrameCover(Drive115 drive, CloudFile f, Vod vod) {
-        if (f.isDir() || !f.isVideo() || TextUtils.isEmpty(f.getPickCode())) return;
+        if (f.isDir() || TextUtils.isEmpty(f.getPickCode())) return;
         java.io.File cover = Pan115Cover.coverFile(App.get(), f.getPickCode());
         if (cover != null) {
             vod.setPic(cover.getAbsolutePath());
@@ -395,7 +397,7 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
         if (mCollectAdapter.getPosition() == 0) mSearchAdapter.setItems(new ArrayList<>(mAllResults));
     }
 
-    /** 115 结果点击：不走站点详情——文件夹直达网盘页对应目录、视频走网盘直达起播、其它文件进它所在目录。 */
+    /** 115 结果点击：不走站点详情——文件夹直达网盘页对应目录、视频走网盘直达起播、判不出类型的真文件也走直达起播试播（有档就播、无档它自有提示），绝不把人扔到网盘页。 */
     private void onPan115ItemClick(Vod item) {
         CloudFile f = mPan115Files.get(item.getId());
         if (f == null) return;
@@ -404,9 +406,7 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
         } else if (f.isVideo()) {
             CloudDriveActivity.play115File(requireActivity(), f);
         } else {
-            String parent = f.getParentCid();
-            if (TextUtils.isEmpty(parent) || "0".equals(parent)) CloudDriveActivity.start(requireActivity(), Drive115.ID);
-            else CloudDriveActivity.startAt(requireActivity(), Drive115.ID, parent, "所在目录");
+            CloudDriveActivity.play115File(requireActivity(), f);
         }
     }
 

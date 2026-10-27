@@ -238,7 +238,7 @@ public final class HgCommentsPanel {
                 boolean open = expanded.contains(c.id);
                 if (c.replyCount > 0) {
                     b.hgCRepliesBtn.setVisibility(View.VISIBLE);
-                    b.hgCRepliesBtn.setText(open ? "收起回复" : "展开 " + c.replyCount + " 条回复");
+                    b.hgCRepliesBtn.setText(open ? "收起回复" : "展开" + c.replyCount + "条回复");
                     b.hgCRepliesBtn.setOnClickListener(v -> toggleReplies(c));
                 } else {
                     b.hgCRepliesBtn.setVisibility(View.GONE);
@@ -253,7 +253,7 @@ public final class HgCommentsPanel {
                         if (r.replyTo != null && !r.replyTo.isEmpty()) sb.append(" 回复 ").append(r.replyTo);
                         sb.append("：").append(r.content);
                     }
-                    if (repliesMore.contains(c.id)) sb.append("\n\n（点按本条可继续展开更多回复）");
+                    if (repliesMore.contains(c.id)) sb.append("\n\n展开更多回复");
                     b.hgCReplies.setText(sb.toString());
                     b.hgCReplies.setOnClickListener(v -> {
                         if (repliesMore.contains(c.id)) loadReplies(c, true);

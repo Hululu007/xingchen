@@ -63,6 +63,8 @@ public final class HgFeedItem {
     public final int albumSerialCount;
     /** 同专辑兄弟部（album_data_list，账 §5.3）；没带为空表。 */
     public final List<HgSeriesItem> siblings;
+    /** 完结态（cell series_status，频道存档实证）；没带为 null。 */
+    public final Integer seriesStatus;
 
     /** 剧头（未定形态）标记；定形态后置 false。 */
     public boolean seriesHead;
@@ -90,7 +92,7 @@ public final class HgFeedItem {
                        boolean seriesHead, boolean clip, String badge, String recText,
                        List<String> tags, boolean multiSeason, String albumId,
                        int albumSerialCount, List<HgSeriesItem> siblings,
-                       String likeCount, String commentCount) {
+                       String likeCount, String commentCount, Integer seriesStatus) {
         this.seriesId = seriesId;
         this.videoId = videoId;
         this.episodeIndex = episodeIndex;
@@ -115,13 +117,14 @@ public final class HgFeedItem {
         this.albumId = albumId;
         this.albumSerialCount = albumSerialCount;
         this.siblings = siblings == null ? Collections.emptyList() : siblings;
+        this.seriesStatus = seriesStatus;
     }
 
     public static HgFeedItem head(String seriesId, String title, String category,
                                   String desc, String coverUrl, int episodeCount) {
         return new HgFeedItem(seriesId, null, -1, episodeCount, title, category,
                 null, null, desc, coverUrl, 0, 0, true, false,
-                null, null, null, false, null, -1, null, null, null);
+                null, null, null, false, null, -1, null, null, null, null);
     }
 
     public static HgFeedItem episode(String seriesId, String videoId, int episodeIndex,
@@ -130,7 +133,7 @@ public final class HgFeedItem {
                                      String coverUrl) {
         return new HgFeedItem(seriesId, videoId, episodeIndex, episodeCount, title, category,
                 authorName, authorAvatar, desc, coverUrl, 0, 0, false, false,
-                null, null, null, false, null, -1, null, null, null);
+                null, null, null, false, null, -1, null, null, null, null);
     }
 
     /**
@@ -156,7 +159,7 @@ public final class HgFeedItem {
                 s.getVid() == null, s.getVid() != null,
                 s.getBadge(), s.getRecText(), s.getTags(), s.isMultiSeason(),
                 s.getAlbumId(), s.getAlbumSerialCount(), s.getSiblings(),
-                formatCount(s.getDiggCount()), formatCount(s.getCommentCount()));
+                formatCount(s.getDiggCount()), formatCount(s.getCommentCount()), s.getSeriesStatus());
         if (s.hasAppointment()) {
             item.reservable = true;
             item.dueStartText = s.getDueStartText();
@@ -170,7 +173,7 @@ public final class HgFeedItem {
         HgFeedItem copy = new HgFeedItem(seriesId, videoId, episodeIndex, episodeCount, title,
                 category, authorName, authorAvatar, desc, coverUrl, width, height,
                 seriesHead, clip, badge, recText, tags, multiSeason, albumId,
-                albumSerialCount, siblings, likeCount, commentCount);
+                albumSerialCount, siblings, likeCount, commentCount, seriesStatus);
         copy.expandTried = expandTried;
         copy.reservable = reservable;
         copy.dueStartText = dueStartText;
@@ -197,7 +200,7 @@ public final class HgFeedItem {
                 detailDesc != null ? detailDesc : desc,
                 coverUrl, videoWidth, videoHeight, false, true,
                 badge, recText, tags, multiSeason, albumId, albumSerialCount, siblings,
-                likeCount, commentCount);
+                likeCount, commentCount, seriesStatus);
         copy.expandTried = true;
         copy.reservable = reservable;
         copy.dueStartText = dueStartText;
@@ -213,12 +216,13 @@ public final class HgFeedItem {
         return videoWidth > 0 && videoHeight > 0 && videoWidth > videoHeight;
     }
 
-    /** 本剧条文案素材：集数已知才带「 · 全N集」（形态照官方实拍，账 §3.6）。 */
+    /** 本剧条文案素材：集数已知才带「 · 全N集」（形态照官方实拍，账 §3.6）；完结态下发＝1 时带「 · 已完结」。 */
     public String seriesBarText() {
         StringBuilder sb = new StringBuilder();
         if (category != null && !category.isEmpty()) sb.append(category).append(' ');
         if (title != null) sb.append(title);
         if (episodeCount > 0) sb.append(" · 全").append(episodeCount).append("集");
+        if (seriesStatus != null && seriesStatus == 1) sb.append(" · 已完结");
         return sb.toString();
     }
 }

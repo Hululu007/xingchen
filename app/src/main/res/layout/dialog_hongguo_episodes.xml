@@ -1,18 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 红果选集弹层：半屏底部层，剧名＋简介区＋集数格子（直接上下滑，无分页签）。 -->
+<!-- 红果选集弹层：半屏底部层（官方：单高＝屏高 50%、顶部小横把、无关闭钮），
+     剧名＋完结标记＋演员区＋简介，集数格子 6 列、每页 30 集横向分页。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#FF1C1C1E"
     android:orientation="vertical"
     android:paddingStart="16dp"
-    android:paddingTop="14dp"
     android:paddingEnd="16dp"
     android:paddingBottom="12dp">
+
+    <View
+        android:layout_width="36dp"
+        android:layout_height="4dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="8dp"
+        android:background="@drawable/bg_hg_grab" />
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_marginTop="14dp"
         android:gravity="center_vertical"
         android:orientation="horizontal">
 
@@ -27,14 +35,24 @@
             android:textSize="16sp"
             android:textStyle="bold" />
 
-        <ImageView
-            android:id="@+id/hg_ep_close"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
-            android:contentDescription="关闭"
-            android:padding="7dp"
-            android:src="@drawable/ic_hg_close" />
+        <TextView
+            android:id="@+id/hg_ep_status"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="已完结"
+            android:textColor="#FFFA7705"
+            android:textSize="12sp"
+            android:visibility="gone" />
     </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/hg_ep_actors"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:orientation="horizontal"
+        android:visibility="gone" />
 
     <TextView
         android:id="@+id/hg_ep_desc"
@@ -46,10 +64,9 @@
         android:textColor="#B3FFFFFF"
         android:textSize="13sp" />
 
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/hg_ep_grid"
+    <androidx.viewpager2.widget.ViewPager2
+        android:id="@+id/hg_ep_pager"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_marginTop="12dp"
-        android:layout_weight="1" />
+        android:layout_height="270dp"
+        android:layout_marginTop="12dp" />
 </LinearLayout>

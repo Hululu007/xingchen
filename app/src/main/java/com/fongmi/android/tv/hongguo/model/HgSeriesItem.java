@@ -39,6 +39,11 @@ public final class HgSeriesItem {
     private final long commentCount;
     /** 点赞数（cell video_data.digged_count，同上实证）；没带为 -1。 */
     private final long diggCount;
+    /**
+     * 完结态（series_status：1＝已完结；频道回包在 video_detail 或
+     * video_detail_list 卡上，2026-10-28 存档逐层实证）；没带为 null。
+     */
+    private final Integer seriesStatus;
 
     HgSeriesItem(String seriesId, String title, String coverUrl, String desc, int episodeCount) {
         this(seriesId, title, coverUrl, desc, episodeCount, false, false, null);
@@ -55,14 +60,15 @@ public final class HgSeriesItem {
                  boolean hasAppointment, boolean appointmentSubscribed, String dueStartText) {
         this(seriesId, title, coverUrl, desc, episodeCount, hasAppointment, appointmentSubscribed,
                 dueStartText, null, null, null, Collections.emptyList(), null, false, null, -1,
-                Collections.emptyList(), -1, -1);
+                Collections.emptyList(), -1, -1, null);
     }
 
     HgSeriesItem(String seriesId, String title, String coverUrl, String desc, int episodeCount,
                  boolean hasAppointment, boolean appointmentSubscribed, String dueStartText,
                  String vid, String badge, String recText, List<String> tags, Boolean vertical,
                  boolean multiSeason, String albumId, int albumSerialCount,
-                 List<HgSeriesItem> siblings, long commentCount, long diggCount) {
+                 List<HgSeriesItem> siblings, long commentCount, long diggCount,
+                 Integer seriesStatus) {
         this.seriesId = seriesId;
         this.title = title;
         this.coverUrl = coverUrl;
@@ -82,6 +88,15 @@ public final class HgSeriesItem {
         this.siblings = siblings == null ? Collections.emptyList() : siblings;
         this.commentCount = commentCount;
         this.diggCount = diggCount;
+        this.seriesStatus = seriesStatus;
+    }
+
+    /** 补完结态的副本（字段后补场景：如半屏单里当前行由页面条目拼装）。 */
+    public HgSeriesItem withSeriesStatus(Integer status) {
+        return new HgSeriesItem(seriesId, title, coverUrl, desc, episodeCount,
+                hasAppointment, appointmentSubscribed, dueStartText,
+                vid, badge, recText, tags, vertical, multiSeason, albumId,
+                albumSerialCount, siblings, commentCount, diggCount, status);
     }
 
     public String getSeriesId() { return seriesId; }
@@ -104,4 +119,10 @@ public final class HgSeriesItem {
     public List<HgSeriesItem> getSiblings() { return siblings; }
     public long getCommentCount() { return commentCount; }
     public long getDiggCount() { return diggCount; }
+    /** 完结态原值（series_status）；没带为 null。 */
+    public Integer getSeriesStatus() { return seriesStatus; }
+    /** 条目级已完结判定：只认下发值＝1（cell 面不套详情的 null 默认口径）。 */
+    public boolean isFinished() {
+        return seriesStatus != null && seriesStatus == 1;
+    }
 }

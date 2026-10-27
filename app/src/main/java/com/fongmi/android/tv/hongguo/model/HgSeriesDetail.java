@@ -8,6 +8,28 @@ import java.util.List;
 /** 一部剧的详情（不可变）。集目表是播放页选集与预取的输入。 */
 public final class HgSeriesDetail {
 
+    /** 一位演员（详情回包 celebrities[]，字段口径照真回包 resp-002/003 逐字）。 */
+    public static final class Celebrity {
+        private final String nickname;
+        private final String roleName;
+        private final String avatar;
+        private final String subTitle;
+
+        Celebrity(String nickname, String roleName, String avatar, String subTitle) {
+            this.nickname = nickname;
+            this.roleName = roleName;
+            this.avatar = avatar;
+            this.subTitle = subTitle;
+        }
+
+        public String getNickname() { return nickname; }
+        /** 饰演角色名（role_name）；没带为 null。 */
+        public String getRoleName() { return roleName; }
+        public String getAvatar() { return avatar; }
+        /** 饰演副行（sub_title，如「饰 王妈」）；没带为 null。 */
+        public String getSubTitle() { return subTitle; }
+    }
+
     /** 一集的引用（不可变）。 */
     public static final class Episode {
         private final String videoId;
@@ -40,16 +62,32 @@ public final class HgSeriesDetail {
     private final boolean appointmentSubscribed;
     /** appointment.due_start_text：上线文案；没带为 null。 */
     private final String dueStartText;
+    /** 演员表（回包 celebrities[]）；没带为空表。 */
+    private final List<Celebrity> celebrities;
+    /**
+     * 完结态（回包 series_status：0 更新中、1 已完结、3 今日更新、4 停更）；
+     * 回包没带为 null。
+     */
+    private final Integer seriesStatus;
 
     HgSeriesDetail(String seriesId, String title, String coverUrl, String desc,
                    String authorName, int episodeCount, List<Episode> episodes, JsonObject raw) {
         this(seriesId, title, coverUrl, desc, authorName, episodeCount, episodes, raw,
-                false, false, null);
+                false, false, null, Collections.emptyList(), null);
     }
 
     HgSeriesDetail(String seriesId, String title, String coverUrl, String desc,
                    String authorName, int episodeCount, List<Episode> episodes, JsonObject raw,
                    boolean hasAppointment, boolean appointmentSubscribed, String dueStartText) {
+        this(seriesId, title, coverUrl, desc, authorName, episodeCount, episodes, raw,
+                hasAppointment, appointmentSubscribed, dueStartText,
+                Collections.emptyList(), null);
+    }
+
+    HgSeriesDetail(String seriesId, String title, String coverUrl, String desc,
+                   String authorName, int episodeCount, List<Episode> episodes, JsonObject raw,
+                   boolean hasAppointment, boolean appointmentSubscribed, String dueStartText,
+                   List<Celebrity> celebrities, Integer seriesStatus) {
         this.seriesId = seriesId;
         this.title = title;
         this.coverUrl = coverUrl;
@@ -61,6 +99,8 @@ public final class HgSeriesDetail {
         this.hasAppointment = hasAppointment;
         this.appointmentSubscribed = appointmentSubscribed;
         this.dueStartText = dueStartText;
+        this.celebrities = Collections.unmodifiableList(celebrities);
+        this.seriesStatus = seriesStatus;
     }
 
     public String getSeriesId() { return seriesId; }
@@ -73,6 +113,18 @@ public final class HgSeriesDetail {
     public boolean hasAppointment() { return hasAppointment; }
     public boolean isAppointmentSubscribed() { return appointmentSubscribed; }
     public String getDueStartText() { return dueStartText; }
+    public List<Celebrity> getCelebrities() { return celebrities; }
+    /** 完结态原值（series_status）；回包没带为 null。 */
+    public Integer getSeriesStatus() { return seriesStatus; }
+
+    /**
+     * 是否已完结（官方口径）：series_status＝1 为完结；字段没下发时官方
+     * 消费点（catalog/u2）对 episodesStatus 为 null 默认按 SeriesEnd 处理，
+     * 星辰同口径——没带也判完结。
+     */
+    public boolean isFinished() {
+        return seriesStatus == null || seriesStatus == 1;
+    }
     /** 原始回包（详情字段口径未完全定版，上层需要冷门字段时从这里取，不丢信息）。 */
     public JsonObject getRaw() { return raw; }
 }

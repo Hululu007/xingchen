@@ -184,9 +184,33 @@ public final class HgParser {
         int count = intOf(d, "episode_count", -1);
         if (count < 0) count = intOf(d, "episode_cnt", episodes.isEmpty() ? -1 : episodes.size());
         JsonObject appt = obj(d, "appointment");
+        // 演员表与完结态（详情真回包 data.video_data 内：celebrities[] 与
+        // series_status，openhongguo-probe resp-002/003 逐字实证；官方模型
+        // SaasVideoDetailModel.getCelebrityList()/episodesStatus 的下发形态）
+        List<HgSeriesDetail.Celebrity> celebrities = new ArrayList<>();
+        JsonArray celebs = arr(d, "celebrities");
+        if (celebs != null) {
+            for (JsonElement el : celebs) {
+                if (!el.isJsonObject()) continue;
+                JsonObject co = el.getAsJsonObject();
+                String nick = firstStr(co, "nickname", "name");
+                String role = str(co, "role_name");
+                if (nick == null && role == null) continue;
+                celebrities.add(new HgSeriesDetail.Celebrity(
+                        nick, role, str(co, "avatar"), str(co, "sub_title")));
+            }
+        }
         return new HgSeriesDetail(seriesId, title, cover, desc, author, count, episodes, root,
                 appt != null, appt != null && boolOf(appt, "is_subscribed"),
-                appt == null ? null : str(appt, "due_start_text"));
+                appt == null ? null : str(appt, "due_start_text"),
+                celebrities, intOrNull(d, "series_status"));
+    }
+
+    /** 数字字段取值：没带或非数字为 null（区别于 intOf 的 -1 哨兵，状态类字段用）。 */
+    private static Integer intOrNull(JsonObject o, String key) {
+        JsonElement e = o == null ? null : o.get(key);
+        if (e == null || !e.isJsonPrimitive() || !e.getAsJsonPrimitive().isNumber()) return null;
+        return e.getAsInt();
     }
 
     /**
@@ -404,6 +428,10 @@ public final class HgParser {
                 }
             }
             putIfPresent(merged, "series_id", firstStr(vd, "series_id", "series_id_str"));
+            // 完结态在 video_data 条目的 video_detail 子对象上（频道存档逐层
+            // 实证），归一到条目顶层；条目自身带同名键时下方覆盖循环以自身为准
+            Integer status = intOrNull(vd, "series_status");
+            if (status != null) merged.addProperty("series_status", status);
         }
         for (Map.Entry<String, JsonElement> e : o.entrySet()) {
             merged.add(e.getKey(), e.getValue());
@@ -515,7 +543,8 @@ public final class HgParser {
                 boolOf(o, "is_multi_season"),
                 firstStr(o, "album_id_str", "album_id"),
                 intOf(o, "album_serial_count", -1), siblings,
-                longOf(o, "comment_count", -1), longOf(o, "digged_count", -1));
+                longOf(o, "comment_count", -1), longOf(o, "digged_count", -1),
+                intOrNull(o, "series_status"));
     }
 
     /**

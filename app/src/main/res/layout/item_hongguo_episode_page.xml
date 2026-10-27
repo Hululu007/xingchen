@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 选集一页：30 集（6 列×5 行），页内不滚动，横向翻页由外层 ViewPager2 管。 -->
+<androidx.recyclerview.widget.RecyclerView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/hg_ep_page_grid"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:overScrollMode="never" />

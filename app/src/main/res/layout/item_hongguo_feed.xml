@@ -46,32 +46,35 @@
         android:textSize="14sp"
         android:visibility="gone" />
 
+    <!-- 右列（官方真值：容器 paddingEnd 4dp/paddingTop 7dp、头像 41.5dp、订阅角标 22dp、
+         动作间距 12dp、单件高 40dp/图标 32dp/计数 10sp 压图标右下、点赞槽宽 46dp） -->
     <LinearLayout
         android:id="@+id/hg_right_rail"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="end|bottom"
-        android:layout_marginEnd="10dp"
+        android:layout_marginEnd="4dp"
         android:layout_marginBottom="110dp"
         android:gravity="center_horizontal"
-        android:orientation="vertical">
+        android:orientation="vertical"
+        android:paddingTop="7dp">
 
         <FrameLayout
             android:id="@+id/hg_avatar_box"
-            android:layout_width="48dp"
+            android:layout_width="41.5dp"
             android:layout_height="52dp">
 
             <ImageView
                 android:id="@+id/hg_avatar"
-                android:layout_width="46dp"
-                android:layout_height="46dp"
+                android:layout_width="41.5dp"
+                android:layout_height="41.5dp"
                 android:layout_gravity="top|center_horizontal"
                 android:contentDescription="作者头像" />
 
             <TextView
                 android:id="@+id/hg_avatar_initial"
-                android:layout_width="46dp"
-                android:layout_height="46dp"
+                android:layout_width="41.5dp"
+                android:layout_height="41.5dp"
                 android:layout_gravity="top|center_horizontal"
                 android:background="@drawable/bg_hg_avatar_circle"
                 android:gravity="center"
@@ -81,8 +84,8 @@
 
             <TextView
                 android:id="@+id/hg_follow_badge"
-                android:layout_width="18dp"
-                android:layout_height="18dp"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
                 android:layout_gravity="bottom|center_horizontal"
                 android:background="@drawable/bg_hg_follow_badge"
                 android:gravity="center"
@@ -91,17 +94,16 @@
                 android:textSize="13sp" />
         </FrameLayout>
 
-        <LinearLayout
+        <FrameLayout
             android:id="@+id/hg_act_fav"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:gravity="center_horizontal"
-            android:orientation="vertical">
+            android:layout_width="46dp"
+            android:layout_height="40dp"
+            android:layout_marginTop="12dp">
 
             <ImageView
                 android:layout_width="32dp"
                 android:layout_height="32dp"
+                android:layout_gravity="top|center_horizontal"
                 android:contentDescription="收藏"
                 android:src="@drawable/ic_hg_star" />
 
@@ -109,23 +111,23 @@
                 android:id="@+id/hg_fav_count"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
+                android:layout_gravity="bottom|end"
+                android:layout_marginBottom="2dp"
                 android:textColor="#FFFFFF"
-                android:textSize="12sp"
+                android:textSize="10sp"
                 android:visibility="gone" />
-        </LinearLayout>
+        </FrameLayout>
 
-        <LinearLayout
+        <FrameLayout
             android:id="@+id/hg_act_comment"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:gravity="center_horizontal"
-            android:orientation="vertical">
+            android:layout_width="46dp"
+            android:layout_height="40dp"
+            android:layout_marginTop="12dp">
 
             <ImageView
                 android:layout_width="32dp"
                 android:layout_height="32dp"
+                android:layout_gravity="top|center_horizontal"
                 android:contentDescription="评论"
                 android:src="@drawable/ic_hg_comment" />
 
@@ -133,23 +135,23 @@
                 android:id="@+id/hg_comment_count"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
+                android:layout_gravity="bottom|end"
+                android:layout_marginBottom="2dp"
                 android:textColor="#FFFFFF"
-                android:textSize="12sp"
+                android:textSize="10sp"
                 android:visibility="gone" />
-        </LinearLayout>
+        </FrameLayout>
 
-        <LinearLayout
+        <FrameLayout
             android:id="@+id/hg_act_like"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:gravity="center_horizontal"
-            android:orientation="vertical">
+            android:layout_width="46dp"
+            android:layout_height="40dp"
+            android:layout_marginTop="12dp">
 
             <ImageView
                 android:layout_width="32dp"
                 android:layout_height="32dp"
+                android:layout_gravity="top|center_horizontal"
                 android:contentDescription="点赞"
                 android:src="@drawable/ic_hg_heart" />
 
@@ -157,17 +159,18 @@
                 android:id="@+id/hg_like_count"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
+                android:layout_gravity="bottom|end"
+                android:layout_marginBottom="2dp"
                 android:textColor="#FFFFFF"
-                android:textSize="12sp"
+                android:textSize="10sp"
                 android:visibility="gone" />
-        </LinearLayout>
+        </FrameLayout>
 
         <LinearLayout
             android:id="@+id/hg_act_share"
-            android:layout_width="wrap_content"
+            android:layout_width="46dp"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
+            android:layout_marginTop="12dp"
             android:gravity="center_horizontal"
             android:orientation="vertical">
 
@@ -210,7 +213,7 @@
         android:layout_gravity="start|bottom"
         android:layout_marginStart="12dp"
         android:layout_marginEnd="84dp"
-        android:layout_marginBottom="44dp"
+        android:layout_marginBottom="50dp"
         android:orientation="vertical">
 
         <TextView
@@ -317,7 +320,7 @@
             android:id="@+id/hg_hot_row"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
+            android:layout_marginTop="12dp"
             android:gravity="top"
             android:orientation="horizontal"
             android:visibility="gone">
@@ -404,8 +407,9 @@
     <LinearLayout
         android:id="@+id/hg_series_bar"
         android:layout_width="match_parent"
-        android:layout_height="38dp"
+        android:layout_height="wrap_content"
         android:layout_gravity="bottom"
+        android:minHeight="44dp"
         android:background="@drawable/bg_hg_series_bar"
         android:gravity="center_vertical"
         android:orientation="horizontal"
@@ -427,7 +431,8 @@
             android:ellipsize="end"
             android:maxLines="1"
             android:textColor="#FFFFFF"
-            android:textSize="13sp" />
+            android:textSize="14sp"
+            android:textStyle="bold" />
 
         <TextView
             android:layout_width="wrap_content"

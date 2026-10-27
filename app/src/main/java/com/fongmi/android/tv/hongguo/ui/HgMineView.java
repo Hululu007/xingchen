@@ -47,7 +47,9 @@ public final class HgMineView extends LinearLayout {
     private static final int TAB_LIKE = 2;
     private static final int TAB_RESERVE = 3;
 
-    private TextView accountView;
+    private View guestRow;
+    private View userRow;
+    private TextView nicknameView;
     private TextView emptyView;
     private final TextView[] tabViews = new TextView[4];
     private final MineAdapter adapter = new MineAdapter();
@@ -76,7 +78,9 @@ public final class HgMineView extends LinearLayout {
     @Override
     protected void onFinishInflate() {
         super.onFinishInflate();
-        accountView = findViewById(R.id.hg_mine_account);
+        guestRow = findViewById(R.id.hg_mine_guest_row);
+        userRow = findViewById(R.id.hg_mine_user_row);
+        nicknameView = findViewById(R.id.hg_mine_nickname);
         emptyView = findViewById(R.id.hg_mine_empty);
         tabViews[TAB_HISTORY] = findViewById(R.id.hg_mine_tab_history);
         tabViews[TAB_FAV] = findViewById(R.id.hg_mine_tab_fav);
@@ -85,7 +89,8 @@ public final class HgMineView extends LinearLayout {
         RecyclerView grid = findViewById(R.id.hg_mine_grid);
         grid.setLayoutManager(new GridLayoutManager(getContext(), 3));
         grid.setAdapter(adapter);
-        accountView.setOnClickListener(v -> onAccountClick());
+        findViewById(R.id.hg_mine_login_btn).setOnClickListener(v -> onAccountClick());
+        userRow.setOnClickListener(v -> onAccountClick());
         for (int i = 0; i < tabViews.length; i++) {
             final int tab = i;
             tabViews[i].setOnClickListener(v -> selectTab(tab));
@@ -108,11 +113,14 @@ public final class HgMineView extends LinearLayout {
     }
 
     private void refreshAccount() {
-        if (LoginManager.isHongguoLoggedIn()) {
-            accountView.setText("红果账号已登录 · 点此退出");
-        } else {
-            accountView.setText("立即登录");
-        }
+        // 头部双态（官方构成）：未登录＝大标题/副行＋立即登录钮；
+        // 已登录＝头像 60dp＋昵称位。昵称/头像 URL 星辰无数据源（登录只托管
+        // Cookie、无账号资料口子），昵称位显账号态文案、头像位用字徽占位，
+        // 尺寸数值照官方（60dp/20sp 粗）先落，数据待资料口子另定。
+        boolean in = LoginManager.isHongguoLoggedIn();
+        guestRow.setVisibility(in ? GONE : VISIBLE);
+        userRow.setVisibility(in ? VISIBLE : GONE);
+        if (in) nicknameView.setText("红果账号已登录");
     }
 
     private void onAccountClick() {

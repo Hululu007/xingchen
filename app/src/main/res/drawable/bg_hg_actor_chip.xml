@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 选集单演员筹（官方真值：圆角 4dp、contentPadding 6/2/6/2、字 12sp；
+     底色为星辰深底单上的本地等价（官方皮肤底色未抠到），半透明白。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <corners android:radius="4dp" />
+    <solid android:color="#33FFFFFF" />
+</shape>

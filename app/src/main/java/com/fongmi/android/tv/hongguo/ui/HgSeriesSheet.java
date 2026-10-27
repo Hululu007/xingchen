@@ -57,7 +57,7 @@ public final class HgSeriesSheet {
             rows.add(0, HgSeriesItem.of(current.seriesId, current.title, current.coverUrl,
                     current.desc, current.episodeCount,
                     current.reservable, interactions.isReserved(current.seriesId),
-                    current.dueStartText));
+                    current.dueStartText).withSeriesStatus(current.seriesStatus));
         }
         if (rows.isEmpty()) return;
 
@@ -96,6 +96,10 @@ public final class HgSeriesSheet {
                 b.hgRowTitle.setText(item.getTitle() == null ? "" : item.getTitle());
                 StringBuilder sub = new StringBuilder();
                 if (item.getEpisodeCount() > 0) sub.append("全").append(item.getEpisodeCount()).append("集");
+                if (item.isFinished()) {
+                    if (sub.length() > 0) sub.append(" · ");
+                    sub.append("已完结");
+                }
                 if (item.getBadge() != null && !item.getBadge().isEmpty()) {
                     if (sub.length() > 0) sub.append(" · ");
                     sub.append(item.getBadge());

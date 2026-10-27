@@ -147,6 +147,32 @@ public class HgInteractionTest {
                 det.hasAppointment() && !det.isAppointmentSubscribed()
                         && "即将上线".equals(det.getDueStartText()), null);
 
+        // ---------- 详情演员表＋完结态（真回包 data.video_data 形态） ----------
+        HgSeriesDetail det2 = HgParser.parseVideoDetail("{\"data\":{\"video_data\":{\"series_id\":\"" + SERIES
+                + "\",\"series_title\":\"王妈剧\",\"series_status\":1,"
+                + "\"celebrities\":[{\"nickname\":\"王志欣\",\"role_name\":\"王妈\",\"avatar\":\"http://x/a.jpg\",\"sub_title\":\"饰 王妈\"},"
+                + "{\"nickname\":\"小乙\",\"role_name\":\"管家\"}]}}}");
+        check("详情 series_status=1 判完结",
+                det2.isFinished() && Integer.valueOf(1).equals(det2.getSeriesStatus()), null);
+        check("详情 celebrities 进模型（昵称/角色）",
+                det2.getCelebrities().size() == 2
+                        && "王志欣".equals(det2.getCelebrities().get(0).getNickname())
+                        && "王妈".equals(det2.getCelebrities().get(0).getRoleName())
+                        && "饰 王妈".equals(det2.getCelebrities().get(0).getSubTitle()), null);
+        HgSeriesDetail det3 = HgParser.parseVideoDetail("{\"data\":{\"series_id\":\"" + SERIES
+                + "\",\"title\":\"更新剧\",\"series_status\":0}}");
+        check("详情 series_status=0 不判完结", !det3.isFinished(), null);
+        HgSeriesDetail det4 = HgParser.parseVideoDetail("{\"data\":{\"series_id\":\"" + SERIES
+                + "\",\"title\":\"无状态剧\"}}");
+        check("详情无 series_status 默认按完结（官方 null 口径）",
+                det4.isFinished() && det4.getSeriesStatus() == null, null);
+        check("详情无 celebrities 为空表", det4.getCelebrities().isEmpty(), null);
+        String cellStatusJson = "{\"code\":0,\"data\":{\"cells\":[{\"series_id\":\"" + SERIES
+                + "\",\"title\":\"完结剧\",\"series_status\":1}]}}";
+        java.util.List<HgSeriesItem> statusItems = HgParser.parseCellPage(cellStatusJson).getItems();
+        check("cell series_status 进条目且判完结",
+                statusItems.size() == 1 && statusItems.get(0).isFinished(), null);
+
         // ---------- 我的预约列表解析（data.subscribe_items 容忍抽取） ----------
         String listJson = "{\"code\":0,\"data\":{\"subscribe_items\":[{\"item\":{"
                 + "\"book_id\":\"" + SERIES + "\",\"book_name\":\"预约剧甲\",\"cover\":\"http://x/c.jpg\"}}],"

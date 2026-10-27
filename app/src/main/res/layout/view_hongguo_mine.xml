@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 红果「我的」面：嵌在刷剧页壳内（底栏「我的」格），构成＝登录区＋页签排
-     （历史/收藏/点赞；预约页签等预约链抠实后再摆，链没通不摆）＋海报格子。
+     （历史/收藏/点赞/预约，序为他亲定；预约链已抠实落码 dd184c44）＋海报格子。
      无自带返回箭头（走系统返回），顶部留距由刷剧页按状态栏 insets 注入 padding。 -->
 <com.fongmi.android.tv.hongguo.ui.HgMineView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
@@ -59,6 +59,14 @@
             android:layout_height="wrap_content"
             android:padding="8dp"
             android:text="点赞"
+            android:textSize="15sp" />
+
+        <TextView
+            android:id="@+id/hg_mine_tab_reserve"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:padding="8dp"
+            android:text="预约"
             android:textSize="15sp" />
     </LinearLayout>
 

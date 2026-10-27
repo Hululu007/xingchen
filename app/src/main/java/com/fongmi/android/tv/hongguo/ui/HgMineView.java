@@ -15,6 +15,8 @@ import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.fongmi.android.tv.R;
+import com.fongmi.android.tv.hongguo.api.HgCallback;
+import com.fongmi.android.tv.hongguo.model.HgSeriesItem;
 import com.fongmi.android.tv.login.LoginManager;
 import com.fongmi.android.tv.utils.ImgUtil;
 
@@ -27,10 +29,12 @@ import java.util.Set;
  * 页签点开直接是格子内容，不再一层层菜单条（他对旧集合页的定罪点）。
  *
  * <p>构成按他的收敛口径：登录是死规格（未登录显「立即登录」走壳子统一托管的
- * 红果登录、登录后显账号态）；页签序＝历史／收藏／点赞／预约——预约链没抠通
- * 之前预约页签先不摆（不许假占位）；顶部四口排整排取消不留。历史格子带
- * 已看百分比（HgStore 断点＋总集数算得出才带）。收藏/点赞读本地镜像
- * （与旧列表页同源同口径），点格子回刷剧页续播。</p>
+ * 红果登录、登录后显账号态）；页签序＝历史／收藏／点赞／预约（他亲定预约
+ * 放点赞后面）；顶部四口排整排取消不留。历史格子带已看百分比（HgStore
+ * 断点＋总集数算得出才带）。收藏/点赞读本地镜像（与旧列表页同源同口径），
+ * 预约页签走预约链真口子（dd184c44）：本地镜像先显、已登录再拉服务端
+ * 预约列表刷新（旧 HgListActivity 的 KIND_RESERVED 口径捡回），点格子回
+ * 刷剧页续播。</p>
  */
 public final class HgMineView extends LinearLayout {
 
@@ -41,10 +45,11 @@ public final class HgMineView extends LinearLayout {
     private static final int TAB_HISTORY = 0;
     private static final int TAB_FAV = 1;
     private static final int TAB_LIKE = 2;
+    private static final int TAB_RESERVE = 3;
 
     private TextView accountView;
     private TextView emptyView;
-    private final TextView[] tabViews = new TextView[3];
+    private final TextView[] tabViews = new TextView[4];
     private final MineAdapter adapter = new MineAdapter();
     private int currentTab = TAB_HISTORY;
     private OnOpenSeries openListener;
@@ -76,6 +81,7 @@ public final class HgMineView extends LinearLayout {
         tabViews[TAB_HISTORY] = findViewById(R.id.hg_mine_tab_history);
         tabViews[TAB_FAV] = findViewById(R.id.hg_mine_tab_fav);
         tabViews[TAB_LIKE] = findViewById(R.id.hg_mine_tab_like);
+        tabViews[TAB_RESERVE] = findViewById(R.id.hg_mine_tab_reserve);
         RecyclerView grid = findViewById(R.id.hg_mine_grid);
         grid.setLayoutManager(new GridLayoutManager(getContext(), 3));
         grid.setAdapter(adapter);
@@ -140,6 +146,26 @@ public final class HgMineView extends LinearLayout {
             tabViews[i].setTypeface(null, on ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
         }
         List<Row> rows = new ArrayList<>();
+        if (currentTab == TAB_RESERVE) {
+            // 预约单（旧 HgListActivity 的 KIND_RESERVED 口径捡回）：本地镜像先显，
+            // 已登录再拉服务端预约列表刷新（回来以服务端为准重列）
+            for (String id : HgStore.reservedIds()) {
+                String[] meta = HgStore.metaOf(id);
+                if (meta == null) continue;
+                int count = -1;
+                try {
+                    count = Integer.parseInt(meta[2]);
+                } catch (Exception ignored) {
+                }
+                rows.add(new Row(id, meta[0], meta[1], count, "已预约"));
+            }
+            adapter.setRows(rows);
+            emptyView.setVisibility(rows.isEmpty() ? VISIBLE : GONE);
+            emptyView.setText(LoginManager.isHongguoLoggedIn()
+                    ? "还没有预约的剧" : "登录后这里显示你预约的剧");
+            if (LoginManager.isHongguoLoggedIn()) refreshReservedFromServer();
+            return;
+        }
         if (currentTab == TAB_HISTORY) {
             for (HgStore.HistoryRecord r : HgStore.historyRecords()) {
                 if (r.title == null) continue;
@@ -171,6 +197,41 @@ public final class HgMineView extends LinearLayout {
             emptyView.setText(currentTab == TAB_HISTORY ? "还没有观看记录"
                     : currentTab == TAB_FAV ? "还没有收藏" : "还没有点赞");
         }
+    }
+
+    /** 预约页签后台刷新：服务端预约列表回来后以服务端为准重列，并同步本地镜像与元信息（口径同旧列表页）。 */
+    private void refreshReservedFromServer() {
+        HgFeedSession.get().client.fetchMyReservations(new HgCallback<java.util.List<HgSeriesItem>>() {
+            @Override
+            public void onSuccess(java.util.List<HgSeriesItem> list) {
+                post(() -> {
+                    // 面已切走或列表为空都别拿空结果冲掉已显的镜像行（旧口径）
+                    if (currentTab != TAB_RESERVE || list == null) return;
+                    List<Row> fresh = new ArrayList<>();
+                    for (HgSeriesItem s : list) {
+                        if (s.getSeriesId() == null) continue;
+                        HgStore.setReserved(s.getSeriesId(), true);
+                        String[] local = HgStore.metaOf(s.getSeriesId());
+                        String title = s.getTitle() != null ? s.getTitle()
+                                : local != null ? local[0] : null;
+                        String cover = s.getCoverUrl() != null ? s.getCoverUrl()
+                                : local != null ? local[1] : null;
+                        HgStore.putMeta(s.getSeriesId(), title, cover, s.getEpisodeCount());
+                        String meta = s.getDueStartText() != null && !s.getDueStartText().isEmpty()
+                                ? "已预约 · " + s.getDueStartText() : "已预约";
+                        fresh.add(new Row(s.getSeriesId(), title, cover, s.getEpisodeCount(), meta));
+                    }
+                    if (fresh.isEmpty()) return;
+                    adapter.setRows(fresh);
+                    emptyView.setVisibility(GONE);
+                });
+            }
+
+            @Override
+            public void onError(int httpCode, String message) {
+                // 镜像已先显，刷新失败不打扰（页面已有内容/空态）
+            }
+        });
     }
 
     private static final class Row {

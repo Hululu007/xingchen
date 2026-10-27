@@ -54,8 +54,10 @@ public final class HgFeedSession {
         return n >= 10000 ? String.format(java.util.Locale.US, "%.1f万", n / 10000.0) : String.valueOf(n);
     }
     private final Map<String, HgSeriesDetail> details = new HashMap<>();
-    /** 专辑各季表缓存（进剧时 fetchAlbum 落，同一剧反复进不再重拉）。 */
-    private final Map<String, java.util.List<HgSeriesItem>> albums = new HashMap<>();
+    /** 专辑各季表缓存（进剧时 fetchAlbum 落，同一剧反复进不再重拉）。
+     * 写在网络回调线程、读在主线程，用并发图（details 图是主线程内写读，不在此列）。 */
+    private final Map<String, java.util.List<HgSeriesItem>> albums =
+            new java.util.concurrent.ConcurrentHashMap<>();
 
     /** 已取过的专辑各季表；没取过返回 null（空表＝取过且无季/已下架）。 */
     public java.util.List<HgSeriesItem> albumOf(String seriesId) {

@@ -21,6 +21,8 @@ public final class HgPrefetcher {
     private final HgApiClient client;
     private final HgModelCache cache;
     private final int lookahead;
+    /** 在途集 id：同一批缺集已有请求在飞时不重复发；请求完成／失败后清除。 */
+    private final java.util.Set<String> inFlight = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     public HgPrefetcher(HgApiClient client, HgModelCache cache) {
         this(client, cache, DEFAULT_LOOKAHEAD);
@@ -60,29 +62,39 @@ public final class HgPrefetcher {
         prefetchIds(missing, done);
     }
 
-    /** 预取任意一批集（如跨剧的下一部第一集）：缺的一次批量取回。 */
+    /** 预取任意一批集（如跨剧的下一部第一集）：缺的一次批量取回。
+     * 在途去重：已在飞的 id 本次跳过（不重复发请求），全部跳过时直接回调 0。 */
     public void prefetchIds(List<String> videoIds, HgCallback<Integer> done) {
         List<String> missing = new ArrayList<>();
         if (videoIds != null) {
             for (String id : videoIds) {
-                if (id != null && !cache.hasFresh(id)) missing.add(id);
+                // cache.hasFresh 先判：在途标记只加在真要发的 id 上
+                if (id != null && !cache.hasFresh(id) && inFlight.add(id)) missing.add(id);
             }
         }
         if (missing.isEmpty()) {
             if (done != null) done.onSuccess(0);
             return;
         }
-        client.fetchVideoModels(missing, new HgCallback<java.util.Map<String, HgVideoModel>>() {
+        final List<String> fetching = missing;
+        client.fetchVideoModels(fetching, new HgCallback<java.util.Map<String, HgVideoModel>>() {
             @Override
             public void onSuccess(java.util.Map<String, HgVideoModel> result) {
+                inFlight.removeAll(fetching);
                 cache.putAll(result);
                 if (done != null) done.onSuccess(result.size());
             }
 
             @Override
             public void onError(int httpCode, String message) {
+                inFlight.removeAll(fetching);
                 if (done != null) done.onError(httpCode, message);
             }
         });
+    }
+
+    /** 当前在途的预取集数（单测／诊断用）。 */
+    public int inFlightCount() {
+        return inFlight.size();
     }
 }

@@ -45,6 +45,14 @@ public final class HgFeedSession {
 
     /** 当前流页表（主线程限定）。 */
     public final List<HgFeedItem> items = new ArrayList<>();
+    /** 评论总数（按剧，评论面板真拉到才有；右列计数以此为准，没数不亮）。 */
+    public final Map<String, Long> commentCounts = new HashMap<>();
+
+    public String commentCountOf(String seriesId) {
+        Long n = seriesId == null ? null : commentCounts.get(seriesId);
+        if (n == null || n <= 0) return null;
+        return n >= 10000 ? String.format(java.util.Locale.US, "%.1f万", n / 10000.0) : String.valueOf(n);
+    }
     private final Map<String, HgSeriesDetail> details = new HashMap<>();
     private final Handler main = new Handler(Looper.getMainLooper());
 

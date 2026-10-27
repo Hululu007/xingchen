@@ -128,7 +128,9 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         b.hgFollowBadge.setText(followed ? "✓" : "+");
         b.hgFollowBadge.setAlpha(followed ? 0.55f : 1f);
         setCount(b.hgLikeCount, item.likeCount);
-        setCount(b.hgCommentCount, item.commentCount);
+        // 评论数数据驱动：会话里有真总数（评论面板拉到过）才亮，否则不显示
+        String cc = session.commentCountOf(item.seriesId);
+        setCount(b.hgCommentCount, cc != null ? cc : item.commentCount);
         setCount(b.hgFavCount, item.favCount);
     }
 

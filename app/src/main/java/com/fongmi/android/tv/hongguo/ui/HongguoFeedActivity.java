@@ -667,7 +667,11 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                 }
                 if (h != null && position == currentPos) adapter.bindInteractionState(h, item);
             }
-            case COMMENT -> HgCommentsPanel.show(this, item);
+            case COMMENT -> HgCommentsPanel.show(this, item, total -> {
+                if (item.seriesId != null) session.commentCounts.put(item.seriesId, total);
+                HgFeedAdapter.Holder ch = currentHolder();
+                if (ch != null && position == currentPos) adapter.bindInteractionState(ch, item);
+            });
             case SHARE -> share(item);
         }
         armAutoHide();

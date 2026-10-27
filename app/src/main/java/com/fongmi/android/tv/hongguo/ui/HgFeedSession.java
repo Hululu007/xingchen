@@ -80,6 +80,7 @@ public final class HgFeedSession {
     public void clearRuntimeCache() {
         cache.clear();
         details.clear();
+        albums.clear();
     }
 
     private HgFeedSession() {

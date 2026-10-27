@@ -179,7 +179,7 @@ public final class HgMineView extends LinearLayout {
                 rows.add(new Row(r.seriesId, r.title, r.cover, r.episodeCount, meta));
             }
         } else {
-            Set<String> ids = currentTab == TAB_FAV ? HgStore.favedIds() : HgStore.likedIds();
+            List<String> ids = currentTab == TAB_FAV ? HgStore.favedIds() : HgStore.likedIds();
             for (String id : ids) {
                 String[] meta = HgStore.metaOf(id);
                 if (meta == null) continue;

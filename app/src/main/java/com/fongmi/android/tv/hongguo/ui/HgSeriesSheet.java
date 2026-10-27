@@ -54,7 +54,7 @@ public final class HgSeriesSheet {
                     && s.getSeriesId().equals(current.seriesId)) hasCurrent = true;
         }
         if (current != null && !hasCurrent) {
-            rows.add(0, new HgSeriesItem(current.seriesId, current.title, current.coverUrl,
+            rows.add(0, HgSeriesItem.of(current.seriesId, current.title, current.coverUrl,
                     current.desc, current.episodeCount,
                     current.reservable, interactions.isReserved(current.seriesId),
                     current.dueStartText));
@@ -110,8 +110,8 @@ public final class HgSeriesSheet {
                 }
                 bindFav(b, item, interactions);
                 b.hgRowFav.setOnClickListener(v -> {
-                    // 收藏钮走互动真口子（HgFeedItem.fromSeries 只作载体）；未登录在口子内拉登录
-                    interactions.toggleFavorite(activity, HgFeedItem.fromSeries(item, null));
+                    // 收藏钮走互动真口子（只认 seriesId）；未登录在口子内拉登录
+                    interactions.toggleFavorite(item.getSeriesId());
                     bindFav(b, item, interactions);
                 });
                 holder.itemView.setOnClickListener(v -> {

@@ -40,6 +40,13 @@ public final class HgSeriesItem {
         this(seriesId, title, coverUrl, desc, episodeCount, false, false, null);
     }
 
+    public static HgSeriesItem of(String seriesId, String title, String coverUrl, String desc,
+                                  int episodeCount, boolean hasAppointment,
+                                  boolean appointmentSubscribed, String dueStartText) {
+        return new HgSeriesItem(seriesId, title, coverUrl, desc, episodeCount,
+                hasAppointment, appointmentSubscribed, dueStartText);
+    }
+
     HgSeriesItem(String seriesId, String title, String coverUrl, String desc, int episodeCount,
                  boolean hasAppointment, boolean appointmentSubscribed, String dueStartText) {
         this(seriesId, title, coverUrl, desc, episodeCount, hasAppointment, appointmentSubscribed,

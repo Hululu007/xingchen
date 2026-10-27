@@ -1,0 +1,4 @@
+-proc:none
+-d
+/tmp/hkparse
+app/src/main/java/com/fongmi/android/tv/player/PlayerManager.java

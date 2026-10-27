@@ -57,9 +57,10 @@ import java.util.Locale;
  * 横屏全屏观看态（landMode，他定案全屏全隐藏＋防烧屏），竖屏点屏只切
  * 播放/暂停、全屏控制条只在横屏态点屏唤出、自动再隐。</p>
  *
- * <p>弹幕：本阶段只做开关与状态落盘（HgStore）。弹幕数据源在红果样本回包里
- * 没实证，不编内容；树里另有 HongguoDanmakuApi（海阔规则线共建的壳子抓取器，
- * 挂在点播播放链上），原生流的弹幕渲染接线不在本阶段范围。</p>
+ * <p>弹幕：数据源已定版（danmaku-dig-20261028.md——评论口同端点换弹幕档，
+ * 匿名可拉）：起播按窗拉取（服务端 30 秒切窗）、播放头跨窗界续拉、seek 后
+ * 以新位置重拉，渲染走 PlayerView 自带的 media3 弹幕层（与点播播放器同套），
+ * 开关在「弹」筹与抽屉两处同源（HgStore）。</p>
  */
 public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.Host {
 
@@ -92,6 +93,14 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     private HgFeedSession session;
     private HgFeedAdapter adapter;
     private PlayerView playerView;
+    // 弹幕窗状态（当前条 vid 一换全清）：累积条目每窗回包后整表重喂控制器
+    private String danmakuVid;
+    private String danmakuSeriesId;
+    private final java.util.List<androidx.media3.ui.danmaku.Danmaku> danmakuItems =
+            new java.util.ArrayList<>();
+    private String danmakuCursor;
+    private long danmakuNextQueryMs = -1;
+    private boolean danmakuFetching;
     private ExoPlayerEngine engine;
     private Player player;
     private HgFeedSources.Tab tab = HgFeedSources.Tab.RECOMMEND;
@@ -176,7 +185,28 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             playerView.setResizeMode(landscape
                     ? AspectRatioFrameLayout.RESIZE_MODE_FIT : AspectRatioFrameLayout.RESIZE_MODE_ZOOM);
             HgFeedAdapter.Holder h = currentHolder();
-            if (h != null) h.binding.hgFullscreenWatch.setVisibility(landscape ? View.VISIBLE : View.GONE);
+            if (h != null) {
+                android.view.View btn = h.binding.hgFullscreenWatch;
+                btn.setVisibility(landscape ? View.VISIBLE : View.GONE);
+                if (landscape) anchorFullscreenWatch(h, size.width, size.height);
+            }
+        }
+
+        /**
+         * 「全屏观看」钮锚位：官方实拍是贴在视频画面下沿之下居中（113482），
+         * 不是挂在屏幕正中——旧版 layout 居中＋marginTop 130dp 是估的，宽高比
+         * 一变就飘。真尺寸到达后按 FIT 渲染高算：钮心 = 视频下沿 + 15dp 间隙
+         * + 钮半高（钮在布局里 gravity 居中，translationY 以页面中心为原点）。
+         */
+        private void anchorFullscreenWatch(HgFeedAdapter.Holder h, int videoW, int videoH) {
+            android.view.View root = h.binding.getRoot();
+            android.view.View btn = h.binding.hgFullscreenWatch;
+            int pageW = root.getWidth();
+            if (pageW <= 0 || videoW <= 0 || videoH <= 0) return;
+            float density = getResources().getDisplayMetrics().density;
+            float renderedH = (float) pageW * videoH / videoW;
+            int btnH = btn.getHeight() > 0 ? btn.getHeight() : Math.round(40 * density);
+            btn.setTranslationY(renderedH / 2f + 15 * density + btnH / 2f);
         }
 
         @Override
@@ -238,6 +268,9 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         });
         playerView = new PlayerView(this);
         playerView.setUseController(false);
+        playerView.setDanmakuEnabled(HgStore.isDanmakuOn());
+        playerView.getDanmakuController().setConfig(
+                com.fongmi.android.tv.setting.DanmakuSetting.getConfig());
         playerView.setShutterBackgroundColor(0xFF000000);
         playerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_ZOOM);
         setupTabs();
@@ -306,7 +339,15 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             public void onStopTrackingTouch(SeekBar bar) {
                 seeking = false;
                 if (player != null && player.getDuration() > 0) {
-                    player.seekTo(bar.getProgress() * player.getDuration() / 1000);
+                    long to = bar.getProgress() * player.getDuration() / 1000;
+                    player.seekTo(to);
+                    // seek 后弹幕以新位置重拉（官方 RequestFrom.ON_SEEK_FINISH 同口径）
+                    if (danmakuVid != null) {
+                        danmakuItems.clear();
+                        danmakuCursor = null;
+                        danmakuNextQueryMs = -1;
+                        fetchDanmakuWindow(to);
+                    }
                 }
                 ui.postDelayed(hideFsRunnable, FS_HIDE_DELAY_MS);
             }
@@ -596,6 +637,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         playingVideoId = videoId;
         if (startAt > 0) engine.start(spec, startAt, true);
         else engine.start(spec, true);
+        startDanmakuFor(item, startAt);
         armAutoHide();
     }
 
@@ -746,6 +788,11 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         if (now - lastSaveMs > 4000 && player.isPlaying()) {
             lastSaveMs = now;
             saveProgress();
+        }
+        // 弹幕续拉：播放头跨过服务端给的下一窗起点就拉下一窗（游标原样回传）
+        if (danmakuVid != null && !danmakuFetching && danmakuNextQueryMs >= 0
+                && position >= danmakuNextQueryMs) {
+            fetchDanmakuWindow(danmakuNextQueryMs);
         }
     }
 
@@ -1014,10 +1061,105 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
 
     @Override
     public void onDanmakuToggle(int position) {
-        HgStore.setDanmakuOn(!HgStore.isDanmakuOn());
+        applyDanmakuSwitch(!HgStore.isDanmakuOn());
+    }
+
+    /** 弹幕开关统一落点（「弹」筹与抽屉开关共用）：落状态＋启停渲染层＋开时为当前条起拉。 */
+    private void applyDanmakuSwitch(boolean on) {
+        HgStore.setDanmakuOn(on);
         HgFeedAdapter.Holder h = currentHolder();
         if (h != null) adapter.bindDanmakuState(h);
-        // 开关只落状态：弹幕内容本阶段不渲染（数据源未实证，见类头注）
+        if (playerView != null) playerView.setDanmakuEnabled(on);
+        if (on) {
+            if (currentPos >= 0 && currentPos < session.items.size()) {
+                startDanmakuFor(session.items.get(currentPos),
+                        player == null ? 0 : player.getCurrentPosition());
+            }
+        } else {
+            clearDanmaku();
+        }
+    }
+
+    /** 为一条起弹幕：关着/无 vid 直接清；同 vid 已有条目不重拉。 */
+    private void startDanmakuFor(HgFeedItem item, long startAtMs) {
+        if (playerView == null || item == null) return;
+        if (!HgStore.isDanmakuOn() || item.videoId == null || item.seriesId == null) {
+            clearDanmaku();
+            return;
+        }
+        if (item.videoId.equals(danmakuVid) && !danmakuItems.isEmpty()) return;
+        danmakuVid = item.videoId;
+        danmakuSeriesId = item.seriesId;
+        danmakuItems.clear();
+        danmakuCursor = null;
+        danmakuNextQueryMs = -1;
+        playerView.getDanmakuController().clearItems();
+        fetchDanmakuWindow(Math.max(0, startAtMs));
+    }
+
+    private void clearDanmaku() {
+        danmakuVid = null;
+        danmakuSeriesId = null;
+        danmakuItems.clear();
+        danmakuCursor = null;
+        danmakuNextQueryMs = -1;
+        danmakuFetching = false;
+        if (playerView != null) playerView.getDanmakuController().clearItems();
+    }
+
+    /** 拉一窗弹幕（窗界服务端定）：回包整表重喂控制器，迟到回包按 vid 丢弃。 */
+    private void fetchDanmakuWindow(long startMs) {
+        final String vid = danmakuVid;
+        final String sid = danmakuSeriesId;
+        if (vid == null || sid == null || danmakuFetching) return;
+        danmakuFetching = true;
+        long durationMs = player == null ? 0 : Math.max(0, player.getDuration());
+        session.fqClient.episodeDanmaku(sid, vid, startMs, durationMs, danmakuCursor,
+                new com.fongmi.android.tv.hongguo.api.HgCallback<
+                        com.fongmi.android.tv.hongguo.model.HgDanmaku.Window>() {
+                    @Override
+                    public void onSuccess(com.fongmi.android.tv.hongguo.model.HgDanmaku.Window w) {
+                        runOnUiThread(() -> {
+                            danmakuFetching = false;
+                            if (!vid.equals(danmakuVid)) return; // 已滑走/已关
+                            for (com.fongmi.android.tv.hongguo.model.HgDanmaku dm : w.items) {
+                                danmakuItems.add(toMedia3Danmaku(dm));
+                            }
+                            if (playerView != null) {
+                                playerView.getDanmakuController().setItems(
+                                        new java.util.ArrayList<>(danmakuItems));
+                            }
+                            danmakuCursor = w.cursor;
+                            danmakuNextQueryMs = w.nextQueryTimeMs;
+                        });
+                    }
+
+                    @Override
+                    public void onError(int httpCode, String message) {
+                        runOnUiThread(() -> {
+                            danmakuFetching = false;
+                            danmakuNextQueryMs = -1; // 失败不重试刷屏，seek/重播会再起
+                        });
+                    }
+                });
+    }
+
+    /** HgDanmaku → media3 弹幕条：位置 0 滚动／1 底／2 顶，颜色缺省白。 */
+    private static androidx.media3.ui.danmaku.Danmaku toMedia3Danmaku(
+            com.fongmi.android.tv.hongguo.model.HgDanmaku dm) {
+        int type = dm.positionType == 1 ? androidx.media3.ui.danmaku.Danmaku.TYPE_BOTTOM
+                : dm.positionType == 2 ? androidx.media3.ui.danmaku.Danmaku.TYPE_TOP
+                : androidx.media3.ui.danmaku.Danmaku.TYPE_SCROLL;
+        int color = android.graphics.Color.WHITE;
+        if (dm.colorHex != null && !dm.colorHex.isEmpty()) {
+            try {
+                color = android.graphics.Color.parseColor(
+                        dm.colorHex.startsWith("#") ? dm.colorHex : "#" + dm.colorHex);
+            } catch (Exception ignored) {
+            }
+        }
+        return new androidx.media3.ui.danmaku.Danmaku(dm.text, dm.offsetTimeMs, type, color,
+                0f, 0, "", 0);
     }
 
     @Override
@@ -1198,11 +1340,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         direct.setOnCheckedChangeListener((b, on) -> HgStore.setLaunchDirect(on));
         android.widget.Switch danmaku = binding.hgDrawer.hgDrawerDanmaku;
         danmaku.setChecked(HgStore.isDanmakuOn());
-        danmaku.setOnCheckedChangeListener((b, on) -> {
-            HgStore.setDanmakuOn(on);
-            HgFeedAdapter.Holder h = currentHolder();
-            if (h != null) adapter.bindDanmakuState(h);
-        });
+        danmaku.setOnCheckedChangeListener((b, on) -> applyDanmakuSwitch(on));
         android.widget.Switch autoNext = binding.hgDrawer.hgDrawerAutonext;
         autoNext.setChecked(HgStore.isAutoNext());
         autoNext.setOnCheckedChangeListener((b, on) -> HgStore.setAutoNext(on));

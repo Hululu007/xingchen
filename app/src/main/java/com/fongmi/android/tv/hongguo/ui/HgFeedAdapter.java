@@ -156,6 +156,22 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         b.hgSeriesText.setText(item.seriesBarText());
         // 横屏短片给全屏观看钮（账 §3.8）：取模型宽高定真朝向，未知先按 cell vertical 预判
         b.hgFullscreenWatch.setVisibility(item.isLandscape() || item.landscapeHint ? View.VISIBLE : View.GONE);
+        // 钮锚位与 Activity.anchorFullscreenWatch 同公式（贴视频下沿）：有真
+        // 尺寸的条目绑定时就锚好（回收复用的钮先归零防串位），没尺寸的等
+        // 首帧 onVideoSizeChanged 再锚
+        if (item.isLandscape() && item.videoWidth > 0 && item.videoHeight > 0) {
+            b.getRoot().post(() -> {
+                int pageW = b.getRoot().getWidth();
+                if (pageW <= 0) return;
+                float density = b.getRoot().getResources().getDisplayMetrics().density;
+                float renderedH = (float) pageW * item.videoHeight / item.videoWidth;
+                int btnH = b.hgFullscreenWatch.getHeight() > 0
+                        ? b.hgFullscreenWatch.getHeight() : Math.round(40 * density);
+                b.hgFullscreenWatch.setTranslationY(renderedH / 2f + 15 * density + btnH / 2f);
+            });
+        } else {
+            b.hgFullscreenWatch.setTranslationY(0f);
+        }
         bindInteractionState(holder, item);
         bindDanmakuState(holder);
         bindClicks(holder, position);

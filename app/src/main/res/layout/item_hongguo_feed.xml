@@ -32,7 +32,6 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="center"
-        android:layout_marginTop="130dp"
         android:background="@drawable/bg_hg_chip"
         android:drawableStart="@drawable/ic_hg_fullscreen"
         android:drawablePadding="6dp"

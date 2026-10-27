@@ -261,8 +261,8 @@ public class MusicChartsActivity extends BaseActivity {
     private void neutralChartCard(View cardRoot) {
         if (cardRoot == null) return;
         MusicGlassWire.glassifyView(cardRoot);
-        if (cardRoot.getBackground() instanceof com.fongmi.android.tv.ui.music.MusicGlassDrawable) {
-            ((com.fongmi.android.tv.ui.music.MusicGlassDrawable) cardRoot.getBackground()).setToneColor(0);
+        if (cardRoot.getBackground() instanceof com.fongmi.android.tv.ui.music.MusicFrostDrawable) {
+            ((com.fongmi.android.tv.ui.music.MusicFrostDrawable) cardRoot.getBackground()).setToneColor(0);
         }
     }
 

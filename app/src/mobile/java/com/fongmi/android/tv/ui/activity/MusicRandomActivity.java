@@ -27,6 +27,7 @@ import com.fongmi.android.tv.music.MusicLibrary;
 import com.fongmi.android.tv.music.MusicQueue;
 import com.fongmi.android.tv.music.MusicStore;
 import com.fongmi.android.tv.music.PyMusicSource;
+import com.fongmi.android.tv.ui.music.MusicGlassWire;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.Notify;
@@ -110,7 +111,7 @@ public class MusicRandomActivity extends BaseActivity {
     private final Handler watchdogHandler = new Handler(Looper.getMainLooper());
     private final Runnable watchdogRun = this::onResolveWatchdog;
     /** 当前封面 tone 的 accent（tone 向黑混 0.28，瓜子 discoveryAccent 口径）；无封面时为 textHigh */
-    private int toneAccent = 0xFF1C1C1E;
+    private int toneAccent = 0xFFF1F4F5;
 
     private final MusicController.Listener listener = new MusicController.Listener() {
         @Override
@@ -161,10 +162,10 @@ public class MusicRandomActivity extends BaseActivity {
         activity.startActivity(new Intent(activity, MusicRandomActivity.class));
     }
 
-    // 随心听页已照瓜子改浅色底，深色系统图标（与浅底对比得上）
+    // 2026-10-27 材料推广：页底换海水照片（与其它音乐页同构），系统图标转浅色系
     @Override
     protected boolean useDarkSystemIcons() {
-        return true;
+        return false;
     }
 
     protected ViewBinding getBinding() {
@@ -175,6 +176,16 @@ public class MusicRandomActivity extends BaseActivity {
     @Override
     protected void initView(Bundle savedInstanceState) {
         pageAlive = true;
+        // 材料推广（2026-10-27 他亲令，与其它音乐页同口径）：整树先走共享接线翻字，
+        // 本页自有 shape（bg_shuffle_*）不在识别表里，逐件直换暗磨砂——唱片卡 20dp、
+        // 丸子键 18dp、中央播放钮圆。布局底已换海水照片背景层（activity_music_random）。
+        MusicGlassWire.glassifyTree(binding.getRoot());
+        MusicGlassWire.glassifyView(binding.cardRoot, 20f);
+        MusicGlassWire.glassifyView(binding.btnPlayPause, 999f);
+        MusicGlassWire.glassifyView(binding.btnDislike, 18f);
+        MusicGlassWire.glassifyView(binding.btnFav, 18f);
+        MusicGlassWire.glassifyView(binding.btnRetry, 18f);
+        MusicGlassWire.glassifyView(binding.btnEmptyHome, 18f);
         // 盘径照瓜子公式：min(卡内可用宽， 300dp)，矮屏（高 <740dp）走紧凑支：上限 260、
         // 卡横内距 16／底内距 12、唱片区顶距 10、口号隐藏、卡与面板间距 14、面板块间距 12。
         float density = getResources().getDisplayMetrics().density;
@@ -204,11 +215,11 @@ public class MusicRandomActivity extends BaseActivity {
         setSize(binding.ivDiscCover, (int) (d * 0.68f));
         setSize(binding.discDot, (int) (d * 0.053f));
         setSize(binding.ivDiscFallback, (int) (d * 0.24f));
-        binding.btnPrev.setImageTintList(android.content.res.ColorStateList.valueOf(0xFF1C1C1E));
-        binding.btnNext.setImageTintList(android.content.res.ColorStateList.valueOf(0xFF1C1C1E));
+        binding.btnPrev.setImageTintList(android.content.res.ColorStateList.valueOf(0xFFF1F4F5));
+        binding.btnNext.setImageTintList(android.content.res.ColorStateList.valueOf(0xFFF1F4F5));
         // 无封面 fallback 图标：瓜子口径白 @0.85
         binding.ivDiscFallback.setImageTintList(android.content.res.ColorStateList.valueOf(0xD9FFFFFF));
-        applySeekTone(0xFF1C1C1E);
+        applySeekTone(0xFFF1F4F5);
         discAnim = ObjectAnimator.ofFloat(binding.discWrap, "rotation", 0f, 360f);
         discAnim.setDuration(24000);
         discAnim.setInterpolator(new LinearInterpolator());
@@ -219,8 +230,8 @@ public class MusicRandomActivity extends BaseActivity {
         // 「不合口味」照瓜子原键名落码（他亲点整页照瓜子）；星辰无偏好学习引擎，点击行为仍是
         // 切下一首；此前被定为假许诺的是「正在结合你的收藏与听歌足迹…由你的偏好决定」那段
         // 说明文案——那段不恢复，页内副文案只写星辰真实来源链
-        pinBtnIcon(binding.btnDislike, R.drawable.ic_shuffle_dislike, 0, false);
-        pinBtnIcon(binding.btnFav, R.drawable.ic_music_heart, 0xFF1C1C1E, true);
+        pinBtnIcon(binding.btnDislike, R.drawable.ic_shuffle_dislike, 0xFFF1F4F5, true);
+        pinBtnIcon(binding.btnFav, R.drawable.ic_music_heart, 0xFFF1F4F5, true);
         binding.btnDislike.setOnClickListener(v -> manualSwitch(() -> MusicController.get().next()));
         binding.btnFav.setOnClickListener(v -> toggleFav());
         binding.tvRediscover.setOnClickListener(v -> buildQueue());
@@ -639,8 +650,8 @@ public class MusicRandomActivity extends BaseActivity {
             }
             binding.ivDiscCover.setImageDrawable(null);
             binding.ivDiscFallback.setVisibility(View.VISIBLE);
-            applySeekTone(0xFF1C1C1E);
-            toneAccent = 0xFF1C1C1E;
+            applySeekTone(0xFFF1F4F5);
+            toneAccent = 0xFFF1F4F5;
             binding.ruler.setToneColor(0x8C8E8E93);
             refreshStateDot();
         } else {
@@ -906,18 +917,18 @@ public class MusicRandomActivity extends BaseActivity {
         MusicTrack cur = MusicController.get().current();
         if (cur == null || cur.id == null) {
             binding.btnFav.setText("收藏这首");
-            binding.btnFav.setTextColor(0xFF1C1C1E);
-            pinBtnIcon(binding.btnFav, R.drawable.ic_music_heart, 0xFF1C1C1E, true);
+            binding.btnFav.setTextColor(0xFFF1F4F5);
+            pinBtnIcon(binding.btnFav, R.drawable.ic_music_heart, 0xFFF1F4F5, true);
             return;
         }
         MusicLibrary.isFavorite(cur, fav -> {
             if (!pageAlive) return;
             binding.btnFav.setText(fav ? "已收藏这首" : "收藏这首");
             // 浅底丸子键：未收藏 textHigh、已收藏红（星辰既有口径色 #FA243C 保留）
-            binding.btnFav.setTextColor(fav ? 0xFFFA243C : 0xFF1C1C1E);
+            binding.btnFav.setTextColor(fav ? 0xFFFA243C : 0xFFF1F4F5);
             pinBtnIcon(binding.btnFav,
                     fav ? R.drawable.ic_music_heart_fill : R.drawable.ic_music_heart,
-                    fav ? 0xFFFA243C : 0xFF1C1C1E, true);
+                    fav ? 0xFFFA243C : 0xFFF1F4F5, true);
         });
     }
 

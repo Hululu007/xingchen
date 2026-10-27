@@ -25,11 +25,14 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * 音乐弹窗统一玻璃壳（2026-10-26 他令「全换玻璃」）：音乐内系统 Material/框架
+ * 音乐弹窗统一壳（2026-10-26 他令「全换玻璃」）：音乐内系统 Material/框架
  * AlertDialog 家族（58 处提及、47 个 Material 构造点＋云盘/猜你喜欢 7 个框架构造点）
- * 的共享收口——面板换同源液态玻璃 MusicGlassDrawable（与工具面板 MusicToolsSheet
- * 同材质：边缘亮边/顶部流光/悬浮分层/按压发亮），字按 MusicGlassWire 的翻字口径
+ * 的共享收口——面板换同源材料件，字按 MusicGlassWire 的翻字口径
  * 翻成白系（主 #F1F4F5／副 白.60），不许再出浅色面板＋黑字。
+ *
+ * 2026-10-27 材料推广：面板材料随全页推广换成暗磨砂 MusicFrostDrawable
+ * （弹窗窗内无背景 View 可取样，走磨砂件的下限面——钉死深灰近不透明满铺，成形口径
+ * 与页面磨砂件一致），本壳的翻字/染色口径不变。
  *
  * 接法两条：
  * 1) Material 构造点走 MusicGlassDialogBuilder（create 时调 attach）；
@@ -50,12 +53,12 @@ public final class MusicGlassDialogs {
     private static final int FG_SUB = 0x99FFFFFF; // 白 .60
     private static final int FG_ICON = 0xFFF1F3F5;
 
-    /** 挂壳：窗底换玻璃＋显示时整片翻字。create() 之后、show() 之前调。 */
+    /** 挂壳：窗底换磨砂＋显示时整片翻字。create() 之后、show() 之前调。 */
     public static void attach(Dialog dialog) {
         if (dialog == null) return;
         Window window = dialog.getWindow();
         if (window != null) {
-            window.setBackgroundDrawable(new MusicGlassDrawable(dialog.getContext(), RADIUS_DP));
+            window.setBackgroundDrawable(new MusicFrostDrawable(dialog.getContext(), RADIUS_DP));
             // 进出统一淡入淡出 200ms，与海阔/阅读弹窗同口径（HkDialogFade），进出双向。
             window.setWindowAnimations(R.style.HkDialogFade);
         }
@@ -103,7 +106,7 @@ public final class MusicGlassDialogs {
     /**
      * 整树走一遍：
      * - 浅色实底面（亮度 >0.55 的纯色/渐变底）子树整片跳过——那是与深字配对的浅盒，不在本壳范围；
-     * - 自定义内容里的裸 Button（非弹窗动作钮、非开关类）按落雪密钥弹窗先例换玻璃面（12dp），
+     * - 自定义内容里的裸 Button（非弹窗动作钮、非开关类）按落雪密钥弹窗先例换磨砂面（12dp），
      *   其内文字由 glassifyView 自带的 flipForeground 收口，本趟不再重复收；
      * - 其余 TextView 收集起来统一按字号分主/副翻；EditText 补下划线染色；
      * - 单选/多选的指示器（CheckedTextView 的对勾/圆点、CompoundButton 的钮）补染色：
@@ -114,9 +117,9 @@ public final class MusicGlassDialogs {
         boolean light = inLightBox || surfaceLuminance(v.getBackground()) > 0.55f;
         if (!light) {
             if (v instanceof Button && !(v instanceof CompoundButton) && !actionButtons.contains(v)
-                    && !(v.getBackground() instanceof MusicGlassDrawable)) {
+                    && !(v.getBackground() instanceof MusicFrostDrawable)) {
                 MusicGlassWire.glassifyView(v, 12f);
-                return; // 玻璃面的子树已由 flipForeground 收口
+                return; // 磨砂面的子树已由 flipForeground 收口
             }
             if (v instanceof TextView) {
                 TextView t = (TextView) v;
@@ -139,7 +142,7 @@ public final class MusicGlassDialogs {
     /** 输入框下划线/框线染色：底是框架默认件（认不出亮度）才染成白 .60；已成形的深/浅盒不动。 */
     private static void tintEditText(EditText et) {
         Drawable bg = et.getBackground();
-        if (bg == null || bg instanceof MusicGlassDrawable) return;
+        if (bg == null || bg instanceof MusicFrostDrawable) return;
         if (surfaceLuminance(bg) >= 0f) return; // 纯色/渐变盒已成形（深浅都配对好了），不洗
         try {
             et.setBackgroundTintList(ColorStateList.valueOf(FG_SUB));

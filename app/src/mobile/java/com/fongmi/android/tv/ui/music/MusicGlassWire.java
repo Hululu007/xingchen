@@ -21,8 +21,15 @@ import java.util.WeakHashMap;
 
 /**
  * 音乐玻璃共用接线（W2 材料层从零重写）：把各页/各行现用的半透填充件（无糊底的 shape 家族）
- * 按资源识别统一换成同源液态玻璃 MusicGlassDrawable，圆角逐件与原 shape 的 corners 对应（见识别表）。
+ * 按资源识别统一换成同源材料件，圆角逐件与原 shape 的 corners 对应（见识别表）。
  * 页面在 initView 走树一遍（glassifyTree），行在 Holder/绑定点单换（glassifyView）。
+ *
+ * 2026-10-27 材料推广（他亲令「把音乐首页这个背景跟磨砂玻璃应用到音乐其他页面」）：
+ * 本接线产出的材料件由液态玻璃 MusicGlassDrawable 整批换成音乐首页试点同款暗磨砂
+ * MusicFrostDrawable（钉死深灰 #333333@.85＋身后海水照片厚糊底＋白 .25 淡边），
+ * 背景由 MusicGlassBackgroundView 改渲同一张海水照片供给取样。识别表/圆角/tone/
+ * 翻字/滚动刷新/开关收口的接线口径一字不变，只是件的材料换了；类名与方法名保留
+ * （全树调用点不动）。MusicGlassDrawable 本体留树，不再由本接线产出。
  *
  * 识别表口径（照旧口径恢复，w2-glass.md 对照表同表）：
  * 只识别 shape 家族件；StateList/selector 包裹的背景 ConstantState 对不上、自动跳过不误伤；
@@ -322,13 +329,13 @@ public final class MusicGlassWire {
         return found;
     }
 
-    /** 单件换玻璃：背景命中识别表才换，返回是否换了。已是玻璃件不重复包。选中族同步挂 tone 成带色玻璃。
-     * 已是玻璃件时也要重翻前景：列表行复用绑定时绑定代码会把字色重新写回深色（旧浅色口径），
-     * 只在首次换玻璃时翻一次，复用行就又变黑字（他点名「黑色字还是有」的机制之一）。 */
+    /** 单件换材料：背景命中识别表才换，返回是否换了。已是磨砂件不重复包。选中族同步挂 tone 成带色磨砂。
+     * 已是磨砂件时也要重翻前景：列表行复用绑定时绑定代码会把字色重新写回深色（旧浅色口径），
+     * 只在首次换材料时翻一次，复用行就又变黑字（他点名「黑色字还是有」的机制之一）。 */
     public static boolean glassifyView(View v) {
         if (v == null) return false;
         Drawable bg = v.getBackground();
-        if (bg instanceof MusicGlassDrawable) {
+        if (bg instanceof MusicFrostDrawable) {
             flipForeground(v);
             return false;
         }
@@ -336,25 +343,25 @@ public final class MusicGlassWire {
         Float r = table(v.getContext()).get(bg.getConstantState());
         if (r == null) r = probeRadius(v.getContext(), bg.getConstantState());
         if (r == null) return false;
-        MusicGlassDrawable glass = new MusicGlassDrawable(v.getContext(), r);
+        MusicFrostDrawable frost = new MusicFrostDrawable(v.getContext(), r);
         Integer tone = toneTable(v.getContext()).get(bg.getConstantState());
         if (tone == null) tone = probeTone(v.getContext(), bg.getConstantState());
-        if (tone != null) glass.setToneColor(tone, SELECTED_TONE_ALPHA);
-        v.setBackground(glass);
+        if (tone != null) frost.setToneColor(tone, SELECTED_TONE_ALPHA);
+        v.setBackground(frost);
         applyFloatShadow(v, r);
         registerGlass(v);
         flipForeground(v);
         return true;
     }
 
-    /** 单件按指定圆角直换（手接点用：Holder/绑定点已知件型时）。已是玻璃件时只重翻前景（同上）。 */
+    /** 单件按指定圆角直换（手接点用：Holder/绑定点已知件型时）。已是磨砂件时只重翻前景（同上）。 */
     public static void glassifyView(View v, float radiusDp) {
         if (v == null) return;
-        if (v.getBackground() instanceof MusicGlassDrawable) {
+        if (v.getBackground() instanceof MusicFrostDrawable) {
             flipForeground(v);
             return;
         }
-        v.setBackground(new MusicGlassDrawable(v.getContext(), radiusDp));
+        v.setBackground(new MusicFrostDrawable(v.getContext(), radiusDp));
         applyFloatShadow(v, radiusDp);
         registerGlass(v);
         flipForeground(v);
@@ -438,7 +445,7 @@ public final class MusicGlassWire {
      * flipForeground 处理、带自己底的角标/小片不动、浅色实底页（如云盘页整页浅底）整趟跳过。
      */
     private static void flipPageTexts(View root) {
-        if (root.getBackground() instanceof MusicGlassDrawable) return; // 根即玻璃（底部弹窗）：已由根翻字处理
+        if (root.getBackground() instanceof MusicFrostDrawable) return; // 根即磨砂（底部弹窗）：已由根翻字处理
         if (surfaceLuminance(root.getBackground()) > 0.55f) return; // 整页浅色实底：深字与底配对
         java.util.List<TextView> texts = new java.util.ArrayList<>();
         collectPageTexts(root, false, texts);
@@ -452,7 +459,7 @@ public final class MusicGlassWire {
 
     private static void collectPageTexts(View v, boolean inGlass, java.util.List<TextView> out) {
         Drawable bg = v.getBackground();
-        boolean glass = inGlass || bg instanceof MusicGlassDrawable;
+        boolean glass = inGlass || bg instanceof MusicFrostDrawable;
         if (!glass && bg != null && surfaceLuminance(bg) > 0.55f) return; // 浅色实底面子树：字与底配对
         if (v instanceof TextView) {
             TextView t = (TextView) v;
@@ -467,7 +474,7 @@ public final class MusicGlassWire {
     private static void collectForeground(View v, java.util.List<TextView> texts, java.util.List<ImageView> icons) {
         if (v instanceof TextView) {
             Drawable own = v.getBackground();
-            if (own == null || own instanceof MusicGlassDrawable) texts.add((TextView) v);
+            if (own == null || own instanceof MusicFrostDrawable) texts.add((TextView) v);
         }
         if (v instanceof ImageView) icons.add((ImageView) v);
         if (v instanceof ViewGroup) {
@@ -476,12 +483,12 @@ public final class MusicGlassWire {
         }
     }
 
-    /** tone 染色接口：v 的背景是玻璃件时把 tone 色交给它平铺（alpha 0.16 在件内），返回是否吃上。 */
+    /** tone 染色接口：v 的背景是磨砂件时把 tone 色交给它平铺（alpha 0.16 在件内），返回是否吃上。 */
     public static boolean setTone(View v, int color) {
         if (v == null) return false;
         Drawable bg = v.getBackground();
-        if (bg instanceof MusicGlassDrawable) {
-            ((MusicGlassDrawable) bg).setToneColor(color);
+        if (bg instanceof MusicFrostDrawable) {
+            ((MusicFrostDrawable) bg).setToneColor(color);
             return true;
         }
         return false;
@@ -493,18 +500,18 @@ public final class MusicGlassWire {
     }
 
     /** 消费面契约（未重写页面的既有调用点）：列表行一框——先按识别表换，未命中按行圆角 14dp 直换。
-     * 扫描 M21：已是玻璃的行不许早退——列表行回收复用时绑定代码刚把字色写回深色，
-     * 必须走 glassifyView 的「已是玻璃件重翻前景」把字翻回来；旧实现直接 return，
+     * 扫描 M21：已是磨砂的行不许早退——列表行回收复用时绑定代码刚把字色写回深色，
+     * 必须走 glassifyView 的「已是磨砂件重翻前景」把字翻回来；旧实现直接 return，
      * 黑字收口（519eb5c1）在所有走 frameRow 的列表页被挡在门外。 */
     public static void frameRow(View row) {
         if (row == null) return;
-        if (!glassifyView(row) && !(row.getBackground() instanceof MusicGlassDrawable)) glassifyView(row, 14f);
+        if (!glassifyView(row) && !(row.getBackground() instanceof MusicFrostDrawable)) glassifyView(row, 14f);
     }
 
-    /** 面板根底：仅顶角玻璃（贴底无缺口），再走树换内件。radiusDp 与原面板 shape 顶角对应。 */
+    /** 面板根底：仅顶角磨砂（贴底无缺口），再走树换内件。radiusDp 与原面板 shape 顶角对应。 */
     public static void glassifyPanel(View root, float radiusDp) {
         if (root == null) return;
-        root.setBackground(new MusicGlassDrawable(root.getContext(), radiusDp, true));
+        root.setBackground(new MusicFrostDrawable(root.getContext(), radiusDp, true));
         applyFloatShadow(root, radiusDp);
         root.setElevation(10f * root.getResources().getDisplayMetrics().density);
         registerGlass(root);
@@ -512,11 +519,11 @@ public final class MusicGlassWire {
         if (root instanceof ViewGroup) glassifyChildren((ViewGroup) root);
     }
 
-    /** 整树走一遍：命中识别表的背景全换同源玻璃；RecyclerView 挂滚动监听顶版重裁；页根再做漏底结构归一。 */
+    /** 整树走一遍：命中识别表的背景全换同源磨砂；RecyclerView 挂滚动监听顶版重裁；页根再做漏底结构归一。 */
     public static void glassifyTree(View root) {
         if (root == null) return;
-        // 底部弹窗的根是代码直挂的玻璃底：整片就是一个玻璃件，先按件内口径翻一遍字
-        if (root.getBackground() instanceof MusicGlassDrawable) flipForeground(root);
+        // 底部弹窗的根是代码直挂的磨砂底：整片就是一个磨砂件，先按件内口径翻一遍字
+        if (root.getBackground() instanceof MusicFrostDrawable) flipForeground(root);
         glassifyView(root);
         if (root instanceof RecyclerView) hookScroll((RecyclerView) root);
         if (root instanceof android.widget.ScrollView) hookScrollView((android.widget.ScrollView) root);
@@ -526,14 +533,15 @@ public final class MusicGlassWire {
         flipPageTexts(root);
     }
 
-    /** 开关全玻璃令的收口：整树里的系统开关统一换玻璃轨道/圆钮并摘掉旧染色
-     *  （此前设置页/插件行是 iOS 风实红/实灰轨——他点名两页没玻璃，开关是最扎眼的一片）。
-     *  面板侧 glassifyPanel 不走本路（工具面板开关是自绘 ToggleView，已单独按玻璃画）。 */
+    /** 开关收口：整树里的系统开关统一换磨砂轨道/圆钮并摘掉旧染色
+     *  （轨道换 switch_frost_track：未开＝磨砂钉死深灰 .85＋白 .25 边，与全页材料同值；
+     *  开＝状态红半透，与磨砂 tone 同理是件自己的状态色；圆钮沿用白钮 switch_glass_thumb）。
+     *  面板侧 glassifyPanel 不走本路（工具面板开关是自绘 ToggleView，已单独按材料画）。 */
     private static void glassifySwitches(View v) {
         if (v instanceof androidx.appcompat.widget.SwitchCompat) {
             androidx.appcompat.widget.SwitchCompat sw = (androidx.appcompat.widget.SwitchCompat) v;
             android.content.Context ctx = sw.getContext();
-            sw.setTrackDrawable(ctx.getDrawable(R.drawable.switch_glass_track));
+            sw.setTrackDrawable(ctx.getDrawable(R.drawable.switch_frost_track));
             sw.setThumbDrawable(ctx.getDrawable(R.drawable.switch_glass_thumb));
             sw.setTrackTintList(null);
             sw.setThumbTintList(null);
@@ -612,16 +620,13 @@ public final class MusicGlassWire {
         rv.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override
             public void onScrolled(RecyclerView recyclerView, int dx, int dy) {
-                MusicGlassDrawable.noteScrollChanged();
                 refreshGlassViews();
                 recyclerView.invalidate();
             }
 
             @Override
             public void onScrollStateChanged(RecyclerView recyclerView, int newState) {
-                boolean active = newState != RecyclerView.SCROLL_STATE_IDLE;
-                MusicGlassDrawable.noteScrollActive(active);
-                if (!active) refreshGlassViews();
+                if (newState == RecyclerView.SCROLL_STATE_IDLE) refreshGlassViews();
             }
         });
     }
@@ -633,18 +638,12 @@ public final class MusicGlassWire {
             if (!sScrollViewHooked.add(sv)) return;
         }
         hookPreDraw(sv);
-        final Runnable idle = () -> {
-            MusicGlassDrawable.noteScrollActive(false);
-            refreshGlassViews();
-        };
+        final Runnable idle = MusicGlassWire::refreshGlassViews;
         sv.getViewTreeObserver().addOnScrollChangedListener(() -> {
-            MusicGlassDrawable.noteScrollChanged();
-            MusicGlassDrawable.noteScrollActive(true);
             refreshGlassViews();
             sv.removeCallbacks(idle);
             // 停稳兜底：滚动停 260ms 后再同步刷一次，保证终态取样与最终滚动位对死
-            // （滚动中的同步刷万一漏掉一步，这里补齐；noteScrollActive 本身无绘制语义，
-            // 见 MusicGlassDrawable 类头）。
+            // （滚动中的同步刷万一漏掉一步，这里补齐）。
             sv.postDelayed(idle, 260);
         });
     }

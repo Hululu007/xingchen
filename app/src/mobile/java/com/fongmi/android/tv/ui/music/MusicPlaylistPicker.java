@@ -55,7 +55,7 @@ public final class MusicPlaylistPicker {
         root.setPadding(dp(activity, 16), dp(activity, 12), dp(activity, 16), dp(activity, 10));
         // 面板根底换同源液态玻璃（仅顶角 16，与其它音乐面板同款）：原是瓜子深色实底平铺，
         // 在全玻璃口径下是整块实底漏网（2026-10-26 全扫）。
-        root.setBackground(new MusicGlassDrawable(activity, 16, true));
+        root.setBackground(new MusicFrostDrawable(activity, 16, true));
 
         // 头：标题左对齐（带首数）＋右侧 × 关（他的铁律：标题左对齐、不放返回箭头，× 可以；
         // 扫描 T5：此前标题 Gravity.CENTER 居中，与全 App 左对齐口径不符）

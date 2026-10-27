@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 随心听页整页照瓜子 ShuffleListenScreenKt 重做（他亲点，逐项数值对齐）：
-     浅色底（页面主题画笔真值未抠到，暂用 discoverySurface #FAFAFC，报告已标）；
+     2026-10-27 材料推广（他亲令）：页底与面改随音乐全域——海水照片背景层（与其它音乐页
+     同构）＋暗磨砂面（卡/丸子/播放钮由代码 glassifyView 直换），字翻白系；布局结构与
+     数值不动。原浅色底（discoverySurface #FAFAFC）口径退场；
      唱片卡：底 #FAFAFC 圆角 20、横内距 24（矮屏 16）、底内距 20（矮屏 12）、顶内距 20（真值未抠到，报告已标）；
      卡头行：「随心而至」12sp 半粗 textMedium #8E8E93 ＋ 右侧 6dp 状态点 ＋ 6dp 间距 ＋ 状态文案 11sp（三态：选歌中／正在播放／等待聆听）；
      唱片区顶距 16（矮屏 10）；盘径＝min(可用宽高， 300dp；矮屏 260dp），盘面用瓜子原图 disc_bg；
@@ -15,11 +17,19 @@
      图标 15dp 由代码 pinBtnIcon 显式设界落实——两颗图标资源固有 24dp，XML drawableStart 按固有尺寸画会贴框缘溢出）；
      底部不画瓜子 App 导航栏、不为它留位（他亲点排除）。
      星辰自有保留：失败块/空态块（诚实出口）、「再随机一次」（只重洗同一池子）、进度条可拖（瓜子此页进度条无拖动手势，星辰保留既有拖动行为不改交互，拖柄透明）。 -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#FAFAFC"
-    android:fitsSystemWindows="true"
+    android:background="@drawable/home_bg_page"
+    android:fitsSystemWindows="true">
+
+    <com.fongmi.android.tv.ui.music.MusicGlassBackgroundView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <LinearLayout
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
     android:orientation="vertical"
     android:paddingStart="16dp"
     android:paddingTop="12dp"
@@ -444,4 +454,5 @@
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1" />
-</LinearLayout>
+    </LinearLayout>
+</FrameLayout>

@@ -33,7 +33,7 @@ import com.fongmi.android.tv.music.MusicRepository;
 import com.fongmi.android.tv.music.MusicStore;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.ui.dialog.MusicOptionsDialog;
-import com.fongmi.android.tv.ui.music.MusicGlassDrawable;
+import com.fongmi.android.tv.ui.music.MusicFrostDrawable;
 import com.fongmi.android.tv.ui.music.MusicGlassWire;
 import com.fongmi.android.tv.utils.Notify;
 import com.github.catvod.crawler.SpiderDebug;
@@ -1321,8 +1321,8 @@ public class MusicSearchActivity extends BaseActivity {
             h.title.setText(t.displayTitle());
             // 在播行红名＋玻璃挂红淡染；普通行白名清 tone（与播放列表同一口径）
             h.title.setTextColor(isCurrent ? 0xFFFA243C : 0xFFF1F4F5);
-            if (h.itemView.getBackground() instanceof MusicGlassDrawable) {
-                MusicGlassDrawable rowGlass = (MusicGlassDrawable) h.itemView.getBackground();
+            if (h.itemView.getBackground() instanceof MusicFrostDrawable) {
+                MusicFrostDrawable rowGlass = (MusicFrostDrawable) h.itemView.getBackground();
                 if (isCurrent) rowGlass.setToneColor(0xFFFA243C, 0.14f);
                 else rowGlass.setToneColor(0, 0f);
             }
@@ -1442,8 +1442,8 @@ public class MusicSearchActivity extends BaseActivity {
             boolean sel = position == selectedChip;
             h.chip.setText(site == null || site.name == null ? "" : site.name);
             // 选中＝样张口径的带色玻璃（青 tone）＋白字；bind 只切 tone 不换资源（防粉块盖回）
-            if (h.chip.getBackground() instanceof MusicGlassDrawable) {
-                MusicGlassDrawable chipGlass = (MusicGlassDrawable) h.chip.getBackground();
+            if (h.chip.getBackground() instanceof MusicFrostDrawable) {
+                MusicFrostDrawable chipGlass = (MusicFrostDrawable) h.chip.getBackground();
                 if (sel) chipGlass.setToneColor(0xFF305F67, 0.55f);
                 else chipGlass.setToneColor(0, 0f);
             }

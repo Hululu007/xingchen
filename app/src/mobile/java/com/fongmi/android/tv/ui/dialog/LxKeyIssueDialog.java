@@ -1,6 +1,6 @@
 package com.fongmi.android.tv.ui.dialog;
 
-import com.fongmi.android.tv.ui.music.MusicGlassDrawable;
+import com.fongmi.android.tv.ui.music.MusicFrostDrawable;
 import com.fongmi.android.tv.ui.music.MusicGlassWire;
 import android.graphics.drawable.GradientDrawable;
 import android.view.LayoutInflater;
@@ -111,7 +111,7 @@ public class LxKeyIssueDialog extends BaseBottomSheetDialog {
         int pad = dp(20);
         root.setPadding(pad, dp(16), pad, dp(20));
         // 面板底＝全 App 同源液态玻璃（原纯白 GradientDrawable 底作废）：仅顶角 20dp、贴底无缺口
-        root.setBackground(new MusicGlassDrawable(inflater.getContext(), 20, true));
+        root.setBackground(new MusicFrostDrawable(inflater.getContext(), 20, true));
 
         TextView title = new TextView(inflater.getContext());
         title.setText("来源可能有问题");
@@ -175,8 +175,8 @@ public class LxKeyIssueDialog extends BaseBottomSheetDialog {
         // 两钮同换同源玻璃（原主钮深实底、次钮近白实底摆在玻璃根上成白板，2026-10-26 全扫）；
         // 主钮加 tone 与次钮拉开主次（选中青同族的深色调）
         MusicGlassWire.glassifyView(b, 12f);
-        if (primary && b.getBackground() instanceof MusicGlassDrawable) {
-            ((MusicGlassDrawable) b.getBackground()).setToneColor(0xFF1C1C1E, 0.45f);
+        if (primary && b.getBackground() instanceof MusicFrostDrawable) {
+            ((MusicFrostDrawable) b.getBackground()).setToneColor(0xFF1C1C1E, 0.45f);
         }
         return b;
     }

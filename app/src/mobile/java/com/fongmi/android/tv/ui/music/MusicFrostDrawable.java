@@ -30,6 +30,10 @@ import android.view.View;
  * 取样未就绪走下限面（同灰深色满铺），任何底上都成形、首帧不闪。
  * tone 染色口保留（心情选中片/播放钮的状态色，色是件自己的、不从背景来）：
  * 在灰层之上再平铺一层指定色，与 MusicGlassDrawable 的 setToneColor 同形调用面。
+ *
+ * 2026-10-27 推广：本材料随首页背景一起推广到全部其它音乐页（他亲令），由
+ * MusicGlassWire/弹窗壳/各面板直建点统一产出；新增 topOnly 构造（仅顶两角圆、
+ * 面板贴底用，语义与 MusicGlassDrawable 的 topOnly 同），首页既有调用面不变。
  */
 public class MusicFrostDrawable extends Drawable {
 
@@ -47,6 +51,7 @@ public class MusicFrostDrawable extends Drawable {
     private final float mRadiusPx;
     private final float mDensity;
     private final boolean mCircle;
+    private final boolean mTopOnly;
 
     private final Paint mSamplePaint = new Paint(Paint.FILTER_BITMAP_FLAG);
     private final Paint mFillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -67,9 +72,15 @@ public class MusicFrostDrawable extends Drawable {
     private final int[] mBgLoc = new int[2];
 
     public MusicFrostDrawable(Context context, float cornerRadiusDp) {
+        this(context, cornerRadiusDp, false);
+    }
+
+    /** topOnly=true：仅顶两角圆（面板贴底用），底角归零无缺口。 */
+    public MusicFrostDrawable(Context context, float cornerRadiusDp, boolean topOnly) {
         mDensity = context.getResources().getDisplayMetrics().density;
         mRadiusPx = cornerRadiusDp * mDensity;
         mCircle = cornerRadiusDp >= 999f;
+        mTopOnly = topOnly;
         mFillPaint.setColor(FROST_COLOR);
         mFillPaint.setAlpha(Math.round(FROST_ALPHA * 255));
         mFallbackPaint.setColor(FALLBACK_COLOR);
@@ -123,6 +134,12 @@ public class MusicFrostDrawable extends Drawable {
         return Math.min(mRadiusPx, Math.min(b.width(), b.height()) / 2f);
     }
 
+    /** 四角半径组（addRoundRect 八值序：左上/右上/右下/左下）：topOnly 时底两角归零。 */
+    private float[] radiiFor(float r) {
+        if (mTopOnly) return new float[]{r, r, r, r, 0f, 0f, 0f, 0f};
+        return new float[]{r, r, r, r, r, r, r, r};
+    }
+
     @Override
     public void draw(Canvas canvas) {
         Rect b = getBounds();
@@ -130,7 +147,7 @@ public class MusicFrostDrawable extends Drawable {
         mTmp.set(b);
         float r = radiusFor(b);
         mClip.reset();
-        mClip.addRoundRect(mTmp, r, r, Path.Direction.CW);
+        mClip.addRoundRect(mTmp, radiiFor(r), Path.Direction.CW);
 
         canvas.save();
         canvas.clipPath(mClip);
@@ -150,10 +167,13 @@ public class MusicFrostDrawable extends Drawable {
         if (mPressed) canvas.drawRect(mTmp, mPressPaint);
         canvas.restore();
 
-        // 边缘一线亮边定形：内缩半线宽整圈描
+        // 边缘一线亮边定形：内缩半线宽整圈描（topOnly 时底角同步归零、沿同一组半径描边）
         float inset = mStrokePaint.getStrokeWidth() / 2f;
         mTmp.set(b.left + inset, b.top + inset, b.right - inset, b.bottom - inset);
-        canvas.drawRoundRect(mTmp, Math.max(0, r - inset), Math.max(0, r - inset), mStrokePaint);
+        float sr = Math.max(0, r - inset);
+        mClip.reset();
+        mClip.addRoundRect(mTmp, radiiFor(sr), Path.Direction.CW);
+        canvas.drawPath(mClip, mStrokePaint);
     }
 
     /**

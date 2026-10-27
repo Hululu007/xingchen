@@ -462,8 +462,8 @@ public class MusicGuessActivity extends BaseActivity {
      * 玻璃由 bindGuessHero 的 glassifyView(20f) 兜底，封面到不到都不动卡面。 */
     private void neutralGuessHero(View heroRoot) {
         if (heroRoot == null) return;
-        if (heroRoot.getBackground() instanceof com.fongmi.android.tv.ui.music.MusicGlassDrawable) {
-            ((com.fongmi.android.tv.ui.music.MusicGlassDrawable) heroRoot.getBackground()).setToneColor(0);
+        if (heroRoot.getBackground() instanceof com.fongmi.android.tv.ui.music.MusicFrostDrawable) {
+            ((com.fongmi.android.tv.ui.music.MusicFrostDrawable) heroRoot.getBackground()).setToneColor(0);
         }
     }
 

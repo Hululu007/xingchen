@@ -13,7 +13,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.R;
-import com.fongmi.android.tv.ui.music.MusicGlassDrawable;
+import com.fongmi.android.tv.ui.music.MusicFrostDrawable;
 import com.fongmi.android.tv.ui.music.MusicGlassWire;
 import com.fongmi.android.tv.databinding.DialogMusicOptionsBinding;
 import com.fongmi.android.tv.ui.dialog.BaseBottomSheetDialog;
@@ -110,7 +110,7 @@ public class MusicOptionsDialog extends BaseBottomSheetDialog {
     protected ViewBinding getBinding(@NonNull LayoutInflater inflater, @Nullable ViewGroup container) {
         binding = DialogMusicOptionsBinding.inflate(inflater, container, false);
         // 面板底＝全 App 同源液态玻璃：仅顶角 16dp、贴底无缺口；糊底走独立窗口静态回落
-        binding.getRoot().setBackground(new MusicGlassDrawable(inflater.getContext(), 16, true));
+        binding.getRoot().setBackground(new MusicFrostDrawable(inflater.getContext(), 16, true));
         MusicGlassWire.glassifyTree(binding.getRoot()); // 面板内件同源接线
         return binding;
     }

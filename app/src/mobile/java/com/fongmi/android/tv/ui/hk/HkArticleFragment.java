@@ -329,6 +329,28 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
         applyRefreshWebView(event.getUrl());
     }
 
+    /**
+     * 规则 JS 调 refreshVideoSource(url, headers) 的订阅（8.83 ArticleListFragment.onRefreshVideoUrl
+     * → ArticleWebViewHolder.updateVideoUrl）：把新视频地址与请求头存进 holder 的视频面；
+     * 当前正展示视频条目时按新址立即重载（holder 建面时对视频条目本就直载 videoUrl，此处与之同义）。
+     * 原版 updateVideoUrl 另有悬浮播放器重弹（floatVideoController.show），星辰无悬浮播放器件，不做。
+     * 原版门是 !isOnPause 且 holder 有 WebView，星辰同口径用 isResumed。
+     */
+    @org.greenrobot.eventbus.Subscribe(threadMode = org.greenrobot.eventbus.ThreadMode.MAIN)
+    public void onRefreshVideoUrl(com.fongmi.android.tv.api.hk.event.rule.RefreshVideoUrlEvent event) {
+        if (!isResumed() || event == null || webViewHolder == null) return;
+        webViewHolder.setVideoUrl(event.getUrl());
+        webViewHolder.setVideoHeaders(event.getHeaders());
+        if (webViewHolder.isVideoItem() && webViewHolder.getWebView() != null
+                && HkStringUtil.isNotEmpty(event.getUrl())) {
+            if (event.getHeaders() != null && !event.getHeaders().isEmpty()) {
+                webViewHolder.getWebView().loadUrl(event.getUrl(), event.getHeaders());
+            } else {
+                webViewHolder.getWebView().loadUrl(event.getUrl());
+            }
+        }
+    }
+
     private void applyRefreshWebView(String url) {
         if (!isResumed()) return;
         if (webViewHolder == null || webViewHolder.getWebView() == null) return;

@@ -3893,7 +3893,25 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             return null;
         });
         putFunction("refreshVideoSource", args -> {
-            // 8.83 JSEngine.refreshVideoSource：发事件刷新视频源。星辰无此事件，空实现。
+            // 8.83 JSEngine.refreshVideoSource(Object url, Object headers)（smali 22209）：
+            // headers 是 JSON 对象时逐键取 String 值组成 HashMap（非对象则空表），随后无条件
+            // post OnRefreshVideoUrlEvent(url, headers)（无订阅者门）。消费侧：
+            // HkArticleFragment.onRefreshVideoUrl → HkWebViewHolder.setVideoUrl/setVideoHeaders
+            //（原版 ArticleListFragment.onRefreshVideoUrl → ArticleWebViewHolder.updateVideoUrl 的等价面）。
+            String url = args != null && args.length > 0 ? argStr(args[0]) : "";
+            java.util.Map<String, String> headers = new java.util.HashMap<>();
+            if (args != null && args.length > 1) {
+                Object h = argsNativeObjectAdjust(args[1]);
+                if (h instanceof java.util.Map) {
+                    for (java.util.Map.Entry<?, ?> e : ((java.util.Map<?, ?>) h).entrySet()) {
+                        if (e.getKey() != null && e.getValue() instanceof String) {
+                            headers.put(String.valueOf(e.getKey()), (String) e.getValue());
+                        }
+                    }
+                }
+            }
+            EventBus.getDefault().post(
+                    new com.fongmi.android.tv.api.hk.event.rule.RefreshVideoUrlEvent(url, headers));
             return null;
         });
         putFunction("refreshVideoUrl", args -> {

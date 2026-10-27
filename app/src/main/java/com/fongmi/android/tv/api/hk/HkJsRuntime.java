@@ -3897,7 +3897,34 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             return null;
         });
         putFunction("refreshVideoUrl", args -> {
-            // 8.83 JSEngine.refreshVideoUrl：发事件刷新播放地址。星辰无此事件，空实现。
+            // 8.83 JSEngine.refreshVideoUrl(Object c, Object r)（smali 22294）：
+            // c 是 String 直接用、非 String 走 JSON.toJSONString；r 只有真 Boolean 才取值，
+            // 缺参/null/非布尔一律默认 true（=PlayDataUpdateEvent.restartPosition，与 refreshPage 的布尔口径同源）。
+            // 仅当事件有订阅者才 post（原版 hasSubscriberForEvent 门）。消费侧：VideoActivity.onPlayDataUpdate
+            // → PlayerManager.refreshUrl 原地换址（原版 VideoPlayerActivity.refreshVideoUrl → reStartPlayer 的等价面）。
+            Object c = args != null && args.length > 0 ? argsNativeObjectAdjust(args[0]) : null;
+            String url;
+            if (c instanceof String) {
+                url = (String) c;
+            } else if (c == null || isUndefined(c)) {
+                url = "";
+            } else {
+                try {
+                    url = GSON.toJson(c);
+                } catch (Throwable t) {
+                    url = "";
+                }
+            }
+            boolean restart = true;
+            if (args != null && args.length > 1) {
+                Object r = argsNativeObjectAdjust(args[1]);
+                if (r instanceof Boolean) restart = (Boolean) r;
+            }
+            if (EventBus.getDefault().hasSubscriberForEvent(
+                    com.fongmi.android.tv.api.hk.event.video.PlayDataUpdateEvent.class)) {
+                EventBus.getDefault().post(new com.fongmi.android.tv.api.hk.event.video
+                        .PlayDataUpdateEvent(url, restart));
+            }
             return null;
         });
         putFunction("refreshX5Desc", args -> {

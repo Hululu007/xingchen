@@ -8503,6 +8503,21 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         onNewIntent(intent);
     }
 
+    /**
+     * 海阔 refreshVideoUrl 的消费面（对齐 8.83 VideoPlayerActivity.refreshVideoUrl）：
+     * 规则 JS 在播放中拿到新直链时原地换址。只认海阔来源的播放（isHkKey 门，与原版
+     * 「事件的有无订阅者即播放页在场」同义）；restartPosition=false 保进度续播。
+     * 原版换址后还会按新址重取字幕/弹幕，星辰字幕/弹幕走自有链，此处不连动。
+     */
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    public void onPlayDataUpdate(com.fongmi.android.tv.api.hk.event.video.PlayDataUpdateEvent event) {
+        if (event == null || isRedirect()) return;
+        if (!HkDetailBridge.isHkKey(getKey())) return;
+        if (service() == null || TextUtils.isEmpty(event.getUrl())) return;
+        if (sPlayerOwner != null && sPlayerOwner != this) return;
+        player().refreshUrl(event.getUrl(), event.isRestartPosition());
+    }
+
     private void setPosition() {
         if (mHistory == null || hasDiscMenu()) return;
         // Emby 断点续播：以服务器 UserData.PlaybackPositionTicks 为准，不吃本地历史

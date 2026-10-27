@@ -920,6 +920,20 @@ public class PlayerManager implements ParseCallback {
         seekTo(0);
     }
 
+    /**
+     * 海阔 refreshVideoUrl 的等价换址面（8.83 VideoPlayerActivity.refreshVideoUrl → reStartPlayer）：
+     * 原地换当前播放地址，不重建播放页。restartPosition=true 从头播；false 保留当前进度续播
+     * （与 setSub 的「换面保进度」同款）。已释放或无当前 spec 时回 false、不动作。
+     */
+    public boolean refreshUrl(String url, boolean restartPosition) {
+        if (isReleased() || spec == null || TextUtils.isEmpty(url)) return false;
+        long position = restartPosition ? 0 : Math.max(0, getPosition());
+        spec.setUrl(url);
+        setMediaItem();
+        if (!restartPosition && position > 0) seekTo(position);
+        return true;
+    }
+
     public static MediaMetadata buildMetadata(String title, String artist, String artUri) {
         Uri artwork = TextUtils.isEmpty(artUri) ? null : Uri.parse(artUri);
         return new MediaMetadata.Builder().setTitle(title).setArtist(artist).setArtworkUri(artwork).build();

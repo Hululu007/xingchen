@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
+import com.fongmi.android.tv.ui.music.MusicPlayerSettings
 
 private enum class SheetKind { QUEUE, TOOLS, LYRIC_VERSIONS }
 
@@ -65,6 +66,8 @@ fun PlayerRoot(
     val progress = remember { Animatable(if (startRect == null) 1f else 0f) }
     var collapsing by remember { mutableStateOf(false) }
     var sheet by remember { mutableStateOf<SheetKind?>(null) }
+    // 当前主题（存档键在 MusicPlayerSettings，回落 classic；切换写存档后整树按新主题分发）
+    var themeId by remember { mutableStateOf(MusicPlayerSettings.getTheme()) }
 
     LaunchedEffect(Unit) {
         if (startRect != null) {
@@ -109,17 +112,74 @@ fun PlayerRoot(
                 modifier = Modifier.fillMaxSize(),
             ) { pageIndex ->
                 if (pageIndex == 0) {
-                    ClassicPlayer(
-                        state = state,
-                        onToggle = { PlayerStateHolder.toggle() },
-                        onNext = { PlayerStateHolder.next() },
-                        onPrev = { PlayerStateHolder.prev() },
-                        onSeek = { PlayerStateHolder.seekTo(it) },
-                        onOpenQueue = { sheet = SheetKind.QUEUE },
-                        onOpenTools = { sheet = SheetKind.TOOLS },
-                        onOpenLyricVersions = { sheet = SheetKind.LYRIC_VERSIONS },
-                        onCollapse = { collapse() },
-                    )
+                    // 主题是纯函数快照分发：五主题共用同一份状态、同一台歌词引擎
+                    when (themeFamilyOf(themeId)) {
+                        ThemeFamily.CLASSIC -> ClassicPlayer(
+                            state = state,
+                            onToggle = { PlayerStateHolder.toggle() },
+                            onNext = { PlayerStateHolder.next() },
+                            onPrev = { PlayerStateHolder.prev() },
+                            onSeek = { PlayerStateHolder.seekTo(it) },
+                            onOpenQueue = { sheet = SheetKind.QUEUE },
+                            onOpenTools = { sheet = SheetKind.TOOLS },
+                            onOpenLyricVersions = { sheet = SheetKind.LYRIC_VERSIONS },
+                            onCollapse = { collapse() },
+                        )
+                        ThemeFamily.COVER -> CoverImmersivePlayer(
+                            state = state,
+                            onToggle = { PlayerStateHolder.toggle() },
+                            onNext = { PlayerStateHolder.next() },
+                            onPrev = { PlayerStateHolder.prev() },
+                            onSeek = { PlayerStateHolder.seekTo(it) },
+                            onOpenQueue = { sheet = SheetKind.QUEUE },
+                            onOpenTools = { sheet = SheetKind.TOOLS },
+                            onOpenLyricVersions = { sheet = SheetKind.LYRIC_VERSIONS },
+                            onToggleFavorite = { PlayerStateHolder.toggleFavorite() },
+                            onCollapse = { collapse() },
+                        )
+                        ThemeFamily.APPLE -> AppleMusicPlayer(
+                            state = state,
+                            onToggle = { PlayerStateHolder.toggle() },
+                            onNext = { PlayerStateHolder.next() },
+                            onPrev = { PlayerStateHolder.prev() },
+                            onSeek = { PlayerStateHolder.seekTo(it) },
+                            onOpenQueue = { sheet = SheetKind.QUEUE },
+                            onOpenTools = { sheet = SheetKind.TOOLS },
+                            onOpenLyrics = {
+                                scope.launch { pagerState.animateScrollToPage(1) }
+                            },
+                            onToggleFavorite = { PlayerStateHolder.toggleFavorite() },
+                            onCollapse = { collapse() },
+                        )
+                        ThemeFamily.CD -> LuminousCdPlayer(
+                            state = state,
+                            surfaceThemeId = themeId,
+                            onSurfaceThemeChange = { themeId = it },
+                            onToggle = { PlayerStateHolder.toggle() },
+                            onNext = { PlayerStateHolder.next() },
+                            onPrev = { PlayerStateHolder.prev() },
+                            onSeek = { PlayerStateHolder.seekTo(it) },
+                            onOpenQueue = { sheet = SheetKind.QUEUE },
+                            onOpenTools = { sheet = SheetKind.TOOLS },
+                            onOpenLyricVersions = { sheet = SheetKind.LYRIC_VERSIONS },
+                            onToggleFavorite = { PlayerStateHolder.toggleFavorite() },
+                            onCycleMode = { PlayerStateHolder.cycleMode() },
+                            onCollapse = { collapse() },
+                        )
+                        ThemeFamily.SHELF -> RecordShelfPlayer(
+                            state = state,
+                            onToggle = { PlayerStateHolder.toggle() },
+                            onNext = { PlayerStateHolder.next() },
+                            onPrev = { PlayerStateHolder.prev() },
+                            onSeek = { PlayerStateHolder.seekTo(it) },
+                            onOpenQueue = { sheet = SheetKind.QUEUE },
+                            onOpenTools = { sheet = SheetKind.TOOLS },
+                            onPlayAt = { PlayerStateHolder.playAt(it) },
+                            onToggleFavorite = { PlayerStateHolder.toggleFavorite() },
+                            onCycleMode = { PlayerStateHolder.cycleMode() },
+                            onCollapse = { collapse() },
+                        )
+                    }
                 } else {
                     FullLyricPlayer(
                         state = state,
@@ -198,6 +258,12 @@ fun PlayerRoot(
             )
             SheetKind.TOOLS -> ToolsSheet(
                 state = state,
+                currentThemeId = themeId,
+                onThemeSelected = { id ->
+                    MusicPlayerSettings.setTheme(id)
+                    themeId = MusicPlayerSettings.getTheme()
+                    sheet = null
+                },
                 onDismiss = { sheet = null },
             )
             SheetKind.LYRIC_VERSIONS -> LyricVersionSheet(

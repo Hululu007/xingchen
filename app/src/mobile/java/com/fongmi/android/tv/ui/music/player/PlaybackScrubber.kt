@@ -53,6 +53,15 @@ fun PlaybackScrubber(
     modifier: Modifier = Modifier,
     onLyricChipClick: (() -> Unit)? = null,
     onInteract: (() -> Unit)? = null,
+    /** 轨高（案卷第二节调用实参：经典/封面展开 4dp、Apple 6dp、横屏 4dp）。 */
+    trackHeightDp: Float = 4f,
+    /** 填充渐变两端 alpha（经典 0.42→0.78、Apple 0.58→0.9）。 */
+    fillStartAlpha: Float = 0.42f,
+    fillEndAlpha: Float = 0.78f,
+    /** 顶盒（时间＋双筹）：Apple 调用关。 */
+    showTopBox: Boolean = true,
+    /** 底行（已播/−剩余）：Apple 调用关（z6=true）。 */
+    showBottomRow: Boolean = true,
 ) {
     val duration = state.durationMs
     var dragging by remember { mutableStateOf(false) }
@@ -67,7 +76,7 @@ fun PlaybackScrubber(
 
     Column(modifier = modifier.fillMaxWidth()) {
         // 顶盒：时间只在拖动时浮出（瓜子原样），筹常驻
-        Row(
+        if (showTopBox) Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(28.dp)
@@ -128,7 +137,7 @@ fun PlaybackScrubber(
         ) {
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val cy = size.height / 2f
-                val stroke = (if (dragging) 5.dp else 4.dp).toPx()
+                val stroke = (if (dragging) trackHeightDp + 1f else trackHeightDp).dp.toPx()
                 val trackAlpha = if (dragging) 0.22f else 0.14f
                 drawLine(
                     color = Color.White.copy(alpha = trackAlpha),
@@ -141,8 +150,8 @@ fun PlaybackScrubber(
                     drawLine(
                         brush = Brush.horizontalGradient(
                             listOf(
-                                Color.White.copy(alpha = 0.42f),
-                                Color.White.copy(alpha = 0.78f),
+                                Color.White.copy(alpha = fillStartAlpha),
+                                Color.White.copy(alpha = fillEndAlpha),
                             ),
                         ),
                         start = Offset(0f, cy),
@@ -155,7 +164,7 @@ fun PlaybackScrubber(
         }
 
         // 底行：已播 / −剩余
-        Row(
+        if (showBottomRow) Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(start = 2.dp, end = 2.dp, top = 2.dp),

@@ -10,6 +10,7 @@ import com.bumptech.glide.request.transition.Transition
 import com.fongmi.android.tv.bean.music.LyricVersion
 import com.fongmi.android.tv.bean.music.MusicTrack
 import com.fongmi.android.tv.music.MusicController
+import com.fongmi.android.tv.music.MusicLibrary
 import com.fongmi.android.tv.music.MusicLyricCache
 import com.fongmi.android.tv.music.MusicRepository
 import com.fongmi.android.tv.music.RichLyrics
@@ -163,6 +164,22 @@ object PlayerStateHolder {
 
     fun cycleMode() {
         runCatching { MusicController.get().cycleMode() }
+    }
+
+    /**
+     * 收藏切换（主题件的爱心/收藏键/唱片架点槽共用）：走保留区 MusicLibrary.setFavorite
+     * 真落盘，成功回调里再对齐当前曲的收藏旗与快照（收藏显示源仍是既有口径
+     * track.favoriteAddedTime，本中枢的当前曲实例与服务队列同引用，对齐后 refresh 不回滚）。
+     */
+    fun toggleFavorite() {
+        val track = _state.value.track ?: return
+        val target = !_state.value.favorite
+        runCatching {
+            MusicLibrary.setFavorite(track, target) {
+                track.favoriteAddedTime = if (target) System.currentTimeMillis() else 0L
+                _state.value = _state.value.copy(favorite = target)
+            }
+        }
     }
 
     /**

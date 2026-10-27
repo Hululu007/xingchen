@@ -27,6 +27,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameMillis
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clipToBounds
@@ -102,6 +103,19 @@ private val ColorTranslation = Color.White.copy(alpha = 0.55f)
  * 字距 −0.2、行距 6dp、像素锚点（见 [fullScreenAnchorY]）；wordByWord 关时当前行
  * 整行上色、不走逐字（全屏底部 Std 档）。
  */
+/**
+ * 歌词色板供给（瓜子歌词色供给链定谳，案卷第八节）：主题供 palette 时四色全走
+ * palette、不在场才走沉浸深色默认（已唱 #FFEAEAEA／当前未唱 白 .42／非当前 白 .30／
+ * 翻译 白 .55）。流光 CD 供（accent, accent×.42, accent×.38, accent×.42)、
+ * 黑胶唱片架供 (h0, h0×.48, Muted×.72, Muted)，×k 均指 alpha 倍率。
+ */
+data class LyricPalette(
+    val sung: Color,
+    val currentUnsung: Color,
+    val inactive: Color,
+    val translation: Color,
+)
+
 data class LyricStageSpec(
     /** null＝读页内字号键；全屏面由调用方喂全屏字号键的值。 */
     val fontSizeSp: Float? = null,
@@ -111,6 +125,10 @@ data class LyricStageSpec(
     /** true＝全屏像素锚点；false＝页内 45% 锚点。 */
     val pixelAnchor: Boolean = false,
     val wordByWord: Boolean = true,
+    /** 主题色板（流光 CD/唱片架供）；null＝沉浸深色默认四色。 */
+    val palette: LyricPalette? = null,
+    /** 行居中（流光 CD 展开歌词 21sp 居中）；默认左对齐。 */
+    val centered: Boolean = false,
 )
 
 /**
@@ -175,15 +193,20 @@ private fun StaticLyricText(
     val coverFontSizeSp = remember { MusicPlayerSettings.getCoverLyricFontSize() }
     val fontSizeSp = spec.fontSizeSp ?: coverFontSizeSp
     val weight = remember { lyricFontWeight() }
-    Column(modifier = modifier.fillMaxSize().clipToBounds().lyricSkew()) {
+    Column(
+        modifier = modifier.fillMaxSize().clipToBounds().lyricSkew(),
+        horizontalAlignment = if (spec.centered) Alignment.CenterHorizontally else Alignment.Start,
+    ) {
         for (line in lines) {
             Text(
                 text = line.text,
-                color = Color.White.copy(alpha = 0.85f),
+                color = spec.palette?.sung ?: Color.White.copy(alpha = 0.85f),
                 fontSize = fontSizeSp.sp,
                 fontWeight = weight,
                 lineHeight = (fontSizeSp * spec.lineHeightFactor).sp,
                 letterSpacing = spec.letterSpacingSp.sp,
+                textAlign = if (spec.centered) androidx.compose.ui.text.style.TextAlign.Center else androidx.compose.ui.text.style.TextAlign.Start,
+                modifier = if (spec.centered) Modifier.fillMaxWidth() else Modifier,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -438,6 +461,8 @@ private fun TimedLyricStage(
                         lineHeightFactor = spec.lineHeightFactor,
                         letterSpacingSp = spec.letterSpacingSp,
                         wordByWord = spec.wordByWord,
+                        palette = spec.palette,
+                        centered = spec.centered,
                         modifier = Modifier
                             .offset { IntOffset(0, top.roundToInt()) }
                             .fillMaxWidth()
@@ -617,14 +642,23 @@ private fun LyricLineBlock(
     lineHeightFactor: Float,
     letterSpacingSp: Float,
     wordByWord: Boolean,
+    palette: LyricPalette? = null,
+    centered: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
+    // 色供给链（案卷第八节）：palette 在场全走 palette，不在场走沉浸深色默认四色
+    val sungColor = palette?.sung ?: ColorSungSoft
+    val currentUnsungColor = palette?.currentUnsung ?: ColorCurrentUnsung
+    val inactiveColor = palette?.inactive ?: ColorInactive
     val lineColor = when {
-        isCurrent -> ColorCurrentUnsung
-        isSungLine -> ColorSungSoft
-        else -> ColorInactive
+        isCurrent -> currentUnsungColor
+        isSungLine -> sungColor
+        else -> inactiveColor
     }
-    Column(modifier = modifier.lyricSkew()) {
+    Column(
+        modifier = modifier.lyricSkew(),
+        horizontalAlignment = if (centered) Alignment.CenterHorizontally else Alignment.Start,
+    ) {
         if (isCurrent && wordByWord && line.words.isNotEmpty() && measure.wordRows.isNotEmpty()) {
             // 逐字只走当前行（瓜子同口径：非当前行整行渲染，断行结果共用）
             WordRows(
@@ -638,25 +672,31 @@ private fun LyricLineBlock(
                 advancedFx = advancedFx,
                 lineHeightFactor = lineHeightFactor,
                 letterSpacingSp = letterSpacingSp,
+                palette = palette,
+                centered = centered,
             )
         } else {
             Text(
                 text = measure.plainText,
-                color = if (isCurrent) Color.White else lineColor,
+                // 当前行整行渲染取色板最亮档（无 palette 时经典口径纯白）
+                color = if (isCurrent) (palette?.sung ?: Color.White) else lineColor,
                 fontSize = fontSizeSp.sp,
                 fontWeight = weight,
                 lineHeight = (fontSizeSp * lineHeightFactor).sp,
                 letterSpacing = letterSpacingSp.sp,
+                textAlign = if (centered) androidx.compose.ui.text.style.TextAlign.Center else androidx.compose.ui.text.style.TextAlign.Start,
+                modifier = if (centered) Modifier.fillMaxWidth() else Modifier,
             )
         }
         if (measure.subText != null) {
             Text(
                 text = measure.subText,
-                color = ColorTranslation,
+                color = palette?.translation ?: ColorTranslation,
                 fontSize = (fontSizeSp * 0.62f).sp,
                 fontWeight = weight,
                 lineHeight = (fontSizeSp * 0.62f * lineHeightFactor).sp,
-                modifier = Modifier.offset(y = 6.dp),
+                textAlign = if (centered) androidx.compose.ui.text.style.TextAlign.Center else androidx.compose.ui.text.style.TextAlign.Start,
+                modifier = Modifier.offset(y = 6.dp).then(if (centered) Modifier.fillMaxWidth() else Modifier),
             )
         }
     }
@@ -675,6 +715,8 @@ private fun WordRows(
     advancedFx: Boolean,
     lineHeightFactor: Float,
     letterSpacingSp: Float,
+    palette: LyricPalette? = null,
+    centered: Boolean = false,
 ) {
     val density = LocalDensity.current
     val lineHeightPx = with(density) { (fontSizeSp * lineHeightFactor).sp.toPx() }
@@ -694,6 +736,7 @@ private fun WordRows(
                         advancedFx = advancedFx,
                         lineHeightFactor = lineHeightFactor,
                         letterSpacingSp = letterSpacingSp,
+                        palette = palette,
                     )
                 }
             }
@@ -706,7 +749,17 @@ private fun WordRows(
         layout(constraints.maxWidth, measure.mainHeightPx.roundToInt()) {
             var k = 0
             for ((r, rowWords) in rows.withIndex()) {
-                var x = 0
+                // 居中时按本视觉行总宽起摆（行宽＝各词量测宽之和）
+                var rowWidth = 0
+                if (centered) {
+                    var kk = k
+                    for (wi in rowWords) {
+                        if (kk >= placeables.size) break
+                        rowWidth += placeables[kk].width
+                        kk++
+                    }
+                }
+                var x = if (centered) ((constraints.maxWidth - rowWidth) / 2).coerceAtLeast(0) else 0
                 for (wi in rowWords) {
                     if (k >= placeables.size) break
                     val p = placeables[k]
@@ -732,7 +785,11 @@ private fun WordPiece(
     advancedFx: Boolean,
     lineHeightFactor: Float,
     letterSpacingSp: Float,
+    palette: LyricPalette? = null,
 ) {
+    val sungColor = palette?.sung ?: ColorSungSoft
+    val currentUnsungColor = palette?.currentUnsung ?: ColorCurrentUnsung
+    val inactiveColor = palette?.inactive ?: ColorInactive
     val dur = (word.endMs - word.startMs).coerceAtLeast(1L)
     // 唱到的比例（线性插值，靠平滑时间保证单调不回退）
     val sungFraction = when {
@@ -790,22 +847,22 @@ private fun WordPiece(
             Text(
                 text = word.text,
                 style = baseStyle,
-                color = ColorSungSoft.copy(alpha = 0.85f * emph),
+                color = sungColor.copy(alpha = 0.85f * emph),
                 softWrap = false,
                 maxLines = 1,
                 modifier = Modifier.blur(6.dp),
             )
         }
         val style = when {
-            !isCurrentLine -> baseStyle.copy(color = if (isSungLine) ColorSungSoft else ColorInactive)
-            sungFraction <= 0f -> baseStyle.copy(color = ColorCurrentUnsung)
-            sungFraction >= 1f -> baseStyle.copy(color = ColorSungSoft)
+            !isCurrentLine -> baseStyle.copy(color = if (isSungLine) sungColor else inactiveColor)
+            sungFraction <= 0f -> baseStyle.copy(color = currentUnsungColor)
+            sungFraction >= 1f -> baseStyle.copy(color = sungColor)
             else -> baseStyle.copy(
                 brush = Brush.horizontalGradient(
-                    0f to ColorSungSoft,
-                    sungFraction to ColorSungSoft,
-                    sungFraction to ColorCurrentUnsung,
-                    1f to ColorCurrentUnsung,
+                    0f to sungColor,
+                    sungFraction to sungColor,
+                    sungFraction to currentUnsungColor,
+                    1f to currentUnsungColor,
                 ),
             )
         }

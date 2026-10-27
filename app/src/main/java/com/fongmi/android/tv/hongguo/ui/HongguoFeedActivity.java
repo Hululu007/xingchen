@@ -991,6 +991,12 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     private void openDrawer() {
         if (drawerOpen) return;
         drawerOpen = true;
+        // 开关显示按 HgStore 当前值重刷（sweep 必修3）：弹幕在剧内另有写入口
+        // （onDanmakuToggle），只在 initView 设一次会显示旧值、照着拨会拨反。
+        // 监听回写的是同值，对 HgStore 无副作用。
+        binding.hgDrawer.hgDrawerDirect.setChecked(HgStore.isLaunchDirect());
+        binding.hgDrawer.hgDrawerDanmaku.setChecked(HgStore.isDanmakuOn());
+        binding.hgDrawer.hgDrawerAutonext.setChecked(HgStore.isAutoNext());
         binding.hgDrawerRoot.setVisibility(View.VISIBLE);
         binding.hgDrawer.getRoot().post(() -> {
             binding.hgDrawer.getRoot().setTranslationX(-binding.hgDrawer.getRoot().getWidth());

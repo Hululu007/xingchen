@@ -4,9 +4,9 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.drawable.Drawable
 import com.bumptech.glide.request.transition.Transition
-import com.fongmi.android.tv.bean.music.MusicAudioInfo
 import com.fongmi.android.tv.bean.music.MusicTrack
 import com.fongmi.android.tv.impl.CustomTarget
+import com.fongmi.android.tv.music.MusicAudioInfo
 import com.fongmi.android.tv.music.MusicController
 import com.fongmi.android.tv.music.MusicLibrary
 import com.fongmi.android.tv.music.MusicLyricCache

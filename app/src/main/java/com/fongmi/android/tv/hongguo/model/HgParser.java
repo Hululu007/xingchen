@@ -223,6 +223,10 @@ public final class HgParser {
     }
 
     private static HgSeriesItem asSeriesItem(JsonElement el) {
+        return asSeriesItem(el, 0);
+    }
+
+    private static HgSeriesItem asSeriesItem(JsonElement el, int depth) {
         if (el == null || !el.isJsonObject()) return null;
         JsonObject o = el.getAsJsonObject();
         String id = firstStr(o, "series_id", "book_id", "seriesId");
@@ -237,9 +241,52 @@ public final class HgParser {
         // due_start_text / due_start_time}（classes11.dex），键名蛇形逐字验过；
         // 以前解析器没读、被容忍吞掉，未上线剧的预约态从这里进模型。
         JsonObject appt = obj(o, "appointment");
+        // 短片面（研究账 §2.5，bookmall/tab 真回包逐字）：短片自身 vid、
+        // 角标 tag_info.text、热度 rec_text、分类 category_schema[].name、
+        // 朝向 vertical——流改短片流后条目靠这组字段成立。
+        String vid = firstStr(o, "vid", "video_id");
+        JsonObject tagInfo = obj(o, "tag_info");
+        String badge = tagInfo == null ? null : str(tagInfo, "text");
+        if (badge == null) {
+            JsonArray ctl = arr(o, "cover_tag_info_list");
+            if (ctl != null && ctl.size() > 0 && ctl.get(0).isJsonObject()) {
+                badge = str(ctl.get(0).getAsJsonObject(), "text");
+            }
+        }
+        List<String> tags = new ArrayList<>();
+        JsonArray schema = arr(o, "category_schema");
+        if (schema != null) {
+            for (JsonElement te : schema) {
+                if (te.isJsonObject()) {
+                    String name = str(te.getAsJsonObject(), "name");
+                    if (name != null && !name.isEmpty()) tags.add(name);
+                }
+            }
+        }
+        Boolean vertical = null;
+        JsonElement ve = o.get("vertical");
+        if (ve != null && ve.isJsonPrimitive() && ve.getAsJsonPrimitive().isBoolean()) {
+            vertical = ve.getAsBoolean();
+        }
+        // 多季/专辑面（研究账 §5.3，classes11 字符串池实证键名）：回包带了才有，
+        // 没带全空——系列半屏单只认这组真数据（账 §5.4）。
+        List<HgSeriesItem> siblings = new ArrayList<>();
+        if (depth == 0) {
+            JsonArray album = arr(o, "album_data_list");
+            if (album != null) {
+                for (JsonElement se : album) {
+                    HgSeriesItem sib = asSeriesItem(se, 1);
+                    if (sib != null) siblings.add(sib);
+                }
+            }
+        }
         return new HgSeriesItem(id, title, cover, desc, count,
                 appt != null, appt != null && boolOf(appt, "is_subscribed"),
-                appt == null ? null : str(appt, "due_start_text"));
+                appt == null ? null : str(appt, "due_start_text"),
+                vid, badge, str(o, "rec_text"), tags, vertical,
+                boolOf(o, "is_multi_season"),
+                firstStr(o, "album_id_str", "album_id"),
+                intOf(o, "album_serial_count", -1), siblings);
     }
 
     /**

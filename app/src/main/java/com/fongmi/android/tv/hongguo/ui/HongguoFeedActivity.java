@@ -124,6 +124,14 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     private boolean resumeAfterMine;
     /** 横屏窗内转模式（整页转 90°，窗口不转）；进入时的页下标，滑走即退出。 */
     private boolean landMode;
+    // 窗内转方向随握持（传感器）：窗口被 behind＋竖屏锁住、系统不转，
+    // 显示方向读不到——旧版写死 -90°，他往另一边转手机画面就是倒着的
+    // （他 07:35 点名「竖屏横屏进入全屏完全乱」的实证之一）。监听器取
+    // 物理朝向定方向：60–120°（顶边朝左）用 -90°、240–300°（顶边朝右）
+    // 用 +90°；横屏中途翻面（两横向区之间）跟着翻 180°。
+    private android.view.OrientationEventListener orientationListener;
+    private int lastOrientationDeg = -1;
+    private float landRotation = -90f;
     private int landPos = -1;
     private boolean seeking;
     private long lastSaveMs;
@@ -267,6 +275,22 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                 onSettle(position);
             }
         });
+        orientationListener = new android.view.OrientationEventListener(this) {
+            @Override
+            public void onOrientationChanged(int orientation) {
+                if (orientation == ORIENTATION_UNKNOWN) return;
+                lastOrientationDeg = orientation;
+                if (!landMode) return;
+                float want = Float.NaN;
+                if (orientation >= 60 && orientation <= 120) want = -90f;
+                else if (orientation >= 240 && orientation <= 300) want = 90f;
+                if (!Float.isNaN(want) && want != landRotation) {
+                    landRotation = want;
+                    binding.getRoot().animate().rotation(want).setDuration(200).start();
+                }
+            }
+        };
+        if (orientationListener.canDetectOrientation()) orientationListener.enable();
         playerView = new PlayerView(this);
         playerView.setUseController(false);
         playerView.setDanmakuEnabled(HgStore.isDanmakuOn());
@@ -1176,7 +1200,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
      * 进横屏窗内转：根视图宽高互换＋绕中心转 90°＋平移回窗口中心，视频层与
      * 控制层（顶栏/右列/本剧条/全屏控制条）整体转过去铺满。窗口本身保持
      * behind＋竖屏锁定、永不旋转，故进出没有任何窗口旋转残影。
-     * 旋转方向取 -90°（顶边朝左）；方向手感待真机定。
+     * 旋转方向随握持传感器定（见 orientationListener 字段注），不再写死。
      */
     private void enterLandMode(int position) {
         if (landMode) return;
@@ -1199,7 +1223,9 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         root.setPivotY(w / 2f);
         root.setTranslationX((w - h) / 2f);
         root.setTranslationY((h - w) / 2f);
-        root.setRotation(-90f);
+        // 初始方向按最近一次物理朝向（横持另一边就 +90°，别把画面转倒）
+        landRotation = lastOrientationDeg >= 240 && lastOrientationDeg <= 300 ? 90f : -90f;
+        root.setRotation(landRotation);
         if (playerView != null) playerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FIT);
         // 全屏全隐藏（他定案）：底栏随界面一起藏，pager 底距一并收掉铺满
         binding.hgBottomBar.setVisibility(View.GONE);
@@ -1213,6 +1239,8 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         if (!landMode) return;
         landMode = false;
         landPos = -1;
+        landRotation = -90f;
+        binding.getRoot().animate().cancel();
         android.view.View root = binding.getRoot();
         root.setRotation(0f);
         root.setTranslationX(0f);
@@ -1464,6 +1492,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
 
     @Override
     protected void onDestroy() {
+        if (orientationListener != null) orientationListener.disable();
         ui.removeCallbacks(ticker);
         ui.removeCallbacks(hideChromeRunnable);
         ui.removeCallbacks(hideFsRunnable);

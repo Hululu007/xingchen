@@ -216,8 +216,8 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     @Override
     protected void initEvent() {
         binding.hgSearch.setOnClickListener(v -> HongguoSearchActivity.start(this));
-        // ☰：官方是侧边抽屉（分类/功能面），本阶段无对应面——只占位不挂假动作，
-        // 待后续阶段与剧场面一起落（见回报未定项）。
+        // ☰：四阶段落成真侧口——进「我的」集合页（追更/收藏/观看历史/登录行）
+        binding.hgMenu.setOnClickListener(v -> HgLibraryActivity.start(this));
         binding.hgFsPlay.setOnClickListener(v -> togglePlayPause());
         binding.hgFsSeries.setOnClickListener(v -> {
             if (currentPos >= 0) HgEpisodeSheet.show(this, session, currentPos, this::jumpTo);
@@ -304,6 +304,9 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                     int resumeAt = 0;
                     for (int i = 0; i < result.size(); i++) {
                         HgSeriesItem s = result.get(i);
+                        if (s.getSeriesId() != null) {
+                            HgStore.putMeta(s.getSeriesId(), s.getTitle(), s.getCoverUrl(), s.getEpisodeCount());
+                        }
                         session.items.add(HgFeedItem.head(s.getSeriesId(), s.getTitle(), category,
                                 s.getDesc(), s.getCoverUrl(), s.getEpisodeCount()));
                         // 续播剧若在流里，优先落它

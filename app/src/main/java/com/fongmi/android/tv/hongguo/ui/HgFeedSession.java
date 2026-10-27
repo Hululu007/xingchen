@@ -148,6 +148,10 @@ public final class HgFeedSession {
 
     private void applyDetail(int position, HgFeedItem head, HgSeriesDetail detail) {
         String title = detail != null && detail.getTitle() != null ? detail.getTitle() : head.title;
+        // 元信息顺手落盘：追更/收藏/历史列表页靠它显示标题封面（不另拉接口）
+        HgStore.putMeta(head.seriesId, title,
+                detail != null && detail.getCoverUrl() != null ? detail.getCoverUrl() : head.coverUrl,
+                detail != null && detail.getEpisodeCount() > 0 ? detail.getEpisodeCount() : head.episodeCount);
         String desc = detail != null && detail.getDesc() != null ? detail.getDesc() : head.desc;
         String cover = detail != null && detail.getCoverUrl() != null ? detail.getCoverUrl() : head.coverUrl;
         String author = detail == null ? null : detail.getAuthorName();

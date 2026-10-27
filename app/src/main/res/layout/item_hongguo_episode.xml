@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/hg_ep_num"
+    android:layout_width="match_parent"
+    android:layout_height="46dp"
+    android:layout_margin="4dp"
+    android:background="@drawable/bg_hg_episode_chip"
+    android:gravity="center"
+    android:textColor="#FFFFFF"
+    android:textSize="14sp" />

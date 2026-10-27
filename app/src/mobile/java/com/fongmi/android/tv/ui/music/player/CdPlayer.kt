@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.sp
 import com.fongmi.android.tv.music.MusicQueue
 import com.fongmi.android.tv.ui.music.MusicPlayerSettings
 import com.fongmi.android.tv.utils.CoverColor
+import androidx.compose.ui.graphics.drawscope.withTransform
 import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
@@ -688,9 +689,7 @@ private fun CdDisc(
         val hubColors = material.hub.map { shade(it) }
         val coverBmp = state.coverBitmap
 
-        with(drawContext.canvas) {
-            save()
-            rotate(holder.angle, center)
+        withTransform({ rotate(holder.angle, center) }) {
             // 盘面扫光（均匀分布）
             drawRoundRect(
                 brush = Brush.sweepGradient(sweepColors, center),
@@ -702,8 +701,8 @@ private fun CdDisc(
             if (coverBmp != null) {
                 val coverSize = f * 0.89285713f
                 val coverOff = Offset(center.x - coverSize / 2f, center.y - coverSize / 2f)
-                save()
-                clipPath(
+                drawContext.canvas.save()
+                drawContext.canvas.clipPath(
                     Path().apply {
                         addRoundRect(
                             RoundRect(
@@ -725,7 +724,7 @@ private fun CdDisc(
                         coverSize.roundToInt()
                     )
                 )
-                restore()
+                drawContext.canvas.restore()
             }
             // 盘芯（10 档固定 stop 扫光）
             val hubStops = Array(CD_HUB_STOPS.size) { i -> CD_HUB_STOPS[i] to hubColors[i] }
@@ -739,7 +738,6 @@ private fun CdDisc(
                 radius = f * 0.028f,
                 center = center
             )
-            restore()
         }
         // 切歌扫光 overlay（不随盘转）
         val mix = if (holder.sweepStartMs >= 0L) {

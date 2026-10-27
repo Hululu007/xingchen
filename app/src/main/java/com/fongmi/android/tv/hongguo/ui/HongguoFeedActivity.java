@@ -720,7 +720,9 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     @Override
     protected void onPause() {
         saveProgress();
-        if (player != null) player.pause();
+        // 去横屏页时把本页引擎停透：同一条本地流不许两个播放器同时拉（代理流按集单实例）
+        if (launchedLand) stopPlayback();
+        else if (player != null) player.pause();
         super.onPause();
     }
 

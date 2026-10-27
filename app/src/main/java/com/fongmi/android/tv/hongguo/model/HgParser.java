@@ -263,6 +263,47 @@ public final class HgParser {
         return Integer.MAX_VALUE;
     }
 
+    /**
+     * 搜索联想回包（openhongguo ParseSuggest 线上形状）：先取
+     * data.query_result_v2、再 suggest_result（行名 name/keyword/word_type），
+     * 都没有时回落 data.query_result 纯词表。code 非 0 回空表。
+     */
+    public static java.util.List<HgSuggestion> parseSuggest(String json) {
+        java.util.List<HgSuggestion> out = new java.util.ArrayList<>();
+        JsonObject root;
+        try {
+            root = JsonParser.parseString(json).getAsJsonObject();
+        } catch (Exception e) {
+            return out;
+        }
+        String code = str(root, "code");
+        if (code != null && !"0".equals(code)) return out;
+        JsonObject data = obj(root, "data");
+        if (data == null) return out;
+        for (String key : new String[]{"query_result_v2", "suggest_result"}) {
+            JsonArray rows = arr(data, key);
+            if (rows == null) continue;
+            for (JsonElement el : rows) {
+                if (!el.isJsonObject()) continue;
+                JsonObject r = el.getAsJsonObject();
+                String name = str(r, "name");
+                if (name == null || name.isEmpty()) continue;
+                out.add(new HgSuggestion(name, str(r, "keyword"), intOf(r, "word_type", -1)));
+            }
+            if (!out.isEmpty()) return out;
+        }
+        JsonArray plain = arr(data, "query_result");
+        if (plain != null) {
+            for (JsonElement el : plain) {
+                if (el.isJsonPrimitive()) {
+                    String w = el.getAsString();
+                    if (w != null && !w.isEmpty()) out.add(new HgSuggestion(w, w, -1));
+                }
+            }
+        }
+        return out;
+    }
+
     /** 数字字段取值：没带或非数字为 null（区别于 intOf 的 -1 哨兵，状态类字段用）。 */
     private static Integer intOrNull(JsonObject o, String key) {
         JsonElement e = o == null ? null : o.get(key);

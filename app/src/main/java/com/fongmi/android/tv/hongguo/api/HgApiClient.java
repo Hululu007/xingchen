@@ -456,11 +456,38 @@ public final class HgApiClient {
         get(HOST + "/reading/bookapi/search/cue" + BV, q, cellCallback(cb));
     }
 
-    /** 搜索联想 GET /reading/bookapi/search/suggest。 */
-    public void searchSuggest(String keyword, HgCallback<HgCellPage> cb) {
-        Map<String, String> q = new HashMap<>();
-        q.put("keyword", keyword);
-        get(HOST + "/reading/bookapi/search/suggest" + BV, q, cellCallback(cb));
+    /**
+     * 搜索联想 GET /reading/bookapi/search/suggest/v1/（已签名，fqnovel 宿主）：
+     * 旧无签名形与旧搜索同门回空体，已改走 getSigned＋suggestPairs，
+     * openhongguo Suggest 同口实跑可回（词条含直达剧的 id）。
+     */
+    public void searchSuggest(String prefix, HgCallback<java.util.List<com.fongmi.android.tv.hongguo.model.HgSuggestion>> cb) {
+        getSigned("/reading/bookapi/search/suggest/v1/", HgRequests.suggestPairs(prefix), new BodyCallback() {
+            @Override
+            void onBody(String text) {
+                cb.onSuccess(com.fongmi.android.tv.hongguo.model.HgParser.parseSuggest(text));
+            }
+
+            @Override
+            void onFail(int code, String msg) {
+                cb.onError(code, msg);
+            }
+        });
+    }
+
+    /** 搜索翻页：同 searchTab，offset 为已取条数。 */
+    public void searchTab(String keyword, int offset, HgCallback<HgCellPage> cb) {
+        getSigned("/reading/bookapi/search/tab/v", HgRequests.searchPairs(keyword, offset), new BodyCallback() {
+            @Override
+            void onBody(String text) {
+                cb.onSuccess(HgParser.parseCellPage(text));
+            }
+
+            @Override
+            void onFail(int code, String msg) {
+                cb.onError(code, msg);
+            }
+        });
     }
 
     /** 搜索结果翻页 GET /reading/bookapi/search/cell/change（翻页游标参数未定版，透传 params）。 */

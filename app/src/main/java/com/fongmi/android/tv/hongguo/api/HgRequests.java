@@ -180,6 +180,20 @@ public final class HgRequests {
      * 63,856 字节真结果；旧无签名＋假指纹＋keyword 形回 200 空体（与取模型
      * 口同一道签名门，2026-10-28 A/B 实证）。
      */
+    /**
+     * 搜索联想有序参数（openhongguo SignedSuggestPairs 逐字）：
+     * 设备公共参 ＋ query/count=10/search_source=1（SearchSourceHome）/
+     * user_is_login=0。
+     */
+    public static java.util.List<String[]> suggestPairs(String prefix) {
+        java.util.List<String[]> pairs = HgDevice.deviceQueryPairs();
+        pairs.add(new String[]{"query", prefix == null ? "" : prefix});
+        pairs.add(new String[]{"count", "10"});
+        pairs.add(new String[]{"search_source", "1"});
+        pairs.add(new String[]{"user_is_login", "0"});
+        return pairs;
+    }
+
     public static java.util.List<String[]> searchPairs(String keyword) {
         java.util.List<String[]> pairs = HgDevice.deviceQueryPairs();
         pairs.add(new String[]{"query", keyword == null ? "" : keyword});
@@ -193,6 +207,18 @@ public final class HgRequests {
         pairs.add(new String[]{"bookstore_tab", "16"});
         pairs.add(new String[]{"user_is_login", "0"});
         return pairs;
+    }
+
+    /** 翻页：同 searchPairs、offset 换成已取条数（openhongguo SearchOffset 口径）。 */
+    public static java.util.List<String[]> searchPairs(String keyword, int offset) {
+        java.util.List<String[]> base = searchPairs(keyword);
+        if (offset <= 0) return base;
+        java.util.List<String[]> out = new java.util.ArrayList<>(base.size());
+        for (String[] kv : base) {
+            out.add("offset".equals(kv[0])
+                    ? new String[]{"offset", String.valueOf(offset)} : kv);
+        }
+        return out;
     }
 
     // ---------- 四阶段互动（样本实证，逐字段出处见各方法注） ----------

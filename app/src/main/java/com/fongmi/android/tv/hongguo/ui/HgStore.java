@@ -98,6 +98,38 @@ public final class HgStore {
         return id != null && readSet(key).contains(id);
     }
 
+    // ---------- 搜索历史（最近在前，本地落盘；只存词、不带任何账号维度） ----------
+
+    private static final String K_SEARCH_HISTORY = "hongguo_search_history_v1";
+    private static final int SEARCH_HISTORY_MAX = 12;
+
+    public static java.util.List<String> searchHistory() {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        String raw = Prefers.getString(K_SEARCH_HISTORY, "");
+        if (raw != null && !raw.isEmpty()) {
+            for (String s : raw.split("\n")) {
+                String w = s.trim();
+                if (!w.isEmpty()) out.add(w);
+            }
+        }
+        return out;
+    }
+
+    public static void addSearchHistory(String word) {
+        if (word == null) return;
+        String w = word.trim();
+        if (w.isEmpty()) return;
+        java.util.List<String> list = searchHistory();
+        list.remove(w);
+        list.add(0, w);
+        while (list.size() > SEARCH_HISTORY_MAX) list.remove(list.size() - 1);
+        Prefers.put(K_SEARCH_HISTORY, String.join("\n", list));
+    }
+
+    public static void clearSearchHistory() {
+        Prefers.put(K_SEARCH_HISTORY, "");
+    }
+
     // ---------- 互动状态直写（四阶段：远程同步后的镜像落点） ----------
 
     public static void setLiked(String seriesId, boolean on) {

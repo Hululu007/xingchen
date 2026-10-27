@@ -247,6 +247,21 @@ public class HgOfflineTest {
                             && seasons.get(0).getEpisodeCount() == 10,
                     "实际=" + seasons.size());
             check("专辑已下架回空表", HgParser.parseAlbum("{\"code\":101001}").isEmpty(), null);
+            // 搜索联想形状照 openhongguo ParseSuggest＋ohg suggest 实跑：
+            // query_result_v2 行 {name, keyword, word_type}，word_type=2 的
+            // keyword 是剧 id 可直达；富行缺失时回落 query_result 纯词表
+            String suggestJson = "{\"code\":0,\"data\":{\"query_result_v2\":["
+                    + "{\"name\":\"王妈在顾家当保姆后全家只会搞笑了\",\"keyword\":\"7694653385668037657\",\"word_type\":2},"
+                    + "{\"name\":\"王妈\",\"keyword\":\"王妈\",\"word_type\":5}"
+                    + "]}}";
+            java.util.List<com.fongmi.android.tv.hongguo.model.HgSuggestion> sugs =
+                    HgParser.parseSuggest(suggestJson);
+            check("联想解析两条", sugs.size() == 2, "实际=" + sugs.size());
+            check("联想直达剧判定", sugs.size() == 2 && sugs.get(0).isSeriesLink()
+                    && !sugs.get(1).isSeriesLink(), null);
+            java.util.List<com.fongmi.android.tv.hongguo.model.HgSuggestion> plainSugs =
+                    HgParser.parseSuggest("{\"code\":0,\"data\":{\"query_result\":[\"甲剧\",\"乙剧\"]}}");
+            check("联想纯词表回落", plainSugs.size() == 2 && "甲剧".equals(plainSugs.get(0).getText()), null);
         }
 
         System.out.println(fail == 0 ? "ALL PASS" : ("FAILURES=" + fail));

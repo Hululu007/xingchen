@@ -73,6 +73,7 @@ app/src/main/res/layout/item_hongguo_episode.xml
 app/src/main/res/layout/item_hongguo_episode_page.xml
 app/src/main/res/layout/item_hongguo_feed.xml
 app/src/main/res/layout/item_hongguo_search.xml
+app/src/main/res/layout/item_hongguo_search_text.xml
 app/src/main/res/layout/item_hongguo_series_row.xml
 app/src/main/res/layout/item_hongguo_theater.xml
 app/src/main/res/layout/view_hongguo_mine.xml

@@ -274,7 +274,7 @@ public final class HgFeedSession {
 
             @Override
             public void onError(int httpCode, String message) {
-                changed.accept(-1);
+                main.post(() -> changed.accept(-1));
             }
         });
     }

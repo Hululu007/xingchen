@@ -594,6 +594,13 @@
             android:exported="false"
             android:screenOrientation="portrait" />
 
+        <!-- 红果剧场找剧页（五阶段）：☰ 集合页进入，海报网格走 bookmall/category 真数据面 -->
+        <activity
+            android:name="com.fongmi.android.tv.hongguo.ui.HgTheaterActivity"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|uiMode|orientation"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
         <!-- 外部本地媒体直达门（2026-10-27）：文件管理器/相册等外部应用点开
              content/file 的音视频直接投到本页，不再先把 HomeActivity 的主任务
              整个拉到前台。独立 taskAffinity 与主任务分家（外部播完退出即回来源

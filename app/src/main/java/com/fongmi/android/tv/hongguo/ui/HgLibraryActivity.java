@@ -14,9 +14,9 @@ import com.fongmi.android.tv.ui.base.BaseActivity;
 
 /**
  * 红果「我的」集合页：刷剧页左上 ☰ 的落点。只挂已经做好的面——
- * 登录状态行（壳子统一登录托管的红果提供方）＋追更/收藏/观看历史三页入口。
+ * 登录状态行（壳子统一登录托管的红果提供方）＋剧场（五阶段真入口，海报网格
+ * 找剧页）＋追更/收藏/观看历史三页入口。
  * 预约在样本与数据里没有实证（见四阶段回报未定项），不摆入口、不占位。
- * 剧场等后续阶段的面将来在此加行，本页不预留假项。
  */
 public class HgLibraryActivity extends BaseActivity {
 
@@ -45,6 +45,7 @@ public class HgLibraryActivity extends BaseActivity {
     @Override
     protected void initEvent() {
         binding.hgLibBack.setOnClickListener(v -> finish());
+        binding.hgLibTheater.setOnClickListener(v -> HgTheaterActivity.start(this));
         binding.hgLibFollow.setOnClickListener(v -> HgListActivity.start(this, HgListActivity.KIND_FOLLOW));
         binding.hgLibFav.setOnClickListener(v -> HgListActivity.start(this, HgListActivity.KIND_FAV));
         binding.hgLibHistory.setOnClickListener(v -> HgListActivity.start(this, HgListActivity.KIND_HISTORY));

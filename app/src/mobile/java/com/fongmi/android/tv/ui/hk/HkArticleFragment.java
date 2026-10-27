@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.ui.hk;
 
+import android.content.Context;
 import android.graphics.drawable.Animatable;
 import android.os.Bundle;
 import android.text.TextUtils;
@@ -21,6 +22,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.hk.HkRule;
 import com.fongmi.android.tv.api.hk.HkItem;
+import com.fongmi.android.tv.api.hk.event.rule.CacheCode;
 import com.github.catvod.crawler.SpiderDebug;
 import com.fongmi.android.tv.ui.hk.view.HkCenterListPopup;
 import com.fongmi.android.tv.ui.hk.view.MyWebProgress;
@@ -194,13 +196,73 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
         initData();
     }
 
-    /** 照抄原版 initData：先亮加载态；cacheOnly 命中缓存时直接返回（缓存子系统随切片补入）；否则走模型取数。 */
+    /**
+     * 照抄原版 initAutoCache（ArticleListFragment.smali:24381）：宿主 HkListActivity 建页时以
+     * （页面标题， 规则原始 url）调用（原版 FilmListActivity 以 intent 的 title 与
+     * articleListRule.getUrl() 调用，同点位）。链接无 #autoCache#/#cacheOnly# 时键为 null、全链不启用。
+     */
+    public void initAutoCache(String title, String url) {
+        autoCacheMd5 = HkAutoCacheUtil.initAutoCacheMd5(title, url);
+        cacheOnly = HkAutoCacheUtil.isCacheOnly(url);
+    }
+
+    /**
+     * 照抄原版 updateCacheCode（ArticleListFragment.smali:27854）：引擎 cacheCode0 发布的
+     * CacheCode 事件。原版守卫为宿主是 FilmListActivity 且未 onPause、autoCacheMd5 非空；
+     * 星辰宿主恒为 HkListActivity，等价收敛为页面 resumed 且键非空。
+     */
+    @org.greenrobot.eventbus.Subscribe(threadMode = org.greenrobot.eventbus.ThreadMode.MAIN)
+    public void updateCacheCode(CacheCode event) {
+        if (event == null || getActivity() == null || getActivity().isFinishing()) return;
+        if (TextUtils.isEmpty(autoCacheMd5)) return;
+        if (!isResumed()) return;
+        cacheCode = event.getCode();
+    }
+
+    /**
+     * 照抄原版 initData（ArticleListFragment.smali:24389 起）：先亮加载态；
+     * 有缓存键时后台先灌缓存（lambda$initData$11）；cacheOnly 且已有缓存直接返回不走网络；
+     * 否则走模型取数。
+     */
     protected void initData() {
         loading(true);
         loadingPage = page;
+        if (!TextUtils.isEmpty(autoCacheMd5)) {
+            Task.execute(() -> loadFromAutoCache());
+        }
+        if (cacheOnly && getContext() != null
+                && HkAutoCacheUtil.hasCache(getContext(), autoCacheMd5)) {
+            return;
+        }
         articleListModel.params(requireContext(), page, false, articleListRuleDTO,
                         notLoadPreRule(), isFromHistory())
                 .process("ARTICLE_LIST_NEW", this);
+    }
+
+    /**
+     * 照抄原版 lambda$initData$11（ArticleListFragment.smali:14665）：后台读页面缓存；
+     * 缓存带 code 时先经引擎求值重建列表（失败/无产出回落缓存 data），
+     * data 非空以 fromCache=true 回灌——回灌口已有守卫，网络结果先到时不覆盖。
+     */
+    private void loadFromAutoCache() {
+        Context context = getContext();
+        if (context == null) return;
+        HkAutoCacheUtil.PageCache cache = HkAutoCacheUtil.getCache(context, autoCacheMd5);
+        if (cache == null) return;
+        String code = cache.getCode();
+        if (!TextUtils.isEmpty(code) && articleListRuleDTO != null) {
+            try {
+                HkArticleListModel.EngineBridge bridge = HkArticleListModel.getEngineBridge();
+                List<HkItem> rebuilt = bridge == null ? null
+                        : bridge.evalCacheCode(articleListRuleDTO, code, articleListRuleDTO.getUrl());
+                if (rebuilt != null && !rebuilt.isEmpty()) cache.setData(rebuilt);
+            } catch (Throwable ignored) {
+            }
+        }
+        List<HkItem> data = cache.getData();
+        if (data != null && !data.isEmpty()) {
+            bindArrayToView("ARTICLE_LIST_NEW", data, true);
+        }
     }
 
     /** 照抄原版 initView：找齐控件、装 GridLayoutManager(60)+SpanSizeLookup、刷新/加载更多、FastScroller、通知条、进度条。 */
@@ -327,60 +389,6 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
     public void onRefreshWebViewFromJs(com.fongmi.android.tv.api.hk.event.rule.RefreshWebViewEvent event) {
         if (event == null) return;
         applyRefreshWebView(event.getUrl());
-    }
-
-    /**
-     * 规则 JS 调 cacheCode0(code) 的订阅（8.83 ArticleListFragment.updateCacheCode）：
-     * 把规则给的缓存代码存进本页 cacheCode 字段（该字段是移植时留下的、此前从未被读写）。
-     * 原版守卫是宿主为 FilmListActivity 且 autoCacheMd5 非空，星辰等价用 listHost（列表宿主页）＋页面在前台。
-     * 缺口如实记：原版随后在列表数据到达时经 AutoCacheUtil.saveCache(md5, list, cacheCode) 落盘，
-     * 星辰的自动缓存落盘子系统未移植（cacheOnly 仍是待补切片），故本字段暂无下游消费者；
-     * 事件链与存取本身是真的，落盘消费面待自动缓存切片补入时接上。
-     */
-    @org.greenrobot.eventbus.Subscribe(threadMode = org.greenrobot.eventbus.ThreadMode.MAIN)
-    public void onCacheCode(com.fongmi.android.tv.api.hk.event.rule.CacheCodeEvent event) {
-        if (!isResumed() || event == null || !listHost) return;
-        cacheCode = event.getCode();
-    }
-
-    /**
-     * 规则 JS 调 refreshReadData(data) 的订阅（8.83 ArticleListFragment.refreshReadData）：
-     * 守卫等价落法——页面在前台（原版 activity 存活＋!isFinishing）、且 data.id 与本页规则标题
-     * 相等（原版 StringUtils.equals(rule.title, data.id) 的身份门）才认；命中后 nextPage 非空
-     * 更新 nextPageUrl、currentUrl 非空更新 myUrl（与原版同两项状态更新）。
-     * 缺口如实记：原版另有两项星辰无消费面——①isReadTheme 门与 read_chapter 章节标题 View
-     * 未移植（星辰 isReadTheme 字段从未被赋值、恒 false，章节标题条不在本页装配里），data.title
-     * 的「显示当前章节名＋记阅读历史」无落点；②原版经 HeavyTaskUtil 投的阅读历史任务星辰无等价队列。
-     * 故本订阅不拿 isReadTheme 当门（否则永不触发、等于假接），只落状态两项，标题面待阅读主题装配补入时再接。
-     */
-    @org.greenrobot.eventbus.Subscribe(threadMode = org.greenrobot.eventbus.ThreadMode.MAIN)
-    public void onRefreshReadData(com.fongmi.android.tv.api.hk.event.rule.RefreshReadDataEvent event) {
-        if (!isResumed() || event == null || articleListRule == null) return;
-        if (!TextUtils.equals(articleListRule.getTitle(), event.getId())) return;
-        if (HkStringUtil.isNotEmpty(event.getNextPage())) nextPageUrl = event.getNextPage();
-        if (HkStringUtil.isNotEmpty(event.getCurrentUrl())) myUrl = event.getCurrentUrl();
-    }
-
-    /**
-     * 规则 JS 调 refreshVideoSource(url, headers) 的订阅（8.83 ArticleListFragment.onRefreshVideoUrl
-     * → ArticleWebViewHolder.updateVideoUrl）：把新视频地址与请求头存进 holder 的视频面；
-     * 当前正展示视频条目时按新址立即重载（holder 建面时对视频条目本就直载 videoUrl，此处与之同义）。
-     * 原版 updateVideoUrl 另有悬浮播放器重弹（floatVideoController.show），星辰无悬浮播放器件，不做。
-     * 原版门是 !isOnPause 且 holder 有 WebView，星辰同口径用 isResumed。
-     */
-    @org.greenrobot.eventbus.Subscribe(threadMode = org.greenrobot.eventbus.ThreadMode.MAIN)
-    public void onRefreshVideoUrl(com.fongmi.android.tv.api.hk.event.rule.RefreshVideoUrlEvent event) {
-        if (!isResumed() || event == null || webViewHolder == null) return;
-        webViewHolder.setVideoUrl(event.getUrl());
-        webViewHolder.setVideoHeaders(event.getHeaders());
-        if (webViewHolder.isVideoItem() && webViewHolder.getWebView() != null
-                && HkStringUtil.isNotEmpty(event.getUrl())) {
-            if (event.getHeaders() != null && !event.getHeaders().isEmpty()) {
-                webViewHolder.getWebView().loadUrl(event.getUrl(), event.getHeaders());
-            } else {
-                webViewHolder.getWebView().loadUrl(event.getUrl());
-            }
-        }
     }
 
     private void applyRefreshWebView(String url) {
@@ -614,6 +622,10 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
     private boolean listHost;
     private int cacheMergeState;
     private String cacheCode;
+    /** #autoCache#/#cacheOnly# 页缓存键（原版 ArticleListFragment.autoCacheMd5）；无标记的页面为 null。 */
+    private String autoCacheMd5;
+    /** 原版 ArticleListFragment.cacheOnly：#cacheOnly# 命中缓存时 initData 跳过网络加载。 */
+    private boolean cacheOnly;
 
     public void setHostListener(HostListener hostListener) {
         this.hostListener = hostListener;
@@ -637,6 +649,13 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
         boolean isNew = !TextUtils.isEmpty(key) && key.endsWith("ARTICLE_LIST_NEW");
         boolean isPre = !TextUtils.isEmpty(key) && key.startsWith("ARTICLE_LIST_PRE");
         boolean isAfter = !TextUtils.isEmpty(key) && key.startsWith("ARTICLE_LIST_AFTER");
+        // 照抄原版 bindArrayToView 的存缓存支（ArticleListFragment.smali 源行 4060-4061）：
+        // 非缓存来源的整页 NEW 结果（不含 PRE/AFTER 分片）连同 cacheCode 落盘，
+        // 供下次 #autoCache# 秒开 / #cacheOnly# 离线打开；saveCache 内部异步。
+        if (!fromCache && isNew && !isPre && !isAfter
+                && !TextUtils.isEmpty(autoCacheMd5) && getContext() != null) {
+            HkAutoCacheUtil.saveCache(getContext(), autoCacheMd5, list, cacheCode);
+        }
         updateReadData(isNew && !isAfter, list);
         if (isNew) hookHomeData(list);
         if (isNew && !isPre && listHost) injectReverseMode(list);

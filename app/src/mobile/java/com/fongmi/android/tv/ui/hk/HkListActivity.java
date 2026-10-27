@@ -1358,6 +1358,7 @@ public class HkListActivity extends AppCompatActivity
                 fragment.setListHost(getIntent().getBooleanExtra("listHost", false));
                 fragment.setPageOpener(this);
                 fragment.setImmersiveTheme(false);
+                fragment.initAutoCache(pageTitle, rule.getUrl());
                 if (parentData != null) fragment.setAutoPageData(parentData);
                 return;
             }
@@ -1367,6 +1368,9 @@ public class HkListActivity extends AppCompatActivity
         fragment.setListHost(getIntent().getBooleanExtra("listHost", false));
         fragment.setPageOpener(this);
         fragment.setImmersiveTheme(false);
+        // 照原版 FilmListActivity.initData 同点位：initAutoCache(页面标题, 规则原始 url)，
+        // #autoCache#/#cacheOnly# 页缓存的键与开关在此定死（赶在 Fragment.initData 之前）。
+        fragment.initAutoCache(pageTitle, rule.getUrl());
         if (parentData != null) fragment.setAutoPageData(parentData);
         getSupportFragmentManager().beginTransaction()
                 .setCustomAnimations(R.anim.xc_frag_fade_in, R.anim.xc_frag_fade_out)

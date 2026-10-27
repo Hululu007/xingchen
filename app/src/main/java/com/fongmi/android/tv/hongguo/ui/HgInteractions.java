@@ -24,6 +24,12 @@ public interface HgInteractions {
     /** 切换关注，返回切换后状态。 */
     boolean toggleFollow(String seriesId);
 
+    /** 是否已预约（未上线剧的到货提醒预约，与收藏/追更是不同的服务端状态）。 */
+    boolean isReserved(String seriesId);
+
+    /** 切换预约，返回切换后状态。 */
+    boolean toggleReserve(String seriesId);
+
     /**
      * 当前实现是否要求先登录（四阶段远程实现未登录时为 true）：
      * 页面据此先拉壳子统一登录，不调 toggle、不许静默假成功。

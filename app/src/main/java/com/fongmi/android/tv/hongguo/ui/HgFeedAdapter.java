@@ -23,7 +23,7 @@ import java.util.Set;
  */
 public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Holder> {
 
-    public enum Action {FAV, COMMENT, LIKE, SHARE, FOLLOW}
+    public enum Action {FAV, COMMENT, LIKE, SHARE, FOLLOW, RESERVE}
 
     public interface Host {
         void onTap(int position);
@@ -132,6 +132,23 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         String cc = session.commentCountOf(item.seriesId);
         setCount(b.hgCommentCount, cc != null ? cc : item.commentCount);
         setCount(b.hgFavCount, item.favCount);
+        bindReserveState(holder, item);
+    }
+
+    /** 预约片：只在未上线剧（reservable）亮；文案照官方串族（点击预约/已预约＋上线文案）。 */
+    public void bindReserveState(Holder holder, HgFeedItem item) {
+        ItemHongguoFeedBinding b = holder.binding;
+        if (!item.reservable) {
+            b.hgReserve.setVisibility(View.GONE);
+            return;
+        }
+        boolean reserved = session.interactions.isReserved(item.seriesId);
+        String due = item.dueStartText;
+        b.hgReserve.setVisibility(View.VISIBLE);
+        b.hgReserve.setText(reserved
+                ? "已预约" + (due != null && !due.isEmpty() ? " · " + due : " · 即将上线")
+                : "点击预约" + (due != null && !due.isEmpty() ? " · " + due : " · 即将上线"));
+        b.hgReserve.setAlpha(reserved ? 0.75f : 1f);
     }
 
     /** 弹幕开关态：关时芯片压暗。弹幕内容本阶段不接（见 Activity 注）。 */
@@ -160,6 +177,7 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         b.hgActLike.setOnClickListener(v -> host.onAction(holder.getBindingAdapterPosition(), Action.LIKE));
         b.hgActShare.setOnClickListener(v -> host.onAction(holder.getBindingAdapterPosition(), Action.SHARE));
         b.hgAvatarBox.setOnClickListener(v -> host.onAction(holder.getBindingAdapterPosition(), Action.FOLLOW));
+        b.hgReserve.setOnClickListener(v -> host.onAction(holder.getBindingAdapterPosition(), Action.RESERVE));
         b.hgSeriesBar.setOnClickListener(v -> host.onSeriesBar(holder.getBindingAdapterPosition()));
         b.hgDanmaku.setOnClickListener(v -> host.onDanmakuToggle(holder.getBindingAdapterPosition()));
         b.hgFullscreenWatch.setOnClickListener(v -> host.onFullscreenWatch(holder.getBindingAdapterPosition()));

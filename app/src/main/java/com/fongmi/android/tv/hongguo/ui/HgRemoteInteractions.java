@@ -20,6 +20,11 @@ import com.fongmi.android.tv.hongguo.api.HgLoginAuthProvider;
  *   <li>关注作者本人：feed/详情数据里没有作者 uid（详情只有 author_name），
  *       构造不出 Follow 动作的 object_id，不冒充——本接口的关注只到「追剧」为止，
  *       作者关注列四阶段未定项。</li>
+ *   <li>预约（未上线剧）：POST /reading/bookapi/search/uncover_subscribe
+ *       （item_type=14 短剧、op_type=1 预约/2 取消，出处链见 HgRequests
+ *       searchUncoverSubscribeBody 注）——与追剧架是两套服务端状态，不混用。
+ *       写成功后拉 GET /reading/user/subscribe/list 回读对镜像（在不在列表里
+ *       为准）；回读本身失败不回滚已成功的写，镜像保留乐观值待下次对齐。</li>
  * </ul>
  *
  * <p>同步口径：toggle 先乐观改本地镜像并立即返回新状态（UI 不等网络），
@@ -31,6 +36,7 @@ public final class HgRemoteInteractions implements HgInteractions {
     public static final String KIND_LIKE = "like";
     public static final String KIND_FAV = "fav";
     public static final String KIND_FOLLOW = "follow";
+    public static final String KIND_RESERVE = "reserve";
 
     /** 同步结果上报（在 OkHttp 分发线程回调，页面须自己切主线程）。 */
     public interface Listener {
@@ -118,6 +124,59 @@ public final class HgRemoteInteractions implements HgInteractions {
     @Override
     public boolean toggleFollow(String seriesId) {
         return toggleShelf(KIND_FOLLOW, seriesId, HgStore.isFollowed(seriesId));
+    }
+
+    // ---------- 预约（未上线剧，走 uncover_subscribe，不经追剧架） ----------
+
+    @Override
+    public boolean isReserved(String seriesId) {
+        return HgStore.isReserved(seriesId);
+    }
+
+    @Override
+    public boolean toggleReserve(String seriesId) {
+        if (seriesId == null || seriesId.isEmpty()) return false;
+        final boolean before = HgStore.isReserved(seriesId);
+        final boolean now = !before;
+        HgStore.setReserved(seriesId, now);
+        client.subscribeSeries(seriesId, now, new HgCallback<Boolean>() {
+            @Override
+            public void onSuccess(Boolean ok) {
+                // 服务端回读对齐：在不在「我的预约」列表里为准
+                client.fetchMyReservations(new HgCallback<java.util.List<com.fongmi.android.tv.hongguo.model.HgSeriesItem>>() {
+                    @Override
+                    public void onSuccess(java.util.List<com.fongmi.android.tv.hongguo.model.HgSeriesItem> list) {
+                        boolean serverState = false;
+                        if (list != null) {
+                            for (com.fongmi.android.tv.hongguo.model.HgSeriesItem s : list) {
+                                if (s != null && seriesId.equals(s.getSeriesId())) {
+                                    serverState = true;
+                                    break;
+                                }
+                            }
+                        }
+                        HgStore.setReserved(seriesId, serverState);
+                        Listener l = listener;
+                        if (l != null) l.onSynced(KIND_RESERVE, seriesId, serverState);
+                    }
+
+                    @Override
+                    public void onError(int httpCode, String message) {
+                        // 写已成功、只是回读没回来：保留乐观镜像，不假报失败
+                        Listener l = listener;
+                        if (l != null) l.onSynced(KIND_RESERVE, seriesId, now);
+                    }
+                });
+            }
+
+            @Override
+            public void onError(int httpCode, String message) {
+                HgStore.setReserved(seriesId, before);
+                Listener l = listener;
+                if (l != null) l.onSyncFailed(KIND_RESERVE, seriesId, before, message);
+            }
+        });
+        return now;
     }
 
     private boolean toggleShelf(String kind, String seriesId, boolean before) {

@@ -166,7 +166,10 @@ public final class HgParser {
         String author = firstStr(d, "author_name", "author");
         int count = intOf(d, "episode_count", -1);
         if (count < 0) count = intOf(d, "episode_cnt", episodes.isEmpty() ? -1 : episodes.size());
-        return new HgSeriesDetail(seriesId, title, cover, desc, author, count, episodes, root);
+        JsonObject appt = obj(d, "appointment");
+        return new HgSeriesDetail(seriesId, title, cover, desc, author, count, episodes, root,
+                appt != null, appt != null && boolOf(appt, "is_subscribed"),
+                appt == null ? null : str(appt, "due_start_text"));
     }
 
     // ---------- cell 类回包（容忍抽取 + 保留 raw） ----------
@@ -201,13 +204,47 @@ public final class HgParser {
         if (el == null || !el.isJsonObject()) return null;
         JsonObject o = el.getAsJsonObject();
         String id = firstStr(o, "series_id", "book_id", "seriesId");
+        if (id == null) id = longStr(o, "item_id");
         String title = firstStr(o, "title", "series_name", "name", "book_name");
         if (id == null || title == null) return null;
         String cover = firstStr(o, "cover", "poster_url", "thumb_url", "cover_url", "image_url");
         String desc = firstStr(o, "desc", "description", "intro");
         int count = intOf(o, "episode_count", -1);
         if (count < 0) count = intOf(o, "episode_cnt", -1);
-        return new HgSeriesItem(id, title, cover, desc, count);
+        // 预约面：rpc 模型 Feed 带 appointment: Appointment{is_subscribed /
+        // due_start_text / due_start_time}（classes11.dex），键名蛇形逐字验过；
+        // 以前解析器没读、被容忍吞掉，未上线剧的预约态从这里进模型。
+        JsonObject appt = obj(o, "appointment");
+        return new HgSeriesItem(id, title, cover, desc, count,
+                appt != null, appt != null && boolOf(appt, "is_subscribed"),
+                appt == null ? null : str(appt, "due_start_text"));
+    }
+
+    /**
+     * 我的预约列表回包 → 条目表（GET /reading/user/subscribe/list）。
+     * data.subscribe_items[] 是 UserSubscribeItem（classes11.dex rpc 模型），
+     * 剧信息字段在样本里未逐字定版：逐个条目先按 cell 条目口径直抽，
+     * 抽不到再看它的一层子对象（如 item/book/series 包裹），再抽不到整条跳过，
+     * 不编造。data 下没有 subscribe_items 时退回整树容忍抽取兜底。
+     */
+    public static java.util.List<HgSeriesItem> parseSubscribeList(String json) {
+        JsonObject root = JsonParser.parseString(json).getAsJsonObject();
+        JsonObject data = obj(root, "data");
+        List<HgSeriesItem> out = new ArrayList<>();
+        JsonArray items = data == null ? null : arr(data, "subscribe_items");
+        if (items == null && data != null) items = arr(data, "subscribeItems");
+        if (items == null) return parseCellPage(json).getItems();
+        for (JsonElement el : items) {
+            HgSeriesItem item = asSeriesItem(el);
+            if (item == null && el != null && el.isJsonObject()) {
+                for (Map.Entry<String, JsonElement> e : el.getAsJsonObject().entrySet()) {
+                    item = asSeriesItem(e.getValue());
+                    if (item != null) break;
+                }
+            }
+            if (item != null) out.add(item);
+        }
+        return out;
     }
 
     // ---------- 基础取值 ----------
@@ -248,6 +285,24 @@ public final class HgParser {
             if (v != null && !v.isEmpty()) return v;
         }
         return null;
+    }
+
+    private static boolean boolOf(JsonObject o, String key) {
+        JsonElement e = o == null ? null : o.get(key);
+        if (e != null && e.isJsonPrimitive()) {
+            if (e.getAsJsonPrimitive().isBoolean()) return e.getAsBoolean();
+            if (e.getAsJsonPrimitive().isNumber()) return e.getAsInt() != 0;
+        }
+        return false;
+    }
+
+    /** 数值型 id 字段（如 item_id:J）转字符串；字符串形态也认。 */
+    private static String longStr(JsonObject o, String key) {
+        JsonElement e = o == null ? null : o.get(key);
+        if (e == null || !e.isJsonPrimitive()) return null;
+        if (e.getAsJsonPrimitive().isNumber()) return String.valueOf(e.getAsLong());
+        String s = e.getAsString();
+        return s == null || s.isEmpty() ? null : s;
     }
 
     private static int intOf(JsonObject o, String key, int def) {

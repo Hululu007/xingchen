@@ -3,6 +3,9 @@ import com.fongmi.android.tv.hongguo.api.HgCommentClient;
 import com.fongmi.android.tv.hongguo.api.HgCommentParser;
 import com.fongmi.android.tv.hongguo.api.HgRequests;
 import com.fongmi.android.tv.hongguo.model.HgComment;
+import com.fongmi.android.tv.hongguo.model.HgParser;
+import com.fongmi.android.tv.hongguo.model.HgSeriesDetail;
+import com.fongmi.android.tv.hongguo.model.HgSeriesItem;
 import com.google.gson.JsonObject;
 
 import java.nio.file.Files;
@@ -106,6 +109,51 @@ public class HgInteractionTest {
                 HgApiClient.isOkCode("{\"code\":0}") && HgApiClient.isOkCode("{\"code\":\"SUCCESS\"}")
                         && HgApiClient.isOkCode("{\"data\":{}}") && !HgApiClient.isOkCode("{\"code\":-135}")
                         && !HgApiClient.isOkCode("not json"), null);
+
+        // ---------- 预约体（出处：classes25 BookApiService.searchUncoverSubscribeRx
+        // + t70$a 序列化名 + classes7 ne4/r1.P 的 itemType 分档 + classes11 枚举值） ----------
+        JsonObject sub = HgRequests.searchUncoverSubscribeBody(SERIES, true);
+        check("预约体 item_id=剧id数值", sub.get("item_id").getAsLong() == Long.parseLong(SERIES), sub.toString());
+        check("预约体 item_type=14(短剧)", sub.get("item_type").getAsInt() == 14, null);
+        check("预约体 op_type=1(Subscribe)", sub.get("op_type").getAsInt() == 1, null);
+        check("预约体 item_id_str=剧id串", SERIES.equals(sub.get("item_id_str").getAsString()), null);
+        JsonObject unsub = HgRequests.searchUncoverSubscribeBody(SERIES, false);
+        check("取消预约 op_type=2(CancelSubscribe)", unsub.get("op_type").getAsInt() == 2, unsub.toString());
+        check("预约列表读参 tab_type=1(MySubscribed)",
+                "1".equals(HgRequests.subscribeListParams().get("tab_type")), null);
+
+        // ---------- 预约面解析（Feed.appointment：is_subscribed / due_start_text） ----------
+        String cellJson = "{\"code\":0,\"data\":{\"cells\":[{\"series_id\":\"" + SERIES + "\","
+                + "\"title\":\"待播剧\",\"episode_count\":0,"
+                + "\"appointment\":{\"id\":\"a1\",\"is_subscribed\":true,"
+                + "\"due_start_text\":\"8月20日上线\",\"due_start_time\":1755662400}}]}}";
+        java.util.List<HgSeriesItem> cellItems = HgParser.parseCellPage(cellJson).getItems();
+        check("cell 解析出带 appointment 的条目", cellItems.size() == 1 && cellItems.get(0).hasAppointment(),
+                "items=" + cellItems.size());
+        check("appointment.is_subscribed 进模型",
+                cellItems.size() == 1 && cellItems.get(0).isAppointmentSubscribed(), null);
+        check("appointment.due_start_text 进模型",
+                cellItems.size() == 1 && "8月20日上线".equals(cellItems.get(0).getDueStartText()), null);
+        String plainJson = "{\"code\":0,\"data\":{\"cells\":[{\"series_id\":\"" + SERIES
+                + "\",\"title\":\"在播剧\"}]}}";
+        java.util.List<HgSeriesItem> plainItems = HgParser.parseCellPage(plainJson).getItems();
+        check("无 appointment 的条目 hasAppointment=false",
+                plainItems.size() == 1 && !plainItems.get(0).hasAppointment(), null);
+
+        HgSeriesDetail det = HgParser.parseVideoDetail("{\"data\":{\"series_id\":\"" + SERIES + "\","
+                + "\"title\":\"待播剧\",\"appointment\":{\"is_subscribed\":false,"
+                + "\"due_start_text\":\"即将上线\"}}}");
+        check("详情 appointment 进模型",
+                det.hasAppointment() && !det.isAppointmentSubscribed()
+                        && "即将上线".equals(det.getDueStartText()), null);
+
+        // ---------- 我的预约列表解析（data.subscribe_items 容忍抽取） ----------
+        String listJson = "{\"code\":0,\"data\":{\"subscribe_items\":[{\"item\":{"
+                + "\"book_id\":\"" + SERIES + "\",\"book_name\":\"预约剧甲\",\"cover\":\"http://x/c.jpg\"}}],"
+                + "\"has_more\":false}}";
+        java.util.List<HgSeriesItem> mine = HgParser.parseSubscribeList(listJson);
+        check("预约列表抽出剧条目", mine.size() == 1 && SERIES.equals(mine.get(0).getSeriesId())
+                && "预约剧甲".equals(mine.get(0).getTitle()), "items=" + mine.size());
 
         System.out.println(fail == 0 ? "ALL PASS HgInteractionTest" : "FAILURES=" + fail);
         if (fail > 0) System.exit(1);

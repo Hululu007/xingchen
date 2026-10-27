@@ -88,6 +88,17 @@ public class HgTheaterActivity extends BaseActivity {
                 ImgUtil.load(item.getTitle() == null ? "" : item.getTitle(), item.getCoverUrl(), b.hgTCover);
                 b.hgTTitle.setText(item.getTitle() == null ? "" : item.getTitle());
                 b.hgTMeta.setText(item.getEpisodeCount() > 0 ? "全" + item.getEpisodeCount() + "集" : "");
+                // 预约钮：只对回包带 appointment 的未上线剧亮，态走互动镜像（服务端为准）
+                if (item.hasAppointment() && item.getSeriesId() != null) {
+                    boolean reserved = session.interactions.isReserved(item.getSeriesId());
+                    b.hgTReserve.setVisibility(View.VISIBLE);
+                    b.hgTReserve.setText(reserved ? "已预约" : "预约");
+                    b.hgTReserve.setAlpha(reserved ? 0.7f : 1f);
+                    b.hgTReserve.setOnClickListener(v -> toggleReserve(item, holder.getBindingAdapterPosition()));
+                } else {
+                    b.hgTReserve.setVisibility(View.GONE);
+                    b.hgTReserve.setOnClickListener(null);
+                }
                 b.getRoot().setOnClickListener(v -> {
                     if (item.getSeriesId() == null) return;
                     HgStore.putMeta(item.getSeriesId(), item.getTitle(), item.getCoverUrl(), item.getEpisodeCount());
@@ -199,6 +210,22 @@ public class HgTheaterActivity extends BaseActivity {
         });
     }
 
+    /** 点预约：未登录先拉壳子统一登录（与刷剧页同口径），登录后走互动真接口。 */
+    private void toggleReserve(HgSeriesItem item, int position) {
+        if (item.getSeriesId() == null) return;
+        if (session.interactions.requiresLogin()) {
+            boolean delivered = com.fongmi.android.tv.login.LoginManager.loginHongguoDelivered();
+            if (!delivered) {
+                Toast.makeText(this, "登录界面暂时打不开，稍后再试", Toast.LENGTH_SHORT).show();
+            }
+            return;
+        }
+        boolean now = session.interactions.toggleReserve(item.getSeriesId());
+        Toast.makeText(this, now ? "预约成功，上线后会通知你" : "预约已取消",
+                Toast.LENGTH_SHORT).show();
+        if (position >= 0) adapter.notifyItemChanged(position);
+    }
+
     /** 追加条目（跳过无剧 id 的与已在网格里的），返回真正新增的条数。 */
     private int appendItems(List<HgSeriesItem> got) {
         if (got == null) return 0;
@@ -206,6 +233,8 @@ public class HgTheaterActivity extends BaseActivity {
         for (HgSeriesItem s : got) {
             if (s == null || s.getSeriesId() == null) continue;
             if (!seenIds.add(s.getSeriesId())) continue;
+            // 回包带的服务端预约态同步进镜像（与关注页签同步追剧架同口径）
+            if (s.hasAppointment()) HgStore.setReserved(s.getSeriesId(), s.isAppointmentSubscribed());
             items.add(s);
         }
         int added = items.size() - before;

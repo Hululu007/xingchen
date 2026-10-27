@@ -49,6 +49,7 @@ public class HgLibraryActivity extends BaseActivity {
         binding.hgLibFollow.setOnClickListener(v -> HgListActivity.start(this, HgListActivity.KIND_FOLLOW));
         binding.hgLibFav.setOnClickListener(v -> HgListActivity.start(this, HgListActivity.KIND_FAV));
         binding.hgLibHistory.setOnClickListener(v -> HgListActivity.start(this, HgListActivity.KIND_HISTORY));
+        binding.hgLibReserve.setOnClickListener(v -> HgListActivity.start(this, HgListActivity.KIND_RESERVED));
         binding.hgLibAccountBtn.setOnClickListener(v -> {
             if (HgLoginAuthProvider.isLoggedIn()) {
                 LoginManager.logoutHongguo();

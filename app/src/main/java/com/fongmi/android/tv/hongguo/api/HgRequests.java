@@ -212,6 +212,71 @@ public final class HgRequests {
         return body;
     }
 
+    // ---------- 预约（未上线剧的到货提醒式预约，样本实证） ----------
+
+    /** 预约 item_type：短剧=14（见 subscribeBody 注的 P() 出处）；小说书=1。 */
+    public static final int ITEM_TYPE_SHORT_DRAMA = 14;
+    public static final int ITEM_TYPE_BOOK = 1;
+    /** SubscribeOpType.Subscribe=1 / CancelSubscribe=2 / Dismiss=3（classes11.dex <clinit> 定版）。 */
+    public static final int SUBSCRIBE_OP_SUBSCRIBE = 1;
+    public static final int SUBSCRIBE_OP_CANCEL = 2;
+    /** SubscribeListTabType.MySubscribed=1（classes11.dex <clinit> 定版）。 */
+    public static final int SUBSCRIBE_TAB_MY_SUBSCRIBED = 1;
+
+    /**
+     * 预约/取消预约体 POST /reading/bookapi/search/uncover_subscribe。
+     * 出处链（国内版 7.2.5.32 样本逐环实证）：
+     * <ul>
+     *   <li>端点：classes25.dex 的 KMP 读接口 BookApiService.Z＝
+     *       searchUncoverSubscribeRx，方法体内 const-string
+     *       "$POST /reading/bookapi/search/uncover_subscribe/v:version/"，
+     *       SerializeType.JSON，回包 SearchUncoverSubscribeResponse
+     *       {code, message, data{is_online, need_popup, need_popup_calendar,
+     *       online_schema, popup_style, subscribe_data}}。</li>
+     *   <li>请求模型：同 dex 的 t70＝SearchUncoverSubscribeRequest，其序列化器
+     *       （t70$a）里的 serial 名逐字为 item_id / item_type / op_type /
+     *       item_id_str / wish_list_all_del / item_id_list / shark_param；
+     *       构造参序 (itemId:Long, itemType:Integer, opValue:Integer,
+     *       itemIdStr:String, wishListAllDel:Integer, itemIdList:List,
+     *       sharkParam:Map)。</li>
+     *   <li>调用点：classes8.dex 的 SeriesSubscribeHelper（kmp/subscribe/t.e，
+     *       日志名 requestSubscribe）组 t70 后调该接口；上层 classes7.dex 的
+     *       ne4/r1.E 传入 itemType＝r1.P(item)：item 的类目字段 j==1007（短剧）
+     *       时 14、否则 1。</li>
+     *   <li>op_type 出数值：KMP 模型里存的是 SubscribeOpType.getValue() 整数
+     *       （Subscribe=1、CancelSubscribe=2，classes11.dex 枚举 <clinit> 定版）。</li>
+     * </ul>
+     * shark_param 官方传一份反作弊公共参表（kmp/t.j()），本机抠不到内容，
+     * 不编造——先不带；wish_list_all_del / item_id_list 单剧预约用不上，不带。
+     * 真机回包若拒缺字段，再按回包补（见交付回报未定项）。
+     */
+    public static JsonObject searchUncoverSubscribeBody(String seriesId, boolean subscribe) {
+        JsonObject body = new JsonObject();
+        try {
+            body.addProperty("item_id", Long.parseLong(seriesId));
+        } catch (Exception e) {
+            body.addProperty("item_id", seriesId);
+        }
+        body.addProperty("item_type", ITEM_TYPE_SHORT_DRAMA);
+        body.addProperty("op_type", subscribe ? SUBSCRIBE_OP_SUBSCRIBE : SUBSCRIBE_OP_CANCEL);
+        body.addProperty("item_id_str", seriesId);
+        return body;
+    }
+
+    /**
+     * 我的预约列表读参 GET /reading/user/subscribe/list。
+     * 出处：classes11.dex rpc 模型 GetUserSubscribeListRequest 的字段名
+     * （tab_type / limit / offset / version 等，蛇形键在该 dex 字符串池逐字验过）；
+     * tab_type 取 MySubscribed=1。回包 data.subscribe_items[]（UserSubscribeData）。
+     */
+    public static java.util.Map<String, String> subscribeListParams() {
+        java.util.Map<String, String> q = new java.util.HashMap<>();
+        q.put("tab_type", String.valueOf(SUBSCRIBE_TAB_MY_SUBSCRIBED));
+        q.put("limit", "50");
+        q.put("offset", "0");
+        return q;
+    }
+
     /** 单集 video_model 请求体（Outer=3，海阔线实证口径，作批量失败时的单集对照路）。 */
     public static JsonObject singleVideoModelBody(String videoId) {
         JsonObject body = new JsonObject();

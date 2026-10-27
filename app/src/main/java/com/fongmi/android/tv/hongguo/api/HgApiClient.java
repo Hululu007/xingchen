@@ -283,6 +283,50 @@ public final class HgApiClient {
         });
     }
 
+    // ---------- 预约（未上线剧，账号维度，靠登录态注入） ----------
+
+    /**
+     * 预约/取消预约 POST /reading/bookapi/search/uncover_subscribe。
+     * 出处链逐环见 {@link HgRequests#searchUncoverSubscribeBody} 注（端点＝
+     * BookApiService.searchUncoverSubscribeRx，item_type 短剧=14，
+     * op_type Subscribe=1/CancelSubscribe=2）。成功判据同追剧架的 code 容忍口径。
+     */
+    public void subscribeSeries(String seriesId, boolean subscribe, HgCallback<Boolean> cb) {
+        JsonObject body = HgRequests.searchUncoverSubscribeBody(seriesId, subscribe);
+        postJson(HOST + "/reading/bookapi/search/uncover_subscribe", body, new BodyCallback() {
+            @Override
+            void onBody(String text) {
+                if (isOkCode(text)) cb.onSuccess(Boolean.TRUE);
+                else cb.onError(-2, "预约操作被服务端拒绝");
+            }
+
+            @Override
+            void onFail(int code, String msg) {
+                cb.onError(code, msg);
+            }
+        });
+    }
+
+    /**
+     * 我的预约列表 GET /reading/user/subscribe/list（tab_type=MySubscribed=1）。
+     * 出处：classes11.dex rpc 模型 GetUserSubscribeListRequest /
+     * UserSubscribeData{subscribe_items, has_more, ...}；端点字符串在国内版
+     * 样本逐字命中。解析走容忍抽取（见 HgParser.parseSubscribeList 注）。
+     */
+    public void fetchMyReservations(HgCallback<java.util.List<com.fongmi.android.tv.hongguo.model.HgSeriesItem>> cb) {
+        get(HOST + "/reading/user/subscribe/list", HgRequests.subscribeListParams(), new BodyCallback() {
+            @Override
+            void onBody(String text) {
+                cb.onSuccess(HgParser.parseSubscribeList(text));
+            }
+
+            @Override
+            void onFail(int code, String msg) {
+                cb.onError(code, msg);
+            }
+        });
+    }
+
     /** bookapi 回包 code 容忍判定（枚举序列化形态未定版，见上注）。公开仅为离线单测可达。 */
     public static boolean isOkCode(String text) {
         try {

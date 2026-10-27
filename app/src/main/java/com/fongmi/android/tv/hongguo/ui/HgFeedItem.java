@@ -36,6 +36,13 @@ public final class HgFeedItem {
     public boolean seriesHead;
     /** 已尝试展开（成败都算），避免反复拉详情。 */
     public boolean expandTried;
+    /**
+     * 未上线剧的预约面：回包带 appointment 时为 true，页面亮预约片；
+     * 预约态本身走 HgStore 镜像（服务端为准），本字段只管「该不该亮」。
+     */
+    public boolean reservable;
+    /** appointment.due_start_text 上线文案（如「8月20日上线」）；没带为 null。 */
+    public String dueStartText;
 
     private HgFeedItem(String seriesId, String videoId, int episodeIndex, int episodeCount,
                        String title, String category, String authorName, String authorAvatar,

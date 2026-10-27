@@ -18,6 +18,7 @@ public final class HgStore {
     private static final String K_LIKED = "hongguo_liked_series";
     private static final String K_FAVED = "hongguo_faved_series";
     private static final String K_FOLLOWED = "hongguo_followed_series";
+    private static final String K_RESERVED = "hongguo_reserved_series";
     private static final String K_HIST_PREFIX = "hongguo_hist_";
     private static final String K_LAST_SERIES = "hongguo_last_series";
     private static final String K_LAST_EP = "hongguo_last_ep";
@@ -104,6 +105,24 @@ public final class HgStore {
         if (on) set.add(id);
         else set.remove(id);
         Prefers.put(key, String.join(",", set));
+    }
+
+    // ---------- 预约镜像（服务端为准：回包 appointment 态与预约列表回读都往这里对） ----------
+
+    public static boolean isReserved(String seriesId) {
+        return contains(K_RESERVED, seriesId);
+    }
+
+    public static void setReserved(String seriesId, boolean on) {
+        set(K_RESERVED, seriesId, on);
+    }
+
+    public static boolean toggleReserved(String seriesId) {
+        return toggle(K_RESERVED, seriesId);
+    }
+
+    public static java.util.List<String> reservedIds() {
+        return new java.util.ArrayList<>(readSet(K_RESERVED));
     }
 
     public static java.util.List<String> likedIds() {

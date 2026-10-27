@@ -32,4 +32,14 @@ public final class HgLocalInteractions implements HgInteractions {
     public boolean toggleFollow(String seriesId) {
         return HgStore.toggleFollowed(seriesId);
     }
+
+    @Override
+    public boolean isReserved(String seriesId) {
+        return HgStore.isReserved(seriesId);
+    }
+
+    @Override
+    public boolean toggleReserve(String seriesId) {
+        return HgStore.toggleReserved(seriesId);
+    }
 }

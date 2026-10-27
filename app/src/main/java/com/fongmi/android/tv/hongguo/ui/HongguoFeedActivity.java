@@ -170,6 +170,17 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         session.remoteInteractions.setListener(new HgRemoteInteractions.Listener() {
             @Override
             public void onSynced(String kind, String seriesId, boolean state) {
+                // 预约带服务端回读对齐：回读态可能与乐观值不同，回来刷新当前页预约片
+                if (HgRemoteInteractions.KIND_RESERVE.equals(kind)) {
+                    runOnUiThread(() -> {
+                        HgFeedAdapter.Holder h = currentHolder();
+                        if (h != null && currentPos >= 0 && currentPos < session.items.size()
+                                && seriesId != null
+                                && seriesId.equals(session.items.get(currentPos).seriesId)) {
+                            adapter.bindInteractionState(h, session.items.get(currentPos));
+                        }
+                    });
+                }
             }
 
             @Override
@@ -311,8 +322,17 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                         if (s.getSeriesId() != null) {
                             HgStore.putMeta(s.getSeriesId(), s.getTitle(), s.getCoverUrl(), s.getEpisodeCount());
                         }
-                        session.items.add(HgFeedItem.head(s.getSeriesId(), s.getTitle(), category,
-                                s.getDesc(), s.getCoverUrl(), s.getEpisodeCount()));
+                        HgFeedItem head = HgFeedItem.head(s.getSeriesId(), s.getTitle(), category,
+                                s.getDesc(), s.getCoverUrl(), s.getEpisodeCount());
+                        if (s.hasAppointment()) {
+                            // 未上线剧：亮预约面，服务端预约态同步进镜像
+                            head.reservable = true;
+                            head.dueStartText = s.getDueStartText();
+                            if (s.getSeriesId() != null) {
+                                HgStore.setReserved(s.getSeriesId(), s.isAppointmentSubscribed());
+                            }
+                        }
+                        session.items.add(head);
                         // 续播剧若在流里，优先落它
                         if (s.getSeriesId() != null && s.getSeriesId().equals(HgStore.lastSeriesId())) resumeAt = i;
                     }
@@ -660,7 +680,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         HgFeedItem item = session.items.get(position);
         HgFeedAdapter.Holder h = currentHolder();
         switch (action) {
-            case LIKE, FAV, FOLLOW -> {
+            case LIKE, FAV, FOLLOW, RESERVE -> {
                 // 四阶段：未登录先拉壳子统一登录，不落状态、不假成功
                 if (session.interactions.requiresLogin()) {
                     promptHongguoLogin();
@@ -670,6 +690,12 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                     case LIKE -> session.interactions.toggleLike(item);
                     case FAV -> session.interactions.toggleFavorite(item.seriesId);
                     case FOLLOW -> session.interactions.toggleFollow(item.seriesId);
+                    case RESERVE -> {
+                        boolean now = session.interactions.toggleReserve(item.seriesId);
+                        android.widget.Toast.makeText(this,
+                                now ? "预约成功，上线后会通知你" : "预约已取消",
+                                android.widget.Toast.LENGTH_SHORT).show();
+                    }
                     default -> {
                     }
                 }
@@ -701,7 +727,8 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             adapter.bindInteractionState(h, session.items.get(currentPos));
         }
         String label = HgRemoteInteractions.KIND_LIKE.equals(kind) ? "点赞"
-                : HgRemoteInteractions.KIND_FAV.equals(kind) ? "收藏" : "追更";
+                : HgRemoteInteractions.KIND_FAV.equals(kind) ? "收藏"
+                : HgRemoteInteractions.KIND_RESERVE.equals(kind) ? "预约" : "追更";
         android.widget.Toast.makeText(this, label + "没成功，已恢复原来的状态",
                 android.widget.Toast.LENGTH_SHORT).show();
     }

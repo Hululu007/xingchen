@@ -248,6 +248,21 @@
             android:textColor="#CCFFFFFF"
             android:textSize="13sp"
             android:visibility="gone" />
+
+        <!-- 未上线剧的预约片：回包带 appointment 才亮（适配器控制），文案照官方串（点击预约/已预约＋上线文案） -->
+        <TextView
+            android:id="@+id/hg_reserve"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:background="@drawable/bg_hg_chip"
+            android:paddingStart="12dp"
+            android:paddingTop="7dp"
+            android:paddingEnd="12dp"
+            android:paddingBottom="7dp"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:visibility="gone" />
     </LinearLayout>
 
     <LinearLayout

@@ -42,6 +42,7 @@ public class HgListActivity extends BaseActivity {
     public static final int KIND_FOLLOW = 0;
     public static final int KIND_FAV = 1;
     public static final int KIND_HISTORY = 2;
+    public static final int KIND_RESERVED = 3;
     private static final String EXTRA_KIND = "hg_list_kind";
 
     public static void start(Context context, int kind) {
@@ -86,7 +87,8 @@ public class HgListActivity extends BaseActivity {
     protected void initView(Bundle savedInstanceState) {
         session = HgFeedSession.get();
         kind = getIntent().getIntExtra(EXTRA_KIND, KIND_HISTORY);
-        binding.hgListTitle.setText(kind == KIND_FOLLOW ? "追更" : kind == KIND_FAV ? "收藏" : "观看历史");
+        binding.hgListTitle.setText(kind == KIND_FOLLOW ? "追更" : kind == KIND_FAV ? "收藏"
+                : kind == KIND_RESERVED ? "我的预约" : "观看历史");
         adapter = new RecyclerView.Adapter<Holder>() {
             @NonNull
             @Override
@@ -142,8 +144,50 @@ public class HgListActivity extends BaseActivity {
                 showRows(HgLoginAuthProvider.isLoggedIn() ? "还没有追更的剧" : "登录后这里显示你追的剧");
                 if (HgLoginAuthProvider.isLoggedIn()) refreshFollowFromServer();
             }
+            case KIND_RESERVED -> {
+                for (String id : HgStore.reservedIds()) rows.add(rowFromLocal(id));
+                showRows(HgLoginAuthProvider.isLoggedIn() ? "还没有预约的剧" : "登录后这里显示你预约的剧");
+                if (HgLoginAuthProvider.isLoggedIn()) refreshReservedFromServer();
+            }
             default -> showRows("");
         }
+    }
+
+    /** 我的预约后台刷新：预约列表回来后以服务端为准重列，并同步本地镜像与元信息。 */
+    private void refreshReservedFromServer() {
+        session.client.fetchMyReservations(new HgCallback<java.util.List<HgSeriesItem>>() {
+            @Override
+            public void onSuccess(java.util.List<HgSeriesItem> list) {
+                runOnUiThread(() -> {
+                    if (list == null) return;
+                    List<Row> fresh = new ArrayList<>();
+                    for (HgSeriesItem s : list) {
+                        if (s.getSeriesId() == null) continue;
+                        HgStore.setReserved(s.getSeriesId(), true);
+                        HgStore.putMeta(s.getSeriesId(),
+                                s.getTitle() != null ? s.getTitle() : titleOf(s.getSeriesId()),
+                                s.getCoverUrl() != null ? s.getCoverUrl() : coverOf(s.getSeriesId()),
+                                s.getEpisodeCount());
+                        String meta = s.getDueStartText() != null && !s.getDueStartText().isEmpty()
+                                ? "已预约 · " + s.getDueStartText() : "已预约";
+                        fresh.add(new Row(s.getSeriesId(),
+                                s.getTitle() != null ? s.getTitle() : titleOf(s.getSeriesId()),
+                                s.getCoverUrl() != null ? s.getCoverUrl() : coverOf(s.getSeriesId()),
+                                meta));
+                    }
+                    if (!fresh.isEmpty() || rows.isEmpty()) {
+                        rows.clear();
+                        rows.addAll(fresh);
+                        showRows("还没有预约的剧");
+                    }
+                });
+            }
+
+            @Override
+            public void onError(int httpCode, String message) {
+                // 镜像已先显，刷新失败不打扰（页面已有内容/空态）
+            }
+        });
     }
 
     /** 追更页后台刷新：追剧架列表回来后以服务端为准重列，并同步本地镜像。 */

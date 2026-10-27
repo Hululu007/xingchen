@@ -158,6 +158,15 @@ public final class HgFeedSession {
         String avatar = avatarOf(detail);
         int count = detail != null && detail.getEpisodeCount() > 0 ? detail.getEpisodeCount() : head.episodeCount;
         List<HgSeriesDetail.Episode> eps = detail == null ? null : detail.getEpisodes();
+        if ((eps == null || eps.isEmpty()) && detail != null && detail.hasAppointment()) {
+            // 未上线剧：详情带 appointment 且无集可播——不退化成假单集去取模型，
+            // 剧头原样留作预约页（封面＋预约片），服务端预约态同步进镜像。
+            head.reservable = true;
+            head.dueStartText = detail.getDueStartText();
+            HgStore.setReserved(head.seriesId, detail.isAppointmentSubscribed());
+            items.set(position, head);
+            return;
+        }
         if (eps == null || eps.isEmpty()) {
             // 退化单集：集 id 未知时用 seriesId 当 videoId 尝试取模型
             HgStore.Progress p = HgStore.progressOf(head.seriesId);

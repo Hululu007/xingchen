@@ -116,4 +116,17 @@
         android:text="观看历史"
         android:textColor="#FFFFFF"
         android:textSize="15sp" />
+
+    <TextView
+        android:id="@+id/hg_lib_reserve"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="10dp"
+        android:layout_marginEnd="16dp"
+        android:background="#FF1C1C1E"
+        android:padding="14dp"
+        android:text="我的预约"
+        android:textColor="#FFFFFF"
+        android:textSize="15sp" />
 </LinearLayout>

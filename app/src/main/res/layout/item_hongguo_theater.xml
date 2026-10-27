@@ -45,4 +45,19 @@
         android:maxLines="1"
         android:textColor="#99FFFFFF"
         android:textSize="11sp" />
+
+    <!-- 未上线剧的预约钮：回包带 appointment 才亮（适配器控制），文案随预约态 -->
+    <TextView
+        android:id="@+id/hg_t_reserve"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="5dp"
+        android:background="@drawable/bg_hg_chip"
+        android:paddingStart="9dp"
+        android:paddingTop="3dp"
+        android:paddingEnd="9dp"
+        android:paddingBottom="3dp"
+        android:textColor="#FFFFFF"
+        android:textSize="11sp"
+        android:visibility="gone" />
 </LinearLayout>

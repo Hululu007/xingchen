@@ -225,6 +225,28 @@ public class HgOfflineTest {
                 if (it.getStatement() != null) feedStmt = true;
             }
             check("频道条目作者声明在", feedStmt, null);
+            // 多季系列：详情存档（空间囤货）带 is_multi_season＋related_album_id，
+            // 此前解析不读、系列单永远弹不出（频道面只有专辑 id 没兄弟表，
+            // 进剧时靠 fetchAlbum 现拉，见 HgApiClient.fetchAlbum）
+            check("详情多季标记在", det.isMultiSeason(), null);
+            check("详情专辑 id 在", "7699702143464262680".equals(det.getRelatedAlbumId()),
+                    "实际=" + det.getRelatedAlbumId());
+            // 专辑回包形状照 openhongguo ParseAlbum 的线上观察：乱序两季按
+            // season_index 排、字段齐；已下架 code=101001 回空表
+            String albumJson = "{\"code\":0,\"data\":{\"album_data\":{"
+                    + "\"album_id_str\":\"7699702143464262680\",\"season_cnt\":2,"
+                    + "\"series_list\":["
+                    + "{\"series_id_str\":\"222\",\"series_title\":\"乙剧第二季\",\"season_index\":2,\"series_cover\":\"c2\",\"episode_cnt\":20,\"series_status\":1},"
+                    + "{\"series_id_str\":\"111\",\"series_title\":\"乙剧第一季\",\"season_index\":1,\"series_cover\":\"c1\",\"episode_cnt\":10,\"series_status\":0}"
+                    + "]}}}";
+            java.util.List<com.fongmi.android.tv.hongguo.model.HgSeriesItem> seasons =
+                    HgParser.parseAlbum(albumJson);
+            check("专辑解析两季且按季序", seasons.size() == 2
+                            && "111".equals(seasons.get(0).getSeriesId())
+                            && "222".equals(seasons.get(1).getSeriesId())
+                            && seasons.get(0).getEpisodeCount() == 10,
+                    "实际=" + seasons.size());
+            check("专辑已下架回空表", HgParser.parseAlbum("{\"code\":101001}").isEmpty(), null);
         }
 
         System.out.println(fail == 0 ? "ALL PASS" : ("FAILURES=" + fail));

@@ -71,11 +71,15 @@ public final class HgSeriesDetail {
     private final Integer seriesStatus;
     /** 作者声明文案（ai_usage_type 映射）；没带为 null。 */
     private final String statement;
+    /** 是否多季系列（is_multi_season）。 */
+    private final boolean multiSeason;
+    /** 所属专辑 id（related_album_id，系列单取数钥匙）；没带为 null。 */
+    private final String relatedAlbumId;
 
     HgSeriesDetail(String seriesId, String title, String coverUrl, String desc,
                    String authorName, int episodeCount, List<Episode> episodes, JsonObject raw) {
         this(seriesId, title, coverUrl, desc, authorName, episodeCount, episodes, raw,
-                false, false, null, Collections.emptyList(), null, null);
+                false, false, null, Collections.emptyList(), null, null, false, null);
     }
 
     HgSeriesDetail(String seriesId, String title, String coverUrl, String desc,
@@ -83,13 +87,14 @@ public final class HgSeriesDetail {
                    boolean hasAppointment, boolean appointmentSubscribed, String dueStartText) {
         this(seriesId, title, coverUrl, desc, authorName, episodeCount, episodes, raw,
                 hasAppointment, appointmentSubscribed, dueStartText,
-                Collections.emptyList(), null, null);
+                Collections.emptyList(), null, null, false, null);
     }
 
     HgSeriesDetail(String seriesId, String title, String coverUrl, String desc,
                    String authorName, int episodeCount, List<Episode> episodes, JsonObject raw,
                    boolean hasAppointment, boolean appointmentSubscribed, String dueStartText,
-                   List<Celebrity> celebrities, Integer seriesStatus, String statement) {
+                   List<Celebrity> celebrities, Integer seriesStatus, String statement,
+                   boolean multiSeason, String relatedAlbumId) {
         this.seriesId = seriesId;
         this.title = title;
         this.coverUrl = coverUrl;
@@ -104,9 +109,13 @@ public final class HgSeriesDetail {
         this.celebrities = Collections.unmodifiableList(celebrities);
         this.seriesStatus = seriesStatus;
         this.statement = statement;
+        this.multiSeason = multiSeason;
+        this.relatedAlbumId = relatedAlbumId;
     }
 
     public String getStatement() { return statement; }
+    public boolean isMultiSeason() { return multiSeason; }
+    public String getRelatedAlbumId() { return relatedAlbumId; }
 
     public String getSeriesId() { return seriesId; }
     public String getTitle() { return title; }

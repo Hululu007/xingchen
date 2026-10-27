@@ -393,6 +393,25 @@ public final class HgApiClient {
     }
 
     /** 单剧详情 POST /novel/player/video_detail/v1/（入参实为剧 id seriesId）。 */
+    /**
+     * 专辑详情（多季系列的各季表）：POST /novel/player/album_detail/v1/，
+     * 请求体照 openhongguo AlbumBody（APK GetVideoAlbumDetailRequest 观察定版），
+     * 回包 HgParser.parseAlbum；已下架（code 101001）回空表。
+     */
+    public void fetchAlbum(String albumId, HgCallback<java.util.List<com.fongmi.android.tv.hongguo.model.HgSeriesItem>> cb) {
+        postSigned(HgDevice.PATH_ALBUM, HgRequests.albumBody(albumId), new BodyCallback() {
+            @Override
+            void onBody(String text) {
+                cb.onSuccess(com.fongmi.android.tv.hongguo.model.HgParser.parseAlbum(text));
+            }
+
+            @Override
+            void onFail(int code, String msg) {
+                cb.onError(code, msg);
+            }
+        });
+    }
+
     public void fetchVideoDetail(String seriesId, HgCallback<HgSeriesDetail> cb) {
         postSigned(HgDevice.PATH_SERIES, HgRequests.seriesBody(seriesId), new BodyCallback() {
             @Override

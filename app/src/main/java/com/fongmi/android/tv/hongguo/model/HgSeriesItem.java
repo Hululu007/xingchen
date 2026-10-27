@@ -46,6 +46,9 @@ public final class HgSeriesItem {
     private final Integer seriesStatus;
     /** 作者声明文案（ai_usage_type 映射，见 HgParser.statementOf）；没带为 null。 */
     private final String statement;
+    /** 作者名/头像（cell 的 ugc_user_info.base_info 抬升；没带为 null）。 */
+    private final String authorName;
+    private final String authorAvatar;
 
     HgSeriesItem(String seriesId, String title, String coverUrl, String desc, int episodeCount) {
         this(seriesId, title, coverUrl, desc, episodeCount, false, false, null);
@@ -62,7 +65,7 @@ public final class HgSeriesItem {
                  boolean hasAppointment, boolean appointmentSubscribed, String dueStartText) {
         this(seriesId, title, coverUrl, desc, episodeCount, hasAppointment, appointmentSubscribed,
                 dueStartText, null, null, null, Collections.emptyList(), null, false, null, -1,
-                Collections.emptyList(), -1, -1, null, null);
+                Collections.emptyList(), -1, -1, null, null, null, null);
     }
 
     HgSeriesItem(String seriesId, String title, String coverUrl, String desc, int episodeCount,
@@ -70,7 +73,7 @@ public final class HgSeriesItem {
                  String vid, String badge, String recText, List<String> tags, Boolean vertical,
                  boolean multiSeason, String albumId, int albumSerialCount,
                  List<HgSeriesItem> siblings, long commentCount, long diggCount,
-                 Integer seriesStatus, String statement) {
+                 Integer seriesStatus, String statement, String authorName, String authorAvatar) {
         this.seriesId = seriesId;
         this.title = title;
         this.coverUrl = coverUrl;
@@ -92,6 +95,8 @@ public final class HgSeriesItem {
         this.diggCount = diggCount;
         this.seriesStatus = seriesStatus;
         this.statement = statement;
+        this.authorName = authorName;
+        this.authorAvatar = authorAvatar;
     }
 
     /** 补完结态的副本（字段后补场景：如半屏单里当前行由页面条目拼装）。 */
@@ -99,10 +104,13 @@ public final class HgSeriesItem {
         return new HgSeriesItem(seriesId, title, coverUrl, desc, episodeCount,
                 hasAppointment, appointmentSubscribed, dueStartText,
                 vid, badge, recText, tags, vertical, multiSeason, albumId,
-                albumSerialCount, siblings, commentCount, diggCount, status, statement);
+                albumSerialCount, siblings, commentCount, diggCount, status, statement,
+                authorName, authorAvatar);
     }
 
     public String getStatement() { return statement; }
+    public String getAuthorName() { return authorName; }
+    public String getAuthorAvatar() { return authorAvatar; }
 
     public String getSeriesId() { return seriesId; }
     public String getTitle() { return title; }

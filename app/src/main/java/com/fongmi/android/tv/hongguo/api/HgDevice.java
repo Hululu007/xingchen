@@ -41,6 +41,7 @@ public final class HgDevice {
     public static final String REGISTER_HOST = "https://log5-applog-lq.fqnovel.com";
     public static final String PATH_PLAYBACK = "/novel/player/video_model/v1/";
     public static final String PATH_SERIES = "/novel/player/video_detail/v1/";
+    public static final String PATH_ALBUM = "/novel/player/album_detail/v1/";
     public static final String PATH_SERIES_BATCH = "/novel/player/multi_video_detail/player/v1";
     /** bookmall 频道开页（尾段是字面 v 不是 v1，openhongguo app.go PathDiscover 实证）。 */
     public static final String PATH_BOOKMALL_TAB = "/reading/bookapi/bookmall/tab/v";

@@ -54,6 +54,22 @@ public final class HgFeedSession {
         return n >= 10000 ? String.format(java.util.Locale.US, "%.1f万", n / 10000.0) : String.valueOf(n);
     }
     private final Map<String, HgSeriesDetail> details = new HashMap<>();
+    /** 专辑各季表缓存（进剧时 fetchAlbum 落，同一剧反复进不再重拉）。 */
+    private final Map<String, java.util.List<HgSeriesItem>> albums = new HashMap<>();
+
+    /** 已取过的专辑各季表；没取过返回 null（空表＝取过且无季/已下架）。 */
+    public java.util.List<HgSeriesItem> albumOf(String seriesId) {
+        return albums.get(seriesId);
+    }
+
+    public void putAlbum(String seriesId, java.util.List<HgSeriesItem> seasons) {
+        if (seriesId != null) albums.put(seriesId, seasons);
+    }
+
+    /** 详情缓存（进剧取专辑 id 用）；没拉过返回 null。 */
+    public HgSeriesDetail detailOf(String seriesId) {
+        return details.get(seriesId);
+    }
     private final Handler main = new Handler(Looper.getMainLooper());
 
     /**

@@ -920,12 +920,59 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         if (item.seriesId == null) return;
         suppressResumeRefresh = true;
         if (!item.siblings.isEmpty()) {
-            HgSeriesSheet.show(this, item.siblings, item, session.interactions,
-                    picked -> startSeries(this, picked.getSeriesId(), picked.getTitle(),
-                            picked.getCoverUrl()));
-        } else {
-            startSeries(this, item.seriesId, item.title, item.coverUrl);
+            showSeriesSheet(item, item.siblings);
+            return;
         }
+        // 多季系列但兄弟部不在条目里（频道面包里没 album_data_list，只有
+        // is_multi_season＋专辑 id）：现拉专辑详情，≥2 季才弹系列单；
+        // 拉不到/已下架/只有一季都直进，不许让用户等在半路（2026-10-28
+        // 逐项重对补，原先这类剧永远弹不出系列单）
+        String albumId = item.albumId;
+        if (albumId == null) {
+            com.fongmi.android.tv.hongguo.model.HgSeriesDetail det = session.detailOf(item.seriesId);
+            if (det != null) albumId = det.getRelatedAlbumId();
+        }
+        java.util.List<com.fongmi.android.tv.hongguo.model.HgSeriesItem> cached =
+                session.albumOf(item.seriesId);
+        if (cached != null) {
+            if (cached.size() >= 2) showSeriesSheet(item, cached);
+            else startSeries(this, item.seriesId, item.title, item.coverUrl);
+            return;
+        }
+        if (item.multiSeason && albumId != null && !albumId.isEmpty()) {
+            final String sid = item.seriesId;
+            final String title = item.title;
+            final String cover = item.coverUrl;
+            session.client.fetchAlbum(albumId, new HgCallback<java.util.List<com.fongmi.android.tv.hongguo.model.HgSeriesItem>>() {
+                @Override
+                public void onSuccess(java.util.List<com.fongmi.android.tv.hongguo.model.HgSeriesItem> seasons) {
+                    session.putAlbum(sid, seasons);
+                    runOnUiThread(() -> {
+                        if (isFinishing() || isDestroyed()) return;
+                        if (seasons != null && seasons.size() >= 2) showSeriesSheet(item, seasons);
+                        else startSeries(HongguoFeedActivity.this, sid, title, cover);
+                    });
+                }
+
+                @Override
+                public void onError(int httpCode, String message) {
+                    session.putAlbum(sid, java.util.Collections.emptyList());
+                    runOnUiThread(() -> {
+                        if (!isFinishing() && !isDestroyed()) {
+                            startSeries(HongguoFeedActivity.this, sid, title, cover);
+                        }
+                    });
+                }
+            });
+            return;
+        }
+        startSeries(this, item.seriesId, item.title, item.coverUrl);
+    }
+
+    private void showSeriesSheet(HgFeedItem item, java.util.List<com.fongmi.android.tv.hongguo.model.HgSeriesItem> siblings) {
+        HgSeriesSheet.show(this, siblings, item, session.interactions,
+                picked -> startSeries(this, picked.getSeriesId(), picked.getTitle(),
+                        picked.getCoverUrl()));
     }
 
     @Override

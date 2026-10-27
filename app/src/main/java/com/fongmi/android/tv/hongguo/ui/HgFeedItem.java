@@ -155,7 +155,7 @@ public final class HgFeedItem {
      */
     public static HgFeedItem fromSeries(HgSeriesItem s, String category) {
         HgFeedItem item = new HgFeedItem(s.getSeriesId(), s.getVid(), -1, s.getEpisodeCount(),
-                s.getTitle(), category, null, null, s.getDesc(), s.getCoverUrl(), 0, 0,
+                s.getTitle(), category, s.getAuthorName(), s.getAuthorAvatar(), s.getDesc(), s.getCoverUrl(), 0, 0,
                 s.getVid() == null, s.getVid() != null,
                 s.getBadge(), s.getRecText(), s.getTags(), s.isMultiSeason(),
                 s.getAlbumId(), s.getAlbumSerialCount(), s.getSiblings(),

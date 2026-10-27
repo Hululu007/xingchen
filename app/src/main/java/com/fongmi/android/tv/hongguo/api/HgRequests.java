@@ -67,6 +67,22 @@ public final class HgRequests {
     }
 
     /** 单集详情 video_detail 请求体（openhongguo SeriesBody）。 */
+    /**
+     * 专辑（多季系列）详情请求体：照 openhongguo AlbumBody 逐字（APK 的
+     * GetVideoAlbumDetailRequest：albumId＋needVideoDetailInfo＋空 seriesIds
+     * ＋共享 biz_param{video_platform:3}）。
+     */
+    public static JsonObject albumBody(String albumId) {
+        JsonObject biz = new JsonObject();
+        biz.addProperty("video_platform", 3);
+        JsonObject body = new JsonObject();
+        body.addProperty("album_id", albumId);
+        body.add("biz_param", biz);
+        body.addProperty("need_video_detail_info", true);
+        body.add("series_ids", new com.google.gson.JsonArray());
+        return body;
+    }
+
     public static JsonObject seriesBody(String seriesId) {
         JsonObject biz = new JsonObject();
         biz.addProperty("caller_scene", "single_col");

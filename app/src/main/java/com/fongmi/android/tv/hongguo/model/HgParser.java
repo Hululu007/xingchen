@@ -6,6 +6,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -204,7 +205,62 @@ public final class HgParser {
                 appt != null, appt != null && boolOf(appt, "is_subscribed"),
                 appt == null ? null : str(appt, "due_start_text"),
                 celebrities, intOrNull(d, "series_status"),
-                statementOf(intOrNull(d, "ai_usage_type")));
+                statementOf(intOrNull(d, "ai_usage_type")),
+                boolOf(d, "is_multi_season"), firstStr(d, "related_album_id_str", "related_album_id"));
+    }
+
+    /**
+     * 专辑详情回包 → 各季条目（照 openhongguo ParseAlbum 的线上形状）：
+     * data.album_data{album_id_str/album_title/…/series_list|video_list[]}，
+     * 每季 series_id_str/series_title/season_index/series_cover/episode_cnt/
+     * series_status。code 非 0（如 101001 已下架）返回空表，调用方直进剧。
+     */
+    public static List<HgSeriesItem> parseAlbum(String json) {
+        List<HgSeriesItem> out = new ArrayList<>();
+        JsonObject root;
+        try {
+            root = JsonParser.parseString(json).getAsJsonObject();
+        } catch (Exception e) {
+            return out;
+        }
+        String code = str(root, "code");
+        if (code != null && !"0".equals(code)) return out;
+        JsonObject data = obj(root, "data");
+        if (data == null) return out;
+        JsonObject album = obj(data, "album_data");
+        if (album == null) return out;
+        JsonArray rows = arr(album, "series_list");
+        if (rows == null) rows = arr(album, "video_list");
+        if (rows == null) return out;
+        List<HgSeriesItem> seasons = new ArrayList<>();
+        for (JsonElement el : rows) {
+            if (!el.isJsonObject()) continue;
+            JsonObject r = el.getAsJsonObject();
+            String sid = firstStr(r, "series_id_str", "series_id");
+            if (sid == null) continue;
+            seasons.add(new HgSeriesItem(sid, str(r, "series_title"), str(r, "series_cover"),
+                    null, intOf(r, "episode_cnt", -1), false, false, null,
+                    null, null, null, Collections.emptyList(), null, false,
+                    firstStr(album, "album_id_str", "album_id"), intOf(album, "season_cnt", -1),
+                    Collections.emptyList(), -1, -1, intOrNull(r, "series_status"), null, null, null));
+        }
+        final JsonArray seasonRows = rows;
+        seasons.sort((a, b) -> Integer.compare(seasonIndex(seasonRows, a.getSeriesId()),
+                seasonIndex(seasonRows, b.getSeriesId())));
+        out.addAll(seasons);
+        return out;
+    }
+
+    private static int seasonIndex(JsonArray rows, String seriesId) {
+        for (JsonElement el : rows) {
+            if (!el.isJsonObject()) continue;
+            JsonObject r = el.getAsJsonObject();
+            if (seriesId.equals(firstStr(r, "series_id_str", "series_id"))) {
+                int idx = intOf(r, "season_index", -1);
+                return idx < 0 ? Integer.MAX_VALUE : idx;
+            }
+        }
+        return Integer.MAX_VALUE;
     }
 
     /** 数字字段取值：没带或非数字为 null（区别于 intOf 的 -1 哨兵，状态类字段用）。 */
@@ -446,6 +502,23 @@ public final class HgParser {
             if (status != null) merged.addProperty("series_status", status);
             Integer aiUsage = intOrNull(vd, "ai_usage_type");
             if (aiUsage != null) merged.addProperty("ai_usage_type", aiUsage);
+            // 专辑关系与 UGC 作者同在 video_detail 里（存档逐层实证：详情面
+            // is_multi_season/related_album_id、cell 面 ugc_user_info）——不抬
+            // 到条目顶层，asSeriesItem 读不到：多季剧在流里永远认不出、
+            // 系列单弹不出，短片作者行/头像永远空（2026-10-28 逐项重对）
+            if (vd.has("is_multi_season")) {
+                merged.addProperty("is_multi_season", boolOf(vd, "is_multi_season"));
+            }
+            putIfPresent(merged, "album_id", firstStr(vd, "album_id_str", "album_id"));
+            if (intOf(vd, "album_serial_count", -1) >= 0) {
+                merged.addProperty("album_serial_count", intOf(vd, "album_serial_count", -1));
+            }
+            JsonObject ugc = obj(vd, "ugc_user_info");
+            JsonObject ugcBase = ugc == null ? null : obj(ugc, "base_info");
+            if (ugcBase != null) {
+                putIfPresent(merged, "author_name", str(ugcBase, "user_name"));
+                putIfPresent(merged, "author_avatar", str(ugcBase, "user_avatar"));
+            }
         }
         for (Map.Entry<String, JsonElement> e : o.entrySet()) {
             merged.add(e.getKey(), e.getValue());
@@ -576,7 +649,8 @@ public final class HgParser {
                 firstStr(o, "album_id_str", "album_id"),
                 intOf(o, "album_serial_count", -1), siblings,
                 longOf(o, "comment_count", -1), longOf(o, "digged_count", -1),
-                intOrNull(o, "series_status"), statementOf(intOrNull(o, "ai_usage_type")));
+                intOrNull(o, "series_status"), statementOf(intOrNull(o, "ai_usage_type")),
+                str(o, "author_name"), str(o, "author_avatar"));
     }
 
     /**

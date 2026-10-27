@@ -17,8 +17,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.withTransform
-import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -163,47 +161,39 @@ fun HeartIcon(size: Dp, color: Color, filled: Boolean, modifier: Modifier = Modi
     }
 }
 
-/** 全屏歌词页第一键（队列）glyph：照定案图 113209 为三横线（与 MyMenu 同画法，键位功能以定案口径为准）。 */
-@Composable
-fun QueueGlyphIcon(size: Dp, color: Color, modifier: Modifier = Modifier) {
-    Canvas(modifier.size(size)) {
-        val s = this.size.minDimension / 24f
-        val sw = 2.5f * s
-        for (y in listOf(5f, 12f, 19f)) {
-            drawLine(
-                color = color,
-                start = Offset(3f * s, y * s),
-                end = Offset(21f * s, y * s),
-                strokeWidth = sw,
-                cap = StrokeCap.Round
-            )
-        }
-    }
-}
-
 /**
- * 全屏歌词页第二键（歌词样式）glyph：三条递短横条＋右侧音符——路径取数值档存档的瓜子矢量原文
- * （gz-smali-missing-dig 存档 PlaylistIcon 路径，与定案图 113209 第二键样子逐点一致）。
+ * 全屏页头歌词样式键 glyph（2026-10-27 源码对死）：瓜子页头玻璃键图标在源码里是矢量
+ * Rounded.TextFields（单例 lambda 内容描述即「歌词样式」）——三条圆头文本线、中线短。
+ * 此处按该矢量的条位结构绘制（上/下线 y≈6.25/18.75、x 4→20；中线 y＝12、x 4→14；条高 1.5），
+ * 路径级逐点未誊录，待真机对照。此前按定案图装的 QueueGlyphIcon／LyricStyleIcon（实为队列矢量）
+ * 随全屏页装配订正一并撤除。
  */
 @Composable
-fun LyricStyleIcon(size: Dp, color: Color, modifier: Modifier = Modifier) {
-    val path = remember {
-        PathParser().parsePathString(
-            "M2,18 L12,18 L12,20 L2,20 L2,18 Z " +
-                "M2,11 L16,11 L16,13 L2,13 L2,11 Z " +
-                "M2,4 L22,4 L22,6 L2,6 L2,4 Z " +
-                "M19,15.1707 L19,9 L24,9 L24,11 L21,11 L21,18 " +
-                "C21,19.6569 19.6569,21 18,21 C16.3431,21 15,19.6569 15,18 " +
-                "C15,16.3431 16.3431,15 18,15 C18.3506,15 18.6872,15.0602 19,15.1707 Z " +
-                "M18,19 C18.5523,19 19,18.5523 19,18 C19,17.4477 18.5523,17 18,17 " +
-                "C17.4477,17 17,17.4477 17,18 C17,18.5523 17.4477,19 18,19 Z"
-        ).toPath()
-    }
+fun LyricStyleGlyph(size: Dp, color: Color, modifier: Modifier = Modifier) {
     Canvas(modifier.size(size)) {
         val s = this.size.minDimension / 24f
-        withTransform({ scale(s, s, Offset.Zero) }) {
-            drawPath(path, color)
-        }
+        val sw = 1.5f * s
+        drawLine(
+            color = color,
+            start = Offset(4f * s, 6.25f * s),
+            end = Offset(20f * s, 6.25f * s),
+            strokeWidth = sw,
+            cap = StrokeCap.Round
+        )
+        drawLine(
+            color = color,
+            start = Offset(4f * s, 12f * s),
+            end = Offset(14f * s, 12f * s),
+            strokeWidth = sw,
+            cap = StrokeCap.Round
+        )
+        drawLine(
+            color = color,
+            start = Offset(4f * s, 18.75f * s),
+            end = Offset(20f * s, 18.75f * s),
+            strokeWidth = sw,
+            cap = StrokeCap.Round
+        )
     }
 }
 

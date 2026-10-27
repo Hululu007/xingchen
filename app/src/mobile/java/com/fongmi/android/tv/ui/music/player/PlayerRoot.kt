@@ -155,10 +155,7 @@ fun PlayerRoot(barRect: Rect?, onClose: () -> Unit) {
                         FullLyricPlayer(
                             state = state,
                             progress = progress,
-                            onQueueClick = {},
-                            onLyricStyleClick = {},
-                            onArtistClick = {},
-                            onAlbumClick = {}
+                            onLyricStyleClick = {}
                         )
                     } else {
                         ClassicPlayer(

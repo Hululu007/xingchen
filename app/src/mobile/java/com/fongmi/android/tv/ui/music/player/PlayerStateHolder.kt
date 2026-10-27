@@ -6,7 +6,6 @@ import android.graphics.drawable.Drawable
 import com.bumptech.glide.request.transition.Transition
 import com.fongmi.android.tv.bean.music.MusicTrack
 import com.fongmi.android.tv.impl.CustomTarget
-import com.fongmi.android.tv.music.MusicAudioInfo
 import com.fongmi.android.tv.music.MusicController
 import com.fongmi.android.tv.music.MusicLibrary
 import com.fongmi.android.tv.music.MusicLyricCache
@@ -78,8 +77,9 @@ object PlayerStateHolder {
             _state.update { it.copy(playMode = mode) }
         }
 
-        override fun onAudioInfoChanged(info: MusicAudioInfo?) {
-            _state.update { it.copy(audioLabel = info?.describe()) }
+        override fun onAudioInfoChanged() {
+            // 真接口无参（MusicController.Listener 源码定谳）：音质信息现拉控制器，与 onTrackReady 同口径
+            _state.update { it.copy(audioLabel = MusicController.get().audioInfo()?.describe()) }
         }
 
         override fun onCoverChanged(track: MusicTrack?) {

@@ -30,7 +30,9 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -45,11 +47,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.fongmi.android.tv.ui.music.MusicPlayerSettings
 
 /**
- * 经典页骨架（瓜子竖屏经典装配逐项对照 PlayerScreenKt 调用序）：
+ * 经典页（瓜子竖屏经典装配逐项对照 PlayerScreenKt 调用序）：
  * 氛围层（糊封面）→ CoverArt 锐封面整页垫底 → SongMeta（28dp 横边距，状态栏 insets＋上 12 下 8）
- * → 页内歌词区（weight 1、本单只留位置与空态，引擎下一单）→ 6dp → PlaybackScrubber（横 28dp）
+ * → 页内歌词区（weight 1，LyricEngine 封面窗装配，无词时空态）→ 6dp → PlaybackScrubber（横 28dp）
  * → 45dp 收尾。经典页没有运输行：播停在标题行第三键，切歌走封面手势（下一单）。
  * 根底色不在本件画：PlayerRoot 用中枢 baseColor 以 450ms/bs4.a 动画铺满整窗，形变长开时不露空。
  */
@@ -65,6 +68,9 @@ fun ClassicPlayer(
     onLyricChipClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // 歌词模式（Std/逐字）：初值读现行存档键、切换即回写（与全屏页共用同一键，引擎口径一致）
+    var wordMode by remember { mutableStateOf(MusicPlayerSettings.isFullLyricWordByWord()) }
+    val hasLyricWords = state.lyricLines.any { it.main.hasWords() }
     Box(modifier.fillMaxSize()) {
         AmbientLayer(state)
         CoverArtLayer(state)
@@ -76,33 +82,64 @@ fun ClassicPlayer(
                 onArtistClick = onArtistClick,
                 onAlbumClick = onAlbumClick
             )
-            // 页内歌词区：位置与空态（歌词引擎下一单接管此槽）
+            // 页内歌词区（LyricEngine 封面窗装配；空态与骨架期同文同位）
             Box(
                 Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(horizontal = 28.dp),
-                contentAlignment = Alignment.Center
+                    .padding(horizontal = 28.dp)
             ) {
-                Text(
-                    text = "暂无歌词",
-                    fontSize = 15.sp,
-                    color = Color.White.copy(alpha = 0.35f)
-                )
+                if (state.lyricLines.isEmpty()) {
+                    Text(
+                        text = "暂无歌词",
+                        fontSize = 15.sp,
+                        color = Color.White.copy(alpha = 0.35f),
+                        modifier = Modifier.align(Alignment.Center)
+                    )
+                } else {
+                    ClassicLyricWindow(
+                        lines = state.lyricLines,
+                        untimed = state.lyricUntimed,
+                        progress = progress,
+                        isPlaying = state.isPlaying,
+                        wordMode = wordMode,
+                        onLineClick = { index ->
+                            state.lyricLines.getOrNull(index)?.let {
+                                PlayerStateHolder.seekTo(it.main.timeMs)
+                            }
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
             }
             Spacer(Modifier.height(6.dp))
             PlaybackScrubber(
                 progress = progress,
                 audioLabel = state.audioLabel,
-                lyricLabel = null,
+                lyricLabel = lyricChipLabel(state, wordMode),
                 onSeek = { PlayerStateHolder.seekTo(it) },
                 onQualityClick = onQualityClick,
-                onLyricChipClick = onLyricChipClick,
+                // 歌词筹本单接引擎模式切换（有逐字数据才可切）；版本面板回调（onLyricChipClick）留待面板单
+                onLyricChipClick = {
+                    if (hasLyricWords) {
+                        wordMode = !wordMode
+                        MusicPlayerSettings.setFullLyricWordByWord(wordMode)
+                    }
+                },
                 modifier = Modifier.padding(horizontal = 28.dp)
             )
             Spacer(Modifier.height(45.dp))
         }
     }
+}
+
+/** 歌词筹签（瓜子筹面口径）：无词/纯文本/逐行是数据形态，逐字/标准是当前引擎模式。 */
+private fun lyricChipLabel(state: PlayerUiState, wordMode: Boolean): String? {
+    if (state.track == null) return null
+    if (state.lyricLines.isEmpty()) return "无词"
+    if (state.lyricUntimed) return "纯文本"
+    if (state.lyricLines.none { it.main.hasWords() }) return "逐行"
+    return if (wordMode) "逐字" else "标准"
 }
 
 /** 糊封面氛围（BlurredCoverAmbient）：64 缩图整页拉满＋24dp 糊＋底色派生渐变罩（上明 +0.05／下暗 −0.04）。 */

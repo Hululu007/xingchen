@@ -9,6 +9,9 @@ import com.fongmi.android.tv.bean.music.MusicTrack
 import com.fongmi.android.tv.impl.CustomTarget
 import com.fongmi.android.tv.music.MusicController
 import com.fongmi.android.tv.music.MusicLibrary
+import com.fongmi.android.tv.music.MusicLyricCache
+import com.fongmi.android.tv.music.RichLyrics
+import com.fongmi.android.tv.player.lyrics.LyricsParser
 import com.fongmi.android.tv.utils.CoverColor
 import com.fongmi.android.tv.utils.ImgUtil
 import java.util.concurrent.Executors
@@ -42,6 +45,14 @@ object PlayerStateHolder {
     /** 封面加载代次：切歌后旧图晚到直接丢弃，不许盖新歌的脸。 */
     @Volatile
     private var coverSeq = 0
+
+    private val lyricExecutor = Executors.newSingleThreadExecutor { r ->
+        Thread(r, "PlayerLyricParse").apply { isDaemon = true }
+    }
+
+    /** 歌词解析代次：与封面同一纪律，旧曲的词晚到直接丢弃。 */
+    @Volatile
+    private var lyricSeq = 0
 
     private val controllerListener = object : MusicController.Listener {
         override fun onTrackChanged(track: MusicTrack?) {
@@ -83,6 +94,13 @@ object PlayerStateHolder {
             _state.update { it.copy(audioLabel = ctl.audioInfo()?.describe()) }
             _progress.value = PlayerProgress(ctl.position(), ctl.duration())
         }
+
+        override fun onLyricReady(track: MusicTrack?) {
+            val current = _state.value.track
+            if (track != null && current != null && track.id == current.id) {
+                loadLyrics(track)
+            }
+        }
     }
 
     private val favoritesListener = MusicLibrary.FavoritesListener {
@@ -105,6 +123,8 @@ object PlayerStateHolder {
     private fun refreshAll() {
         val ctl = MusicController.get()
         val track = ctl.current()
+        val prevTrackId = _state.value.track?.id
+        val trackChanged = track?.id != prevTrackId
         _state.update {
             it.copy(
                 track = track,
@@ -114,12 +134,60 @@ object PlayerStateHolder {
                 playMode = ctl.getMode(),
                 qualityTier = ctl.getQuality(),
                 audioLabel = ctl.audioInfo()?.describe(),
-                canNext = ctl.canNext()
+                canNext = ctl.canNext(),
+                // 换歌先清旧词（与封面同一纪律），备好后由 loadLyrics 整表换上
+                lyricLines = if (trackChanged) emptyList() else it.lyricLines,
+                lyricUntimed = if (trackChanged) false else it.lyricUntimed
             )
         }
         _progress.value = PlayerProgress(ctl.position(), ctl.duration())
         loadCover(track?.cover)
+        loadLyrics(track)
         refreshFavorite(track)
+    }
+
+    /**
+     * 取词只走现行管线（与通知卡 MusicNotificationProvider 同一配方，不另造管线）：
+     * MusicLyricCache 现读 → parseWordLyric 正文 → parseTimed 翻译 → RichLyrics.align 对齐。
+     * 与通知卡的差别只有一处：纯文本无时间轴在播放页要静态显示（瓜子口径），故不按
+     * 「无定时行整组不露」丢弃，改记 lyricUntimed 交引擎静态支。解析在后台线程跑。
+     */
+    private fun loadLyrics(track: MusicTrack?) {
+        val seq = ++lyricSeq
+        if (track == null) return
+        lyricExecutor.execute {
+            var lines: List<RichLyrics.Line> = emptyList()
+            var untimed = false
+            try {
+                val lyric = MusicLyricCache.get(track)
+                if (lyric != null && lyric.hasLyric()) {
+                    val main = LyricsParser.parseWordLyric(lyric.rawLrc)
+                    if (main != null && main.isNotEmpty()) {
+                        val trans = if (lyric.translation.isNullOrEmpty()) {
+                            null
+                        } else {
+                            LyricsParser.parseTimed(lyric.translation)
+                        }
+                        val aligned = RichLyrics.align(main, trans, null)
+                        val display = aligned.filter {
+                            it != null && it.main != null && it.main.text.isNotEmpty()
+                        }
+                        if (display.isNotEmpty()) {
+                            lines = display
+                            untimed = LyricsParser.isUntimed(main)
+                        }
+                    }
+                }
+            } catch (t: Throwable) {
+                lines = emptyList()
+                untimed = false
+            }
+            if (seq != lyricSeq) return@execute
+            val current = _state.value.track
+            if (current != null && current.id == track.id) {
+                _state.update { it.copy(lyricLines = lines, lyricUntimed = untimed) }
+            }
+        }
     }
 
     private fun loadCover(url: String?) {

@@ -3,6 +3,7 @@ package com.fongmi.android.tv.ui.music.player
 import android.graphics.Bitmap
 import com.fongmi.android.tv.bean.music.MusicTrack
 import com.fongmi.android.tv.music.MusicQueue
+import com.fongmi.android.tv.music.RichLyrics
 import com.fongmi.android.tv.utils.CoverColor
 
 /**
@@ -31,7 +32,14 @@ data class PlayerUiState(
     val ambientBitmap: Bitmap? = null,
     val coverUrl: String? = null,
     /** 外壳底色：CoverColor.shellBaseColor（瓜子 CoverAmbientKt 的 mk1 链 a 分量），在中枢算一次全场共用。 */
-    val baseColor: Int = CoverColor.FALLBACK_COLOR
+    val baseColor: Int = CoverColor.FALLBACK_COLOR,
+    /**
+     * 当前曲歌词（现行管线同源配方：MusicLyricCache → LyricsParser.parseWordLyric/parseTimed
+     * → RichLyrics.align，与通知卡同一口）；空表＝暂无歌词。切歌先清、备好后整表换上。
+     */
+    val lyricLines: List<RichLyrics.Line> = emptyList(),
+    /** 纯文本无时间轴（LyricsParser.isUntimed）：无当前行、静态显示。 */
+    val lyricUntimed: Boolean = false
 )
 
 /** 进度快照（快变量）：服务 ticker 250ms 一推。 */

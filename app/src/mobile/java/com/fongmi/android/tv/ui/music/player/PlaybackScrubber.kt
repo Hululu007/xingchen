@@ -52,6 +52,8 @@ fun PlaybackScrubber(
     onSeek: (Long) -> Unit,
     modifier: Modifier = Modifier,
     onLyricChipClick: (() -> Unit)? = null,
+    /** 音质筹点击（开音质版本选择面）；不传＝只显档名（瓜子筹同为选择器入口，第五单接线）。 */
+    onQualityChipClick: (() -> Unit)? = null,
     onInteract: (() -> Unit)? = null,
     /** 轨高（案卷第二节调用实参：经典/封面展开 4dp、Apple 6dp、横屏 4dp）。 */
     trackHeightDp: Float = 4f,
@@ -95,7 +97,7 @@ fun PlaybackScrubber(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Spacer(modifier = Modifier.weight(1f))
-                ScrubberChip(text = MusicStore.qualityName(state.quality))
+                ScrubberChip(text = MusicStore.qualityName(state.quality), onClick = onQualityChipClick)
                 Spacer(modifier = Modifier.width(6.dp))
                 // 歌词筹＝歌词版本面板入口（瓜子口径，他 2026-10-27 点名：不许只做开关翻译）
                 ScrubberChip(text = lyricChipText(state.lyrics), onClick = onLyricChipClick)

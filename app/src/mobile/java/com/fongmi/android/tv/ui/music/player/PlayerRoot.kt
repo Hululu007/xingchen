@@ -1,6 +1,7 @@
 package com.fongmi.android.tv.ui.music.player
 
 import android.graphics.Rect
+import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
@@ -27,14 +28,16 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp as colorLerp
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
+import com.fongmi.android.tv.music.MusicStore
 import com.fongmi.android.tv.ui.music.MusicPlayerSettings
 
-private enum class SheetKind { QUEUE, TOOLS, LYRIC_VERSIONS }
+private enum class SheetKind { QUEUE, TOOLS, LYRIC_VERSIONS, QUALITY }
 
 /**
  * 播放树根（播放页 Activity 内唯一棵树）：订中枢一份快照，向下分发。
@@ -68,6 +71,19 @@ fun PlayerRoot(
     var sheet by remember { mutableStateOf<SheetKind?>(null) }
     // 当前主题（存档键在 MusicPlayerSettings，回落 classic；切换写存档后整树按新主题分发）
     var themeId by remember { mutableStateOf(MusicPlayerSettings.getTheme()) }
+
+    // 播放页不熄屏（存档 MusicStore 单一事实源）：初值与工具面板开关变更
+    // （中枢 settingsRev）都经这里落到窗口旗——开关写存档＋bump 后即达。
+    val rootContext = LocalContext.current
+    val settingsRev by PlayerStateHolder.settingsRev.collectAsState()
+    LaunchedEffect(settingsRev) {
+        val window = rootContext.findActivity()?.window ?: return@LaunchedEffect
+        if (MusicStore.isPlayerKeepScreenOn()) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
 
     LaunchedEffect(Unit) {
         if (startRect != null) {
@@ -123,6 +139,7 @@ fun PlayerRoot(
                             onOpenQueue = { sheet = SheetKind.QUEUE },
                             onOpenTools = { sheet = SheetKind.TOOLS },
                             onOpenLyricVersions = { sheet = SheetKind.LYRIC_VERSIONS },
+                            onOpenQuality = { sheet = SheetKind.QUALITY },
                             onCollapse = { collapse() },
                         )
                         ThemeFamily.COVER -> CoverImmersivePlayer(
@@ -134,6 +151,7 @@ fun PlayerRoot(
                             onOpenQueue = { sheet = SheetKind.QUEUE },
                             onOpenTools = { sheet = SheetKind.TOOLS },
                             onOpenLyricVersions = { sheet = SheetKind.LYRIC_VERSIONS },
+                            onOpenQuality = { sheet = SheetKind.QUALITY },
                             onToggleFavorite = { PlayerStateHolder.toggleFavorite() },
                             onCollapse = { collapse() },
                         )
@@ -264,7 +282,10 @@ fun PlayerRoot(
                     themeId = MusicPlayerSettings.getTheme()
                     sheet = null
                 },
+                onOpenLyricVersions = { sheet = SheetKind.LYRIC_VERSIONS },
+                onOpenQuality = { sheet = SheetKind.QUALITY },
                 onDismiss = { sheet = null },
+                fullLyricSurface = pagerState.currentPage == 1,
             )
             SheetKind.LYRIC_VERSIONS -> LyricVersionSheet(
                 state = state,
@@ -272,6 +293,10 @@ fun PlayerRoot(
                     PlayerStateHolder.applyLyricVersion(version)
                     sheet = null
                 },
+                onDismiss = { sheet = null },
+            )
+            SheetKind.QUALITY -> QualitySheet(
+                state = state,
                 onDismiss = { sheet = null },
             )
             null -> Unit

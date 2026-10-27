@@ -75,6 +75,7 @@ fun CoverImmersivePlayer(
     onOpenQueue: () -> Unit,
     onOpenTools: () -> Unit,
     onOpenLyricVersions: () -> Unit,
+    onOpenQuality: () -> Unit,
     onToggleFavorite: () -> Unit,
     onCollapse: () -> Unit,
     modifier: Modifier = Modifier,
@@ -288,6 +289,7 @@ fun CoverImmersivePlayer(
                     state = state,
                     onSeek = onSeek,
                     onLyricChipClick = onOpenLyricVersions,
+                    onQualityChipClick = onOpenQuality,
                     modifier = Modifier.padding(horizontal = 24.dp),
                 )
                 Box(

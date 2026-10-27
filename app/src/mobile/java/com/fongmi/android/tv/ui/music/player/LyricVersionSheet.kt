@@ -61,13 +61,7 @@ import com.fongmi.android.tv.player.lyrics.LyricsParser
  * 点选经 PlayerStateHolder.applyLyricVersion 生效并记住（存手动选择＋写缓存），不是开关翻译。
  */
 
-private val SheetBg = Color(0xFF1C1C1E)
-private val SheetListBg = Color(0xFF2C2C2E)
-private val SheetInset = Color.White.copy(alpha = 0.08f)
-private val TextHigh = Color(0xFFF2F2F7)
-private val TextMedium = Color(0xFF8E8E93)
-private val TextLow = Color(0xFF636366)
-private val AccentRed = Color(0xFFFA243C)
+// 面板令牌统一走 PlayerSheets.kt 的共享声明（同包同名私有声明会与之冲突，值全等）
 
 private val FILTERS = listOf("全部", "逐字", "逐行", "翻译", "音译", "文本")
 

@@ -13,6 +13,7 @@ import com.fongmi.android.tv.music.MusicController
 import com.fongmi.android.tv.music.MusicLibrary
 import com.fongmi.android.tv.music.MusicLyricCache
 import com.fongmi.android.tv.music.MusicRepository
+import com.fongmi.android.tv.music.MusicStore
 import com.fongmi.android.tv.music.RichLyrics
 import com.fongmi.android.tv.player.lyrics.LyricsParser
 import com.fongmi.android.tv.utils.CoverColor
@@ -40,6 +41,19 @@ object PlayerStateHolder {
 
     private val _state = MutableStateFlow(PlayerUiState())
     val state: StateFlow<PlayerUiState> = _state.asStateFlow()
+
+    /**
+     * 设置修订号（歌词样式/外观/窗口旗这类 Prefers 值的变更信号）：Prefers 本身
+     * 不是 Compose 状态，面板写完存档后 bump 一次，读设置的面（歌词引擎快照、
+     * 氛围层、播放页窗口旗）以它为 remember 键重读——「改了当场生效」靠这条，
+     * 不另建第二套设置数据层。
+     */
+    private val _settingsRev = MutableStateFlow(0)
+    val settingsRev: StateFlow<Int> = _settingsRev.asStateFlow()
+
+    fun bumpSettings() {
+        _settingsRev.value += 1
+    }
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val colorExecutor = Executors.newSingleThreadExecutor { r ->
@@ -79,6 +93,10 @@ object PlayerStateHolder {
             _state.value = _state.value.copy(mode = mode)
         }
 
+        override fun onSleepChanged(sleep: Int) {
+            refreshSleep()
+        }
+
         override fun onAudioInfoChanged() {
             refresh()
         }
@@ -106,6 +124,7 @@ object PlayerStateHolder {
             try {
                 val ctl = MusicController.get()
                 pushProgress(ctl.position(), ctl.duration())
+                refreshSleep()
                 hasTrack = ctl.current() != null
             } catch (t: Throwable) {
                 // 服务未起时静默，下一拍再试
@@ -166,6 +185,39 @@ object PlayerStateHolder {
         runCatching { MusicController.get().cycleMode() }
     }
 
+    /** 播放模式直设（工具面板四段分段控件）：走控制器既有口，服务侧回 onModeChanged 对齐快照。 */
+    fun setMode(mode: Int) {
+        runCatching { MusicController.get().setMode(mode) }
+    }
+
+    /** 音质请求档直设：控制器 setQuality 已含写存档＋递服务按新档重取当前曲，面板只递值。 */
+    fun setQuality(quality: Int) {
+        runCatching { MusicController.get().setQuality(quality) }
+        refresh()
+    }
+
+    /** 睡眠定时设档（档值口径见 MusicPlaybackService.setSleep：含 1000＋自定义分钟编码）。 */
+    fun setSleep(sleep: Int) {
+        runCatching { MusicController.get().setSleep(sleep) }
+        refreshSleep()
+    }
+
+    /** 关「播完整首后再停止」且已在等待态时，清服务侧等待态（定时彻底失效，保留区 B4 口径）。 */
+    fun clearSleepWaitingForSongEnd() {
+        runCatching { MusicController.get().clearSleepWaitingForSongEnd() }
+        refreshSleep()
+    }
+
+    /** 清空队列（队列面板）：走控制器既有口，清后服务回 onQueueChanged 对齐快照。 */
+    fun clearQueue() {
+        runCatching { MusicController.get().clearQueue() }
+    }
+
+    /** 系统音效面板用音频会话 id（均衡器瓷砖）；服务未起回 0，调用方据此提示。 */
+    fun audioSessionId(): Int {
+        return runCatching { MusicController.get().audioSessionId() }.getOrDefault(0)
+    }
+
     /**
      * 收藏切换（主题件的爱心/收藏键/唱片架点槽共用）：走保留区 MusicLibrary.setFavorite
      * 真落盘，成功回调里再对齐当前曲的收藏旗与快照（收藏显示源仍是既有口径
@@ -224,8 +276,14 @@ object PlayerStateHolder {
             isPlaying = runCatching { ctl.isPlaying() }.getOrDefault(prev.isPlaying),
             queue = queue,
             queueIndex = runCatching { ctl.index() }.getOrDefault(-1),
+            queueSource = runCatching { ctl.queueSource() }.getOrNull()?.takeIf { it.isNotEmpty() },
+            queueRoute = runCatching { ctl.queueRoute() }.getOrNull()?.takeIf { it.isNotEmpty() },
             mode = runCatching { ctl.getMode() }.getOrDefault(prev.mode),
             quality = runCatching { ctl.getQuality() }.getOrDefault(prev.quality),
+            sleepMode = runCatching { ctl.getSleep() }.getOrDefault(prev.sleepMode),
+            sleepRemainingMs = runCatching { ctl.sleepRemainingMs() }.getOrDefault(prev.sleepRemainingMs),
+            sleepWaiting = runCatching { ctl.isSleepWaitingForSongEnd() }.getOrDefault(prev.sleepWaiting),
+            sleepFinishCurrent = runCatching { MusicStore.isSleepFinishCurrent() }.getOrDefault(prev.sleepFinishCurrent),
             canNext = runCatching { ctl.canNext() }.getOrDefault(false),
             canPrev = prev.queueIndex > 0,
             favorite = (track?.favoriteAddedTime ?: 0L) > 0L,
@@ -238,6 +296,27 @@ object PlayerStateHolder {
         }
         if (track != null) startTick()
         refreshLyrics()
+    }
+
+    /** 睡眠定时四值对齐（档位/剩余/等待态/播完再停开关）：值不变不写快照，免得面板开着时无谓重组。 */
+    private fun refreshSleep() {
+        val ctl = runCatching { MusicController.get() }.getOrNull() ?: return
+        val s = _state.value
+        val mode = runCatching { ctl.getSleep() }.getOrDefault(s.sleepMode)
+        val remaining = runCatching { ctl.sleepRemainingMs() }.getOrDefault(s.sleepRemainingMs)
+        val waiting = runCatching { ctl.isSleepWaitingForSongEnd() }.getOrDefault(s.sleepWaiting)
+        val finish = runCatching { MusicStore.isSleepFinishCurrent() }.getOrDefault(s.sleepFinishCurrent)
+        if (s.sleepMode == mode && s.sleepRemainingMs == remaining &&
+            s.sleepWaiting == waiting && s.sleepFinishCurrent == finish
+        ) {
+            return
+        }
+        _state.value = s.copy(
+            sleepMode = mode,
+            sleepRemainingMs = remaining,
+            sleepWaiting = waiting,
+            sleepFinishCurrent = finish,
+        )
     }
 
     private fun loadCover(url: String, seq: Int) {

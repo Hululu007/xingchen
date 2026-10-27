@@ -63,8 +63,20 @@ data class PlayerUiState(
     val durationMs: Long = 0,
     val queue: List<MusicTrack> = emptyList(),
     val queueIndex: Int = -1,
+    /** 队列来源名（保留区 MusicQueue.source，入队时写入；空＝未知来源，队列面板不出来源卡）。 */
+    val queueSource: String? = null,
+    /** 队列来源 route（空＝无跳转落点，来源卡只展示）。 */
+    val queueRoute: String? = null,
     val mode: Int = 0,
     val quality: Int = 0,
+    /** 睡眠定时档位（MusicPlaybackService 的 SLEEP_* 值原样透传：0 关／1 本首结束／分钟档／1000＋自定义分钟）。 */
+    val sleepMode: Int = 0,
+    /** 定时剩余毫秒（无分钟档计时＝-1）；分钟档到点等待态见 sleepWaiting。 */
+    val sleepRemainingMs: Long = -1,
+    /** 分钟档已到点、开着「播完整首后再停止」、等本首播完才停。 */
+    val sleepWaiting: Boolean = false,
+    /** 「播完整首后再停止」开关现值（MusicStore 单一事实源，面板回显用）。 */
+    val sleepFinishCurrent: Boolean = false,
     val canNext: Boolean = false,
     val canPrev: Boolean = false,
     val favorite: Boolean = false,

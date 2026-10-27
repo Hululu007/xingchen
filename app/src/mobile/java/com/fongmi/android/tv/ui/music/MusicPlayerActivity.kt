@@ -1,8 +1,10 @@
 package com.fongmi.android.tv.ui.music
 
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import com.fongmi.android.tv.music.MusicStore
 import com.fongmi.android.tv.ui.music.player.PlayerOpenContract
 import com.fongmi.android.tv.ui.music.player.PlayerRoot
 import com.fongmi.android.tv.ui.music.player.PlayerStateHolder
@@ -23,6 +25,10 @@ class MusicPlayerActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         overridePendingTransition(0, 0)
         window.setBackgroundDrawableResource(android.R.color.transparent)
+        // 不熄屏初值（存档在 MusicStore；运行中变更由 PlayerRoot 订中枢修订号落旗）
+        if (MusicStore.isPlayerKeepScreenOn()) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
         PlayerStateHolder.attach(this)
         val startRect = PlayerOpenContract.readBarRect(intent)
         setContent {

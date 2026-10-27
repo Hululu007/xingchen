@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -73,7 +74,9 @@ import kotlinx.coroutines.launch
  * 逐字推进（[start,end] 线性插值、单调不回退、上浮 −0.09em、长音 ≥1000ms 光晕＋放大 ≤1.2＋−0.05em 浮动）、
  * 字斜 −0.12（他定的产品项，旧实现 setTextSkewX 同值）。
  * 色（手机主题沉浸深色、无 palette 供给）：已唱 #FFEAEAEA、当前未唱 白 .42、非当前 白 .30、翻译 白 .55。
- * 字号/粗细/模糊档/译音显隐/偏移读 MusicPlayerSettings 既有存档（页内键）。
+ * 字号/粗细/模糊档/译音显隐/偏移/主歌词/对齐读 MusicPlayerSettings 既有存档（页内键）；
+ * 设置快照以 PlayerStateHolder.settingsRev 为键重读——工具面板歌词样式子面板改完
+ * bump 一次即当场生效，不必退页重进（第五单接线）。
  */
 
 // 引擎常量（出处见类头）
@@ -183,6 +186,19 @@ fun AnchoredLyricStage(
     )
 }
 
+/** 行对齐现值：主题 spec 居中优先，其次存档对齐档（0 左／1 中／2 右，MusicStore 同口径）。 */
+private fun lyricTextAlign(centered: Boolean, align: Int): androidx.compose.ui.text.style.TextAlign = when {
+    centered || align == 1 -> androidx.compose.ui.text.style.TextAlign.Center
+    align == 2 -> androidx.compose.ui.text.style.TextAlign.End
+    else -> androidx.compose.ui.text.style.TextAlign.Start
+}
+
+private fun lyricColumnAlignment(centered: Boolean, align: Int): Alignment.Horizontal = when {
+    centered || align == 1 -> Alignment.CenterHorizontally
+    align == 2 -> Alignment.End
+    else -> Alignment.Start
+}
+
 /** 纯文本：无当前行、静态显示、不滚动不均分（瓜子同口径）。 */
 @Composable
 private fun StaticLyricText(
@@ -190,28 +206,82 @@ private fun StaticLyricText(
     spec: LyricStageSpec,
     modifier: Modifier = Modifier,
 ) {
-    val coverFontSizeSp = remember { MusicPlayerSettings.getCoverLyricFontSize() }
+    val settingsRev by PlayerStateHolder.settingsRev.collectAsState()
+    val coverFontSizeSp = remember(settingsRev) { MusicPlayerSettings.getCoverLyricFontSize() }
     val fontSizeSp = spec.fontSizeSp ?: coverFontSizeSp
-    val weight = remember { lyricFontWeight() }
+    val weight = remember(settingsRev) { lyricFontWeight() }
+    val align = remember(settingsRev) { MusicPlayerSettings.getLyricAlign() }
+    val primary = remember(settingsRev) { MusicPlayerSettings.getLyricPrimary() }
+    val showTrans = remember(settingsRev) { MusicPlayerSettings.isShowTranslation() }
+    val showRoma = remember(settingsRev) { MusicPlayerSettings.isShowRomanization() }
+    val wide = spec.centered || align != 0
     Column(
         modifier = modifier.fillMaxSize().clipToBounds().lyricSkew(),
-        horizontalAlignment = if (spec.centered) Alignment.CenterHorizontally else Alignment.Start,
+        horizontalAlignment = lyricColumnAlignment(spec.centered, align),
     ) {
         for (line in lines) {
+            // 主歌词档与计时舞台同口径：主行取档位文本、原文退副行
+            val mainText = lyricMainText(line, primary)
             Text(
-                text = line.text,
+                text = mainText,
                 color = spec.palette?.sung ?: Color.White.copy(alpha = 0.85f),
                 fontSize = fontSizeSp.sp,
                 fontWeight = weight,
                 lineHeight = (fontSizeSp * spec.lineHeightFactor).sp,
                 letterSpacing = spec.letterSpacingSp.sp,
-                textAlign = if (spec.centered) androidx.compose.ui.text.style.TextAlign.Center else androidx.compose.ui.text.style.TextAlign.Start,
-                modifier = if (spec.centered) Modifier.fillMaxWidth() else Modifier,
+                textAlign = lyricTextAlign(spec.centered, align),
+                modifier = if (wide) Modifier.fillMaxWidth() else Modifier,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            val subText = lyricSubText(line, primary, showTrans, showRoma)
+            if (subText != null) {
+                Text(
+                    text = subText,
+                    color = spec.palette?.translation ?: ColorTranslation,
+                    fontSize = (fontSizeSp * 0.62f).sp,
+                    fontWeight = weight,
+                    lineHeight = (fontSizeSp * 0.62f * spec.lineHeightFactor).sp,
+                    textAlign = lyricTextAlign(spec.centered, align),
+                    modifier = (if (wide) Modifier.fillMaxWidth() else Modifier)
+                        .offset(y = 6.dp),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
+}
+
+/**
+ * 主歌词档位选文（0 原文／1 翻译／2 音译，存档 MusicStore.getLyricPrimary）：
+ * 选中的译文在场才换主行，缺译文回落原文（逐字时间轴只对原文成立，换主行时
+ * 调用方据 [lyricPrimarySwapped] 关逐字走整行）。
+ */
+private fun lyricMainText(line: LyricUiLine, primary: Int): String = when (primary) {
+    1 -> line.translation ?: line.text
+    2 -> line.romanization ?: line.text
+    else -> line.text
+}
+
+/** 本行主行是否已被译文顶替（顶替成立＝选档在场；顶替后原文退副行）。 */
+private fun lyricPrimarySwapped(line: LyricUiLine, primary: Int): Boolean = when (primary) {
+    1 -> line.translation != null
+    2 -> line.romanization != null
+    else -> false
+}
+
+/** 副行选文：主行被顶替时副行回原文；未顶替时照显译/显音译开关（翻译优先）。 */
+private fun lyricSubText(
+    line: LyricUiLine,
+    primary: Int,
+    showTrans: Boolean,
+    showRoma: Boolean,
+): String? = when {
+    lyricPrimarySwapped(line, primary) -> line.text
+    showTrans && line.translation != null -> line.translation
+    showRoma && line.romanization != null -> line.romanization
+    else -> null
 }
 
 /** 歌词粗细存档→字重（瓜子三档：标准 700／加粗 800／特粗 900，MusicStore 注释亲验）。 */
@@ -245,15 +315,18 @@ private fun TimedLyricStage(
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
 
-    // 设置快照（进页读一次，与旧视图同口径）
-    val coverFontSizeSp = remember { MusicPlayerSettings.getCoverLyricFontSize() }
+    // 设置快照（以中枢 settingsRev 为键重读：歌词样式面板改完 bump 即当场生效）
+    val settingsRev by PlayerStateHolder.settingsRev.collectAsState()
+    val coverFontSizeSp = remember(settingsRev) { MusicPlayerSettings.getCoverLyricFontSize() }
     val fontSizeSp = spec.fontSizeSp ?: coverFontSizeSp
-    val weight = remember { lyricFontWeight() }
-    val blurCoef = remember { MusicPlayerSettings.blurCoefficient() }
-    val showTrans = remember { MusicPlayerSettings.isShowTranslation() }
-    val showRoma = remember { MusicPlayerSettings.isShowRomanization() }
-    val advancedFx = remember { MusicPlayerSettings.isAdvancedFx() }
-    val offsetMs = remember { MusicPlayerSettings.getLyricOffsetMs().toLong() }
+    val weight = remember(settingsRev) { lyricFontWeight() }
+    val blurCoef = remember(settingsRev) { MusicPlayerSettings.blurCoefficient() }
+    val showTrans = remember(settingsRev) { MusicPlayerSettings.isShowTranslation() }
+    val showRoma = remember(settingsRev) { MusicPlayerSettings.isShowRomanization() }
+    val advancedFx = remember(settingsRev) { MusicPlayerSettings.isAdvancedFx() }
+    val offsetMs = remember(settingsRev) { MusicPlayerSettings.getLyricOffsetMs().toLong() }
+    val primary = remember(settingsRev) { MusicPlayerSettings.getLyricPrimary() }
+    val align = remember(settingsRev) { MusicPlayerSettings.getLyricAlign() }
 
     val smoothMs = rememberSmoothTime(positionMs, isPlaying)
     val effectiveMs = smoothMs + offsetMs
@@ -274,7 +347,7 @@ private fun TimedLyricStage(
         // ---- 量测（宽/字号/行列变更才重算）----
         val measurer = rememberTextMeasurer()
         val measures = remember(
-            lines, widthPx, fontSizeSp, weight, showTrans, showRoma,
+            lines, widthPx, fontSizeSp, weight, showTrans, showRoma, primary,
             spec.lineHeightFactor, spec.letterSpacingSp,
         ) {
             measureLines(
@@ -286,6 +359,7 @@ private fun TimedLyricStage(
                 density = density.density,
                 showTrans = showTrans,
                 showRoma = showRoma,
+                primary = primary,
                 lineHeightFactor = spec.lineHeightFactor,
                 letterSpacingSp = spec.letterSpacingSp,
             )
@@ -463,6 +537,7 @@ private fun TimedLyricStage(
                         wordByWord = spec.wordByWord,
                         palette = spec.palette,
                         centered = spec.centered,
+                        align = align,
                         modifier = Modifier
                             .offset { IntOffset(0, top.roundToInt()) }
                             .fillMaxWidth()
@@ -531,6 +606,7 @@ private fun measureLines(
     density: Float,
     showTrans: Boolean,
     showRoma: Boolean,
+    primary: Int,
     lineHeightFactor: Float,
     letterSpacingSp: Float,
 ): List<LineMeasure> {
@@ -551,10 +627,13 @@ private fun measureLines(
     val subLineHeightPx = measurer.measure("Ag", subStyle).size.height.toFloat()
     val subGapPx = 6f * density
     return lines.map { line ->
+        // 主歌词档：译文顶替主行时逐字时间轴（只对原文成立）关闭、整行量主文、原文退副行
+        val swapped = lyricPrimarySwapped(line, primary)
+        val mainText = lyricMainText(line, primary)
         var wordRows: List<List<Int>> = emptyList()
-        var plainText = line.text
+        var plainText = mainText
         var mainHeight: Float
-        if (line.words.isNotEmpty()) {
+        if (!swapped && line.words.isNotEmpty()) {
             // 段＝词（瓜子原口径）：词宽逐词量，断点走 calcBalancedBreaks
             val segs = ArrayList<WrapSegment>(line.words.size)
             var charCursor = 0
@@ -597,17 +676,13 @@ private fun measureLines(
             }
         } else {
             val result = measurer.measure(
-                line.text,
+                mainText,
                 mainStyle,
                 constraints = Constraints(maxWidth = maxWidthPx),
             )
             mainHeight = result.lineCount.coerceAtLeast(1) * lineHeightPx
         }
-        val subText = when {
-            showTrans && line.translation != null -> line.translation
-            showRoma && line.romanization != null -> line.romanization
-            else -> null
-        }
+        val subText = lyricSubText(line, primary, showTrans, showRoma)
         var subHeight = 0f
         if (subText != null) {
             val result = measurer.measure(
@@ -644,6 +719,7 @@ private fun LyricLineBlock(
     wordByWord: Boolean,
     palette: LyricPalette? = null,
     centered: Boolean = false,
+    align: Int = 0,
     modifier: Modifier = Modifier,
 ) {
     // 色供给链（案卷第八节）：palette 在场全走 palette，不在场走沉浸深色默认四色
@@ -655,9 +731,10 @@ private fun LyricLineBlock(
         isSungLine -> sungColor
         else -> inactiveColor
     }
+    val wide = centered || align != 0
     Column(
         modifier = modifier.lyricSkew(),
-        horizontalAlignment = if (centered) Alignment.CenterHorizontally else Alignment.Start,
+        horizontalAlignment = lyricColumnAlignment(centered, align),
     ) {
         if (isCurrent && wordByWord && line.words.isNotEmpty() && measure.wordRows.isNotEmpty()) {
             // 逐字只走当前行（瓜子同口径：非当前行整行渲染，断行结果共用）
@@ -674,6 +751,7 @@ private fun LyricLineBlock(
                 letterSpacingSp = letterSpacingSp,
                 palette = palette,
                 centered = centered,
+                align = align,
             )
         } else {
             Text(
@@ -684,8 +762,8 @@ private fun LyricLineBlock(
                 fontWeight = weight,
                 lineHeight = (fontSizeSp * lineHeightFactor).sp,
                 letterSpacing = letterSpacingSp.sp,
-                textAlign = if (centered) androidx.compose.ui.text.style.TextAlign.Center else androidx.compose.ui.text.style.TextAlign.Start,
-                modifier = if (centered) Modifier.fillMaxWidth() else Modifier,
+                textAlign = lyricTextAlign(centered, align),
+                modifier = if (wide) Modifier.fillMaxWidth() else Modifier,
             )
         }
         if (measure.subText != null) {
@@ -695,8 +773,8 @@ private fun LyricLineBlock(
                 fontSize = (fontSizeSp * 0.62f).sp,
                 fontWeight = weight,
                 lineHeight = (fontSizeSp * 0.62f * lineHeightFactor).sp,
-                textAlign = if (centered) androidx.compose.ui.text.style.TextAlign.Center else androidx.compose.ui.text.style.TextAlign.Start,
-                modifier = Modifier.offset(y = 6.dp).then(if (centered) Modifier.fillMaxWidth() else Modifier),
+                textAlign = lyricTextAlign(centered, align),
+                modifier = Modifier.offset(y = 6.dp).then(if (wide) Modifier.fillMaxWidth() else Modifier),
             )
         }
     }
@@ -717,6 +795,7 @@ private fun WordRows(
     letterSpacingSp: Float,
     palette: LyricPalette? = null,
     centered: Boolean = false,
+    align: Int = 0,
 ) {
     val density = LocalDensity.current
     val lineHeightPx = with(density) { (fontSizeSp * lineHeightFactor).sp.toPx() }
@@ -749,9 +828,9 @@ private fun WordRows(
         layout(constraints.maxWidth, measure.mainHeightPx.roundToInt()) {
             var k = 0
             for ((r, rowWords) in rows.withIndex()) {
-                // 居中时按本视觉行总宽起摆（行宽＝各词量测宽之和）
+                // 非左对齐时按本视觉行总宽起摆（行宽＝各词量测宽之和）：居中＝spec 居中或对齐档中
                 var rowWidth = 0
-                if (centered) {
+                if (centered || align != 0) {
                     var kk = k
                     for (wi in rowWords) {
                         if (kk >= placeables.size) break
@@ -759,7 +838,11 @@ private fun WordRows(
                         kk++
                     }
                 }
-                var x = if (centered) ((constraints.maxWidth - rowWidth) / 2).coerceAtLeast(0) else 0
+                var x = when {
+                    centered || align == 1 -> ((constraints.maxWidth - rowWidth) / 2).coerceAtLeast(0)
+                    align == 2 -> (constraints.maxWidth - rowWidth).coerceAtLeast(0)
+                    else -> 0
+                }
                 for (wi in rowWords) {
                     if (k >= placeables.size) break
                     val p = placeables[k]

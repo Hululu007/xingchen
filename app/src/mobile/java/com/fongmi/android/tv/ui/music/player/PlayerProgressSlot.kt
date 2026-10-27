@@ -41,6 +41,7 @@ fun PlayerProgressSlot(
     onSeek: (Long) -> Unit,
     onLyricChipClick: () -> Unit,
     modifier: Modifier = Modifier,
+    onQualityChipClick: (() -> Unit)? = null,
 ) {
     var expanded by remember { mutableStateOf(false) }
     var showScrubber by remember { mutableStateOf(false) }
@@ -78,6 +79,7 @@ fun PlayerProgressSlot(
                 state = state,
                 onSeek = onSeek,
                 onLyricChipClick = onLyricChipClick,
+                onQualityChipClick = onQualityChipClick,
                 onInteract = { interactNonce++ },
                 modifier = Modifier
                     .fillMaxWidth()

@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -82,7 +83,9 @@ fun FullLyricPlayer(
         animationSpec = tween(450, easing = Bs4A),
         label = "fullRootBg",
     )
-    val fullFontSizeSp = remember { MusicPlayerSettings.getFullLyricFontSize() }
+    // 全屏字号键以中枢修订号为键重读：歌词样式面板（全屏面）改完 bump 即当场生效
+    val settingsRev by PlayerStateHolder.settingsRev.collectAsState()
+    val fullFontSizeSp = remember(settingsRev) { MusicPlayerSettings.getFullLyricFontSize() }
     var wordMode by remember { mutableStateOf(MusicPlayerSettings.isFullLyricWordByWord()) }
 
     fun setWordMode(word: Boolean) {

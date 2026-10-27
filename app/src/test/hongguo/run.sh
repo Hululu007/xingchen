@@ -86,7 +86,7 @@ public class OkHttp {
 EOF
 
 find "$WORK/stub" -name '*.java' > "$WORK/srcs.txt"
-find "$ROOT/app/src/main/java/com/fongmi/android/tv/hongguo" -name '*.java' >> "$WORK/srcs.txt"
+find "$ROOT/app/src/main/java/com/fongmi/android/tv/hongguo" -path '*/hongguo/ui' -prune -o -name '*.java' -print >> "$WORK/srcs.txt"
 echo "$ROOT/app/src/test/hongguo/HgOfflineTest.java" >> "$WORK/srcs.txt"
 echo "$ROOT/app/src/test/hongguo/HgProxyOfflineTest.java" >> "$WORK/srcs.txt"
 echo "$ROOT/app/src/test/hongguo/HgTestServer.java" >> "$WORK/srcs.txt"

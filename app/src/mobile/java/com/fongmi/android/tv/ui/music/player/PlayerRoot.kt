@@ -2,10 +2,18 @@ package com.fongmi.android.tv.ui.music.player
 
 import android.graphics.Rect
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
@@ -24,9 +32,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.lerp
+import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
@@ -36,8 +47,10 @@ import kotlinx.coroutines.launch
  * 内容不重排、封面/歌名/进度全程在原位连续；条本体（同一份状态的静态副本）压顶交叉淡出。
  * 长开 380ms、收回 320ms（星辰自有形态，无瓜子对应值，曲线借 bs4.a）。
  * 系统返回走收回动画后 finish；无条矩形（通知等直开）整页直显。
- * 本单主题只有经典（默认即经典，MusicPlayerSettings.getTheme 回落 classic 已对齐）；
+ * 本根主题只有经典（默认即经典，MusicPlayerSettings.getTheme 回落 classic 已对齐）；
  * 工具/队列面板与主题分发是后续单，本根的面板入口先留空槽回调。
+ * 全屏歌词页与经典页同在本树：经典页左划进（歌词页在右）、歌词页右划或系统返回退回，
+ * 共用同一份中枢状态与歌词引擎；横向页滑过渡 300ms/bs4.a 是星辰自有形态（瓜子无对应值）。
  */
 @Composable
 fun PlayerRoot(barRect: Rect?, onClose: () -> Unit) {
@@ -51,6 +64,7 @@ fun PlayerRoot(barRect: Rect?, onClose: () -> Unit) {
     val scope = rememberCoroutineScope()
     val expand = remember { Animatable(if (barRect == null) 1f else 0f) }
     var closing by remember { mutableStateOf(false) }
+    var showLyrics by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         if (barRect != null) {
@@ -68,7 +82,9 @@ fun PlayerRoot(barRect: Rect?, onClose: () -> Unit) {
             onClose()
         }
     }
-    BackHandler(enabled = !closing) { close() }
+    BackHandler(enabled = !closing && !showLyrics) { close() }
+    // 全屏歌词页在场时，系统返回先退回播放页（与上行使能互斥，不会双响）
+    BackHandler(enabled = showLyrics && !closing) { showLyrics = false }
 
     BoxWithConstraints(
         Modifier
@@ -80,16 +96,84 @@ fun PlayerRoot(barRect: Rect?, onClose: () -> Unit) {
         val scopeH = maxHeight
         val p = expand.value
         if (barRect == null || p >= 1f) {
-            ClassicPlayer(
-                state = state,
-                progress = progress,
-                onMenuClick = {},
-                onQueueClick = {},
-                onArtistClick = {},
-                onAlbumClick = {},
-                onQualityClick = {},
-                onLyricChipClick = {}
-            )
+            // 页间横滑（他亲定方向：歌词页在播放页右侧，左划进、右划退）：
+            // 只认横向占优的拖动；起点落在底部 120dp（进度/筹区）内不算翻页，不抢进度拖动。
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .pointerInput(showLyrics) {
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            if (down.position.y > size.height - 120.dp.toPx()) {
+                                return@awaitEachGesture
+                            }
+                            var dx = 0f
+                            var dy = 0f
+                            var lastX = down.position.x
+                            var lastY = down.position.y
+                            var fired = false
+                            val threshold = 56.dp.toPx()
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val change =
+                                    event.changes.firstOrNull { it.id == down.id } ?: break
+                                if (!change.pressed) break
+                                dx += change.position.x - lastX
+                                dy += change.position.y - lastY
+                                lastX = change.position.x
+                                lastY = change.position.y
+                                if (!fired && abs(dx) > threshold && abs(dx) > abs(dy)) {
+                                    if (!showLyrics && dx < 0) {
+                                        showLyrics = true
+                                    } else if (showLyrics && dx > 0) {
+                                        showLyrics = false
+                                    }
+                                    fired = true
+                                }
+                            }
+                        }
+                    }
+            ) {
+                AnimatedContent(
+                    targetState = showLyrics,
+                    transitionSpec = {
+                        if (targetState) {
+                            (slideInHorizontally(tween(300, easing = EaseBs4A)) { it } +
+                                fadeIn(tween(300, easing = EaseBs4A))) togetherWith
+                                (slideOutHorizontally(tween(300, easing = EaseBs4A)) { -it } +
+                                    fadeOut(tween(300, easing = EaseBs4A)))
+                        } else {
+                            (slideInHorizontally(tween(300, easing = EaseBs4A)) { -it } +
+                                fadeIn(tween(300, easing = EaseBs4A))) togetherWith
+                                (slideOutHorizontally(tween(300, easing = EaseBs4A)) { it } +
+                                    fadeOut(tween(300, easing = EaseBs4A)))
+                        }
+                    },
+                    label = "playerPages"
+                ) { lyrics ->
+                    if (lyrics) {
+                        FullLyricPlayer(
+                            state = state,
+                            progress = progress,
+                            onQueueClick = {},
+                            onLyricStyleClick = {},
+                            onArtistClick = {},
+                            onAlbumClick = {}
+                        )
+                    } else {
+                        ClassicPlayer(
+                            state = state,
+                            progress = progress,
+                            onMenuClick = {},
+                            onQueueClick = {},
+                            onArtistClick = {},
+                            onAlbumClick = {},
+                            onQualityClick = {},
+                            onLyricChipClick = {}
+                        )
+                    }
+                }
+            }
         } else {
             val density = LocalDensity.current
             val fullW = with(density) { scopeW.toPx() }

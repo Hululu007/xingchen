@@ -142,9 +142,9 @@ private fun lyricChipLabel(state: PlayerUiState, wordMode: Boolean): String? {
     return if (wordMode) "逐字" else "标准"
 }
 
-/** 糊封面氛围（BlurredCoverAmbient）：64 缩图整页拉满＋24dp 糊＋底色派生渐变罩（上明 +0.05／下暗 −0.04）。 */
+/** 糊封面氛围（BlurredCoverAmbient）：64 缩图整页拉满＋24dp 糊＋底色派生渐变罩（上明 +0.05／下暗 −0.04）。全屏歌词页共用同一层。 */
 @Composable
-private fun AmbientLayer(state: PlayerUiState) {
+internal fun AmbientLayer(state: PlayerUiState) {
     val ambient = state.ambientBitmap ?: return
     val base = Color(state.baseColor)
     Box(Modifier.fillMaxSize()) {
@@ -209,8 +209,8 @@ private fun CoverArtLayer(state: PlayerUiState) {
     }
 }
 
-/** 底部溶边：0.78 起向下溶进氛围色（止点照全屏歌词页抠值借用，经典页自身止点未抠到，见交卷清单）。 */
-private fun Modifier.dissolveBottom(): Modifier = drawWithContent {
+/** 底部溶边：0.78 起向下溶进氛围色（止点本是全屏歌词页抠值，经典页借用；全屏页封面块亦用此件）。 */
+internal fun Modifier.dissolveBottom(): Modifier = drawWithContent {
     drawContent()
     drawRect(
         brush = Brush.verticalGradient(0.78f to Color.Black, 1f to Color.Transparent),
@@ -365,9 +365,9 @@ private fun SongMeta(
     }
 }
 
-/** 标题行键位：40dp 盒＋按压回弹（MotionKt.c 同型），图标居中。 */
+/** 标题行键位：40dp 盒＋按压回弹（MotionKt.c 同型），图标居中。全屏歌词页页头共用同一键盒。 */
 @Composable
-private fun MetaKey(onClick: () -> Unit, content: @Composable () -> Unit) {
+internal fun MetaKey(onClick: () -> Unit, content: @Composable () -> Unit) {
     val source = remember { MutableInteractionSource() }
     Box(
         Modifier

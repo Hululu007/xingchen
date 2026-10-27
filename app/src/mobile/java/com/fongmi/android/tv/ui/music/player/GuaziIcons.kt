@@ -17,6 +17,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -158,6 +160,50 @@ fun HeartIcon(size: Dp, color: Color, filled: Boolean, modifier: Modifier = Modi
         }
         if (filled) drawPath(p, color)
         else drawPath(p, color, style = Stroke(width = 1.8f * s))
+    }
+}
+
+/** 全屏歌词页第一键（队列）glyph：照定案图 113209 为三横线（与 MyMenu 同画法，键位功能以定案口径为准）。 */
+@Composable
+fun QueueGlyphIcon(size: Dp, color: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier.size(size)) {
+        val s = this.size.minDimension / 24f
+        val sw = 2.5f * s
+        for (y in listOf(5f, 12f, 19f)) {
+            drawLine(
+                color = color,
+                start = Offset(3f * s, y * s),
+                end = Offset(21f * s, y * s),
+                strokeWidth = sw,
+                cap = StrokeCap.Round
+            )
+        }
+    }
+}
+
+/**
+ * 全屏歌词页第二键（歌词样式）glyph：三条递短横条＋右侧音符——路径取数值档存档的瓜子矢量原文
+ * （gz-smali-missing-dig 存档 PlaylistIcon 路径，与定案图 113209 第二键样子逐点一致）。
+ */
+@Composable
+fun LyricStyleIcon(size: Dp, color: Color, modifier: Modifier = Modifier) {
+    val path = remember {
+        PathParser().parsePathString(
+            "M2,18 L12,18 L12,20 L2,20 L2,18 Z " +
+                "M2,11 L16,11 L16,13 L2,13 L2,11 Z " +
+                "M2,4 L22,4 L22,6 L2,6 L2,4 Z " +
+                "M19,15.1707 L19,9 L24,9 L24,11 L21,11 L21,18 " +
+                "C21,19.6569 19.6569,21 18,21 C16.3431,21 15,19.6569 15,18 " +
+                "C15,16.3431 16.3431,15 18,15 C18.3506,15 18.6872,15.0602 19,15.1707 Z " +
+                "M18,19 C18.5523,19 19,18.5523 19,18 C19,17.4477 18.5523,17 18,17 " +
+                "C17.4477,17 17,17.4477 17,18 C17,18.5523 17.4477,19 18,19 Z"
+        ).toPath()
+    }
+    Canvas(modifier.size(size)) {
+        val s = this.size.minDimension / 24f
+        withTransform({ scale(s, s, Offset.Zero) }) {
+            drawPath(path, color)
+        }
     }
 }
 

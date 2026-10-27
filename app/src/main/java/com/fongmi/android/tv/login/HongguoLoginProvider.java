@@ -12,13 +12,15 @@ import com.fongmi.android.tv.cloud.CloudAccountStore;
  * 凭证由 {@link com.fongmi.android.tv.hongguo.api.HgLoginAuthProvider} 回填给
  * 红果接口客户端（HgApiClient 的 HgAuthProvider 注入点）。
  * <p>
- * 登录本体定版状态（如实）：官方 App 用字节 passport 原生 SDK 登录，样本
- * （hongguo-app dex 字符串）只抠到路径族——/passport/mobile/send_code/v1/、
- * /passport/mobile/validate_code/v1/、/passport/mobile/sms_login/、
- * /passport/auth/login/——请求体与签名（设备注册＋X-Argus 系签名＋风控参数）
- * 在已反编译的 jadx9/19/20 与 classes2/11 定向产物里没有定版，短信登录本体
- * 待补（见四阶段回报）。本类先把托管链落齐：网页登录弹窗入口、Cookie 落盘、
- * 有效性格式判定、HgAuthProvider 回填，登录成功后的带态请求即刻生效。
+ * 登录本体（2026-10-27 换原生短信链）：官方 passport 短信登录已抠实落码
+ * （证据账 ~/workspace/hongguo/passport-login-dig.md）——宿主
+ * security.snssdk.com、发码 /passport/mobile/send_code/v1/、登录
+ * /passport/mobile/sms_login/、字段 XOR 混淆口径，由
+ * {@link com.fongmi.android.tv.hongguo.api.HgPassportClient} 发起，
+ * 页面是 {@link HongguoSmsLoginDialog}（照谷歌版登录页定案构成），
+ * 不再走网页框。未定版：passport 的 TTNet 原生签名头咱们没有，
+ * 能否过校验待真机回包；登录 Cookie 以 data.session_key 组 sessionid
+ * 兜底（服务端 Set-Cookie 优先）。
  * <p>
  * 有效性判定口径：passport 会话 Cookie 的身份键是 sessionid / sessionid_ss
  * （字节 passport 通行命名），任一非空才算登录成立；只做格式判定，不预判
@@ -28,16 +30,6 @@ public class HongguoLoginProvider implements LoginProvider {
 
     /** 提供方 id。 */
     public static final String ID = "hongguo";
-
-    /**
-     * 网页登录页（壳子统一弹窗 PanLoginDialog 加载）：红果接口宿主根。
-     * 注意：官方没有对外的网页登录页样本，此地址未经样本定版——弹窗只是
-     * 托管链的入口，本体（短信登录）待补，不要据此认为网页登录已通。
-     */
-    public static final String LOGIN_URL = "https://reading.snssdk.com/";
-
-    /** WebView 抓 Cookie 的域名口径（红果接口与 passport 会话同宿主）。 */
-    public static final String COOKIE_DOMAIN = "reading.snssdk.com";
 
     @Override
     public String id() {

@@ -182,32 +182,34 @@ public class LoginManager {
     }
 
     /**
-     * 弹红果网页登录框：走壳子统一弹窗（与 QQ/快手同款 PanLoginDialog，
-     * 中间弹窗、WebView 内完成登录），抓到的 Cookie 校验（须含 passport
-     * 会话键 sessionid 系）后落盘托管，供红果账号维度接口经 HgAuthProvider
-     * 回填带态。异步，登录成功走 callback；用户直接关弹窗视为取消，不回调。
-     * <p>
-     * 注意：红果官方登录是 passport 原生 SDK 短信登录，请求体与签名未在样本
-     * 里定版（见 HongguoLoginProvider 类头），短信登录本体待补；本入口是托管
-     * 链的网页口，地址未经样本定版，不代表网页登录已通。
+     * 弹红果原生短信登录页（{@link HongguoSmsLoginDialog}，照谷歌版登录页
+     * 定案构成：手机号＋验证码＋协议勾选，不走网页框）。异步，登录成功
+     * 落托管走 callback；用户关页视为取消，不回调。
      */
     public void loginHongguo(FragmentActivity activity, LoginCallback callback) {
         if (activity == null || activity.isFinishing()) {
             if (callback != null) callback.onError("界面不可用");
             return;
         }
-        PanLoginDialog.create()
-                .title("红果")
-                .loginUrl(HongguoLoginProvider.LOGIN_URL)
-                .cookieDomain(HongguoLoginProvider.COOKIE_DOMAIN)
-                .userAgent(PanLoginDialog.DESKTOP_UA)
-                .hint("请在下方页面完成红果登录，然后点「完成登录」")
-                .cookieValidator(HongguoLoginProvider::isCookieValid)
-                .onLogin(cookie -> {
-                    HongguoLoginProvider.putCookie(cookie);
-                    if (callback != null) callback.onSuccess(HongguoLoginProvider.ID, cookie);
+        HongguoSmsLoginDialog.create()
+                .callback(new LoginCallback() {
+                    @Override
+                    public void onSuccess(String providerId, String cookie) {
+                        HongguoLoginProvider.putCookie(cookie);
+                        if (callback != null) callback.onSuccess(HongguoLoginProvider.ID, cookie);
+                    }
+
+                    @Override
+                    public void onError(String msg) {
+                        if (callback != null) callback.onError(msg);
+                    }
+
+                    @Override
+                    public void onCancel() {
+                        if (callback != null) callback.onCancel();
+                    }
                 })
-                .showLogin(activity);
+                .show(activity);
     }
 
     private void openMethod(FragmentActivity activity, LoginMethod method, LoginCallback callback) {
@@ -347,7 +349,7 @@ public class LoginManager {
         return true;
     }
 
-    /** 弹壳子统一的红果网页登录框（异步）。 */
+    /** 弹红果原生短信登录页（异步）。 */
     public static void loginHongguo() {
         FragmentActivity activity = currentActivity();
         if (activity == null) return;

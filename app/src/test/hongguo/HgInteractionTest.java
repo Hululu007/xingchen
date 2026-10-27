@@ -2,6 +2,7 @@ import com.fongmi.android.tv.hongguo.api.HgApiClient;
 import com.fongmi.android.tv.hongguo.api.HgCommentClient;
 import com.fongmi.android.tv.hongguo.api.HgCommentParser;
 import com.fongmi.android.tv.hongguo.api.HgRequests;
+import com.fongmi.android.tv.hongguo.api.HgPassportClient;
 import com.fongmi.android.tv.hongguo.model.HgComment;
 import com.fongmi.android.tv.hongguo.model.HgParser;
 import com.fongmi.android.tv.hongguo.model.HgSeriesDetail;
@@ -154,6 +155,37 @@ public class HgInteractionTest {
         java.util.List<HgSeriesItem> mine = HgParser.parseSubscribeList(listJson);
         check("预约列表抽出剧条目", mine.size() == 1 && SERIES.equals(mine.get(0).getSeriesId())
                 && "预约剧甲".equals(mine.get(0).getTitle()), "items=" + mine.size());
+
+        // ---------- passport 短信登录（出处：passport-login-dig.md 逐环实证） ----------
+        check("xorHex 手机号向量（UTF-8 XOR 0x05 转 hex）",
+                "34363d353534363d353535".equals(HgRequests.xorHex("13800138000")),
+                HgRequests.xorHex("13800138000"));
+        check("xorHex type=24 向量", "3731".equals(HgRequests.xorHex("24")), null);
+        check("xorHex 验证码向量", "343736313033".equals(HgRequests.xorHex("123456")), null);
+        java.util.Map<String, String> scForm = HgRequests.sendCodeForm("13800138000");
+        check("发码表单 mobile=xor/type=xor(24)/mix_mode=1/check_register=1",
+                "34363d353534363d353535".equals(scForm.get("mobile"))
+                        && "3731".equals(scForm.get("type"))
+                        && "1".equals(scForm.get("mix_mode"))
+                        && "1".equals(scForm.get("check_register")), scForm.toString());
+        java.util.Map<String, String> loginForm = HgRequests.smsLoginForm("13800138000", "123456");
+        check("登录表单 mobile/code 均 xor、mix_mode=1",
+                "34363d353534363d353535".equals(loginForm.get("mobile"))
+                        && "343736313033".equals(loginForm.get("code"))
+                        && "1".equals(loginForm.get("mix_mode")), loginForm.toString());
+        check("passport 成功回包判错为 null",
+                HgPassportClient.passportError("{\"message\":\"success\",\"data\":{\"session_key\":\"sk1\"}}") == null, null);
+        check("passport 失败回包取 message",
+                "验证码错误".equals(HgPassportClient.passportError(
+                        "{\"error_code\":1105,\"message\":\"验证码错误\",\"data\":{}}")), null);
+        check("登录 Cookie：session_key 组 sessionid",
+                "sessionid=sk1".equals(HgPassportClient.loginCookie(
+                        "{\"message\":\"success\",\"data\":{\"session_key\":\"sk1\",\"user_id\":42}}", null)), null);
+        check("登录 Cookie：Set-Cookie 优先",
+                "sessionid=abc; path=/".equals(HgPassportClient.loginCookie(
+                        "{\"message\":\"success\",\"data\":{\"session_key\":\"sk1\"}}", "sessionid=abc; path=/")), null);
+        check("登录 Cookie：失败回包为 null",
+                HgPassportClient.loginCookie("{\"error_code\":1105,\"message\":\"验证码错误\"}", null) == null, null);
 
         System.out.println(fail == 0 ? "ALL PASS HgInteractionTest" : "FAILURES=" + fail);
         if (fail > 0) System.exit(1);

@@ -277,6 +277,67 @@ public final class HgRequests {
         return q;
     }
 
+    // ---------- passport 短信登录（样本实证，挖掘账 passport-login-dig.md） ----------
+
+    /**
+     * passport 宿主：App 侧配置实现 com.dragon.read.base.w.host() 的 const-string
+     * 定版 "security.snssdk.com"（注册点 app.launch.task.s3.k）；路径由
+     * zy0/d.c 拼 https:// + host + path。不是 passport.snssdk.com。
+     */
+    public static final String PASSPORT_HOST = "https://security.snssdk.com";
+
+    /**
+     * 发码 type 的登录场景值：passport SDK 内 impl/c.t 的便捷方法硬编码 24；
+     * impl/c.r 是 type 透传形态，龙族登录页最终传值未追到底（UI 不走 zy0/a
+     * 门面）——先用 24，真机回包校准（见挖掘账未定版第 1 条）。
+     */
+    public static final int SEND_CODE_TYPE_SMS_LOGIN = 24;
+
+    /**
+     * passport 字段混淆 StringUtils.encryptWithXor（classes23.dex 本体逐指令）：
+     * UTF-8 字节逐字节 XOR 0x05，再转十六进制串。
+     */
+    public static String xorHex(String s) {
+        if (s == null || s.isEmpty()) return "";
+        byte[] bytes;
+        try {
+            bytes = s.getBytes("UTF-8");
+        } catch (Exception e) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder(bytes.length * 2);
+        for (byte b : bytes) {
+            int v = (b ^ 0x05) & 0xFF;
+            sb.append(Character.forDigit(v >> 4, 16)).append(Character.forDigit(v & 0xF, 16));
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 发码表单 POST /passport/mobile/send_code/v1/（xz0/g.H 组参逐字段）：
+     * mobile/type 走 xor 混淆、mix_mode=1、check_register=1（查注册态，
+     * 登录场景官方口径）；captcha/shark_ticket 等风控回填字段被要求时才带，
+     * 首次发码不带。公共参数由客户端另行拼到查询串（与官方网络层
+     * NetworkParams.putCommonParams 并入同源一套）。
+     */
+    public static java.util.Map<String, String> sendCodeForm(String mobile) {
+        java.util.Map<String, String> form = new LinkedHashMap<>();
+        form.put("mobile", xorHex(mobile));
+        form.put("type", xorHex(String.valueOf(SEND_CODE_TYPE_SMS_LOGIN)));
+        form.put("mix_mode", "1");
+        form.put("check_register", "1");
+        return form;
+    }
+
+    /** 短信登录表单 POST /passport/mobile/sms_login/（xz0/d.H 组参逐字段）。 */
+    public static java.util.Map<String, String> smsLoginForm(String mobile, String code) {
+        java.util.Map<String, String> form = new LinkedHashMap<>();
+        form.put("mobile", xorHex(mobile));
+        form.put("code", xorHex(code));
+        form.put("mix_mode", "1");
+        return form;
+    }
+
     /** 单集 video_model 请求体（Outer=3，海阔线实证口径，作批量失败时的单集对照路）。 */
     public static JsonObject singleVideoModelBody(String videoId) {
         JsonObject body = new JsonObject();

@@ -15,9 +15,17 @@ public class MusicSearchPage {
 
     public final List<MusicTrack> tracks;
     public final boolean end;
+    /** 失败归纳码（源自报，0＝无）：油管第一页全灭时带 LxPlatformSearch.YT_FAIL_*，
+     * 搜索页据此给油管桶单独的空态文案；其它源恒 0、呈现不变。 */
+    public final int failCause;
 
     public MusicSearchPage(List<MusicTrack> tracks, boolean end) {
+        this(tracks, end, 0);
+    }
+
+    public MusicSearchPage(List<MusicTrack> tracks, boolean end, int failCause) {
         this.tracks = tracks == null ? Collections.emptyList() : tracks;
         this.end = end;
+        this.failCause = failCause;
     }
 }

@@ -130,7 +130,12 @@ public class LxMusicSource implements MusicSource {
         String key = platformKeyOf(site);
         if (key.isEmpty()) throw new IllegalStateException("落雪站点键缺失：" + (site == null ? "" : site.srcUrl));
         List<MusicTrack> tracks = LxPlatformSearch.search(key, keyword, Math.max(1, page));
-        return new com.fongmi.android.tv.music.MusicSearchPage(tracks, tracks == null || tracks.size() < 20);
+        // 油管第一页回空：把六家轮试的全灭归纳死因带回搜索页明示（其它平台恒 NONE，行为不变）
+        int failCause = 0;
+        if (page <= 1 && (tracks == null || tracks.isEmpty()) && LxPlatformSearch.YT.equals(key)) {
+            failCause = LxPlatformSearch.ytFailCauseFor(keyword);
+        }
+        return new com.fongmi.android.tv.music.MusicSearchPage(tracks, tracks == null || tracks.size() < 20, failCause);
     }
 
     @Override

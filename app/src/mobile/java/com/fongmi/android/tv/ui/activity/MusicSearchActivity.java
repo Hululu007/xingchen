@@ -22,6 +22,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.R;
+import com.fongmi.android.tv.api.music.LxPlatformSearch;
 import com.fongmi.android.tv.bean.MusicPlaylist;
 import com.fongmi.android.tv.bean.music.MusicSite;
 import com.fongmi.android.tv.bean.music.MusicTrack;
@@ -128,6 +129,9 @@ public class MusicSearchActivity extends BaseActivity {
     private final java.util.Set<String> bucketLoading = new java.util.HashSet<>();
     /** 第一页失败的桶（与 bucketEnded 分开记：终局≠失败，选中源失败要单独给文案） */
     private final java.util.Set<String> bucketFailed = new java.util.HashSet<>();
+    /** 第一页回空但源自报了失败归纳的桶（现只油管：LxPlatformSearch.YT_FAIL_* 码）：
+     * 与 bucketFailed 分开——那是抛错失败，这是「没抛错但全灭」，空态按死因给明示文案。 */
+    private final java.util.Map<String, Integer> bucketFailCause = new java.util.HashMap<>();
     /** 续页终局提示只报一次（每次搜索）：滚底反复触发不许反复弹 */
     private boolean loadMoreEndNotified = false;
 
@@ -427,6 +431,7 @@ public class MusicSearchActivity extends BaseActivity {
             bucketEnded.clear();
             bucketLoading.clear();
             bucketFailed.clear();
+            bucketFailCause.clear();
         }
         loadMoreEndNotified = false;
         searchSitesSnap.clear();
@@ -493,6 +498,7 @@ public class MusicSearchActivity extends BaseActivity {
                                 }
                                 bucket.addAll(r);
                                 bucketPages.put(bucketKey, 1);
+                                if (pg.failCause != 0) bucketFailCause.put(bucketKey, pg.failCause);
                                 if (r.isEmpty() || pg.end) bucketEnded.add(bucketKey);
                             }
                         }
@@ -644,6 +650,7 @@ public class MusicSearchActivity extends BaseActivity {
             bucketEnded.clear();
             bucketLoading.clear();
             bucketFailed.clear();
+            bucketFailCause.clear();
         }
         loadMoreEndNotified = false;
         searchSitesSnap.clear();
@@ -760,6 +767,8 @@ public class MusicSearchActivity extends BaseActivity {
     /**
      * 状态层统一出口：有结果收起；无结果按「全失败／选中源失败／未到齐／真无果」
      * 四态给文案——选中源失败不许再被「没有找到」吞掉，失败与没搜到是两回事。
+     * 油管桶另有一态：它不抛错、六家轮试全灭只回空，源自报了归纳死因时按死因明示
+     * （连不上／出口被拦／没回结果），不再跟真无果共用一句「没有找到」。
      */
     private void updateEmptyState(boolean isEmpty, boolean allFailed, String notFoundCopy) {
         if (!isEmpty) {
@@ -768,13 +777,44 @@ public class MusicSearchActivity extends BaseActivity {
         }
         XcFadeTransition.fadeIn(empty);
         boolean selFailed;
+        String ytCopy = null;
         synchronized (searchBySite) {
             selFailed = selectedSource != null && bucketFailed.contains(selectedSource);
+            if (selectedSource != null && isYtBucket(selectedSource)) {
+                Integer c = bucketFailCause.get(selectedSource);
+                if (c != null) ytCopy = ytFailCopy(c);
+            }
         }
         if (allFailed) empty.setText("搜索失败，请重试");
         else if (selFailed) empty.setText("该来源搜索失败，请重试或换个来源");
+        else if (ytCopy != null) empty.setText(ytCopy);
         else if (!searchAllReady) empty.setText("正在加载…");
         else empty.setText(notFoundCopy);
+    }
+
+    /** 桶键反查快照站点、认是不是油管（落雪合成项 lx://yt）；只许在 synchronized(searchBySite) 内调 */
+    private boolean isYtBucket(String bucketKey) {
+        for (int i = 0; i < searchSitesSnap.size(); i++) {
+            MusicSite s = searchSitesSnap.get(i);
+            if (s != null && bucketKey.equals(searchBucketKey(s, i))) {
+                return s.srcUrl != null && s.srcUrl.equals("lx://" + LxPlatformSearch.YT);
+            }
+        }
+        return false;
+    }
+
+    /** 油管全灭归纳死因 → 明示文案（归纳口径与判定依据在 LxPlatformSearch，推断不出的已归「没回结果」，这里不二次推断） */
+    private static String ytFailCopy(int cause) {
+        switch (cause) {
+            case LxPlatformSearch.YT_FAIL_CONNECT:
+                return "油管连不上（出口不通）";
+            case LxPlatformSearch.YT_FAIL_BLOCKED:
+                return "油管把这个出口拦了，换个节点试试";
+            case LxPlatformSearch.YT_FAIL_NO_RESULT:
+                return "油管没回结果";
+            default:
+                return null;
+        }
     }
 
     /** 显示用歌手：占位（空／<unknown>／unknown 类，见 LocalTrackMeta）一律显统一文案，不只空值。 */

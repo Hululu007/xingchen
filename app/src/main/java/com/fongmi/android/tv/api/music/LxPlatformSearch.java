@@ -908,6 +908,41 @@ public class LxPlatformSearch {
     private static volatile long ytLoginPromptAt;
     private static volatile long ytNodeStartFailedAt;
 
+    /* 油管全灭归纳死因（经 MusicSearchPage.failCause 带回搜索页明示，2026-10-27 他令
+     * 「App 该自己发现问题并在应用内明面提示」）：归纳只是按各家实际回包／异常分类，
+     * 不是对出口侧真因的定论——推断不出更细的一律归 NO_RESULT，不许冒充查清了。 */
+    public static final int YT_FAIL_NONE = 0;
+    /** 六家全灭且每家都死在传输层（超时／连接失败）：请求根本没到谷歌 */
+    public static final int YT_FAIL_CONNECT = 1;
+    /** 至少一家回了 LOGIN_REQUIRED：请求到了谷歌、被按出口拦下 */
+    public static final int YT_FAIL_BLOCKED = 2;
+    /** 有回包但认不出结果（回空／非 JSON／接口 error／货架为空），或死因混杂推断不出 */
+    public static final int YT_FAIL_NO_RESULT = 3;
+
+    // 单家死因（轮试留痕用，比归纳档细；判定点在 ytTrySearch 各失败出口）
+    private static final int YT_C_TIMEOUT = 1;
+    private static final int YT_C_CONNECT = 2;
+    private static final int YT_C_BLOCKED = 3;
+    private static final int YT_C_EMPTY = 4;
+    private static final int YT_C_BADBODY = 5;
+    private static final int YT_C_APIERR = 6;
+    private static final int YT_C_NOSHELF = 7;
+
+    /** 最近一次油管第一页搜索的归纳死因（按关键词打标防串词；搜成即清 NONE） */
+    private static volatile int ytLastFailCause = YT_FAIL_NONE;
+    private static volatile String ytLastFailKeyword = "";
+
+    /** 单家轮试结果：tracks 非空＝成；cause＝单家死因（YT_C_*），成时为 0 */
+    private static final class YtAttempt {
+        final List<MusicTrack> tracks;
+        final int cause;
+
+        YtAttempt(List<MusicTrack> tracks, int cause) {
+            this.tracks = tracks;
+            this.cause = cause;
+        }
+    }
+
     private static List<MusicTrack> searchYt(String keyword, int page) {
         if (page > 1) return new ArrayList<>();
         String cookie = LoginManager.getCookie(GoogleLoginProvider.ID);
@@ -925,16 +960,71 @@ public class LxPlatformSearch {
             attempts.add(new int[]{0, 0});
         }
         long startedAt = System.currentTimeMillis();
+        List<Integer> causes = new ArrayList<>();
         for (int i = 0; i < attempts.size(); i++) {
             if (i > 0 && System.currentTimeMillis() - startedAt > YT_SEARCH_DEADLINE_MS) {
                 SpiderDebug.log("music", "yt search 轮试到点收口 q=%s 已试%d家", keyword, i);
                 break;
             }
-            List<MusicTrack> out = ytTrySearch(keyword, attempts.get(i)[0], attempts.get(i)[1] == 1, cookie);
-            if (out != null) return out;
+            YtAttempt r = ytTrySearch(keyword, attempts.get(i)[0], attempts.get(i)[1] == 1, cookie);
+            if (r.tracks != null) {
+                ytLastFailCause = YT_FAIL_NONE;
+                ytLastFailKeyword = keyword;
+                return r.tracks;
+            }
+            causes.add(r.cause);
         }
-        SpiderDebug.log("music", "yt search 全轮试无结果 q=%s auth=%s", keyword, hasAuth ? "yes" : "no");
+        int cause = ytAggregateCause(causes);
+        ytLastFailCause = cause;
+        ytLastFailKeyword = keyword;
+        SpiderDebug.log("music", "yt search 全轮试无结果 q=%s auth=%s 归纳死因=%s", keyword, hasAuth ? "yes" : "no", ytFailName(cause));
         return new ArrayList<>();
+    }
+
+    /**
+     * 全灭归纳（只按已试各家的实际死因算）：有 LOGIN_REQUIRED 以它为准——请求真到了
+     * 谷歌、是被拦而不是没通；每家都死在传输层＝没够着；其余（回空／坏包／接口
+     * error／货架空／传输与回包混杂）推断不出更细，归「没回结果」。
+     */
+    private static int ytAggregateCause(List<Integer> causes) {
+        boolean anyBlocked = false;
+        boolean allTransport = !causes.isEmpty();
+        for (int c : causes) {
+            if (c == YT_C_BLOCKED) anyBlocked = true;
+            if (c != YT_C_TIMEOUT && c != YT_C_CONNECT) allTransport = false;
+        }
+        if (anyBlocked) return YT_FAIL_BLOCKED;
+        if (allTransport) return YT_FAIL_CONNECT;
+        return YT_FAIL_NO_RESULT;
+    }
+
+    private static String ytFailName(int cause) {
+        switch (cause) {
+            case YT_FAIL_CONNECT:
+                return "连不上(传输层全灭)";
+            case YT_FAIL_BLOCKED:
+                return "LOGIN_REQUIRED(出口被拦)";
+            case YT_FAIL_NO_RESULT:
+                return "没回结果";
+            default:
+                return "无";
+        }
+    }
+
+    /** 最近一次油管第一页搜索的归纳死因：关键词与当时对上才作数（防探针／上一词串味）；同包 LxMusicSource 取 */
+    static int ytFailCauseFor(String keyword) {
+        if (keyword == null || !keyword.equals(ytLastFailKeyword)) return YT_FAIL_NONE;
+        return ytLastFailCause;
+    }
+
+    /** 请求异常归类：根因链里有超时类（SocketTimeoutException 属 InterruptedIOException）＝超时，其余＝连接失败；细目看各家日志的 errText */
+    private static int ytTransportCause(Throwable t) {
+        Throwable cur = t;
+        while (cur != null) {
+            if (cur instanceof java.io.InterruptedIOException) return YT_C_TIMEOUT;
+            cur = cur.getCause();
+        }
+        return YT_C_CONNECT;
     }
 
     /** 未登录时请壳子弹统一登录（10 分钟节流，与 FreeJsBridge.maybePromptLogin 同口径；弹不弹不拦本次匿名搜索） */
@@ -966,8 +1056,8 @@ public class LxPlatformSearch {
         }
     }
 
-    /** 单家搜索：出 ≥1 条算成（返回曲目）；失败把死因记进日志并返回 null（与脚本 trySearch 同口径） */
-    private static List<MusicTrack> ytTrySearch(String keyword, int clientIdx, boolean withAuth, String cookie) {
+    /** 单家搜索：出 ≥1 条算成；失败把死因记进日志并随结果带回供全灭归纳（与脚本 trySearch 同口径） */
+    private static YtAttempt ytTrySearch(String keyword, int clientIdx, boolean withAuth, String cookie) {
         String name = clientIdx == 0 ? "WEB_REMIX" : clientIdx == 1 ? "ANDROID_MUSIC" : "IOS_MUSIC";
         String tag = "yt search " + name + (withAuth ? "(带态)" : "(匿名)") + " q=" + keyword;
         JsonObject client = ytClientContext(clientIdx);
@@ -985,35 +1075,35 @@ public class LxPlatformSearch {
                     body.toString(), headers, YT_POST_TIMEOUT_MS);
         } catch (Throwable t) {
             SpiderDebug.log("music", "%s 请求失败 %s", tag, errText(t));
-            return null;
+            return new YtAttempt(null, ytTransportCause(t));
         }
         if (TextUtils.isEmpty(text)) {
             SpiderDebug.log("music", "%s 回包为空", tag);
-            return null;
+            return new YtAttempt(null, YT_C_EMPTY);
         }
         if (text.contains("LOGIN_REQUIRED")) {
             SpiderDebug.log("music", "%s 回 LOGIN_REQUIRED（出口被谷歌按登录态拦）", tag);
-            return null;
+            return new YtAttempt(null, YT_C_BLOCKED);
         }
         JsonObject root;
         try {
             root = JsonParser.parseString(text).getAsJsonObject();
         } catch (Throwable t) {
             SpiderDebug.log("music", "%s 回包不是 JSON", tag);
-            return null;
+            return new YtAttempt(null, YT_C_BADBODY);
         }
         if (root.has("error") && root.get("error").isJsonObject()) {
             JsonObject err = root.getAsJsonObject("error");
             SpiderDebug.log("music", "%s 接口error status=%s msg=%s", tag, optStr(err, "status"), optStr(err, "message"));
-            return null;
+            return new YtAttempt(null, YT_C_APIERR);
         }
         List<MusicTrack> out = new ArrayList<>();
         ytVisitShelf(root, out, new java.util.HashSet<>());
         if (out.isEmpty()) {
             SpiderDebug.log("music", "%s 货架为空（真无结果或响应结构不认）", tag);
-            return null;
+            return new YtAttempt(null, YT_C_NOSHELF);
         }
-        return out;
+        return new YtAttempt(out, 0);
     }
 
     private static JsonObject ytClientContext(int clientIdx) {

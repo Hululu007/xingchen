@@ -15,14 +15,6 @@
         android:paddingStart="6dp"
         android:paddingEnd="6dp">
 
-        <ImageView
-            android:id="@+id/hg_search_back"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:contentDescription="返回"
-            android:padding="9dp"
-            android:src="@drawable/ic_hg_back" />
-
         <EditText
             android:id="@+id/hg_search_input"
             android:layout_width="0dp"

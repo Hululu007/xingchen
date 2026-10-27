@@ -170,15 +170,16 @@ public final class HgParser {
                 String vid = firstStr(eo, "video_id", "vid", "id");
                 if (vid == null) continue;
                 int idx = intOf(eo, "index", -1);
-                if (idx < 0) idx = intOf(eo, "episode_index", i + 1);
+                if (idx < 0) idx = intOf(eo, "episode_index", -1);
+                if (idx < 0) idx = intOf(eo, "vid_index", i + 1);
                 episodes.add(new HgSeriesDetail.Episode(vid, idx, firstStr(eo, "title", "name")));
                 i++;
             }
         }
-        String seriesId = firstStr(d, "series_id", "book_id", "id");
-        String title = firstStr(d, "title", "series_name", "name");
-        String cover = firstStr(d, "cover", "poster_url", "thumb_url", "cover_url");
-        String desc = firstStr(d, "desc", "description", "intro", "abstract");
+        String seriesId = firstStr(d, "series_id_str", "series_id", "book_id", "id");
+        String title = firstStr(d, "series_title", "title", "series_name", "name");
+        String cover = firstStr(d, "series_cover", "cover", "poster_url", "thumb_url", "cover_url");
+        String desc = firstStr(d, "series_intro", "desc", "description", "intro", "abstract");
         String author = firstStr(d, "author_name", "author");
         int count = intOf(d, "episode_count", -1);
         if (count < 0) count = intOf(d, "episode_cnt", episodes.isEmpty() ? -1 : episodes.size());
@@ -186,6 +187,28 @@ public final class HgParser {
         return new HgSeriesDetail(seriesId, title, cover, desc, author, count, episodes, root,
                 appt != null, appt != null && boolOf(appt, "is_subscribed"),
                 appt == null ? null : str(appt, "due_start_text"));
+    }
+
+    /**
+     * 批量详情 multi_video_detail 回包 → 以剧 id 为键的详情表
+     * （openhongguo ParseSeriesBatch 形态：data 是 {剧id: {video_data: {...}}}）。
+     * 每条包回单剧信封复用 {@link #parseVideoDetail} 的容忍抽取。
+     */
+    public static Map<String, HgSeriesDetail> parseSeriesBatch(String json) {
+        JsonObject root = JsonParser.parseString(json).getAsJsonObject();
+        Map<String, HgSeriesDetail> out = new LinkedHashMap<>();
+        JsonObject data = obj(root, "data");
+        if (data == null) return out;
+        for (Map.Entry<String, JsonElement> e : data.entrySet()) {
+            if (!e.getValue().isJsonObject()) continue;
+            JsonObject wrap = new JsonObject();
+            wrap.add("data", e.getValue());
+            HgSeriesDetail detail = parseVideoDetail(wrap.toString());
+            if (detail == null) continue;
+            String key = detail.getSeriesId() != null ? detail.getSeriesId() : e.getKey();
+            out.put(key, detail);
+        }
+        return out;
     }
 
     // ---------- cell 类回包（容忍抽取 + 保留 raw） ----------

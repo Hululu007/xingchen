@@ -10,8 +10,9 @@ import java.util.List;
  *
  * <p>用法：播放页拿到一剧的集 id 有序表后，每滑到一集就调
  * {@link #prefetchAround(List, int)}，它把后面若干集里缓存没有的，
- * 合成一次 multi 批量请求取回并入缓存——滑到之前数据与钥匙（spade_a 在模型里，
- * DEK 可即时推导）已经备好，不做单集现取现等。</p>
+ * 一批并发走签名单集口取回并入缓存（openhongguo 无批量模型口，见
+ * HgApiClient.fetchVideoModels 注）——滑到之前数据与钥匙（spade_a 在模型里，
+ * DEK 可即时推导）已经备好，不做起播时现取现等。</p>
  */
 public final class HgPrefetcher {
 

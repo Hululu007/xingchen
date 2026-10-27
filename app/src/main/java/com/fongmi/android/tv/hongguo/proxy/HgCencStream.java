@@ -26,10 +26,11 @@ public final class HgCencStream implements Closeable {
     private final AtomicLong decryptedBlocks = new AtomicLong();
     private volatile boolean closed;
 
+    /** dekHex 为 null 表示未保护流：readClear 直喂原文，不解析盒、不解密。 */
     public HgCencStream(HgRandomSource source, String dekHex, long expectedSize, String fileHash) {
         this.source = source;
-        this.dek = HgHex.decode(dekHex);
-        if (this.dek.length != 16) throw new IllegalArgumentException("DEK 长度须 16 字节");
+        this.dek = dekHex == null ? null : HgHex.decode(dekHex);
+        if (this.dek != null && this.dek.length != 16) throw new IllegalArgumentException("DEK 长度须 16 字节");
         this.expectedSize = expectedSize;
         this.fileHash = fileHash;
     }
@@ -82,6 +83,19 @@ public final class HgCencStream implements Closeable {
      * 与区间相交样本的相交块，全程在调用方 buf 上原地完成，不另拷大缓冲。
      */
     public int readClear(long pos, byte[] buf, int off, int len) throws IOException {
+        if (dek == null) {
+            // 未保护直喂：源字节即明文，跳过盒解析与解密。
+            long total = length();
+            if (pos >= total) return -1;
+            int want = (int) Math.min(len, total - pos);
+            int got = 0;
+            while (got < want) {
+                int n = source.readAt(pos + got, buf, off + got, want - got);
+                if (n < 0) break;
+                got += n;
+            }
+            return got == 0 ? -1 : got;
+        }
         HgCencDecryptor.Meta m = ensureMeta();
         long total = length();
         if (pos >= total) return -1;

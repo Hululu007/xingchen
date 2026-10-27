@@ -33,7 +33,7 @@ import java.util.concurrent.TimeUnit;
  * 页面滑远后由 {@link #close(String)} 回收，防注册表流堆积。</p>
  *
  * <p>耗时去向（切集起播链）：命中预取缓存时只剩本地拼装（毫秒级）；未命中时
- * 一次 multi 取模型往返＋（仅 fplay 加密形态）一次 fallback 往返，其余全本地。</p>
+ * 一次签名单集取模型往返＋（仅 fplay 加密形态）一次 fallback 往返，其余全本地。</p>
  */
 public final class HgPlayResolver {
 
@@ -188,20 +188,22 @@ public final class HgPlayResolver {
     // ---------- 后台线程同步解链（网络等待用锁，不占主线程） ----------
 
     /**
-     * 同步解链。失败出口编号（诊断用，定罪后撤）：E1 取模型全灭（multi＋单集口
+     * 同步解链。失败出口编号（诊断用，定罪后撤）：E1 取模型全灭（签名单集口
      * 3 次皆失败）；E2 模型无可播条目；E3 明文链拿不到且 fplay 兜底也空；
-     * E4 fromEntry 判死（无 spade_a 推不出 DEK，不分加密与否）；E5 注册流失败。
+     * E4 选中档带加密标记但全模型扫 spade_a 推不出 DEK（模型级判定，
+     * 定罪账借条 3；未保护条目免钥匙直喂、不进 E4）；E5 注册流失败。
      */
     private Outcome resolveSync(String videoId) throws Exception {
         HgVideoModel model = cache.getFresh(videoId);
         if (model == null) model = fetchModel(videoId);
         if (model == null) return Outcome.fail("E1");
         cache.put(videoId, model);
+        HgVideoModel use = model;
         HgVideoEntry entry = model.firstPlayableEntry();
         if (entry == null) return Outcome.fail("E2");
         String plain = plainUrl(model, entry);
         if (plain == null) {
-            // multi 形态 main_url 为明文时走不到这；加密且无 key_seed 时经 fallback_api 换 fplay 形态重试
+            // 明文形态 main_url 走不到这；加密且无 key_seed 时经 fallback_api 换 fplay 形态重试
             HgVideoModel fplay = fetchFallback(model);
             if (fplay == null) return Outcome.fail("E3");
             cache.put(videoId, fplay);
@@ -209,9 +211,10 @@ public final class HgPlayResolver {
             if (entry == null) return Outcome.fail("E2");
             plain = plainUrl(fplay, entry);
             if (plain == null) return Outcome.fail("E3");
+            use = fplay;
         }
-        HgStreamSpec spec = HgStreamSpec.fromEntry(plain, entry, videoId);
-        if (spec == null) return Outcome.fail("E4"); // 无 spade_a 推不出 DEK
+        HgStreamSpec spec = HgStreamSpec.fromEntry(plain, entry, use.deriveDekHex(), videoId);
+        if (spec == null) return Outcome.fail("E4"); // 已保护但全模型推不出 DEK
         String token = registry.register(spec);
         if (token == null) return Outcome.fail("E5");
         tokenByVideo.put(videoId, token);
@@ -231,45 +234,23 @@ public final class HgPlayResolver {
     }
 
     /**
-     * 取模型链：批量 multi 先行；multi 失败/空体/回包无该集时换单集口兜底
-     * （fqnovel 网关 Outer=3，海阔 hgApi 实证：同指纹连发被限速，故每试一次
-     * 都是全新指纹——postJson 每次都拼 freshQuery，最多 3 次）。fplay 兜底
-     * 只能跟在拿到模型之后（fallback_api 在回包里），multi 本身拿不到时
-     * 无从走 fplay，这条单集口就是那一级的兜底。
+     * 取模型链：签名单集口（fqnovel video_model，注册身份＋逐请求签名）最多
+     * 3 次，每次都是新签的名（新 ticket）；旧 multi 口已定罪摘除（类头与
+     * HgApiClient 类头注）。fplay 兜底只能跟在拿到模型之后（fallback_api
+     * 在回包里）。
      */
     private HgVideoModel fetchModel(String videoId) {
-        HgVideoModel m = fetchMulti(videoId);
-        if (m != null) return m;
         for (int attempt = 0; attempt < 3; attempt++) {
-            m = fetchSingle(videoId);
+            HgVideoModel m = fetchSigned(videoId);
             if (m != null) return m;
         }
         return null;
     }
 
-    private HgVideoModel fetchMulti(String videoId) {
+    private HgVideoModel fetchSigned(String videoId) {
         CountDownLatch latch = new CountDownLatch(1);
         HgVideoModel[] box = new HgVideoModel[1];
         client.fetchVideoModel(videoId, new HgCallback<HgVideoModel>() {
-            @Override
-            public void onSuccess(HgVideoModel result) {
-                box[0] = result;
-                latch.countDown();
-            }
-
-            @Override
-            public void onError(int httpCode, String message) {
-                latch.countDown();
-            }
-        });
-        await(latch);
-        return box[0];
-    }
-
-    private HgVideoModel fetchSingle(String videoId) {
-        CountDownLatch latch = new CountDownLatch(1);
-        HgVideoModel[] box = new HgVideoModel[1];
-        client.fetchSingleVideoModel(videoId, new HgCallback<HgVideoModel>() {
             @Override
             public void onSuccess(HgVideoModel result) {
                 box[0] = result;

@@ -82,4 +82,22 @@ public final class HgVideoModel {
     public boolean isExpired(long nowSec) {
         return urlExpire > 0 && nowSec >= urlExpire;
     }
+
+    /**
+     * 模型级保护判定（定罪账借条 3，openhongguo-dig-20261028.md §5）：
+     * 任一档带加密标记即整模型受保护。钥匙全模型共用一份，见 {@link #deriveDekHex()}。
+     */
+    public boolean isProtected() {
+        for (HgVideoEntry e : entries) if (e.hasEncryptMarkers()) return true;
+        return false;
+    }
+
+    /** 全模型扫 spade_a 推 DEK：第一个推得出的即模型钥匙；全推不出返回 null。 */
+    public String deriveDekHex() {
+        for (HgVideoEntry e : entries) {
+            String dek = e.deriveDekHex();
+            if (dek != null) return dek;
+        }
+        return null;
+    }
 }

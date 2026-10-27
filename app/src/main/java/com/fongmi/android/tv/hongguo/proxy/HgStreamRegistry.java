@@ -50,9 +50,9 @@ public final class HgStreamRegistry {
         this.factory = factory;
     }
 
-    /** 注册一条流（不取数），返回 token。 */
+    /** 注册一条流（不取数），返回 token。dekHex 可为 null（未保护条目直喂）。 */
     public String register(HgStreamSpec spec) {
-        if (spec == null || spec.upstreamUrl == null || spec.dekHex == null) return null;
+        if (spec == null || spec.upstreamUrl == null) return null;
         String token = "hg" + seq.incrementAndGet() + "_" + System.currentTimeMillis();
         specs.put(token, spec);
         return token;

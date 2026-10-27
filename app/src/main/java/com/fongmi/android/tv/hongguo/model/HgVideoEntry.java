@@ -80,6 +80,20 @@ public final class HgVideoEntry {
         return HgUrlCrypto.isEncryptedUrl(mainUrl);
     }
 
+    /**
+     * 本档是否带加密标记（openhongguo ParsePlayback 的 Protected 判定口径：
+     * encrypt_info / gear_des_key / spade_a / kid / encryption_method 任一在场）。
+     * 本类只承载其中 spade_a/kid/encryption_method/gear_des_key 四个字段
+     * （array 形态下前三者正是从 encrypt_info 里抽的）。
+     */
+    public boolean hasEncryptMarkers() {
+        return nonEmpty(spadeA) || nonEmpty(kid) || nonEmpty(encryptionMethod) || nonEmpty(gearDesKey);
+    }
+
+    private static boolean nonEmpty(String s) {
+        return s != null && !s.isEmpty();
+    }
+
     /** 通用播放器可解的编码（bytevc2 是字节自有编码，通用播放器无支持，照海阔线口径跳过）。 */
     public boolean isPlayableCodec() {
         return codecType == null || codecType.isEmpty() || "bytevc1".equals(codecType);

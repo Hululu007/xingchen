@@ -244,7 +244,9 @@ public final class HgFeedSession {
                 b.getIndex() < 0 ? Integer.MAX_VALUE : b.getIndex()));
         HgSeriesDetail.Episode first = sorted.get(0);
         int idx = first.getIndex() > 0 ? first.getIndex() : 1;
-        items.set(position, head.withDetail(first.getVideoId(), idx, author, avatar, desc));
+        HgFeedItem clipItem = head.withDetail(first.getVideoId(), idx, author, avatar, desc);
+        if (detail != null && detail.getStatement() != null) clipItem.statement = detail.getStatement();
+        items.set(position, clipItem);
     }
 
     /**
@@ -265,10 +267,12 @@ public final class HgFeedSession {
         item.expandTried = true;
         HgSeriesDetail cached = details.get(item.seriesId);
         if (cached != null) {
-            items.set(position, item.withDetail(null, -1,
+            HgFeedItem enriched = item.withDetail(null, -1,
                     cached.getAuthorName(), avatarOf(cached),
                     cached.getDesc() != null ? cached.getDesc() : item.desc)
-                    .withSeriesTitle(cached.getTitle()));
+                    .withSeriesTitle(cached.getTitle());
+            if (cached.getStatement() != null) enriched.statement = cached.getStatement();
+            items.set(position, enriched);
             changed.accept(position);
             return;
         }
@@ -282,10 +286,12 @@ public final class HgFeedSession {
                         changed.accept(-1);
                         return;
                     }
-                    items.set(at, item.withDetail(null, -1,
+                    HgFeedItem enriched = item.withDetail(null, -1,
                             detail.getAuthorName(), avatarOf(detail),
                             detail.getDesc() != null ? detail.getDesc() : item.desc)
-                            .withSeriesTitle(detail.getTitle()));
+                            .withSeriesTitle(detail.getTitle());
+                    if (detail.getStatement() != null) enriched.statement = detail.getStatement();
+                    items.set(at, enriched);
                     changed.accept(at);
                 });
             }
@@ -333,8 +339,10 @@ public final class HgFeedSession {
         int i = 0;
         for (HgSeriesDetail.Episode ep : sorted) {
             int idx = ep.getIndex() > 0 ? ep.getIndex() : i + 1;
-            pages.add(HgFeedItem.episode(head.seriesId, ep.getVideoId(), idx,
-                    count > 0 ? count : sorted.size(), title, head.category, author, avatar, desc, cover));
+            HgFeedItem page = HgFeedItem.episode(head.seriesId, ep.getVideoId(), idx,
+                    count > 0 ? count : sorted.size(), title, head.category, author, avatar, desc, cover);
+            if (detail.getStatement() != null) page.statement = detail.getStatement();
+            pages.add(page);
             i++;
         }
         items.set(position, pages.get(0));

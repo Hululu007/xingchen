@@ -164,6 +164,7 @@ public final class HgFeedItem {
             item.reservable = true;
             item.dueStartText = s.getDueStartText();
         }
+        item.statement = s.getStatement();
         if (s.getVertical() != null) item.landscapeHint = !s.getVertical();
         return item;
     }

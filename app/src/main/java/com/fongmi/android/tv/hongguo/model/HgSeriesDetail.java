@@ -69,11 +69,13 @@ public final class HgSeriesDetail {
      * 回包没带为 null。
      */
     private final Integer seriesStatus;
+    /** 作者声明文案（ai_usage_type 映射）；没带为 null。 */
+    private final String statement;
 
     HgSeriesDetail(String seriesId, String title, String coverUrl, String desc,
                    String authorName, int episodeCount, List<Episode> episodes, JsonObject raw) {
         this(seriesId, title, coverUrl, desc, authorName, episodeCount, episodes, raw,
-                false, false, null, Collections.emptyList(), null);
+                false, false, null, Collections.emptyList(), null, null);
     }
 
     HgSeriesDetail(String seriesId, String title, String coverUrl, String desc,
@@ -81,13 +83,13 @@ public final class HgSeriesDetail {
                    boolean hasAppointment, boolean appointmentSubscribed, String dueStartText) {
         this(seriesId, title, coverUrl, desc, authorName, episodeCount, episodes, raw,
                 hasAppointment, appointmentSubscribed, dueStartText,
-                Collections.emptyList(), null);
+                Collections.emptyList(), null, null);
     }
 
     HgSeriesDetail(String seriesId, String title, String coverUrl, String desc,
                    String authorName, int episodeCount, List<Episode> episodes, JsonObject raw,
                    boolean hasAppointment, boolean appointmentSubscribed, String dueStartText,
-                   List<Celebrity> celebrities, Integer seriesStatus) {
+                   List<Celebrity> celebrities, Integer seriesStatus, String statement) {
         this.seriesId = seriesId;
         this.title = title;
         this.coverUrl = coverUrl;
@@ -101,7 +103,10 @@ public final class HgSeriesDetail {
         this.dueStartText = dueStartText;
         this.celebrities = Collections.unmodifiableList(celebrities);
         this.seriesStatus = seriesStatus;
+        this.statement = statement;
     }
+
+    public String getStatement() { return statement; }
 
     public String getSeriesId() { return seriesId; }
     public String getTitle() { return title; }

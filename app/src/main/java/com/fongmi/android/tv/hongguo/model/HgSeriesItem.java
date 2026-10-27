@@ -44,6 +44,8 @@ public final class HgSeriesItem {
      * video_detail_list 卡上，2026-10-28 存档逐层实证）；没带为 null。
      */
     private final Integer seriesStatus;
+    /** 作者声明文案（ai_usage_type 映射，见 HgParser.statementOf）；没带为 null。 */
+    private final String statement;
 
     HgSeriesItem(String seriesId, String title, String coverUrl, String desc, int episodeCount) {
         this(seriesId, title, coverUrl, desc, episodeCount, false, false, null);
@@ -60,7 +62,7 @@ public final class HgSeriesItem {
                  boolean hasAppointment, boolean appointmentSubscribed, String dueStartText) {
         this(seriesId, title, coverUrl, desc, episodeCount, hasAppointment, appointmentSubscribed,
                 dueStartText, null, null, null, Collections.emptyList(), null, false, null, -1,
-                Collections.emptyList(), -1, -1, null);
+                Collections.emptyList(), -1, -1, null, null);
     }
 
     HgSeriesItem(String seriesId, String title, String coverUrl, String desc, int episodeCount,
@@ -68,7 +70,7 @@ public final class HgSeriesItem {
                  String vid, String badge, String recText, List<String> tags, Boolean vertical,
                  boolean multiSeason, String albumId, int albumSerialCount,
                  List<HgSeriesItem> siblings, long commentCount, long diggCount,
-                 Integer seriesStatus) {
+                 Integer seriesStatus, String statement) {
         this.seriesId = seriesId;
         this.title = title;
         this.coverUrl = coverUrl;
@@ -89,6 +91,7 @@ public final class HgSeriesItem {
         this.commentCount = commentCount;
         this.diggCount = diggCount;
         this.seriesStatus = seriesStatus;
+        this.statement = statement;
     }
 
     /** 补完结态的副本（字段后补场景：如半屏单里当前行由页面条目拼装）。 */
@@ -96,8 +99,10 @@ public final class HgSeriesItem {
         return new HgSeriesItem(seriesId, title, coverUrl, desc, episodeCount,
                 hasAppointment, appointmentSubscribed, dueStartText,
                 vid, badge, recText, tags, vertical, multiSeason, albumId,
-                albumSerialCount, siblings, commentCount, diggCount, status);
+                albumSerialCount, siblings, commentCount, diggCount, status, statement);
     }
+
+    public String getStatement() { return statement; }
 
     public String getSeriesId() { return seriesId; }
     public String getTitle() { return title; }

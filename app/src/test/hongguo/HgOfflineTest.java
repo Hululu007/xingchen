@@ -212,6 +212,19 @@ public class HgOfflineTest {
                 }
             }
             check("频道条目带评论/点赞真计数", counted, null);
+            // 作者声明：ai_usage_type=1 → 「内容由AI生成」（详情存档与频道
+            // video_detail 两面实证）；此前解析从没读过、声明行是死代码
+            String detailRaw = Files.readString(Paths.get(probeDir + "e1_detail.json"));
+            com.fongmi.android.tv.hongguo.model.HgSeriesDetail det =
+                    HgParser.parseVideoDetail(detailRaw);
+            check("详情作者声明在", "内容由AI生成".equals(det.getStatement()),
+                    "实际=" + det.getStatement());
+            boolean feedStmt = false;
+            for (com.fongmi.android.tv.hongguo.model.HgSeriesItem it :
+                    HgParser.parseDiscoverTab(recRaw, 16).getItems()) {
+                if (it.getStatement() != null) feedStmt = true;
+            }
+            check("频道条目作者声明在", feedStmt, null);
         }
 
         System.out.println(fail == 0 ? "ALL PASS" : ("FAILURES=" + fail));

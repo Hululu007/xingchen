@@ -203,7 +203,8 @@ public final class HgParser {
         return new HgSeriesDetail(seriesId, title, cover, desc, author, count, episodes, root,
                 appt != null, appt != null && boolOf(appt, "is_subscribed"),
                 appt == null ? null : str(appt, "due_start_text"),
-                celebrities, intOrNull(d, "series_status"));
+                celebrities, intOrNull(d, "series_status"),
+                statementOf(intOrNull(d, "ai_usage_type")));
     }
 
     /** 数字字段取值：没带或非数字为 null（区别于 intOf 的 -1 哨兵，状态类字段用）。 */
@@ -443,6 +444,8 @@ public final class HgParser {
             // 实证），归一到条目顶层；条目自身带同名键时下方覆盖循环以自身为准
             Integer status = intOrNull(vd, "series_status");
             if (status != null) merged.addProperty("series_status", status);
+            Integer aiUsage = intOrNull(vd, "ai_usage_type");
+            if (aiUsage != null) merged.addProperty("ai_usage_type", aiUsage);
         }
         for (Map.Entry<String, JsonElement> e : o.entrySet()) {
             merged.add(e.getKey(), e.getValue());
@@ -573,7 +576,15 @@ public final class HgParser {
                 firstStr(o, "album_id_str", "album_id"),
                 intOf(o, "album_serial_count", -1), siblings,
                 longOf(o, "comment_count", -1), longOf(o, "digged_count", -1),
-                intOrNull(o, "series_status"));
+                intOrNull(o, "series_status"), statementOf(intOrNull(o, "ai_usage_type")));
+    }
+
+    /**
+     * 作者声明映射：ai_usage_type=1 → 「内容由AI生成」（官方信息面实拍串，
+     * 研究账 §3.5）；其余值无实拍样本，不编造，返回 null 不显。
+     */
+    static String statementOf(Integer aiUsageType) {
+        return aiUsageType != null && aiUsageType == 1 ? "内容由AI生成" : null;
     }
 
     /**

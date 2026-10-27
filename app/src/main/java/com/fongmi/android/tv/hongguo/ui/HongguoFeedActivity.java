@@ -90,6 +90,10 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     private int currentPos = -1;
     private String playingVideoId;
     private boolean chromeHidden;
+    /** 红果自家底栏当前面：false=首页（刷剧流本体） true=我的（壳内「我的」面）。 */
+    private boolean mineShowing;
+    private boolean drawerOpen;
+    private boolean resumeAfterMine;
     /** 横屏窗内转模式（整页转 90°，窗口不转）；进入时的页下标，滑走即退出。 */
     private boolean landMode;
     private int landPos = -1;
@@ -115,7 +119,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
 
         @Override
         public void onPlaybackStateChanged(int state) {
-            if (state == Player.STATE_ENDED) advanceNext();
+            if (state == Player.STATE_ENDED && HgStore.isAutoNext()) advanceNext();
             if (state == Player.STATE_READY) updateFsBar();
         }
 
@@ -204,6 +208,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         playerView.setShutterBackgroundColor(0xFF000000);
         playerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_ZOOM);
         setupTabs();
+        setupShellFaces();
         int mode = getIntent().getIntExtra(EXTRA_MODE, MODE_FEED);
         if (mode == MODE_SERIES) {
             String seriesId = getIntent().getStringExtra(EXTRA_SERIES_ID);
@@ -232,7 +237,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     protected void initEvent() {
         binding.hgSearch.setOnClickListener(v -> HongguoSearchActivity.start(this));
         // ☰：四阶段落成真侧口——进「我的」集合页（追更/收藏/观看历史/登录行）
-        binding.hgMenu.setOnClickListener(v -> HgLibraryActivity.start(this));
+        binding.hgMenu.setOnClickListener(v -> openDrawer());
         binding.hgFsPlay.setOnClickListener(v -> togglePlayPause());
         binding.hgFsSeries.setOnClickListener(v -> {
             if (currentPos >= 0) HgEpisodeSheet.show(this, session, currentPos, this::jumpTo);
@@ -793,6 +798,9 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         root.setTranslationY((h - w) / 2f);
         root.setRotation(-90f);
         if (playerView != null) playerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FIT);
+        // 全屏全隐藏（他定案）：底栏随界面一起藏，pager 底距一并收掉铺满
+        binding.hgBottomBar.setVisibility(View.GONE);
+        setPagerBottomMargin(0);
         setChromeHidden(false);
         armAutoHide();
     }
@@ -814,6 +822,8 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             playerView.setResizeMode(session.items.get(currentPos).isLandscape()
                     ? AspectRatioFrameLayout.RESIZE_MODE_FIT : AspectRatioFrameLayout.RESIZE_MODE_ZOOM);
         }
+        binding.hgBottomBar.setVisibility(View.VISIBLE);
+        setPagerBottomMargin(56);
         setChromeHidden(false);
         armAutoHide();
     }
@@ -854,6 +864,14 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
 
     @Override
     protected void onBackInvoked() {
+        if (drawerOpen) {
+            closeDrawer();
+            return;
+        }
+        if (mineShowing) {
+            showFeedFace();
+            return;
+        }
         if (landMode) {
             exitLandMode();
             return;
@@ -868,6 +886,124 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             return;
         }
         super.onBackInvoked();
+    }
+
+
+    // ---------- 红果自家底栏两格＋「我的」面＋三杠小抽屉 ----------
+    // 定案口径（他亲点）：底栏就「首页/我的」两格（剧场不要、找剧走搜索页）；
+    // 两格是同一壳里的两个面、互切不新开 Activity；「我的」面构成＝登录区＋
+    // 页签排＋海报格子（HgMineView）；三杠改侧边小抽屉（半幅、尺寸随内容），
+    // 只放真能用的开关，第一项钉死「启动直达短剧」。
+
+    private void setupShellFaces() {
+        binding.hgMine.getRoot().setOnOpenSeriesListener((seriesId, title, cover, episodeCount) ->
+                HongguoFeedActivity.startSeries(this, seriesId, title, cover));
+        binding.hgTabHome.setOnClickListener(v -> showFeedFace());
+        binding.hgTabMine.setOnClickListener(v -> showMineFace());
+        binding.hgDrawerScrim.setOnClickListener(v -> closeDrawer());
+        android.widget.Switch direct = binding.hgDrawer.hgDrawerDirect;
+        direct.setChecked(HgStore.isLaunchDirect());
+        direct.setOnCheckedChangeListener((b, on) -> HgStore.setLaunchDirect(on));
+        android.widget.Switch danmaku = binding.hgDrawer.hgDrawerDanmaku;
+        danmaku.setChecked(HgStore.isDanmakuOn());
+        danmaku.setOnCheckedChangeListener((b, on) -> {
+            HgStore.setDanmakuOn(on);
+            HgFeedAdapter.Holder h = currentHolder();
+            if (h != null) adapter.bindDanmakuState(h);
+        });
+        android.widget.Switch autoNext = binding.hgDrawer.hgDrawerAutonext;
+        autoNext.setChecked(HgStore.isAutoNext());
+        autoNext.setOnCheckedChangeListener((b, on) -> HgStore.setAutoNext(on));
+        binding.hgDrawer.hgDrawerClear.setOnClickListener(v -> {
+                    session.cache.clear();
+                    android.widget.Toast.makeText(this, "已清红果缓存",
+                            android.widget.Toast.LENGTH_SHORT).show();
+                });
+        setPagerBottomMargin(56);
+        updateBottomTabs();
+        applyStatusBarInsets();
+    }
+
+    /** 顶栏/抽屉/「我的」面的顶部留距按状态栏真实高度走 insets，不写死数值（他亲点）。 */
+    private void applyStatusBarInsets() {
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(getWindow().getDecorView(), (v, insets) -> {
+            int top = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top;
+            ViewGroup.MarginLayoutParams lp =
+                    (ViewGroup.MarginLayoutParams) binding.hgTopBar.getLayoutParams();
+            if (lp.topMargin != top) {
+                lp.topMargin = top;
+                binding.hgTopBar.setLayoutParams(lp);
+            }
+            if (binding.hgMine.getRoot().getPaddingTop() != top) {
+                binding.hgMine.getRoot().setPadding(binding.hgMine.getRoot().getPaddingLeft(), top,
+                        binding.hgMine.getRoot().getPaddingRight(),
+                        binding.hgMine.getRoot().getPaddingBottom());
+            }
+            ViewGroup.MarginLayoutParams dlp =
+                    (ViewGroup.MarginLayoutParams) binding.hgDrawer.getRoot().getLayoutParams();
+            if (dlp.topMargin != top) {
+                dlp.topMargin = top;
+                binding.hgDrawer.getRoot().setLayoutParams(dlp);
+            }
+            return insets;
+        });
+    }
+
+    private void setPagerBottomMargin(int dp) {
+        ViewGroup.MarginLayoutParams lp =
+                (ViewGroup.MarginLayoutParams) binding.hgPager.getLayoutParams();
+        int px = Math.round(dp * getResources().getDisplayMetrics().density);
+        if (lp.bottomMargin != px) {
+            lp.bottomMargin = px;
+            binding.hgPager.setLayoutParams(lp);
+        }
+    }
+
+    private void showMineFace() {
+        if (mineShowing) return;
+        mineShowing = true;
+        closeDrawer();
+        binding.hgMine.getRoot().setVisibility(View.VISIBLE);
+        binding.hgMine.getRoot().refresh();
+        resumeAfterMine = player != null && player.isPlaying();
+        if (resumeAfterMine) player.pause();
+        updateBottomTabs();
+    }
+
+    private void showFeedFace() {
+        if (!mineShowing) return;
+        mineShowing = false;
+        binding.hgMine.getRoot().setVisibility(View.GONE);
+        updateBottomTabs();
+        if (resumeAfterMine && player != null) player.play();
+        resumeAfterMine = false;
+    }
+
+    private void updateBottomTabs() {
+        int on = 0xFF111111;
+        int off = 0xFF999999;
+        binding.hgTabHomeText.setTextColor(mineShowing ? off : on);
+        binding.hgTabMineText.setTextColor(mineShowing ? on : off);
+        binding.hgTabHomeIcon.setColorFilter(mineShowing ? off : on);
+        binding.hgTabMineIcon.setColorFilter(mineShowing ? on : off);
+    }
+
+    private void openDrawer() {
+        if (drawerOpen) return;
+        drawerOpen = true;
+        binding.hgDrawerRoot.setVisibility(View.VISIBLE);
+        binding.hgDrawer.getRoot().post(() -> {
+            binding.hgDrawer.getRoot().setTranslationX(-binding.hgDrawer.getRoot().getWidth());
+            binding.hgDrawer.getRoot().animate().translationX(0f).setDuration(200).start();
+        });
+    }
+
+    private void closeDrawer() {
+        if (!drawerOpen) return;
+        drawerOpen = false;
+        binding.hgDrawer.getRoot().animate()
+                .translationX(-binding.hgDrawer.getRoot().getWidth()).setDuration(180)
+                .withEndAction(() -> binding.hgDrawerRoot.setVisibility(View.GONE)).start();
     }
 
     @Override
@@ -885,6 +1021,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             engine = null;
             player = null;
         }
+        binding.hgMine.getRoot().cancelPending();
         session.resolver.closeAll();
         super.onDestroy();
     }

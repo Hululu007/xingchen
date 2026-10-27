@@ -160,6 +160,14 @@ public class HomeActivity extends BaseActivity implements XcBottomBar.OnItemSele
         // Emby 盖子重挂：进程重启/recreate 后 active 标志还在但盖子视图随旧实例没了，
         // 按 isActive 走 EmbyMode 同一条 attach 路重挂（失败会回滚标志，见 EmbyMode）。
         EmbyMode.reattachIfActive(this);
+        // 红果「启动直达短剧」（抽屉开关，他亲定名）：冷启从桌面进来且开关开着，
+        // 直接落红果刷剧页；首页不关、留在任务栈底下，刷剧页按返回就落回首页。
+        if (savedInstanceState == null && isHongguoTabEnabled()
+                && Intent.ACTION_MAIN.equals(getIntent() == null ? null : getIntent().getAction())
+                && com.fongmi.android.tv.hongguo.ui.HgStore.isLaunchDirect()) {
+            HongguoFeedActivity.start(this);
+            overridePendingTransition(R.anim.xc_tab_fade_in, R.anim.xc_tab_fade_out);
+        }
     }
 
     @Override

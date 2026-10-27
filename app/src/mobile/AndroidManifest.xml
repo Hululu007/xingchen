@@ -581,25 +581,8 @@
             android:screenOrientation="portrait"
             android:windowSoftInputMode="adjustResize" />
 
-        <!-- 红果「我的」集合页与列表页（四阶段）：☰ 侧口落点与追更/收藏/历史三页 -->
-        <activity
-            android:name="com.fongmi.android.tv.hongguo.ui.HgLibraryActivity"
-            android:configChanges="screenSize|smallestScreenSize|screenLayout|uiMode|orientation"
-            android:exported="false"
-            android:screenOrientation="portrait" />
 
-        <activity
-            android:name="com.fongmi.android.tv.hongguo.ui.HgListActivity"
-            android:configChanges="screenSize|smallestScreenSize|screenLayout|uiMode|orientation"
-            android:exported="false"
-            android:screenOrientation="portrait" />
 
-        <!-- 红果剧场找剧页（五阶段）：☰ 集合页进入，海报网格走 bookmall/category 真数据面 -->
-        <activity
-            android:name="com.fongmi.android.tv.hongguo.ui.HgTheaterActivity"
-            android:configChanges="screenSize|smallestScreenSize|screenLayout|uiMode|orientation"
-            android:exported="false"
-            android:screenOrientation="portrait" />
 
         <!-- 外部本地媒体直达门（2026-10-27）：文件管理器/相册等外部应用点开
              content/file 的音视频直接投到本页，不再先把 HomeActivity 的主任务

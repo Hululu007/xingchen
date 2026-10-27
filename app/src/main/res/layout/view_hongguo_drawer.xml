@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 红果三杠小抽屉内容：侧边滑出、半幅、尺寸随内容（几行设置就几行高）。
+     只放真能用的现成开关：启动直达短剧（他亲定名，第一项）/弹幕/自动连播/清红果缓存。 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="#FFFFFF"
+    android:elevation="12dp"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="设置"
+        android:textColor="#111111"
+        android:textSize="15sp"
+        android:textStyle="bold" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="启动直达短剧"
+            android:textColor="#333333"
+            android:textSize="14sp" />
+
+        <Switch
+            android:id="@+id/hg_drawer_direct"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:contentDescription="启动直达短剧" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="弹幕"
+            android:textColor="#333333"
+            android:textSize="14sp" />
+
+        <Switch
+            android:id="@+id/hg_drawer_danmaku"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:contentDescription="弹幕" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="自动连播"
+            android:textColor="#333333"
+            android:textSize="14sp" />
+
+        <Switch
+            android:id="@+id/hg_drawer_autonext"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:contentDescription="自动连播" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/hg_drawer_clear"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="4dp"
+        android:text="清红果缓存"
+        android:textColor="#E8452C"
+        android:textSize="14sp" />
+</LinearLayout>

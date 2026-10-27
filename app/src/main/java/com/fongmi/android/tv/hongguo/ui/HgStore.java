@@ -15,6 +15,8 @@ import java.util.Set;
 public final class HgStore {
 
     private static final String K_DANMAKU_ON = "hongguo_danmaku_on";
+    private static final String K_LAUNCH_DIRECT = "hongguo_launch_direct";
+    private static final String K_AUTO_NEXT = "hongguo_auto_next";
     private static final String K_LIKED = "hongguo_liked_series";
     private static final String K_FAVED = "hongguo_faved_series";
     private static final String K_FOLLOWED = "hongguo_followed_series";
@@ -35,6 +37,26 @@ public final class HgStore {
 
     public static void setDanmakuOn(boolean on) {
         Prefers.put(K_DANMAKU_ON, on);
+    }
+
+    // ---------- 「启动直达短剧」开关（抽屉第一项，他亲定名） ----------
+
+    public static boolean isLaunchDirect() {
+        return Prefers.getBoolean(K_LAUNCH_DIRECT, false);
+    }
+
+    public static void setLaunchDirect(boolean on) {
+        Prefers.put(K_LAUNCH_DIRECT, on);
+    }
+
+    // ---------- 自动连播开关（默认开，与此前行为一致） ----------
+
+    public static boolean isAutoNext() {
+        return Prefers.getBoolean(K_AUTO_NEXT, true);
+    }
+
+    public static void setAutoNext(boolean on) {
+        Prefers.put(K_AUTO_NEXT, on);
     }
 
     // ---------- 互动本地状态（按剧 key） ----------

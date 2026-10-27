@@ -34,13 +34,14 @@ HGPKG=app/src/main/java/com/fongmi/android/tv/hongguo
 HGTEST=app/src/test/hongguo
 PROVIDER=app/src/main/java/com/fongmi/android/tv/login/HongguoLoginProvider.java
 STREAM=app/src/main/java/com/fongmi/android/tv/server/process/HongguoStream.java
+SMSDIALOG=app/src/main/java/com/fongmi/android/tv/login/HongguoSmsLoginDialog.java
 LM=app/src/main/java/com/fongmi/android/tv/login/LoginManager.java
 NANO=app/src/main/java/com/fongmi/android/tv/server/Nano.java
 HOME=app/src/mobile/java/com/fongmi/android/tv/ui/activity/HomeActivity.java
 MANIFEST=app/src/mobile/AndroidManifest.xml
 MSTRINGS=app/src/mobile/res/values/strings.xml
 
-for f in "$PROVIDER" "$STREAM" "$LM" "$NANO" "$HOME" "$MANIFEST" "$MSTRINGS"; do
+for f in "$PROVIDER" "$STREAM" "$SMSDIALOG" "$LM" "$NANO" "$HOME" "$MANIFEST" "$MSTRINGS"; do
   [ -f "$f" ] || fail "红果剥离目标文件找不到：$f"
 done
 [ -d "$HGPKG" ] || fail "红果本体包找不到：$HGPKG"
@@ -56,18 +57,16 @@ grep -qF "process.add(new HongguoStream());" "$NANO" || fail "Nano 的 HongguoSt
 grep -qF "import com.fongmi.android.tv.hongguo.ui.HongguoFeedActivity;" "$HOME" || fail "HomeActivity 的红果 import 对不上"
 grep -qF "tabs.add(new BottomTabs.Spec(R.id.hongguo, R.drawable.ic_nav_duanju_outline, R.drawable.ic_nav_duanju_filled, getString(R.string.nav_duanju), true));" "$HOME" || fail "HomeActivity 的短剧格注册行对不上"
 grep -qF "if (itemId == R.id.hongguo) {" "$HOME" || fail "HomeActivity 的短剧格点击分发对不上"
+grep -qF "红果「启动直达短剧」" "$HOME" || fail "HomeActivity 的启动直达短剧块对不上"
 grep -qF "<string name=\"nav_duanju\">短剧</string>" "$MSTRINGS" || fail "短剧格字符串 nav_duanju 对不上"
-for a in HongguoFeedActivity HongguoSearchActivity HgLibraryActivity HgListActivity HgTheaterActivity; do
+for a in HongguoFeedActivity HongguoSearchActivity; do
   grep -qF "android:name=\"com.fongmi.android.tv.hongguo.ui.$a\"" "$MANIFEST" || fail "Manifest 的红果登记对不上：$a"
 done
 
 # ---- 本体资源清单（main 源集，逐份核在再删） ----
 RES_FILES="
 app/src/main/res/layout/activity_hongguo_feed.xml
-app/src/main/res/layout/activity_hongguo_library.xml
-app/src/main/res/layout/activity_hongguo_list.xml
 app/src/main/res/layout/activity_hongguo_search.xml
-app/src/main/res/layout/activity_hongguo_theater.xml
 app/src/main/res/layout/dialog_hongguo_comments.xml
 app/src/main/res/layout/dialog_hongguo_episodes.xml
 app/src/main/res/layout/item_hongguo_comment.xml
@@ -75,6 +74,8 @@ app/src/main/res/layout/item_hongguo_episode.xml
 app/src/main/res/layout/item_hongguo_feed.xml
 app/src/main/res/layout/item_hongguo_search.xml
 app/src/main/res/layout/item_hongguo_theater.xml
+app/src/main/res/layout/view_hongguo_mine.xml
+app/src/main/res/layout/view_hongguo_drawer.xml
 app/src/main/res/drawable/bg_hg_avatar_circle.xml
 app/src/main/res/drawable/bg_hg_bottom_scrim.xml
 app/src/main/res/drawable/bg_hg_chip.xml
@@ -82,6 +83,8 @@ app/src/main/res/drawable/bg_hg_episode_chip.xml
 app/src/main/res/drawable/bg_hg_follow_badge.xml
 app/src/main/res/drawable/bg_hg_series_bar.xml
 app/src/main/res/drawable/ic_hg_back.xml
+app/src/main/res/drawable/ic_hg_home.xml
+app/src/main/res/drawable/ic_hg_mine.xml
 app/src/main/res/drawable/ic_hg_close.xml
 app/src/main/res/drawable/ic_hg_comment.xml
 app/src/main/res/drawable/ic_hg_fullscreen.xml
@@ -141,14 +144,14 @@ lm = cut_exact(lm, """        if (HongguoLoginProvider.ID.equals(providerId)) {
 lines = lm.split("\n")
 
 # ---- LoginManager：loginHongguo 实例方法（含 javadoc）整段删 ----
-i = find_line(lines, "弹红果网页登录框：走壳子统一弹窗", "loginHongguo javadoc")
+i = find_line(lines, "弹红果原生短信登录页（{@link HongguoSmsLoginDialog}", "loginHongguo javadoc")
 j = find_line(lines, "    private void openMethod", "openMethod")
 if not (i < j and lines[i - 1].strip() == "/**"):
     sys.exit("python: loginHongguo 段落形状对不上")
 lines = lines[:i - 1] + lines[j:]
 
 # ---- LoginManager：红果静态桥整段删（loginHongguo 起、QQ 静态桥 javadoc 止） ----
-i = find_line(lines, "弹壳子统一的红果网页登录框（异步）", "loginHongguo 静态桥 javadoc")
+i = find_line(lines, "弹红果原生短信登录页（异步）", "loginHongguo 静态桥 javadoc")
 j = find_line(lines, "QQ 是否已登录（托管 Cookie 含账号标识＋音乐钥匙）", "QQ 静态桥 javadoc")
 if not (i < j and lines[i].strip().startswith("/**") and lines[j].strip().startswith("/**")):
     sys.exit("python: 红果静态桥段落形状对不上")
@@ -178,6 +181,15 @@ home = cut_exact(home, """        if (itemId == R.id.hongguo) {
             return true;
         }
 """, "短剧格点击分发支")
+home = cut_exact(home, """        // 红果「启动直达短剧」（抽屉开关，他亲定名）：冷启从桌面进来且开关开着，
+        // 直接落红果刷剧页；首页不关、留在任务栈底下，刷剧页按返回就落回首页。
+        if (savedInstanceState == null && isHongguoTabEnabled()
+                && Intent.ACTION_MAIN.equals(getIntent() == null ? null : getIntent().getAction())
+                && com.fongmi.android.tv.hongguo.ui.HgStore.isLaunchDirect()) {
+            HongguoFeedActivity.start(this);
+            overridePendingTransition(R.anim.xc_tab_fade_in, R.anim.xc_tab_fade_out);
+        }
+""", "启动直达短剧块")
 hlines = home.split("\n")
 k = find_line(hlines, "    private boolean isHongguoTabEnabled() {", "isHongguoTabEnabled")
 if hlines[k + 1].strip() != "return true;":
@@ -194,11 +206,7 @@ manifest = cut_exact(manifest, """        <!-- 红果刷剧页（三阶段）：
              ＋configChanges 全套自管，横屏观看在本窗内转 90°（HongguoFeedActivity
              的 landMode），不许再开真转窗口的横屏页（旧 HongguoLandActivity 已删）。 -->
 """, "刷剧页登记注释")
-manifest = cut_exact(manifest, """        <!-- 红果「我的」集合页与列表页（四阶段）：☰ 侧口落点与追更/收藏/历史三页 -->
-""", "集合页登记注释")
-manifest = cut_exact(manifest, """        <!-- 红果剧场找剧页（五阶段）：☰ 集合页进入，海报网格走 bookmall/category 真数据面 -->
-""", "剧场页登记注释")
-for name in ("HongguoFeedActivity", "HongguoSearchActivity", "HgLibraryActivity", "HgListActivity", "HgTheaterActivity"):
+for name in ("HongguoFeedActivity", "HongguoSearchActivity"):
     pattern = r"<activity\s+android:name=\"com\.fongmi\.android\.tv\.hongguo\.ui\." + name + r"\"[^>]*/>"
     manifest, n = re.subn(pattern, "", manifest)
     if n != 1:
@@ -215,13 +223,13 @@ sed -i "/<string name=\"nav_duanju\">/d" "$MSTRINGS"
 
 # ---- 本体文件整删 ----
 rm -rf "$HGPKG" "$HGTEST"
-rm "$PROVIDER" "$STREAM"
+rm "$PROVIDER" "$STREAM" "$SMSDIALOG"
 for f in $RES_FILES; do
   rm "$f"
 done
 
 # ---- 复查一：本功能专属标识全树零残留（共用件的泛 Hongguo 字样不在此列，见文件头白名单） ----
-if grep -rn -E "com\.fongmi\.android\.tv\.hongguo|HongguoFeedActivity|HongguoSearchActivity|HgLibraryActivity|HgListActivity|HgTheaterActivity|HongguoLoginProvider|loginHongguo|isHongguoLoggedIn|getHongguoCookie|logoutHongguo|HongguoStream|ic_nav_duanju|nav_duanju" app/src/main app/src/mobile app/src/leanback app/src/test --include=*.java --include=*.xml; then
+if grep -rn -E "com\.fongmi\.android\.tv\.hongguo|HongguoFeedActivity|HongguoSearchActivity|HgLibraryActivity|HgListActivity|HgTheaterActivity|HongguoLoginProvider|HongguoSmsLoginDialog|loginHongguo|isHongguoLoggedIn|getHongguoCookie|logoutHongguo|HongguoStream|ic_nav_duanju|nav_duanju" app/src/main app/src/mobile app/src/leanback app/src/test --include=*.java --include=*.xml; then
   fail "删完后仍有红果本功能残留"
 fi
 

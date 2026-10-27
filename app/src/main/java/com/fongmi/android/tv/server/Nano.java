@@ -7,6 +7,7 @@ import com.fongmi.android.tv.server.process.Action;
 import com.fongmi.android.tv.server.process.Cache;
 import com.fongmi.android.tv.server.process.DebugLogs;
 import com.fongmi.android.tv.server.process.DriveCheck;
+import com.fongmi.android.tv.server.process.HongguoStream;
 import com.fongmi.android.tv.server.process.Local;
 import com.fongmi.android.tv.server.process.M3u8;
 import com.fongmi.android.tv.server.process.Manage;
@@ -48,6 +49,7 @@ public class Nano extends NanoHTTPD {
         process.add(new Cache());
         process.add(new DebugLogs());
         process.add(new DriveCheck());
+        process.add(new HongguoStream());
         process.add(new Local());
         process.add(new M3u8());
         process.add(new Manage());

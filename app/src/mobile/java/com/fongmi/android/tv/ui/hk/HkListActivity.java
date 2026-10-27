@@ -1308,6 +1308,9 @@ public class HkListActivity extends AppCompatActivity
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         ensureStatics();
+        // 照原版 MainActivity.initBackgroundTaskNotImportant 的机会性清理：
+        // #autoCache# 页缓存过期/超量在此顺手清（clearCache 内部异步、幂等）。
+        HkAutoCacheUtil.clearCache(this);
         // 照原版 initView 的规则摄入顺序：Intent "data" → 静态槽 → 缓存文件，全空走回收提示退出
         String data = getIntent().getStringExtra("data");
         if (TextUtils.isEmpty(data)) {

@@ -14,6 +14,7 @@ import java.lang.reflect.Type;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -62,8 +63,10 @@ public class HkAutoCacheUtil {
 
     private static final Gson GSON = new Gson();
     private static final Type ITEM_LIST_TYPE = new TypeToken<List<HkItem>>() {}.getType();
-    /** clearCache 的过期线：原版常量 0x240c8400 毫秒 = 7 天。 */
-    private static final long EXPIRE_MS = 604_800_000L;
+    /** clearCache 的过期线：原版常量 0x4d3f6400 毫秒 = 15 天。 */
+    private static final long EXPIRE_MS = 1_296_000_000L;
+    /** clearCache 的文件数上限：原版常量 0xc8 = 200，超出只留修改时间最新的 200 个。 */
+    private static final int MAX_FILES = 200;
 
     /** 对应原版 initAutoCacheMd5：链接含 #autoCache# 或 #cacheOnly# 才生成键，否则 null。 */
     public static String initAutoCacheMd5(String title, String url) {
@@ -148,17 +151,34 @@ public class HkAutoCacheUtil {
         });
     }
 
-    /** 对应原版 clearCache：异步删掉 pages 目录里超过 7 天的缓存文件。 */
+    /**
+     * 对应原版 clearCache（AutoCacheUtilKt 源行 113-129，异步走 HeavyTaskUtil；
+     * 原版由 MainActivity.initBackgroundTaskNotImportant 在启动后台任务里调用，
+     * 星辰接线点在 HkListActivity.onCreate）：先删修改时间超过 15 天的文件（目录跳过），
+     * 再重列目录，文件数超过 200 时按修改时间降序排序、删掉最新 200 个之外的全部。
+     */
     public static void clearCache(Context context) {
         if (context == null) return;
         final Context appContext = context.getApplicationContext();
         Task.execute(() -> {
             try {
-                File[] files = getCacheDir(appContext).listFiles();
-                if (files == null) return;
-                long cutoff = System.currentTimeMillis() - EXPIRE_MS;
-                for (File file : files) {
-                    if (file.lastModified() < cutoff) file.delete();
+                File dir = getCacheDir(appContext);
+                File[] files = dir.listFiles();
+                if (files != null) {
+                    long now = System.currentTimeMillis();
+                    for (File file : files) {
+                        if (now - file.lastModified() > EXPIRE_MS && !file.isDirectory()) {
+                            file.delete();
+                        }
+                    }
+                }
+                File[] rest = dir.listFiles();
+                if (rest != null && rest.length > MAX_FILES) {
+                    List<File> list = new ArrayList<>(Arrays.asList(rest));
+                    list.sort((a, b) -> Long.compare(b.lastModified(), a.lastModified()));
+                    for (int i = MAX_FILES; i < list.size(); i++) {
+                        list.get(i).delete();
+                    }
                 }
             } catch (Exception ignored) {
             }

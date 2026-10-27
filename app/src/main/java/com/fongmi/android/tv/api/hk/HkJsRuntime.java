@@ -4009,8 +4009,31 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             return null;
         });
         putFunction("png2Ts", args -> {
-            // 8.83 JSEngine.png2Ts：星辰无此转码能力，空实现（回空串）。
-            return "";
+            // 8.83 JSEngine.png2Ts(Object c, Object headers)（smali 21180，注解标 VOID 但实际回 String）：
+            // url 空抛 RuntimeException("参数不能为空")；先清 _cache 缓存目录（原版异步清，星辰同步清小目录）；
+            // http 地址：按扩展名（无则 png）拼 hiker://files/_cache/<md5(url)>.<ext> 落盘点（已存在先删），
+            // 带 headers 下载，下成回 png2Ts(落盘路径)、下不成回原 url；非 http：本地文件不存在回原 url、
+            // 存在回 png2Ts(路径)。png2Ts 本体见 png2TsFile（FileUtil.png2Ts 逐条转写）。
+            String url = args != null && args.length > 0 ? getString(args[0]) : null;
+            if (TextUtils.isEmpty(url)) throw new RuntimeException("参数不能为空");
+            clearHkCacheDir();
+            if (url.startsWith("http")) {
+                String ext = extensionOf(url);
+                if (TextUtils.isEmpty(ext)) ext = "png";
+                String dest = resolveHikerPath("hiker://files/_cache/" + md5(url) + "." + ext);
+                File old = new File(dest);
+                if (old.exists()) old.delete();
+                try {
+                    String headers = args.length > 1 && args[1] != null ? stringifyArg(args[1]) : "{}";
+                    downloadToFile(url, dest, headers);
+                } catch (Throwable t) {
+                    return url;
+                }
+                return png2TsFile(dest);
+            }
+            String local = resolveHikerPath(url);
+            if (!new File(local).exists()) return url;
+            return png2TsFile(local);
         });
 
         // ---- $ 工具集：由 init 注入的官方 v6 版 Hikerurl.js 提供（$ 本体/$.require/$.toString/lazyRule），
@@ -5121,6 +5144,86 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             if (e instanceof RuntimeException && String.valueOf(e.getMessage()).startsWith("下载文件失败")) throw (RuntimeException) e;
             throw new RuntimeException("下载文件失败：" + e.getMessage());
         }
+    }
+
+    /** png2Ts 前置：清 hiker://files/_cache 目录内容（原版 FilesUtilsKt.clearCacheDir 为异步清，星辰同步清）。 */
+    private void clearHkCacheDir() {
+        try {
+            File dir = new File(resolveHikerPath("hiker://files/_cache"));
+            File[] files = dir.listFiles();
+            if (files != null) {
+                for (File f : files) deleteRecursively(f);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static void deleteRecursively(File file) {
+        if (file == null) return;
+        if (file.isDirectory()) {
+            File[] children = file.listFiles();
+            if (children != null) {
+                for (File child : children) deleteRecursively(child);
+            }
+        }
+        file.delete();
+    }
+
+    /** FileUtil.getExtension 的口径：去 ? 查询与 ## 段后，取末段路径里最后一个点之后的串，无点回空串。 */
+    private static String extensionOf(String url) {
+        String s = url;
+        int q = s.indexOf('?');
+        if (q >= 0) s = s.substring(0, q);
+        int h = s.indexOf("##");
+        if (h >= 0) s = s.substring(0, h);
+        int slash = s.lastIndexOf('/');
+        if (slash >= 0) s = s.substring(slash + 1);
+        int dot = s.lastIndexOf('.');
+        return dot >= 0 ? s.substring(dot + 1) : "";
+    }
+
+    /**
+     * 8.83 FileUtil.png2Ts(path) 的逐条转写（smali_classes2 utils/FileUtil 2838）：
+     * 输出路径＝原路径换扩展为 .ts（已存在先删）；仅解 bounds 取 mime——image/png 跳前 8 字节、
+     * image/bmp 跳前 14 字节，其余 mime 或解 bounds 异常直接回原路径；拷贝（1MB 缓冲）到 .ts 后
+     * 回 .ts 路径，拷贝出错记日志仍回 .ts 路径。原理：剥掉图片文件头，余下字节流当 TS 喂播放器。
+     */
+    private String png2TsFile(String path) {
+        int dot = path.lastIndexOf('.');
+        int slash = path.lastIndexOf('/');
+        String tsPath = dot > slash && dot > 0 ? path.substring(0, dot) + ".ts" : path + ".ts";
+        File ts = new File(tsPath);
+        if (ts.exists()) ts.delete();
+        android.graphics.BitmapFactory.Options options = new android.graphics.BitmapFactory.Options();
+        options.inJustDecodeBounds = true;
+        try {
+            android.graphics.BitmapFactory.decodeFile(path, options);
+        } catch (Throwable t) {
+            return path;
+        }
+        long skip;
+        if ("image/png".equals(options.outMimeType)) {
+            skip = 8;
+        } else if ("image/bmp".equals(options.outMimeType)) {
+            skip = 14;
+        } else {
+            return path;
+        }
+        try (java.io.InputStream in = new java.io.FileInputStream(path);
+             java.io.OutputStream out = new java.io.FileOutputStream(ts)) {
+            long remaining = skip;
+            while (remaining > 0) {
+                long skipped = in.skip(remaining);
+                if (skipped <= 0) break;
+                remaining -= skipped;
+            }
+            byte[] buffer = new byte[1024 * 1024];
+            int n;
+            while ((n = in.read(buffer)) > 0) out.write(buffer, 0, n);
+        } catch (Throwable t) {
+            Logger.t(TAG).e(t, "png2Ts copy failed: %s", path);
+        }
+        return tsPath;
     }
 
     /**

@@ -89,23 +89,34 @@ public class HgOfflineTest {
                     "实际=" + (m360 == null ? null : m360.getFileHash()));
         }
 
-        // 4) 请求构造形状（第八节口径）
-        com.google.gson.JsonObject body = com.fongmi.android.tv.hongguo.api.HgRequests.multiVideoModelBody(
-                java.util.List.of("7694897951721655320", "7694897951721655321"),
-                new com.fongmi.android.tv.hongguo.api.HgRequests.NovelCommonParam());
-        com.google.gson.JsonObject mp = body.getAsJsonObject("mixed_video_id_map");
-        check("请求体 mixed_video_id_map 键=1024 且含两集",
-                mp != null && mp.has("1024") && mp.getAsJsonArray("1024").size() == 2,
+        // 4) 请求构造形状（openhongguo 口径，定罪账 openhongguo-dig-20261028 §3/§4：
+        //    旧 multi 体 platform=1024/content_type=1004 已废弃，取址三体逐字对齐）
+        com.google.gson.JsonObject body = com.fongmi.android.tv.hongguo.api.HgRequests.playbackBody(
+                "7694897951721655320");
+        com.google.gson.JsonObject pbiz = body.getAsJsonObject("biz_param");
+        check("playback 体 video_id",
+                "7694897951721655320".equals(body.get("video_id").getAsString()), "实际=" + body);
+        check("playback 体 biz 仅三字段且 platform=3",
+                pbiz != null && pbiz.size() == 3 && pbiz.get("video_platform").getAsInt() == 3
+                        && pbiz.get("video_id_type").getAsInt() == 0
+                        && pbiz.get("need_all_video_definition").getAsBoolean(),
                 "实际=" + body);
-        check("请求体 biz_param.video_platform=1024",
-                body.getAsJsonObject("biz_param").get("video_platform").getAsInt() == 1024, null);
-        check("请求体 content_type=1004", body.get("content_type").getAsInt() == 1004, null);
-        com.google.gson.JsonObject v2 = com.fongmi.android.tv.hongguo.api.HgRequests.multiVideoModelV2Body(
-                java.util.List.of("7694897951721655320"), "default",
-                new com.fongmi.android.tv.hongguo.api.HgRequests.NovelCommonParam());
-        check("V2 请求体带 dr_scene 且无 content_type/video_id",
-                "default".equals(v2.get("dr_scene").getAsString()) && !v2.has("content_type") && !v2.has("video_id"),
-                "实际=" + v2);
+        check("playback 体无 content_type/mixed_video_id_map",
+                !body.has("content_type") && !body.has("mixed_video_id_map"), "实际=" + body);
+        com.google.gson.JsonObject sb = com.fongmi.android.tv.hongguo.api.HgRequests.seriesBody("7694653385668037657");
+        com.google.gson.JsonObject sbiz = sb.getAsJsonObject("biz_param");
+        check("series 体 series_id＋biz 口径（source=4/type=1/single_col）",
+                "7694653385668037657".equals(sb.get("series_id").getAsString())
+                        && sbiz.get("source").getAsInt() == 4 && sbiz.get("video_id_type").getAsInt() == 1
+                        && "single_col".equals(sbiz.get("caller_scene").getAsString()),
+                "实际=" + sb);
+        com.google.gson.JsonObject bb = com.fongmi.android.tv.hongguo.api.HgRequests.seriesBatchBody(
+                java.util.List.of("111", "222"));
+        check("batch 体 series_id 逗号拼＋dr_scene=player＋source=7",
+                "111,222".equals(bb.get("series_id").getAsString())
+                        && "player".equals(bb.get("dr_scene").getAsString())
+                        && bb.getAsJsonObject("biz_param").get("source").getAsInt() == 7,
+                "实际=" + bb);
         // 5) 单集 video_model 解析（兜底路）：用存档 multi 回包的单集 wrap
         //    重塑成单集回包形状 {data:{video_model,video_width,video_height}}，
         //    数据是真的、只换外层包法，验新解析器吃得对不对。

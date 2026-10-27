@@ -20,7 +20,11 @@ public final class MediaType { public static MediaType parse(String s){ return n
 EOF
 cat > "$WORK/stub/okhttp3/RequestBody.java" << 'EOF'
 package okhttp3;
-public class RequestBody { public static RequestBody create(MediaType t, String c){ return new RequestBody(); } }
+public class RequestBody {
+  public static RequestBody create(MediaType t, String c){ return new RequestBody(); }
+  public static RequestBody create(String c, MediaType t){ return new RequestBody(); }
+  public static RequestBody create(byte[] c, MediaType t){ return new RequestBody(); }
+}
 EOF
 cat > "$WORK/stub/okhttp3/ResponseBody.java" << 'EOF'
 package okhttp3;
@@ -39,7 +43,8 @@ package okhttp3;
 import java.io.Closeable;
 public class Response implements Closeable {
   public ResponseBody body(){ return null; } public boolean isSuccessful(){ return true; }
-  public int code(){ return 200; } public String header(String n){ return null; } public void close(){} }
+  public int code(){ return 200; } public String header(String n){ return null; }
+  public java.util.List<String> headers(String n){ return java.util.Collections.emptyList(); } public void close(){} }
 EOF
 cat > "$WORK/stub/okhttp3/Callback.java" << 'EOF'
 package okhttp3;
@@ -146,12 +151,14 @@ find "$ROOT/app/src/main/java/com/fongmi/android/tv/hongguo" -path '*/hongguo/ui
 echo "$ROOT/app/src/main/java/com/fongmi/android/tv/api/FqCommentSigner.java" >> "$WORK/srcs.txt"
 echo "$ROOT/app/src/main/java/com/fongmi/android/tv/hongguo/ui/HgPlayResolver.java" >> "$WORK/srcs.txt"
 echo "$ROOT/app/src/test/hongguo/HgOfflineTest.java" >> "$WORK/srcs.txt"
+echo "$ROOT/app/src/test/hongguo/HgSignTest.java" >> "$WORK/srcs.txt"
 echo "$ROOT/app/src/test/hongguo/HgResolverRaceTest.java" >> "$WORK/srcs.txt"
 echo "$ROOT/app/src/test/hongguo/HgProxyOfflineTest.java" >> "$WORK/srcs.txt"
 echo "$ROOT/app/src/test/hongguo/HgInteractionTest.java" >> "$WORK/srcs.txt"
 echo "$ROOT/app/src/test/hongguo/HgTestServer.java" >> "$WORK/srcs.txt"
 "$JAVAC" -encoding UTF-8 -cp "$GSON" -d "$WORK/out" @"$WORK/srcs.txt"
 "$JAVA" -Dfile.encoding=UTF-8 -cp "$WORK/out:$GSON" HgOfflineTest
+"$JAVA" -Dfile.encoding=UTF-8 -cp "$WORK/out:$GSON" HgSignTest
 "$JAVA" -Dfile.encoding=UTF-8 -cp "$WORK/out:$GSON" HgProxyOfflineTest "$WORK/proxy_full.mp4"
 (cd "$ROOT" && "$JAVA" -Dfile.encoding=UTF-8 -cp "$WORK/out:$GSON" HgInteractionTest)
 "$JAVA" -Dfile.encoding=UTF-8 -cp "$WORK/out:$GSON" HgResolverRaceTest

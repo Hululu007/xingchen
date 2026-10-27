@@ -169,7 +169,8 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             HgFeedAdapter.Holder h = currentHolder();
             if (h != null) {
                 h.binding.hgCover.setVisibility(View.VISIBLE);
-                h.binding.hgError.setVisibility(View.VISIBLE);
+                // 播放器环失败记编号 P（诊断用，定罪后撤）
+                showErrorWithCode(h, "P");
             }
         }
     };
@@ -456,6 +457,15 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         return -1;
     }
 
+    /** 点亮错误片；code 为失败出口编号（E1–E5／播放器环 P），带上屏方便定罪（诊断用，定罪后撤）。 */
+    private void showErrorWithCode(HgFeedAdapter.Holder holder, String code) {
+        if (holder == null) return;
+        holder.binding.hgError.setText(code == null || code.isEmpty()
+                ? "加载失败，点按重试"
+                : "加载失败（" + code + "），点按重试");
+        holder.binding.hgError.setVisibility(View.VISIBLE);
+    }
+
     private void startCurrentPlayback() {
         if (currentPos < 0 || currentPos >= session.items.size()) return;
         HgFeedItem item = session.items.get(currentPos);
@@ -475,10 +485,10 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             }
 
             @Override
-            public void onFailed(String vid, String message) {
+            public void onFailed(String vid, String code, String message) {
                 if (!vid.equals(currentVideoId())) return;
-                HgFeedAdapter.Holder holder = currentHolder();
-                if (holder != null) holder.binding.hgError.setVisibility(View.VISIBLE);
+                // 编号随失败回调带到落片处；vid 校验在上一行，迟到失败不串条目
+                showErrorWithCode(currentHolder(), code);
             }
         });
     }

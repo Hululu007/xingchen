@@ -2,6 +2,7 @@ package com.fongmi.android.tv.hongguo.ui;
 
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 
 import com.fongmi.android.tv.hongguo.api.HgApiClient;
 import com.fongmi.android.tv.hongguo.api.HgCallback;
@@ -36,7 +37,33 @@ public final class HgPlayResolver {
     public interface Listener {
         void onReady(String videoId, String localUrl, int videoWidth, int videoHeight);
 
-        void onFailed(String videoId, String message);
+        /**
+         * 解链失败。code 是失败出口编号（E1–E5，见 resolveSync 各出口；
+         * 异常等编号外失败为 null）——纯诊断用（定罪账 clip-play-fail-20261028
+         * 候选 4），定罪后撤。
+         */
+        void onFailed(String videoId, String code, String message);
+    }
+
+    private static final String TAG = "HgApi";
+
+    /** 解链结果：url 非空为成功；失败带出口编号（诊断用，定罪后撤）。 */
+    private static final class Outcome {
+        final String url;
+        final String code;
+
+        private Outcome(String url, String code) {
+            this.url = url;
+            this.code = code;
+        }
+
+        static Outcome ok(String url) {
+            return new Outcome(url, null);
+        }
+
+        static Outcome fail(String code) {
+            return new Outcome(null, code);
+        }
     }
 
     private final HgApiClient client;
@@ -64,7 +91,7 @@ public final class HgPlayResolver {
     /** 解链并注册流；已备好直接回。listener 可为 null（只预备不播）。 */
     public void resolve(String videoId, Listener listener) {
         if (videoId == null) {
-            if (listener != null) fail(listener, videoId, "videoId 为空");
+            if (listener != null) fail(listener, videoId, null, "videoId 为空");
             return;
         }
         String ready = urlByVideo.get(videoId);
@@ -80,19 +107,23 @@ public final class HgPlayResolver {
         if (!resolving.add(videoId)) return; // 已在解，页面 settle 时会再查 readyUrl
         worker.execute(() -> {
             try {
-                String url = resolveSync(videoId);
+                Outcome outcome = resolveSync(videoId);
                 resolving.remove(videoId);
-                if (url == null) {
-                    if (listener != null) fail(listener, videoId, "解链失败");
+                if (outcome.url == null) {
+                    // 失败出口编号同步进日志（诊断用，定罪后撤）
+                    Log.e(TAG, "resolveSync " + videoId + " 失败出口 " + outcome.code);
+                    if (listener != null) fail(listener, videoId, outcome.code, "解链失败");
                 } else if (listener != null) {
                     HgVideoModel m = cache.getFresh(videoId);
                     int w = m == null ? 0 : m.getVideoWidth();
                     int h = m == null ? 0 : m.getVideoHeight();
+                    String url = outcome.url;
                     main.post(() -> listener.onReady(videoId, url, w, h));
                 }
             } catch (Exception e) {
                 resolving.remove(videoId);
-                if (listener != null) fail(listener, videoId, e.getMessage());
+                Log.e(TAG, "resolveSync " + videoId + " 异常: " + e);
+                if (listener != null) fail(listener, videoId, null, e.getMessage());
             }
         });
     }
@@ -121,39 +152,44 @@ public final class HgPlayResolver {
         urlByVideo.clear();
     }
 
-    private void fail(Listener listener, String videoId, String message) {
-        main.post(() -> listener.onFailed(videoId, message == null ? "解链失败" : message));
+    private void fail(Listener listener, String videoId, String code, String message) {
+        main.post(() -> listener.onFailed(videoId, code, message == null ? "解链失败" : message));
     }
 
     // ---------- 后台线程同步解链（网络等待用锁，不占主线程） ----------
 
-    private String resolveSync(String videoId) throws Exception {
+    /**
+     * 同步解链。失败出口编号（诊断用，定罪后撤）：E1 取模型全灭（multi＋单集口
+     * 3 次皆失败）；E2 模型无可播条目；E3 明文链拿不到且 fplay 兜底也空；
+     * E4 fromEntry 判死（无 spade_a 推不出 DEK，不分加密与否）；E5 注册流失败。
+     */
+    private Outcome resolveSync(String videoId) throws Exception {
         HgVideoModel model = cache.getFresh(videoId);
         if (model == null) model = fetchModel(videoId);
-        if (model == null) return null;
+        if (model == null) return Outcome.fail("E1");
         cache.put(videoId, model);
         HgVideoEntry entry = model.firstPlayableEntry();
-        if (entry == null) return null;
+        if (entry == null) return Outcome.fail("E2");
         String plain = plainUrl(model, entry);
         if (plain == null) {
             // multi 形态 main_url 为明文时走不到这；加密且无 key_seed 时经 fallback_api 换 fplay 形态重试
             HgVideoModel fplay = fetchFallback(model);
-            if (fplay == null) return null;
+            if (fplay == null) return Outcome.fail("E3");
             cache.put(videoId, fplay);
             entry = fplay.firstPlayableEntry();
-            if (entry == null) return null;
+            if (entry == null) return Outcome.fail("E2");
             plain = plainUrl(fplay, entry);
-            if (plain == null) return null;
+            if (plain == null) return Outcome.fail("E3");
         }
         HgStreamSpec spec = HgStreamSpec.fromEntry(plain, entry, videoId);
-        if (spec == null) return null; // 无 spade_a 推不出 DEK
+        if (spec == null) return Outcome.fail("E4"); // 无 spade_a 推不出 DEK
         String token = registry.register(spec);
-        if (token == null) return null;
+        if (token == null) return Outcome.fail("E5");
         tokenByVideo.put(videoId, token);
         String local = Server.get().getAddress(true) + registry.playbackPath(token);
         urlByVideo.put(videoId, local);
         registry.warmAsync(token);
-        return local;
+        return Outcome.ok(local);
     }
 
     /** 明文链直用；加密链用本回包 key_seed 解；缺 key_seed 返回 null 交上层走 fallback。 */

@@ -264,6 +264,47 @@ public class HgOfflineTest {
             check("联想纯词表回落", plainSugs.size() == 2 && "甲剧".equals(plainSugs.get(0).getText()), null);
         }
 
+        // 14) 弹幕窗解析（2026-10-28 匿名实拉三窗真回包，danmaku-dig-20261028.md）：
+        // 首窗 [0,30000) 81 条、offset 全落在窗内、下一窗起点=30000、游标非空；
+        // 次窗 [30000,60000) 87 条、offset 下界 ≥30000
+        {
+            String probeDir = dir + "tabprobe-20261028/";
+            String w1raw = Files.readString(Paths.get(probeDir + "resp_full-guide-types.json"));
+            com.fongmi.android.tv.hongguo.model.HgDanmaku.Window w1 =
+                    com.fongmi.android.tv.hongguo.api.HgCommentParser.parseDanmakuWindow(w1raw);
+            check("弹幕首窗解析非空", w1 != null, null);
+            check("弹幕首窗 81 条", w1 != null && w1.items.size() == 81,
+                    "实际=" + (w1 == null ? -1 : w1.items.size()));
+            boolean inWindow = w1 != null;
+            if (w1 != null) for (com.fongmi.android.tv.hongguo.model.HgDanmaku dm : w1.items) {
+                if (dm.offsetTimeMs < 0 || dm.offsetTimeMs >= 30000 || dm.text == null || dm.text.isEmpty()) inWindow = false;
+            }
+            check("弹幕首窗 offset 全在 [0,30000) 且正文非空", inWindow, null);
+            check("弹幕首窗下一窗起点=30000", w1 != null && w1.nextQueryTimeMs == 30000,
+                    "实际=" + (w1 == null ? -1 : w1.nextQueryTimeMs));
+            check("弹幕首窗游标非空", w1 != null && w1.cursor != null && w1.cursor.contains("danmaku_count"), null);
+            String w2raw = Files.readString(Paths.get(probeDir + "resp_mid-window-30s.json"));
+            com.fongmi.android.tv.hongguo.model.HgDanmaku.Window w2 =
+                    com.fongmi.android.tv.hongguo.api.HgCommentParser.parseDanmakuWindow(w2raw);
+            check("弹幕次窗解析非空", w2 != null, null);
+            boolean w2ok = w2 != null && !w2.items.isEmpty();
+            if (w2 != null) for (com.fongmi.android.tv.hongguo.model.HgDanmaku dm : w2.items) {
+                if (dm.offsetTimeMs < 30000 || dm.offsetTimeMs >= 60000) w2ok = false;
+            }
+            check("弹幕次窗 offset 全在 [30000,60000)", w2ok,
+                    "条数=" + (w2 == null ? -1 : w2.items.size()));
+            com.google.gson.JsonObject dp = com.fongmi.android.tv.hongguo.api.HgCommentClient
+                    .danmakuPayload("7697561772433099800", "7697606592786598936", 30000, 82000, "cur");
+            check("弹幕档 payload 枚举与窗参", dp.get("comment_source").getAsInt() == 601
+                            && dp.get("server_channel").getAsInt() == 1000
+                            && dp.get("comment_type").getAsInt() == 20
+                            && dp.get("count").getAsInt() == 90
+                            && dp.getAsJsonObject("business_param").get("start_offset_time").getAsLong() == 30000
+                            && dp.getAsJsonObject("business_param").get("playlet_item_duration").getAsLong() == 82000
+                            && dp.getAsJsonObject("business_param").getAsJsonArray("need_danmaku_guide_type").size() == 4,
+                    null);
+        }
+
         System.out.println(fail == 0 ? "ALL PASS" : ("FAILURES=" + fail));
         System.exit(fail == 0 ? 0 : 1);
     }

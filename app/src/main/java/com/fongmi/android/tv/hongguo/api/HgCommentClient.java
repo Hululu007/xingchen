@@ -150,6 +150,61 @@ public final class HgCommentClient {
         });
     }
 
+    /**
+     * 弹幕档请求体（挖掘账 danmaku-dig-20261028.md 定版）：与单集评论同端点，
+     * 换弹幕档枚举（source 601／channel 1000／type 20）＋时间窗三件套
+     * （start_offset_time＝播放位置毫秒、playlet_item_duration＝本集时长毫秒、
+     * need_danmaku_guide_type 全档）；end_offset_time 不传、服务端切 30 秒窗。
+     */
+    public static JsonObject danmakuPayload(String seriesId, String vid, long startOffsetMs,
+                                            long durationMs, String cursor) {
+        JsonObject payload = new JsonObject();
+        payload.addProperty("comment_source", 601);
+        payload.addProperty("server_channel", 1000);
+        payload.addProperty("group_id", vid);
+        payload.addProperty("group_type", 30);
+        payload.addProperty("comment_type", 20);
+        payload.addProperty("sort", 1);
+        payload.addProperty("count", 90);
+        payload.addProperty("cursor", cursor == null ? "" : cursor);
+        payload.addProperty("aid", 8662);
+        payload.addProperty("compliance_status", 0);
+        JsonObject business = new JsonObject();
+        business.addProperty("book_id", seriesId);
+        business.addProperty("start_offset_time", Math.max(0, startOffsetMs));
+        if (durationMs > 0) business.addProperty("playlet_item_duration", durationMs);
+        com.google.gson.JsonArray guides = new com.google.gson.JsonArray();
+        guides.add(1);
+        guides.add(3);
+        guides.add(4);
+        guides.add(2);
+        business.add("need_danmaku_guide_type", guides);
+        payload.add("business_param", business);
+        return payload;
+    }
+
+    /** 弹幕一窗：startOffsetMs 为本窗起点（窗界由服务端定），cursor 续拉原样回传。 */
+    public void episodeDanmaku(String seriesId, String vid, long startOffsetMs, long durationMs,
+                               String cursor, HgCallback<com.fongmi.android.tv.hongguo.model.HgDanmaku.Window> cb) {
+        if (!isId(seriesId) || !isId(vid)) {
+            cb.onError(-1, "id 非法");
+            return;
+        }
+        post("comment/list/" + vid, danmakuPayload(seriesId, vid, startOffsetMs, durationMs, cursor), 601, 1000, new TextCallback() {
+            @Override
+            void onText(String text) {
+                com.fongmi.android.tv.hongguo.model.HgDanmaku.Window w = HgCommentParser.parseDanmakuWindow(text);
+                if (w == null) cb.onError(-2, "弹幕回包解析失败");
+                else cb.onSuccess(w);
+            }
+
+            @Override
+            void onFail(int code, String msg) {
+                cb.onError(code, msg);
+            }
+        });
+    }
+
     /** 整剧剧评一页。 */
     public void seriesComments(String seriesId, String cursor, HgCallback<HgComment.Page> cb) {
         if (!isId(seriesId)) {

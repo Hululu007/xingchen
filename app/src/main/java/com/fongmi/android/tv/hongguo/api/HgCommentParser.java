@@ -203,6 +203,54 @@ public final class HgCommentParser {
         return Math.max(0, num(common, "digg_count", 0));
     }
 
+    /**
+     * 弹幕一窗解析（挖掘账 danmaku-dig-20261028.md，本机匿名实拉三窗验过形）：
+     * data_list[].comment.common.content.text 是正文，comment.expand.offset_time
+     * 是片内时刻（毫秒）；danmaku_position_type／danmaku_style 回包常缺省
+     * （缺省＝滚动白字）。续拉凭 common_list_info.cursor 原样回传，
+     * 下一窗起点看 extra.next_query_danmaku_list_time。解析失败返回 null。
+     */
+    public static com.fongmi.android.tv.hongguo.model.HgDanmaku.Window parseDanmakuWindow(String text) {
+        JsonObject result = parseRoot(text);
+        if (result == null) return null;
+        JsonObject data = obj(result, "data");
+        if (data == null) return null;
+        JsonArray rows = arr(data, "data_list");
+        if (rows == null) return null;
+        List<com.fongmi.android.tv.hongguo.model.HgDanmaku> items = new ArrayList<>();
+        for (int i = 0; i < rows.size(); i++) {
+            JsonObject row = asObj(rows.get(i));
+            JsonObject comment = row == null ? null : obj(row, "comment");
+            if (comment == null) continue;
+            JsonObject common = obj(comment, "common");
+            JsonObject content = common == null ? null : obj(common, "content");
+            String body = content == null ? "" : str(content, "text");
+            if (body.isEmpty()) continue;
+            JsonObject expand = obj(comment, "expand");
+            if (expand == null || !expand.has("offset_time")) continue;
+            long offset = num(expand, "offset_time", -1);
+            if (offset < 0) continue;
+            int posType = (int) num(expand, "danmaku_position_type", 0);
+            String color = null;
+            JsonObject style = obj(expand, "danmaku_style");
+            if (style != null) {
+                String hex = str(style, "hex");
+                if (!hex.isEmpty()) color = hex;
+            }
+            JsonObject stat = obj(comment, "stat");
+            long digg = stat == null ? 0 : num(stat, "digg_count", 0);
+            items.add(new com.fongmi.android.tv.hongguo.model.HgDanmaku(body, offset, posType, color, digg));
+        }
+        items.sort((a, b) -> Long.compare(a.offsetTimeMs, b.offsetTimeMs));
+        JsonObject info = obj(data, "common_list_info");
+        String cursor = info == null ? null : str(info, "cursor");
+        if (cursor != null && cursor.isEmpty()) cursor = null;
+        long total = info == null ? -1 : num(info, "total", -1);
+        JsonObject extra = obj(data, "extra");
+        long nextQuery = extra == null ? -1 : num(extra, "next_query_danmaku_list_time", -1);
+        return new com.fongmi.android.tv.hongguo.model.HgDanmaku.Window(items, cursor, nextQuery, total);
+    }
+
     private static String truncate(String s, int max) {
         return s.length() <= max ? s : s.substring(0, max);
     }

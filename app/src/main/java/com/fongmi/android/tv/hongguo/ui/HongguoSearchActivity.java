@@ -52,6 +52,17 @@ public class HongguoSearchActivity extends BaseActivity {
 
     @Override
     protected void initView(Bundle savedInstanceState) {
+        // 顶部搜索行留距按状态栏真实高度走 insets，不写死数值（与刷剧页同口径）
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(getWindow().getDecorView(), (v, insets) -> {
+            int top = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.statusBars()).top;
+            android.view.ViewGroup.MarginLayoutParams lp =
+                    (android.view.ViewGroup.MarginLayoutParams) binding.hgSearchTop.getLayoutParams();
+            if (lp.topMargin != top) {
+                lp.topMargin = top;
+                binding.hgSearchTop.setLayoutParams(lp);
+            }
+            return insets;
+        });
         session = HgFeedSession.get();
         adapter = new RecyclerView.Adapter<Holder>() {
             @NonNull

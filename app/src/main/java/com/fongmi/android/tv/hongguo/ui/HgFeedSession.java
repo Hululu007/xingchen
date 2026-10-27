@@ -146,6 +146,139 @@ public final class HgFeedSession {
         });
     }
 
+    /**
+     * 流里剧头定形态（短片流专用，研究账 §2.3）：拉详情只为定下这一条短片，
+     * 不把整剧集表插进流页表（与 {@link #expandHead} 的集流展开相对）。
+     * 有集表取首集为短片（vid＋集序＋作者/简介一并富集）；未上线剧
+     * （appointment 且无集）剧头原样留作预约面；详情拿不到时退化为
+     * videoId＝seriesId 的单条短片（取模型时再兜底，同旧退化口径）。
+     * changed 回调在主线程执行（-1＝无变化）。
+     */
+    public void resolveClip(int position, java.util.function.IntConsumer changed) {
+        if (position < 0 || position >= items.size()) {
+            changed.accept(-1);
+            return;
+        }
+        HgFeedItem head = items.get(position);
+        if (!head.seriesHead || head.expandTried) {
+            changed.accept(-1);
+            return;
+        }
+        head.expandTried = true;
+        HgSeriesDetail cached = details.get(head.seriesId);
+        if (cached != null) {
+            applyClip(position, head, cached);
+            changed.accept(position);
+            return;
+        }
+        client.fetchVideoDetail(head.seriesId, new HgCallback<HgSeriesDetail>() {
+            @Override
+            public void onSuccess(HgSeriesDetail detail) {
+                main.post(() -> {
+                    if (detail != null) details.put(head.seriesId, detail);
+                    int at = items.indexOf(head);
+                    if (at < 0) {
+                        changed.accept(-1);
+                        return;
+                    }
+                    applyClip(at, head, detail);
+                    changed.accept(at);
+                });
+            }
+
+            @Override
+            public void onError(int httpCode, String message) {
+                main.post(() -> {
+                    int at = items.indexOf(head);
+                    if (at < 0) {
+                        changed.accept(-1);
+                        return;
+                    }
+                    applyClip(at, head, null);
+                    changed.accept(at);
+                });
+            }
+        });
+    }
+
+    private void applyClip(int position, HgFeedItem head, HgSeriesDetail detail) {
+        String title = detail != null && detail.getTitle() != null ? detail.getTitle() : head.title;
+        HgStore.putMeta(head.seriesId, title,
+                detail != null && detail.getCoverUrl() != null ? detail.getCoverUrl() : head.coverUrl,
+                detail != null && detail.getEpisodeCount() > 0 ? detail.getEpisodeCount() : head.episodeCount);
+        String desc = detail != null && detail.getDesc() != null ? detail.getDesc() : head.desc;
+        String author = detail == null ? null : detail.getAuthorName();
+        String avatar = avatarOf(detail);
+        List<HgSeriesDetail.Episode> eps = detail == null ? null : detail.getEpisodes();
+        if ((eps == null || eps.isEmpty()) && detail != null && detail.hasAppointment()) {
+            // 未上线剧：不退化成假短片去取模型，剧头留作预约面（同 applyDetail 口径）
+            head.reservable = true;
+            head.dueStartText = detail.getDueStartText();
+            HgStore.setReserved(head.seriesId, detail.isAppointmentSubscribed());
+            items.set(position, head);
+            return;
+        }
+        if (eps == null || eps.isEmpty()) {
+            items.set(position, head.withDetail(head.seriesId, -1, author, avatar, desc));
+            return;
+        }
+        List<HgSeriesDetail.Episode> sorted = new ArrayList<>(eps);
+        sorted.sort((a, b) -> Integer.compare(
+                a.getIndex() < 0 ? Integer.MAX_VALUE : a.getIndex(),
+                b.getIndex() < 0 ? Integer.MAX_VALUE : b.getIndex()));
+        HgSeriesDetail.Episode first = sorted.get(0);
+        int idx = first.getIndex() > 0 ? first.getIndex() : 1;
+        items.set(position, head.withDetail(first.getVideoId(), idx, author, avatar, desc));
+    }
+
+    /**
+     * 短片富集：已有 vid 的短片落定时后台补详情里的作者/头像/简介
+     * （cell 面没有作者字段，账 §2.5/§3.3），只换当前页、不动页表结构。
+     * 每条只富集一次（expandTried 记账），失败静默（页面照常播）。
+     */
+    public void enrichClip(int position, java.util.function.IntConsumer changed) {
+        if (position < 0 || position >= items.size()) {
+            changed.accept(-1);
+            return;
+        }
+        HgFeedItem item = items.get(position);
+        if (!item.clip || item.expandTried || item.seriesId == null) {
+            changed.accept(-1);
+            return;
+        }
+        item.expandTried = true;
+        HgSeriesDetail cached = details.get(item.seriesId);
+        if (cached != null) {
+            items.set(position, item.withDetail(null, -1,
+                    cached.getAuthorName(), avatarOf(cached),
+                    cached.getDesc() != null ? cached.getDesc() : item.desc));
+            changed.accept(position);
+            return;
+        }
+        client.fetchVideoDetail(item.seriesId, new HgCallback<HgSeriesDetail>() {
+            @Override
+            public void onSuccess(HgSeriesDetail detail) {
+                main.post(() -> {
+                    if (detail != null) details.put(item.seriesId, detail);
+                    int at = items.indexOf(item);
+                    if (at < 0 || detail == null) {
+                        changed.accept(-1);
+                        return;
+                    }
+                    items.set(at, item.withDetail(null, -1,
+                            detail.getAuthorName(), avatarOf(detail),
+                            detail.getDesc() != null ? detail.getDesc() : item.desc));
+                    changed.accept(at);
+                });
+            }
+
+            @Override
+            public void onError(int httpCode, String message) {
+                changed.accept(-1);
+            }
+        });
+    }
+
     private void applyDetail(int position, HgFeedItem head, HgSeriesDetail detail) {
         String title = detail != null && detail.getTitle() != null ? detail.getTitle() : head.title;
         // 元信息顺手落盘：追更/收藏/历史列表页靠它显示标题封面（不另拉接口）

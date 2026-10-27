@@ -162,7 +162,11 @@ public final class HgFeedItem {
         return copy;
     }
 
-    /** 详情富集后的页：补作者/头像/简介（短片定形态与富集共用）。 */
+    /**
+     * 详情富集后的页：补作者/头像/简介（短片定形态与富集共用）。
+     * 只在短片语境调用（剧头定形态/短片富集），产物恒为短片形态；
+     * 集流的页走 {@link #episode} 工厂，不经这里。
+     */
     public HgFeedItem withDetail(String videoId, int episodeIndex, String author, String avatar,
                                  String detailDesc) {
         HgFeedItem copy = new HgFeedItem(seriesId,
@@ -172,7 +176,7 @@ public final class HgFeedItem {
                 author != null ? author : authorName,
                 avatar != null ? avatar : authorAvatar,
                 detailDesc != null ? detailDesc : desc,
-                coverUrl, videoWidth, videoHeight, false, clip,
+                coverUrl, videoWidth, videoHeight, false, true,
                 badge, recText, tags, multiSeason, albumId, albumSerialCount, siblings);
         copy.expandTried = true;
         copy.reservable = reservable;

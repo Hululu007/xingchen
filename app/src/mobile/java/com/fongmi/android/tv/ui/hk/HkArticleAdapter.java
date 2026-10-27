@@ -48,6 +48,14 @@ public abstract class HkArticleAdapter extends RecyclerView.Adapter<RecyclerView
         void onUrlClick(View view, int position, String url);
     }
 
+    /**
+     * 照抄原版 IBaseHolder（IBaseHolder.smali：getImageView()Landroid/widget/ImageView;）：
+     * onViewRecycled 据此取图清 Glide 请求；实现面与原版 23 个带图 Holder 逐个对应（见各 Holder 的 getImageView）。
+     */
+    public interface HkImageHolder {
+        ImageView getImageView();
+    }
+
     protected final List<HkItem> list;
     protected final List<List<HkItem>> polyList = new ArrayList<>();
     protected final Map<Integer, Integer> polyPositionMap = new HashMap<>();
@@ -2361,9 +2369,39 @@ public abstract class HkArticleAdapter extends RecyclerView.Adapter<RecyclerView
     @Override
     public void onViewAttachedToWindow(@NonNull RecyclerView.ViewHolder holder) {
         super.onViewAttachedToWindow(holder);
+        // 照抄原版 onViewAttachedToWindow（ArticleListAdapter.smali 第 481-485 行）：
+        // LongText 行 attach 时先禁用再启用标题，复位 AlignTextView 内部状态。
+        if (holder instanceof LongTextHolder) {
+            AlignTextView title = ((LongTextHolder) holder).title;
+            if (title != null) {
+                title.setEnabled(false);
+                title.setEnabled(true);
+            }
+        }
         // 液态玻璃：内容卡按压反馈（发亮＋微缩 6%＋回弹），不碰原版绑定逻辑；内嵌 WebView 卡不碰
         if (holder instanceof X5WebViewHolder) return;
         HkPressFeedback.attach(holder.itemView);
+    }
+
+    /**
+     * 照抄原版 onViewRecycled（ArticleListAdapter.smali 第 490-498 行）：
+     * 带图 Holder（IBaseHolder）回收时，若其图非空且宿主 Activity 未 finishing，
+     * Glide.with(context).clear(imageView) 清掉挂在该图上的请求，异常只记日志。
+     */
+    @Override
+    public void onViewRecycled(@NonNull RecyclerView.ViewHolder holder) {
+        super.onViewRecycled(holder);
+        if (holder instanceof HkImageHolder) {
+            ImageView imageView = ((HkImageHolder) holder).getImageView();
+            android.app.Activity activity = activity();
+            if (imageView != null && activity != null && !activity.isFinishing()) {
+                try {
+                    com.bumptech.glide.Glide.with(context).clear(imageView);
+                } catch (Exception e) {
+                    com.github.catvod.crawler.SpiderDebug.log("hk", "onViewRecycled clear failed: %s", e.getMessage());
+                }
+            }
+        }
     }
 
     @NonNull
@@ -2455,11 +2493,16 @@ public abstract class HkArticleAdapter extends RecyclerView.Adapter<RecyclerView
         }
     }
 
-    public static class MovieOneColHolder extends RecyclerView.ViewHolder {
+    public static class MovieOneColHolder extends RecyclerView.ViewHolder implements HkImageHolder {
         public TextView title;
         public TextView desc;
         public ImageView img;
         public View resultBg;
+        @Override
+        public ImageView getImageView() {
+            return img;
+        }
+
         public MovieOneColHolder(View itemView) {
             super(itemView);
             title = itemView.findViewById(R.id.movie_one_title);
@@ -2469,11 +2512,16 @@ public abstract class HkArticleAdapter extends RecyclerView.Adapter<RecyclerView
         }
     }
 
-    public static class MovieOneBlurColHolder extends RecyclerView.ViewHolder {
+    public static class MovieOneBlurColHolder extends RecyclerView.ViewHolder implements HkImageHolder {
         public TextView title;
         public TextView desc;
         public ImageView img;
         public View resultBg;
+        @Override
+        public ImageView getImageView() {
+            return img;
+        }
+
         public MovieOneBlurColHolder(View itemView) {
             super(itemView);
             title = itemView.findViewById(R.id.movie_one_title);
@@ -2551,12 +2599,17 @@ public abstract class HkArticleAdapter extends RecyclerView.Adapter<RecyclerView
         }
     }
 
-    public static class PicOneHolder extends RecyclerView.ViewHolder {
+    public static class PicOneHolder extends RecyclerView.ViewHolder implements HkImageHolder {
         public TextView title;
         public TextView desc;
         public ImageView img;
         public View containner;
         public View resultBg;
+        @Override
+        public ImageView getImageView() {
+            return img;
+        }
+
         public PicOneHolder(View itemView) {
             super(itemView);
             title = itemView.findViewById(R.id.reult_tools_title);
@@ -2567,28 +2620,43 @@ public abstract class HkArticleAdapter extends RecyclerView.Adapter<RecyclerView
         }
     }
 
-    public static class PicOneFullHolder extends RecyclerView.ViewHolder {
+    public static class PicOneFullHolder extends RecyclerView.ViewHolder implements HkImageHolder {
         public ImageView imgView;
+        @Override
+        public ImageView getImageView() {
+            return imgView;
+        }
+
         public PicOneFullHolder(View itemView) {
             super(itemView);
             imgView = itemView.findViewById(R.id.item_reult_img);
         }
     }
 
-    public static class PicOneCenterHolder extends RecyclerView.ViewHolder {
+    public static class PicOneCenterHolder extends RecyclerView.ViewHolder implements HkImageHolder {
         public ImageView imgView;
+        @Override
+        public ImageView getImageView() {
+            return imgView;
+        }
+
         public PicOneCenterHolder(View itemView) {
             super(itemView);
             imgView = itemView.findViewById(R.id.item_reult_img);
         }
     }
 
-    public static class PicTwoHolder extends RecyclerView.ViewHolder {
+    public static class PicTwoHolder extends RecyclerView.ViewHolder implements HkImageHolder {
         public TextView title;
         public TextView desc;
         public ImageView img;
         public RelativeLayout containner;
         public View resultBg;
+        @Override
+        public ImageView getImageView() {
+            return img;
+        }
+
         public PicTwoHolder(View itemView) {
             super(itemView);
             title = itemView.findViewById(R.id.reult_tools_title);
@@ -2599,9 +2667,14 @@ public abstract class HkArticleAdapter extends RecyclerView.Adapter<RecyclerView
         }
     }
 
-    public static class PicThreeHolder extends RecyclerView.ViewHolder {
+    public static class PicThreeHolder extends RecyclerView.ViewHolder implements HkImageHolder {
         public ImageView img;
         public View resultBg;
+        @Override
+        public ImageView getImageView() {
+            return img;
+        }
+
         public PicThreeHolder(View itemView) {
             super(itemView);
             img = itemView.findViewById(R.id.item_reult_img);
@@ -2609,10 +2682,15 @@ public abstract class HkArticleAdapter extends RecyclerView.Adapter<RecyclerView
         }
     }
 
-    public static class PicTwoCardHolder extends RecyclerView.ViewHolder {
+    public static class PicTwoCardHolder extends RecyclerView.ViewHolder implements HkImageHolder {
         public TextView title;
         public ImageView img;
         public View resultBg;
+        @Override
+        public ImageView getImageView() {
+            return img;
+        }
+
         public PicTwoCardHolder(View itemView) {
             super(itemView);
             title = itemView.findViewById(R.id.reult_tools_title);
@@ -2621,9 +2699,14 @@ public abstract class HkArticleAdapter extends RecyclerView.Adapter<RecyclerView
         }
     }
 
-    public static class PicThreeSquareHolder extends RecyclerView.ViewHolder {
+    public static class PicThreeSquareHolder extends RecyclerView.ViewHolder implements HkImageHolder {
         public ImageView img;
         public View resultBg;
+        @Override
+        public ImageView getImageView() {
+            return img;
+        }
+
         public PicThreeSquareHolder(View itemView) {
             super(itemView);
             img = itemView.findViewById(R.id.item_reult_img);
@@ -2631,19 +2714,29 @@ public abstract class HkArticleAdapter extends RecyclerView.Adapter<RecyclerView
         }
     }
 
-    public static class IconFourHolder extends RecyclerView.ViewHolder {
+    public static class IconFourHolder extends RecyclerView.ViewHolder implements HkImageHolder {
         public DrawableTextView resultBg;
+        @Override
+        public ImageView getImageView() {
+            return resultBg == null ? null : resultBg.getImageView();
+        }
+
         public IconFourHolder(View itemView) {
             super(itemView);
             resultBg = itemView.findViewById(R.id.bg);
         }
     }
 
-    public static class IconFourCardHolder extends RecyclerView.ViewHolder {
+    public static class IconFourCardHolder extends RecyclerView.ViewHolder implements HkImageHolder {
         public View resultBg;
         public ImageView img;
         public TextView textView;
         public TextView shortcut_icon_text;
+        @Override
+        public ImageView getImageView() {
+            return img;
+        }
+
         public IconFourCardHolder(View itemView) {
             super(itemView);
             resultBg = itemView.findViewById(R.id.bg);
@@ -2653,19 +2746,29 @@ public abstract class HkArticleAdapter extends RecyclerView.Adapter<RecyclerView
         }
     }
 
-    public static class IconThreeHolder extends RecyclerView.ViewHolder {
+    public static class IconThreeHolder extends RecyclerView.ViewHolder implements HkImageHolder {
         public DrawableInlineTextView resultBg;
+        @Override
+        public ImageView getImageView() {
+            return resultBg == null ? null : resultBg.getImageView();
+        }
+
         public IconThreeHolder(View itemView) {
             super(itemView);
             resultBg = itemView.findViewById(R.id.bg);
         }
     }
 
-    public static class IconThreeFillHolder extends RecyclerView.ViewHolder {
+    public static class IconThreeFillHolder extends RecyclerView.ViewHolder implements HkImageHolder {
         public View resultBg;
         public View resultBg2;
         public ImageView imageView;
         public TextView textView;
+        @Override
+        public ImageView getImageView() {
+            return imageView;
+        }
+
         public IconThreeFillHolder(View itemView) {
             super(itemView);
             resultBg = itemView.findViewById(R.id.shortcut_bg);
@@ -2675,27 +2778,42 @@ public abstract class HkArticleAdapter extends RecyclerView.Adapter<RecyclerView
         }
     }
 
-    public static class IconFourRoundHolder extends RecyclerView.ViewHolder {
+    public static class IconFourRoundHolder extends RecyclerView.ViewHolder implements HkImageHolder {
         public DrawableTextView resultBg;
+        @Override
+        public ImageView getImageView() {
+            return resultBg == null ? null : resultBg.getImageView();
+        }
+
         public IconFourRoundHolder(View itemView) {
             super(itemView);
             resultBg = itemView.findViewById(R.id.bg);
         }
     }
 
-    public static class IconFiveHolder extends RecyclerView.ViewHolder {
+    public static class IconFiveHolder extends RecyclerView.ViewHolder implements HkImageHolder {
         public DrawableTextView resultBg;
+        @Override
+        public ImageView getImageView() {
+            return resultBg == null ? null : resultBg.getImageView();
+        }
+
         public IconFiveHolder(View itemView) {
             super(itemView);
             resultBg = itemView.findViewById(R.id.bg);
         }
     }
 
-    public static class IconTwoHolder extends RecyclerView.ViewHolder {
+    public static class IconTwoHolder extends RecyclerView.ViewHolder implements HkImageHolder {
         public View resultBg;
         public View clickBg;
         public ImageView imageView;
         public TextView textView;
+        @Override
+        public ImageView getImageView() {
+            return imageView;
+        }
+
         public IconTwoHolder(View itemView) {
             super(itemView);
             resultBg = itemView.findViewById(R.id.bg);
@@ -2705,11 +2823,16 @@ public abstract class HkArticleAdapter extends RecyclerView.Adapter<RecyclerView
         }
     }
 
-    public static class IconTwoRoundHolder extends RecyclerView.ViewHolder {
+    public static class IconTwoRoundHolder extends RecyclerView.ViewHolder implements HkImageHolder {
         public View resultBg;
         public View clickBg;
         public ImageView imageView;
         public TextView textView;
+        @Override
+        public ImageView getImageView() {
+            return imageView;
+        }
+
         public IconTwoRoundHolder(View itemView) {
             super(itemView);
             resultBg = itemView.findViewById(R.id.bg);
@@ -2719,12 +2842,17 @@ public abstract class HkArticleAdapter extends RecyclerView.Adapter<RecyclerView
         }
     }
 
-    public static class IconOneSearchHolder extends RecyclerView.ViewHolder {
+    public static class IconOneSearchHolder extends RecyclerView.ViewHolder implements HkImageHolder {
         public View resultBg;
         public View clickBg;
         public ImageView imageView;
         public ImageView imageViewEnd;
         public TextView textView;
+        @Override
+        public ImageView getImageView() {
+            return imageView;
+        }
+
         public IconOneSearchHolder(View itemView) {
             super(itemView);
             resultBg = itemView.findViewById(R.id.bg);
@@ -2741,7 +2869,7 @@ public abstract class HkArticleAdapter extends RecyclerView.Adapter<RecyclerView
         }
     }
 
-    public static class ToolsHolder extends RecyclerView.ViewHolder {
+    public static class ToolsHolder extends RecyclerView.ViewHolder implements HkImageHolder {
         public TextView title;
         public TextView desc;
         public ImageView img;
@@ -2761,12 +2889,17 @@ public abstract class HkArticleAdapter extends RecyclerView.Adapter<RecyclerView
         }
     }
 
-    public static class AvatarHolder extends RecyclerView.ViewHolder {
+    public static class AvatarHolder extends RecyclerView.ViewHolder implements HkImageHolder {
         public View resultBg;
         public ImageView imageView;
         public TextView textView;
         public TextView descView;
         public TextView shortcut_icon_text;
+        @Override
+        public ImageView getImageView() {
+            return imageView;
+        }
+
         public AvatarHolder(View itemView) {
             super(itemView);
             resultBg = itemView.findViewById(R.id.bg);
@@ -2810,11 +2943,16 @@ public abstract class HkArticleAdapter extends RecyclerView.Adapter<RecyclerView
         }
     }
 
-    public static class CardPic3Holder extends RecyclerView.ViewHolder {
+    public static class CardPic3Holder extends RecyclerView.ViewHolder implements HkImageHolder {
         public View resultBg;
         public View imgBg;
         public ImageView img;
         public TextView textView;
+        @Override
+        public ImageView getImageView() {
+            return img;
+        }
+
         public CardPic3Holder(View itemView) {
             super(itemView);
             resultBg = itemView.findViewById(R.id.item_bg);
@@ -2824,7 +2962,7 @@ public abstract class HkArticleAdapter extends RecyclerView.Adapter<RecyclerView
         }
     }
 
-    public static class CardPic22Holder extends RecyclerView.ViewHolder {
+    public static class CardPic22Holder extends RecyclerView.ViewHolder implements HkImageHolder {
         public View resultBg;
         public View resultBg1;
         public View resultBg2;
@@ -2832,6 +2970,11 @@ public abstract class HkArticleAdapter extends RecyclerView.Adapter<RecyclerView
         public ImageView img2;
         public TextView textView1;
         public TextView textView2;
+        @Override
+        public ImageView getImageView() {
+            return img1;
+        }
+
         public CardPic22Holder(View itemView) {
             super(itemView);
             resultBg = itemView.findViewById(R.id.item_bg);
@@ -2844,10 +2987,15 @@ public abstract class HkArticleAdapter extends RecyclerView.Adapter<RecyclerView
         }
     }
 
-    public static class CardPic2Holder extends RecyclerView.ViewHolder {
+    public static class CardPic2Holder extends RecyclerView.ViewHolder implements HkImageHolder {
         public View resultBg;
         public ImageView img;
         public TextView textView;
+        @Override
+        public ImageView getImageView() {
+            return img;
+        }
+
         public CardPic2Holder(View itemView) {
             super(itemView);
             resultBg = itemView.findViewById(R.id.item_bg);

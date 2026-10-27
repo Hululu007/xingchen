@@ -101,7 +101,6 @@ public class HongguoSearchActivity extends BaseActivity {
 
     @Override
     protected void initEvent() {
-        binding.hgSearchBack.setOnClickListener(v -> finish());
         binding.hgSearchGo.setOnClickListener(v -> doSearch());
         binding.hgSearchInput.setOnEditorActionListener((v, actionId, event) -> {
             if (actionId == EditorInfo.IME_ACTION_SEARCH) {

@@ -572,15 +572,34 @@ public final class HgApiClient {
      * 样本逐字命中。解析走容忍抽取（见 HgParser.parseSubscribeList 注）。
      */
     public void fetchMyReservations(HgCallback<java.util.List<com.fongmi.android.tv.hongguo.model.HgSeriesItem>> cb) {
-        get(HOST + "/reading/user/subscribe/list" + BV, HgRequests.subscribeListParams(), new BodyCallback() {
+        fetchReservationsPage(0, new java.util.ArrayList<>(), cb);
+    }
+
+    /**
+     * 预约回读分页累积（D1 修）：整页（50 条）回来就续下一页，直到不满页
+     * 或空页；上限 10 页防服务端异常时死循环。中途某页失败时已累积的
+     * 照常回成功（回读对齐宁可少、不可全丢）。
+     */
+    private void fetchReservationsPage(int offset,
+                                       java.util.List<com.fongmi.android.tv.hongguo.model.HgSeriesItem> acc,
+                                       HgCallback<java.util.List<com.fongmi.android.tv.hongguo.model.HgSeriesItem>> cb) {
+        get(HOST + "/reading/user/subscribe/list" + BV, HgRequests.subscribeListParams(offset), new BodyCallback() {
             @Override
             void onBody(String text) {
-                cb.onSuccess(HgParser.parseSubscribeList(text));
+                java.util.List<com.fongmi.android.tv.hongguo.model.HgSeriesItem> page =
+                        HgParser.parseSubscribeList(text);
+                if (page != null) acc.addAll(page);
+                if (page != null && page.size() >= 50 && offset < 450) {
+                    fetchReservationsPage(offset + 50, acc, cb);
+                } else {
+                    cb.onSuccess(acc);
+                }
             }
 
             @Override
             void onFail(int code, String msg) {
-                cb.onError(code, msg);
+                if (acc.isEmpty()) cb.onError(code, msg);
+                else cb.onSuccess(acc);
             }
         });
     }

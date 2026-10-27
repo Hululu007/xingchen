@@ -365,10 +365,15 @@ public final class HgRequests {
      * tab_type 取 MySubscribed=1。回包 data.subscribe_items[]（UserSubscribeData）。
      */
     public static java.util.Map<String, String> subscribeListParams() {
+        return subscribeListParams(0);
+    }
+
+    /** 预约回读分页参数（D1 定性缺陷修：原先写死第一页 50 条，超量误判）。 */
+    public static java.util.Map<String, String> subscribeListParams(int offset) {
         java.util.Map<String, String> q = new java.util.HashMap<>();
         q.put("tab_type", String.valueOf(SUBSCRIBE_TAB_MY_SUBSCRIBED));
         q.put("limit", "50");
-        q.put("offset", "0");
+        q.put("offset", String.valueOf(Math.max(0, offset)));
         return q;
     }
 }

@@ -318,11 +318,23 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
      */
     @org.greenrobot.eventbus.Subscribe(threadMode = org.greenrobot.eventbus.ThreadMode.MAIN)
     public void onRefreshWebView(HkDetailBridge.RefreshWebViewEvent event) {
-        if (!isResumed() || event == null) return;
+        if (event == null) return;
+        applyRefreshWebView(event.url);
+    }
+
+    /** 规则 JS 调 refreshX5WebView(url) 的订阅（8.83 OnRefreshWebViewEvent 同一消费面，来源不同）。 */
+    @org.greenrobot.eventbus.Subscribe(threadMode = org.greenrobot.eventbus.ThreadMode.MAIN)
+    public void onRefreshWebViewFromJs(com.fongmi.android.tv.api.hk.event.rule.RefreshWebViewEvent event) {
+        if (event == null) return;
+        applyRefreshWebView(event.getUrl());
+    }
+
+    private void applyRefreshWebView(String url) {
+        if (!isResumed()) return;
         if (webViewHolder == null || webViewHolder.getWebView() == null) return;
-        webViewHolder.setUrl(event.url);
-        webViewHolder.getWebView().loadUrl(event.url);
-        if (HkStringUtil.isNotEmpty(event.url) && event.url.startsWith("http")
+        webViewHolder.setUrl(url);
+        webViewHolder.getWebView().loadUrl(url);
+        if (HkStringUtil.isNotEmpty(url) && url.startsWith("http")
                 && progress_bar != null) {
             progress_bar.show();
         }

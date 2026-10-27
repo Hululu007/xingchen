@@ -3910,7 +3910,12 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             return null;
         });
         putFunction("refreshX5WebView", args -> {
-            // 8.83 JSEngine.refreshX5WebView：星辰无 X5 内核，空实现。
+            // 8.83 JSEngine.refreshX5WebView：post OnRefreshWebViewEvent(url)，列表页据此把 WebView 指到新址。
+            // 与 refreshX5Desc 同族、与 X5 内核无关：此前同以「无 X5」空实现，规则调它换址等于没调，
+            // WebView 地址恒空（他点的「未知链接 null」一类症状的来源之一，2026-10-27 补）。
+            String url = args != null && args.length > 0 ? argStr(args[0]) : "";
+            EventBus.getDefault().post(
+                    new com.fongmi.android.tv.api.hk.event.rule.RefreshWebViewEvent(url));
             return null;
         });
         putFunction("png2Ts", args -> {

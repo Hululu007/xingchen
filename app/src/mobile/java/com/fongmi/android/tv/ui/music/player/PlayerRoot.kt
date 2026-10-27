@@ -76,9 +76,9 @@ import com.fongmi.android.tv.music.MusicQueue
 import com.fongmi.android.tv.music.MusicRepository
 import com.fongmi.android.tv.music.MusicStore
 import com.fongmi.android.tv.ui.activity.MusicSearchActivity
-import com.fongmi.android.tv.music.MusicStore
 import com.fongmi.android.tv.ui.music.MusicPlayerSettings
 import com.fongmi.android.tv.utils.ImgUtil
+import androidx.compose.ui.graphics.drawscope.withTransform
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.roundToInt

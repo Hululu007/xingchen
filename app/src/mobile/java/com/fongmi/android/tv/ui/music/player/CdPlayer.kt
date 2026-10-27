@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -53,6 +54,7 @@ import com.fongmi.android.tv.music.MusicQueue
 import com.fongmi.android.tv.ui.music.MusicPlayerSettings
 import com.fongmi.android.tv.utils.CoverColor
 import kotlin.math.min
+import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 import kotlin.math.sin
 
@@ -688,7 +690,7 @@ private fun CdDisc(
 
         with(drawContext.canvas) {
             save()
-            rotate(holder.angle, center.x, center.y)
+            rotate(holder.angle, center)
             // 盘面扫光（均匀分布）
             drawRoundRect(
                 brush = Brush.sweepGradient(sweepColors, center),

@@ -20,8 +20,9 @@ import java.util.List;
  *       feed 报文定版后只换本类。</li>
  *   <li>漫剧/真人剧：category/front 的 cell 条目。两类各自的服务端分类参数
  *       未定版，现都走 front 容忍解析，页签先按同一面装配，定版后在此分流。</li>
- *   <li>关注：一阶段客户端未接登录态（HgAuthProvider 未注入），不发注定失败
- *       的请求，直接给诚实空态；四阶段接壳子统一登录后换追剧架口。</li>
+ *   <li>关注：四阶段接壳子统一登录后，未登录仍给诚实空态（不发注定失败的
+ *       请求）；已登录走追剧架 GET /reading/bookapi/bookshelf/video/list 拉
+ *       他追的剧，回来的条目顺手把服务端态写进 HgStore 镜像（官方态为准）。</li>
  * </ul>
  */
 public final class HgFeedSources {
@@ -55,12 +56,33 @@ public final class HgFeedSources {
                 return new Source() {
                     @Override
                     public void load(HgCallback<List<HgSeriesItem>> cb) {
-                        cb.onSuccess(Collections.emptyList());
+                        if (!com.fongmi.android.tv.hongguo.api.HgLoginAuthProvider.isLoggedIn()) {
+                            cb.onSuccess(Collections.emptyList());
+                            return;
+                        }
+                        client.bookshelfVideoList(new HgCallback<com.fongmi.android.tv.hongguo.model.HgCellPage>() {
+                            @Override
+                            public void onSuccess(com.fongmi.android.tv.hongguo.model.HgCellPage page) {
+                                List<HgSeriesItem> items = page.getItems() == null
+                                        ? Collections.emptyList() : page.getItems();
+                                // 服务端态为准：追剧架里的剧同步进本地镜像
+                                for (HgSeriesItem s : items) {
+                                    if (s.getSeriesId() != null) HgStore.setShelfMirrored(s.getSeriesId(), true);
+                                }
+                                cb.onSuccess(items);
+                            }
+
+                            @Override
+                            public void onError(int httpCode, String message) {
+                                cb.onError(httpCode, message);
+                            }
+                        });
                     }
 
                     @Override
                     public String emptyHint() {
-                        return "登录后这里显示你关注的剧";
+                        return com.fongmi.android.tv.hongguo.api.HgLoginAuthProvider.isLoggedIn()
+                                ? "你追的剧会显示在这里" : "登录后这里显示你关注的剧";
                     }
                 };
             case COMIC:

@@ -163,6 +163,16 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     @Override
     protected void initView(Bundle savedInstanceState) {
         session = HgFeedSession.get();
+        session.remoteInteractions.setListener(new HgRemoteInteractions.Listener() {
+            @Override
+            public void onSynced(String kind, String seriesId, boolean state) {
+            }
+
+            @Override
+            public void onSyncFailed(String kind, String seriesId, boolean revertedTo, String message) {
+                runOnUiThread(() -> onInteractionSyncFailed(kind, seriesId));
+            }
+        });
         com.fongmi.android.tv.server.Server.get().start(); // 本地代理兜底（App 冷启已起则空转）
         adapter = new HgFeedAdapter(session.items, session, this);
         binding.hgPager.setOrientation(ViewPager2.ORIENTATION_VERTICAL);
@@ -642,22 +652,46 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         HgFeedItem item = session.items.get(position);
         HgFeedAdapter.Holder h = currentHolder();
         switch (action) {
-            case LIKE -> {
-                session.interactions.toggleLike(item.seriesId);
-                if (h != null && position == currentPos) adapter.bindInteractionState(h, item);
-            }
-            case FAV -> {
-                session.interactions.toggleFavorite(item.seriesId);
-                if (h != null && position == currentPos) adapter.bindInteractionState(h, item);
-            }
-            case FOLLOW -> {
-                session.interactions.toggleFollow(item.seriesId);
+            case LIKE, FAV, FOLLOW -> {
+                // 四阶段：未登录先拉壳子统一登录，不落状态、不假成功
+                if (session.interactions.requiresLogin()) {
+                    promptHongguoLogin();
+                    return;
+                }
+                switch (action) {
+                    case LIKE -> session.interactions.toggleLike(item);
+                    case FAV -> session.interactions.toggleFavorite(item.seriesId);
+                    case FOLLOW -> session.interactions.toggleFollow(item.seriesId);
+                    default -> {
+                    }
+                }
                 if (h != null && position == currentPos) adapter.bindInteractionState(h, item);
             }
             case COMMENT -> HgCommentsPanel.show(this, item);
             case SHARE -> share(item);
         }
         armAutoHide();
+    }
+
+    /** 未登录点互动：拉壳子统一登录托管（红果提供方）；投递不出去时如实提示。 */
+    private void promptHongguoLogin() {
+        boolean delivered = com.fongmi.android.tv.login.LoginManager.loginHongguoDelivered();
+        if (!delivered) {
+            android.widget.Toast.makeText(this, "登录界面暂时打不开，稍后再试", android.widget.Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /** 远程同步结果：失败已在互动层回滚本地镜像，这里只刷新当前页并如实提示。 */
+    private void onInteractionSyncFailed(String kind, String seriesId) {
+        HgFeedAdapter.Holder h = currentHolder();
+        if (h != null && currentPos >= 0 && currentPos < session.items.size()
+                && seriesId != null && seriesId.equals(session.items.get(currentPos).seriesId)) {
+            adapter.bindInteractionState(h, session.items.get(currentPos));
+        }
+        String label = HgRemoteInteractions.KIND_LIKE.equals(kind) ? "点赞"
+                : HgRemoteInteractions.KIND_FAV.equals(kind) ? "收藏" : "追更";
+        android.widget.Toast.makeText(this, label + "没成功，已恢复原来的状态",
+                android.widget.Toast.LENGTH_SHORT).show();
     }
 
     private void share(HgFeedItem item) {

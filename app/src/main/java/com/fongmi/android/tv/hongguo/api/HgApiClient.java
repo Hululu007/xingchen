@@ -261,16 +261,40 @@ public final class HgApiClient {
     }
 
     /**
-     * 追剧架更新 POST /reading/bookapi/bookshelf/video/update。
-     * 请求体字段口径未定版：现带 series_id 与调用方透传的动作字段（extra），定版后改此处。
+     * 追剧架更新 POST /reading/bookapi/bookshelf/video/update（收藏/追更共用此口，
+     * 官方 FollowScene 加入收藏与右列追剧钮同走 AddShelf，见 HgRequests
+     * bookshelfVideoUpdateBody 注的出处）。add=true 加入、false 移出。
+     * 成功判据容忍：回包 code 为 0 / "0" / "SUCCESS" / 缺失均算成（bookapi
+     * 的 code 是 BookApiERR 枚举，序列化形态待真机校准），其余算失败回调。
      */
-    public void bookshelfVideoUpdate(String seriesId, Map<String, String> extra, HgCallback<HgCellPage> cb) {
-        JsonObject body = new JsonObject();
-        body.addProperty("series_id", seriesId);
-        if (extra != null) {
-            for (Map.Entry<String, String> e : extra.entrySet()) body.addProperty(e.getKey(), e.getValue());
+    public void bookshelfVideoUpdate(String seriesId, boolean add, HgCallback<Boolean> cb) {
+        JsonObject body = HgRequests.bookshelfVideoUpdateBody(seriesId, add, System.currentTimeMillis());
+        postJson(HOST + "/reading/bookapi/bookshelf/video/update", body, new BodyCallback() {
+            @Override
+            void onBody(String text) {
+                if (isOkCode(text)) cb.onSuccess(Boolean.TRUE);
+                else cb.onError(-2, "追剧架更新被服务端拒绝");
+            }
+
+            @Override
+            void onFail(int code, String msg) {
+                cb.onError(code, msg);
+            }
+        });
+    }
+
+    /** bookapi 回包 code 容忍判定（枚举序列化形态未定版，见上注）。公开仅为离线单测可达。 */
+    public static boolean isOkCode(String text) {
+        try {
+            com.google.gson.JsonObject root = com.google.gson.JsonParser.parseString(text).getAsJsonObject();
+            if (!root.has("code") || root.get("code").isJsonNull()) return true;
+            com.google.gson.JsonElement code = root.get("code");
+            if (code.isJsonPrimitive() && code.getAsJsonPrimitive().isNumber()) return code.getAsInt() == 0;
+            String s = code.getAsString();
+            return s == null || s.isEmpty() || "0".equals(s) || "SUCCESS".equalsIgnoreCase(s) || "Success".equals(s);
+        } catch (Exception e) {
+            return false;
         }
-        postJson(HOST + "/reading/bookapi/bookshelf/video/update", body, cellCallback(cb));
     }
 
     // ---------- 传输层 ----------

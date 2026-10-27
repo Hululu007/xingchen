@@ -140,6 +140,78 @@ public final class HgRequests {
         return body;
     }
 
+    // ---------- 四阶段互动（样本实证，逐字段出处见各方法注） ----------
+
+    /** 追剧架操作：加入收藏/追剧（AddShelf=0）。 */
+    public static final int SHELF_OP_ADD = 0;
+    /** 追剧架操作：移出（DelShelf=1）。 */
+    public static final int SHELF_OP_DEL = 1;
+    /** ReadingBookType.Watch=2（短剧观看类）。 */
+    public static final int BOOK_TYPE_WATCH = 2;
+
+    /**
+     * 追剧架更新体 POST /reading/bookapi/bookshelf/video/update。
+     * 出处：官方样本 classes11.dex 的 rpc 模型 UpdateBookShelfVideoInfoRequest /
+     * UpdateBookShelfVideo（@SerializedName 逐字段：update_bookshelf_video_list /
+     * book_id / book_type / group_name / modify_time / video_shelf_operate_type /
+     * shark_extra），枚举值 VideoShelfOperateType{AddShelf=0, DelShelf=1}、
+     * ReadingBookType{Watch=2}；调用点 jadx9 rs4/o1.java 的 q0（FollowScene
+     * 加入收藏/追剧：bookId/modifyTime/AddShelf/bookType＋sharkExtra 的
+     * is_active_behavior/inactive_type）与 C1（删除走 DelShelf、不带 sharkExtra）。
+     * 枚举在字节 rpc 序列化里按 value 出数（模型带 FieldType/value 形迹），
+     * 这里出数值；名称形态待真机回包校准（见四阶段回报未定项）。
+     */
+    public static JsonObject bookshelfVideoUpdateBody(String seriesId, boolean add, long nowMs) {
+        JsonObject item = new JsonObject();
+        item.addProperty("book_id", seriesId);
+        item.addProperty("book_type", BOOK_TYPE_WATCH);
+        item.addProperty("group_name", "");
+        item.addProperty("modify_time", nowMs);
+        item.addProperty("video_shelf_operate_type", add ? SHELF_OP_ADD : SHELF_OP_DEL);
+        com.google.gson.JsonArray list = new com.google.gson.JsonArray();
+        list.add(item);
+        JsonObject body = new JsonObject();
+        body.add("update_bookshelf_video_list", list);
+        if (add) {
+            JsonObject shark = new JsonObject();
+            shark.addProperty("is_active_behavior", "true");
+            shark.addProperty("inactive_type", "0");
+            body.add("shark_extra", shark);
+        }
+        return body;
+    }
+
+    /** UgcActionType.Like=3 / CancelLike=4（classes11.dex rpc 模型 UgcActionType）。 */
+    public static final int ACTION_LIKE = 3;
+    public static final int ACTION_CANCEL_LIKE = 4;
+    /** UgcActionObjectType.Item=6（同上 UgcActionObjectType）。 */
+    public static final int OBJECT_ITEM = 6;
+    /** SaasUgcActionCategory.Default=1（同上）。 */
+    public static final int ACTION_CATEGORY_DEFAULT = 1;
+
+    /**
+     * 视频点赞体 POST /novel/articleapi/do_action/v1/（dex 字符串 Retrofit 注解）。
+     * 出处：classes11.dex 的 saas 模型 DoArticleActionRequest（@SerializedName：
+     * action_type / object_id / object_type / action_category /
+     * action_reason_remark / business_param{video_id}，aid 走 QUERY）；
+     * 调用点 classes6.dex h14/n0.java 的 d()（VideoLikeUtil：like 时
+     * actionType=Like、cancel 时 CancelLike，objectID＝集 vid，
+     * objectType＝Item（Book 型内容才是 Book），actionCategory＝Default，
+     * actionReasonRemark＝"like_click"，businessParam.videoID＝剧 id）。
+     */
+    public static JsonObject doArticleActionBody(boolean like, String videoId, String seriesId) {
+        JsonObject body = new JsonObject();
+        body.addProperty("action_type", like ? ACTION_LIKE : ACTION_CANCEL_LIKE);
+        body.addProperty("object_id", videoId);
+        body.addProperty("object_type", OBJECT_ITEM);
+        body.addProperty("action_category", ACTION_CATEGORY_DEFAULT);
+        body.addProperty("action_reason_remark", "like_click");
+        JsonObject business = new JsonObject();
+        business.addProperty("video_id", seriesId);
+        body.add("business_param", business);
+        return body;
+    }
+
     /** 单集 video_model 请求体（Outer=3，海阔线实证口径，作批量失败时的单集对照路）。 */
     public static JsonObject singleVideoModelBody(String videoId) {
         JsonObject body = new JsonObject();

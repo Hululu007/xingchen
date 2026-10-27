@@ -34,10 +34,14 @@ public final class HgFeedSession {
     }
 
     public final HgApiClient client = new HgApiClient();
+    public final com.fongmi.android.tv.hongguo.api.HgCommentClient fqClient =
+            new com.fongmi.android.tv.hongguo.api.HgCommentClient();
     public final HgModelCache cache = new HgModelCache();
     public final HgPrefetcher prefetcher;
     public final HgPlayResolver resolver;
-    public final HgInteractions interactions = new HgLocalInteractions();
+    /** 四阶段默认互动实现：已登录走真接口、未登录页面先拉登录；本地实现保留作对照。 */
+    public final HgRemoteInteractions remoteInteractions;
+    public final HgInteractions interactions;
 
     /** 当前流页表（主线程限定）。 */
     public final List<HgFeedItem> items = new ArrayList<>();
@@ -46,7 +50,12 @@ public final class HgFeedSession {
 
     private HgFeedSession() {
         // 登录态回填：凭证由壳子统一登录托管（红果提供方）持有，这里只挂取口
-        client.setAuthProvider(new com.fongmi.android.tv.hongguo.api.HgLoginAuthProvider());
+        com.fongmi.android.tv.hongguo.api.HgLoginAuthProvider auth =
+                new com.fongmi.android.tv.hongguo.api.HgLoginAuthProvider();
+        client.setAuthProvider(auth);
+        fqClient.setAuthProvider(auth);
+        this.remoteInteractions = new HgRemoteInteractions(client, fqClient);
+        this.interactions = this.remoteInteractions;
         this.prefetcher = new HgPrefetcher(client, cache);
         this.resolver = new HgPlayResolver(client, cache);
     }

@@ -65,6 +65,28 @@ cat > "$WORK/stub/okhttp3/OkHttpClient.java" << 'EOF'
 package okhttp3;
 public class OkHttpClient { public Call newCall(Request r){ return null; } }
 EOF
+mkdir -p "$WORK/stub/com/fongmi/android/tv/login"
+cat > "$WORK/stub/com/fongmi/android/tv/login/LoginManager.java" << 'EOF'
+package com.fongmi.android.tv.login;
+public class LoginManager {
+  public static String getCookie(String providerId) { return ""; }
+  public static boolean isLoggedIn(String providerId) { return false; }
+}
+EOF
+mkdir -p "$WORK/stub/com/github/catvod/utils"
+cat > "$WORK/stub/com/github/catvod/utils/Prefers.java" << 'EOF'
+package com.github.catvod.utils;
+import java.util.HashMap;
+import java.util.Map;
+public class Prefers {
+  private static final Map<String, Object> MAP = new HashMap<>();
+  public static String getString(String key) { Object v = MAP.get(key); return v == null ? "" : String.valueOf(v); }
+  public static String getString(String key, String def) { Object v = MAP.get(key); return v == null ? def : String.valueOf(v); }
+  public static boolean getBoolean(String key, boolean def) { Object v = MAP.get(key); return v == null ? def : (Boolean) v; }
+  public static void put(String key, String value) { MAP.put(key, value); }
+  public static void put(String key, boolean value) { MAP.put(key, value); }
+}
+EOF
 cat > "$WORK/stub/com/github/catvod/net/OkHttp.java" << 'EOF'
 package com.github.catvod.net;
 import java.util.Map;
@@ -87,12 +109,15 @@ EOF
 
 find "$WORK/stub" -name '*.java' > "$WORK/srcs.txt"
 find "$ROOT/app/src/main/java/com/fongmi/android/tv/hongguo" -path '*/hongguo/ui' -prune -o -name '*.java' -print >> "$WORK/srcs.txt"
+echo "$ROOT/app/src/main/java/com/fongmi/android/tv/api/FqCommentSigner.java" >> "$WORK/srcs.txt"
 echo "$ROOT/app/src/test/hongguo/HgOfflineTest.java" >> "$WORK/srcs.txt"
 echo "$ROOT/app/src/test/hongguo/HgProxyOfflineTest.java" >> "$WORK/srcs.txt"
+echo "$ROOT/app/src/test/hongguo/HgInteractionTest.java" >> "$WORK/srcs.txt"
 echo "$ROOT/app/src/test/hongguo/HgTestServer.java" >> "$WORK/srcs.txt"
 "$JAVAC" -encoding UTF-8 -cp "$GSON" -d "$WORK/out" @"$WORK/srcs.txt"
 "$JAVA" -Dfile.encoding=UTF-8 -cp "$WORK/out:$GSON" HgOfflineTest
 "$JAVA" -Dfile.encoding=UTF-8 -cp "$WORK/out:$GSON" HgProxyOfflineTest "$WORK/proxy_full.mp4"
+(cd "$ROOT" && "$JAVA" -Dfile.encoding=UTF-8 -cp "$WORK/out:$GSON" HgInteractionTest)
 
 # HTTP 回环出流：HgTestServer 起真服务，curl 按 Range 拉头/中/尾三段与整流，
 # 与 ep_clear 对应切片逐字节比（cmp）。助手 JVM 进程的原始 TCP 被本机权限层

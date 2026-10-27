@@ -110,7 +110,11 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
     // evalJs/evalJsInSharedScope 求值前在 Context 上放一个截止时间，指令观察者
     // 越过截止就抛 Error 打断脚本（经 submit/get 转成 ExecutionException 被上层接住）。
     private static final String DEADLINE_KEY = "hk.eval.deadline";
-    private static final long EVAL_BUDGET_MS = 20_000L;
+    // 预算口径（2026-10-27 对差补缺）：8.83 无指令看门狗、evalJS 同步跑完为止。此预算是
+    // 2026-10-13 死循环把 init 堵死后的兜底网，不能撤；但 20 秒是墙钟、把求值内的网络
+    // 等待也算进去，慢而正当的规则（多站串行取数）会被误杀、原版能跑完。故放宽到 120 秒：
+    // 正当慢规则跑得完，真死循环仍有网兜底（代价是死循环页最长转 120 秒才失败）。
+    private static final long EVAL_BUDGET_MS = 120_000L;
 
     private static class HkContextFactory extends ContextFactory {
         @Override
@@ -557,15 +561,14 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
         try {
             return rhinoCx.evaluateString(newScope, js, "hk", 1, null);
         } finally {
-            // W6：8.83 每次求值全新 scope，Module._cache 天然全新。我方共享 scope 的
-            // Module._cache 会跨求值泄漏（同规则内页间/懒加载求值间），求值完即重置，
-            // 与原版"每求值 fresh"对齐。runScript 那条路本就全新 scope，不受影响。
-            try {
-                rhinoCx.evaluateString(scope,
-                        "try{ if (typeof Module!=='undefined' && Module._cache) Module._cache = new Map(); }catch(e){}",
-                        "hk-modcache-reset", 1, null);
-            } catch (Throwable ignored) {
-            }
+            // 【不变量·不许在此清 Module._cache】8.83 的一次交互（find_rule→require→页模块→
+            // 懒回调）在单个 evalJS 调用内跑完，缓存只活一次调用天然够用；星辰把一次交互
+            // 拆成多次 evalJs 分别走，模块缓存必须跨求值活着——规则的站表、会话态都存在
+            // 模块 exports 里，清掉就等于数据全丢。实证：1.4.46 曾把此处清空做实
+            // （aa7c9a21 经 $.require.cache.clear()），他真机当场「好多小程序数据都没了」，
+            // 已整批回退。此处旧片段对共享 scope 恒读不到 Module、从未真正执行，留着只是
+            // 下一个「做实」它的引信，故删除。缓存生命周期＝运行时生命周期：规则文件
+            // 更新（mtime 变）或运行时销毁时，由 HkEngineManager.runtimeFor 作废整实例。
             restoreMark(prevMark);
             restoreEvalDeadline(oldDeadline);
         }
@@ -1249,12 +1252,13 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
     }
 
     /**
-     * 求值等待上限（与 init 的 60 秒同口径）：各入口旧形 submit().get() 无超时，
+     * 求值等待上限（与 init 的等待同口径）：各入口旧形 submit().get() 无超时，
      * 规则里写死循环时调用线程永久挂起、该 runtime 后续调用全堵在单线程
      * executor 后面。加超时后调用方拿到 TimeoutException 按失败处理；
-     * 死循环任务本身停不下来（Rhino 无强制中止），要等 destroy 换 runtime。
+     * JS 侧另有 EVAL_BUDGET_MS 看门狗会真打断脚本。本等待必须大于该预算，
+     * 否则调用方先放弃、结果被丢弃但脚本副作用已落（2026-10-27 随预算一并放宽）。
      */
-    private static final long EVAL_TIMEOUT_SECONDS = 60;
+    private static final long EVAL_TIMEOUT_SECONDS = 150;
 
     /** destroy 的清理等待：只给短暂窗口，超时就走 shutdownNow，不陪死循环耗。 */
     private static final long DESTROY_WAIT_SECONDS = 5;
@@ -1328,7 +1332,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             return null;
         });
         try {
-            initFuture.get(60, java.util.concurrent.TimeUnit.SECONDS);
+            initFuture.get(EVAL_TIMEOUT_SECONDS, java.util.concurrent.TimeUnit.SECONDS);
         } catch (java.util.concurrent.TimeoutException e) {
             // 兜底：init 内部真堵死（非 JS 死循环的 Java 侧阻塞）也不能让加载线程无限等
             com.github.catvod.crawler.SpiderDebug.log("hk", "engine init timeout rule=%s", rule.getTitle());
@@ -2022,68 +2026,11 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             return null;
         });
 
-        // ---- __hkRequirePage：$.require(path) 的 Java 实现 ----
-        // hiker://page/<path>：从规则 pages 按 path 找页面代码，IIFE 包裹求值（防顶层 const 重声明），
-        // 页面代码以 $.exports = xxx 导出，JS 层 $.require 直接返回 $.exports（官方同款语义）。
-        // 裸页面名（如 $.require("Cate")，无 :// scheme）：官方语义也是先查规则 pages，
-        // 找不到再走远程/本地库逻辑。其他路径：复用 require 的远程/本地库逻辑。
-        putFunction("__hkRequirePage", args -> {
-            if (args == null || args.length == 0) return null;
-            String path = argStr(args[0]);
-            try {
-                String pageCode = null;
-                boolean isRulePage = false;
-                if (path.startsWith("hiker://assets/")) {
-                    // hiker://assets/xxx.js：映射到宿主内置 assets（海阔官方同款内置库，如 crypto-java.js）
-                    String assetPath = path.substring("hiker://assets/".length());
-                    int q = assetPath.indexOf('?');
-                    if (q >= 0) assetPath = assetPath.substring(0, q);
-                    int h = assetPath.indexOf('#');
-                    if (h >= 0) assetPath = assetPath.substring(0, h);
-                    String code = loadAsset(assetPath.trim());
-                    if (TextUtils.isEmpty(code)) {
-                        Logger.t(TAG).d("$.require: no built-in asset for %s", assetPath);
-                        return null;
-                    }
-                    try {
-                        evalJs(stripJsPrefix(code));
-                    } catch (Throwable e) {
-                        Logger.t(TAG).d("$.require: asset eval failed %s: %s", assetPath, e.getMessage());
-                    }
-                    return null;
-                } else if (path.startsWith("hiker://page/")) {
-                    String p = path.substring("hiker://page/".length());
-                    int q = p.indexOf('?');
-                    if (q >= 0) p = p.substring(0, q);
-                    int h = p.indexOf('#');
-                    if (h >= 0) p = p.substring(0, h);
-                    pageCode = findPageCode(p.trim());
-                    isRulePage = true;
-                    if (pageCode == null) {
-                        Logger.t(TAG).d("$.require: no page for path=%s", p);
-                        return null;
-                    }
-                } else if (path.indexOf("://") < 0) {
-                    // 裸页面名：先查规则 pages，找不到再走远程/本地库逻辑
-                    pageCode = findPageCode(path.trim());
-                    isRulePage = pageCode != null;
-                }
-                if (isRulePage) {
-                    evalJs("(function(){\n" + stripJsPrefix(pageCode) + "\n})();");
-                } else {
-                    String code = loadLibLocal(path);
-                    if (code == null) code = fetchSync(path, null);
-                    if (TextUtils.isEmpty(code)) {
-                        Logger.t(TAG).d("$.require: empty lib %s", path);
-                        return null;
-                    }
-                    evalJs(stripJsPrefix(code));
-                }
-            } catch (Throwable e) {
-                Logger.t(TAG).d("$.require failed %s: %s", path, e.getMessage());
-            }
-            return null;
-        });
+        // ---- __hkRequirePage 已删除（2026-10-27 对差补缺第 16 项销账）----
+        // 它曾是 $.require 的一套 Java 旁路实现，但全树＋全部资产 grep 实证：除定义外
+        // 无任何调用方——规则调的 $.require 恒走官方 Hikerurl.js 的 Module（带缓存与
+        // exports 语义），此旁路不可达。留着只会让后人误以为有两套 require 在跑，故删。
+        // findPageCode/loadLibLocal 等被其它路径共用的助手保留不动。
 
         // ---- 规则内会话变量（getMyVar/putMyVar/clearMyVar/listMyVarKeys） ----
         // E8: key 加 ruleTitle@ 前缀做规则间隔离（8.83 JSEngine.smali:21694）

@@ -4,16 +4,23 @@ import com.fongmi.android.tv.hongguo.model.HgCellPage;
 import com.fongmi.android.tv.hongguo.model.HgParser;
 import com.fongmi.android.tv.hongguo.model.HgSeriesDetail;
 import com.fongmi.android.tv.hongguo.model.HgVideoModel;
+import com.fongmi.android.tv.hongguo.sign.HgSign;
 import com.github.catvod.net.OkHttp;
 import com.google.gson.JsonObject;
 
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import okhttp3.Call;
 import okhttp3.Callback;
@@ -28,9 +35,14 @@ import okhttp3.ResponseBody;
  * <p>网络栈沿用树里现有口径：com.github.catvod.net.OkHttp 出 Call、OkHttp 分发
  * 线程异步执行、解析在分发线程完成（不占主线程），回调口径见 {@link HgCallback}。</p>
  *
- * <p>口径说明：本机直发这些接口回 200 空体是本机海外出口问题（验通记录第八节
- * 第 2 条实证，连已知能成的单集口径在本机也是空体），客户端按官方真口径实现，
- * 不因本机试发结果阉割；离线验只走存档回包解析。</p>
+ * <p>取址链定罪（2026-10-28，openhongguo-dig-20261028.md）：1.4.53 真机所有
+ * 条目加载失败的根是取模型环——旧链无签名头（X-Gorgon/X-Argus/X-Helios/
+ * X-Medusa/X-Ladon/X-Khronos/X-SS-STUB）且每次请求随机编造 iid/device_id，
+ * 网关一律回 200 空体（A/B 隔离实测：同出口同分钟，带签名全回、剥签名即空，
+ * Cookie 不是门、本机海外出口也不是门）。现取模型/详情改走 fqnovel 已签名口：
+ * HgDevice 匿名注册拿真 device_id/iid 落盘复用＋HgSign 逐请求签名；
+ * 旧 multi 口（reading.snssdk.com、platform=1024、无签名）已从主链摘除。
+ * feed 列表类 GET 口（bookmall/tab 等已通的）维持原样不动。</p>
  *
  * <p>路径定罪（2026-10-27 真机「加载失败」案）：bookapi 家族在样本里的路径
  * 模板全部带版本段（classes11.dex 逐字：{@code $GET /reading/bookapi/plan/
@@ -49,9 +61,6 @@ public final class HgApiClient {
 
     public static final String HOST = "https://reading.snssdk.com";
 
-    /** 单集取址的网关（海阔线实测活口，hgApiOnce 同址）：批量失败时的单集兜底路。 */
-    public static final String SINGLE_HOST = "https://api5-normal-sinfonlinea.fqnovel.com";
-
     /** bookapi 路径版本段（样本模板 v:version 的替换值，见类头定罪注）。 */
     private static final String BV = "/v1/";
 
@@ -60,9 +69,6 @@ public final class HgApiClient {
     private static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
 
     private volatile HgAuthProvider authProvider;
-    private volatile boolean drSceneEnabled;
-    private volatile String drScene = "";
-    private volatile HgRequests.NovelCommonParam commonParam = new HgRequests.NovelCommonParam();
 
     public HgApiClient() {
     }
@@ -72,68 +78,62 @@ public final class HgApiClient {
         this.authProvider = provider;
     }
 
-    /** dr_scene 开关（官方 AB：VideoPlayerApiDrSceneV715）；开后取模型走 V2 变体。 */
-    public void setDrScene(boolean enabled, String scene) {
-        this.drSceneEnabled = enabled;
-        this.drScene = scene == null ? "" : scene;
-    }
+    // ---------- 取播放模型（签名单集口；openhongguo 无批量模型口） ----------
 
-    public void setCommonParam(HgRequests.NovelCommonParam param) {
-        if (param != null) this.commonParam = param;
-    }
-
-    // ---------- 取播放模型（核心，批量） ----------
-
-    /** 批量取多集播放模型：一次请求取回全部集（预取靠它，不做单集现取现等）。 */
+    /**
+     * 批量取多集播放模型（预取面）：逐集走签名单集口并发取回、聚合为表。
+     * openhongguo 全程没有批量模型口，星辰旧 multi 口已定罪摘除（见类头注）。
+     * 全部失败才回调错误；部分成功回调已取到的表（预取语义：缺集起播时再现取）。
+     */
     public void fetchVideoModels(Collection<String> videoIds, HgCallback<Map<String, HgVideoModel>> cb) {
         if (videoIds == null || videoIds.isEmpty()) {
             cb.onError(-1, "videoIds 为空");
             return;
         }
-        if (drSceneEnabled) {
-            String scene = drScene.isEmpty() ? "default" : drScene;
-            JsonObject body = HgRequests.multiVideoModelV2Body(videoIds, scene, commonParam);
-            postJson(HOST + "/novel/player/multi_video_model/" + scene + "/v1/", body, new BodyCallback() {
+        Map<String, HgVideoModel> out = Collections.synchronizedMap(new LinkedHashMap<>());
+        AtomicInteger remain = new AtomicInteger(videoIds.size());
+        AtomicReference<String> firstError = new AtomicReference<>();
+        for (String videoId : videoIds) {
+            fetchVideoModel(videoId, new HgCallback<HgVideoModel>() {
                 @Override
-                void onBody(String text) {
-                    cb.onSuccess(HgParser.parseMultiVideoModel(text));
+                public void onSuccess(HgVideoModel m) {
+                    out.put(videoId, m);
+                    settle();
                 }
 
                 @Override
-                void onFail(int code, String msg) {
-                    cb.onError(code, msg);
-                }
-            });
-        } else {
-            JsonObject body = HgRequests.multiVideoModelBody(videoIds, commonParam);
-            postJson(HOST + "/novel/player/multi_video_model/v1/", body, new BodyCallback() {
-                @Override
-                void onBody(String text) {
-                    cb.onSuccess(HgParser.parseMultiVideoModel(text));
+                public void onError(int httpCode, String message) {
+                    firstError.compareAndSet(null, message);
+                    settle();
                 }
 
-                @Override
-                void onFail(int code, String msg) {
-                    cb.onError(code, msg);
+                private void settle() {
+                    if (remain.decrementAndGet() == 0) {
+                        if (out.isEmpty()) cb.onError(-1, "取模型全灭：" + firstError.get());
+                        else cb.onSuccess(out);
+                    }
                 }
             });
         }
     }
 
-    /** 单集取模型（走批量口的单元素形态，返回该集模型）。 */
+    /**
+     * 单集取模型 POST /novel/player/video_model/v1/（fqnovel 已签名口，
+     * HgRequests.playbackBody 口径）：定罪修法的主路（见类头注）。
+     * 回包 data.video_model 解析见 HgParser.parseSingleVideoModel。
+     */
     public void fetchVideoModel(String videoId, HgCallback<HgVideoModel> cb) {
-        fetchVideoModels(Collections.singletonList(videoId), new HgCallback<Map<String, HgVideoModel>>() {
+        postSigned(HgDevice.PATH_PLAYBACK, HgRequests.playbackBody(videoId), new BodyCallback() {
             @Override
-            public void onSuccess(Map<String, HgVideoModel> result) {
-                HgVideoModel m = result.get(videoId);
-                if (m == null && !result.isEmpty()) m = result.values().iterator().next();
-                if (m == null) cb.onError(-1, "回包无该集模型");
+            void onBody(String text) {
+                HgVideoModel m = HgParser.parseSingleVideoModel(text, videoId);
+                if (m == null) cb.onError(-1, "回包无 video_model");
                 else cb.onSuccess(m);
             }
 
             @Override
-            public void onError(int httpCode, String message) {
-                cb.onError(httpCode, message);
+            void onFail(int code, String msg) {
+                cb.onError(code, msg);
             }
         });
     }
@@ -159,22 +159,145 @@ public final class HgApiClient {
         });
     }
 
+    // ---------- 设备注册与签名发送（定罪修法核心，见类头注） ----------
+
+    private final Object deviceLock = new Object();
+    private final List<HgCallback<Boolean>> deviceWaiters = new ArrayList<>();
+    private boolean deviceRegistering;
+
     /**
-     * 单集取模型兜底路 POST /novel/player/video_model/v1/（fqnovel 网关，
-     * Outer=3 口径）：批量 multi 失败/空体时的换路取址——multi 的 fallback_api
-     * 藏在 multi 回包里，multi 本身拿不到时无从走 fplay，这条单集口是海阔线
-     * 实证过的活口（lib_hg_lib.js hgApiOnce，同一指纹连发会被限速，故每次
-     * 请求都换全新指纹、由调用方换指纹重试）。回包 data.video_model 解析
-     * 见 HgParser.parseSingleVideoModel。
+     * 确保匿名设备已注册：已注册立即回调成功；未注册只发一次注册请求，
+     * 并发调用排队等同一结果。注册身份由 HgDevice 落盘全局复用。
      */
-    public void fetchSingleVideoModel(String videoId, HgCallback<HgVideoModel> cb) {
-        JsonObject body = HgRequests.singleVideoModelBody(videoId);
-        postJson(SINGLE_HOST + "/novel/player/video_model/v1/", body, new BodyCallback() {
+    public void ensureDevice(HgCallback<Boolean> cb) {
+        if (HgDevice.isRegistered()) {
+            cb.onSuccess(Boolean.TRUE);
+            return;
+        }
+        synchronized (deviceLock) {
+            if (HgDevice.isRegistered()) {
+                cb.onSuccess(Boolean.TRUE);
+                return;
+            }
+            deviceWaiters.add(cb);
+            if (deviceRegistering) return;
+            deviceRegistering = true;
+        }
+        doRegister();
+    }
+
+    private void doRegister() {
+        final byte[] body;
+        try {
+            body = HgDevice.buildRegisterBody(System.currentTimeMillis());
+        } catch (Exception e) {
+            android.util.Log.e(TAG, "注册体构造失败 " + e.getClass().getName() + ": " + e.getMessage());
+            finishRegister("注册体构造失败");
+            return;
+        }
+        HgDevice.Profile p = HgDevice.profile();
+        String url = HgDevice.REGISTER_HOST + "/service/2/device_register/?req_id="
+                + p.reqId + "&tt_data=a";
+        Map<String, String> h = new HashMap<>();
+        h.put("user-agent", HgDevice.userAgent());
+        h.put("Content-Type", "application/octet-stream;tt-data=a");
+        h.put("log-encode-type", "gzip");
+        h.put("sdk-version", "2");
+        h.put("passport-sdk-version", "5051452");
+        h.put("x-vc-bdturing-sdk-version", "4.0.3.cn");
+        h.put("x-ss-dp", "8662");
+        h.put("X-SS-STUB", HgSign.contentMd5Hex(body));
+        RequestBody rb = RequestBody.create(body, MediaType.parse("application/octet-stream;tt-data=a"));
+        Call call = OkHttp.newCall(url, h, rb);
+        enqueue(call, new BodyCallback() {
+            @Override
+            void onCookies(Map<String, String> cookies) {
+                HgDevice.applyGuestCookies(cookies);
+            }
+
             @Override
             void onBody(String text) {
-                HgVideoModel m = HgParser.parseSingleVideoModel(text, videoId);
-                if (m == null) cb.onError(-1, "单集回包无 video_model");
-                else cb.onSuccess(m);
+                String[] ids = HgDevice.parseRegister(text);
+                if (ids == null) {
+                    android.util.Log.e(TAG, "注册回包无 device_id/install_id body=" + abbrev(text));
+                    finishRegister("注册回包无设备 id");
+                    return;
+                }
+                HgDevice.saveRegistered(ids[0], ids[1]);
+                finishRegister(null);
+            }
+
+            @Override
+            void onFail(int code, String msg) {
+                finishRegister("注册失败：" + msg);
+            }
+        }, "device_register");
+    }
+
+    private void finishRegister(String error) {
+        List<HgCallback<Boolean>> waiters;
+        synchronized (deviceLock) {
+            waiters = new ArrayList<>(deviceWaiters);
+            deviceWaiters.clear();
+            deviceRegistering = false;
+        }
+        for (HgCallback<Boolean> w : waiters) {
+            if (error == null) w.onSuccess(Boolean.TRUE);
+            else w.onError(-1, error);
+        }
+    }
+
+    /**
+     * 已签名 POST（取址链专用）：先确保设备注册，再用注册身份＋有序查询串
+     * 逐请求签名（HgSign），发往 fqnovel 宿主。签名覆盖的 body 字节与实际
+     * 发送字节为同一串（bodyObj.toString 的 UTF-8 编码）。
+     */
+    private void postSigned(String path, JsonObject bodyObj, BodyCallback cb) {
+        ensureDevice(new HgCallback<Boolean>() {
+            @Override
+            public void onSuccess(Boolean ok) {
+                String body = bodyObj.toString();
+                byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
+                long ticket = System.currentTimeMillis();
+                HgSign.Signed signed = HgSign.signPost(path, HgDevice.deviceQueryPairs(), ticket,
+                        HgDevice.profile().deviceId, HgDevice.VERSION_NAME, bodyBytes, null);
+                String url = HgDevice.API_HOST + path + "?" + signed.query;
+                Map<String, String> h = headers();
+                h.put("user-agent", HgDevice.userAgent());
+                h.putAll(signed.headers);
+                // Content-Type 由 RequestBody 承载（值同为 application/json; charset=UTF-8）
+                h.remove("Content-Type");
+                if (!h.containsKey("Cookie")) {
+                    String guest = HgDevice.guestCookieHeader();
+                    if (guest != null) h.put("Cookie", guest);
+                }
+                h.put("x-ss-dp", "8662");
+                h.put("lc", "101");
+                h.put("x-reading-request", HgDevice.readingRequestId(ticket));
+                RequestBody rb = RequestBody.create(body, JSON);
+                Call call = OkHttp.newCall(url, h, rb);
+                enqueue(call, cb, path);
+            }
+
+            @Override
+            public void onError(int httpCode, String message) {
+                cb.onFail(httpCode, message);
+            }
+        });
+    }
+
+    // ---------- 剧集详情（fqnovel 已签名口，openhongguo SeriesBody/SeriesBatchBody） ----------
+
+    /** 批量剧集详情 POST /novel/player/multi_video_detail/player/v1 → 以剧 id 为键的详情表。 */
+    public void fetchVideoDetails(Collection<String> seriesIds, HgCallback<Map<String, HgSeriesDetail>> cb) {
+        if (seriesIds == null || seriesIds.isEmpty()) {
+            cb.onError(-1, "seriesIds 为空");
+            return;
+        }
+        postSigned(HgDevice.PATH_SERIES_BATCH, HgRequests.seriesBatchBody(seriesIds), new BodyCallback() {
+            @Override
+            void onBody(String text) {
+                cb.onSuccess(HgParser.parseSeriesBatch(text));
             }
 
             @Override
@@ -184,41 +307,9 @@ public final class HgApiClient {
         });
     }
 
-    // ---------- 剧集详情 ----------
-
-    /**
-     * 批量剧集详情 POST /novel/player/multi_video_detail/v1/。
-     * 注意：请求体字段口径未在样本里定版，现按与取模型同构的形态构造
-     * （mixed_video_id_map + NovelCommonParam + content_type），回包容忍解析；
-     * 定版后只需改本方法构造处。见交付回报未定项。
-     */
-    public void fetchVideoDetails(Collection<String> videoIds, HgCallback<HgSeriesDetail> cb) {
-        JsonObject body = new JsonObject();
-        body.add("biz_param", HgRequests.bizParam(HgRequests.VIDEO_PLATFORM_MIXED));
-        body.add("mixed_video_id_map", HgRequests.mixedVideoIdMap(videoIds, HgRequests.VIDEO_PLATFORM_MIXED));
-        body.add("NovelCommonParam", commonParam.toJson());
-        body.addProperty("content_type", HgRequests.CONTENT_TYPE);
-        postJson(HOST + "/novel/player/multi_video_detail/v1/", body, new BodyCallback() {
-            @Override
-            void onBody(String text) {
-                cb.onSuccess(HgParser.parseVideoDetail(text));
-            }
-
-            @Override
-            void onFail(int code, String msg) {
-                cb.onError(code, msg);
-            }
-        });
-    }
-
-    /** 单集详情 POST /novel/player/video_detail/v1/（同上，字段口径未定版）。 */
-    public void fetchVideoDetail(String videoId, HgCallback<HgSeriesDetail> cb) {
-        JsonObject body = new JsonObject();
-        body.add("biz_param", HgRequests.bizParam(HgRequests.VIDEO_PLATFORM_MIXED));
-        body.addProperty("video_id", videoId);
-        body.add("NovelCommonParam", commonParam.toJson());
-        body.addProperty("content_type", HgRequests.CONTENT_TYPE);
-        postJson(HOST + "/novel/player/video_detail/v1/", body, new BodyCallback() {
+    /** 单剧详情 POST /novel/player/video_detail/v1/（入参实为剧 id seriesId）。 */
+    public void fetchVideoDetail(String seriesId, HgCallback<HgSeriesDetail> cb) {
+        postSigned(HgDevice.PATH_SERIES, HgRequests.seriesBody(seriesId), new BodyCallback() {
             @Override
             void onBody(String text) {
                 cb.onSuccess(HgParser.parseVideoDetail(text));
@@ -403,6 +494,10 @@ public final class HgApiClient {
         abstract void onBody(String text);
 
         abstract void onFail(int code, String msg);
+
+        /** 回包 Set-Cookie（name=value 已拆好）；默认忽略，注册路用来收游客 Cookie。 */
+        void onCookies(Map<String, String> cookies) {
+        }
     }
 
     private Map<String, String> headers() {
@@ -460,6 +555,18 @@ public final class HgApiClient {
             public void onResponse(Call c, Response response) {
                 // 此处在 OkHttp 分发线程：读体与解析都不占主线程。
                 try (Response r = response) {
+                    List<String> setCookies = r.headers("Set-Cookie");
+                    if (setCookies != null && !setCookies.isEmpty()) {
+                        Map<String, String> cookies = new HashMap<>();
+                        for (String sc : setCookies) {
+                            String pair = sc;
+                            int semi = pair.indexOf(';');
+                            if (semi >= 0) pair = pair.substring(0, semi);
+                            int eq = pair.indexOf('=');
+                            if (eq > 0) cookies.put(pair.substring(0, eq).trim(), pair.substring(eq + 1).trim());
+                        }
+                        if (!cookies.isEmpty()) cb.onCookies(cookies);
+                    }
                     ResponseBody rb = r.body();
                     String text = rb == null ? "" : rb.string();
                     if (!r.isSuccessful()) {

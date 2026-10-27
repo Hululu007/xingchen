@@ -109,6 +109,7 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         b.hgError.setVisibility(View.GONE);
         b.hgPauseIcon.setVisibility(View.GONE);
         b.hgProgressFill.setScaleX(0f);
+        b.hgProgressDot.setTranslationX(0f);
         // 条目款式（账 §3/§5）：挂多季/专辑关系的走系列剧款，其余作者款
         boolean seriesStyle = item.multiSeason || item.albumId != null || !item.siblings.isEmpty();
         // 作者：有真名才带 @；无名整行藏；系列剧款不走作者行

@@ -82,6 +82,7 @@ app/src/main/res/layout/view_hongguo_series_sheet.xml
 app/src/main/res/drawable/bg_hg_actor_chip.xml
 app/src/main/res/drawable/bg_hg_avatar_circle.xml
 app/src/main/res/drawable/bg_hg_badge.xml
+app/src/main/res/drawable/bg_hg_progress_dot.xml
 app/src/main/res/drawable/bg_hg_bottom_scrim.xml
 app/src/main/res/drawable/bg_hg_chip.xml
 app/src/main/res/drawable/bg_hg_episode_chip.xml

@@ -704,7 +704,15 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         long position = player.getCurrentPosition();
         HgFeedAdapter.Holder h = currentHolder();
         if (h != null && duration > 0) {
-            h.binding.hgProgressFill.setScaleX(Math.max(0f, Math.min(1f, (float) position / duration)));
+            float frac = Math.max(0f, Math.min(1f, (float) position / duration));
+            h.binding.hgProgressFill.setScaleX(frac);
+            // 游标点（账 §3.7）：贴填充末端走，点宽 6dp 居中压在末端
+            int trackW = h.binding.hgProgressFill.getWidth();
+            if (trackW > 0) {
+                float dot = 3f * h.binding.hgProgressDot.getResources().getDisplayMetrics().density;
+                h.binding.hgProgressDot.setTranslationX(
+                        Math.max(0f, Math.min(trackW - dot * 2, frac * trackW - dot)));
+            }
         }
         if (binding.hgFsBar.getVisibility() == View.VISIBLE && !seeking && duration > 0) {
             binding.hgFsSeek.setProgress((int) (position * 1000 / duration));

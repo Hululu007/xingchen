@@ -269,6 +269,20 @@ public class MusicSearchActivity extends BaseActivity {
             doSearch();
         } else {
             refreshHistory();
+            // 首次进页（非重建恢复）：光标直接进框、键盘直接起——首页点搜索框进来一步就能打字，
+            // 不许让他对着第二个框再点一次。
+            if (savedInstanceState == null) {
+                etKeyword.post(() -> {
+                    etKeyword.requestFocus();
+                    android.view.inputmethod.InputMethodManager imm =
+                            (android.view.inputmethod.InputMethodManager)
+                                    getSystemService(INPUT_METHOD_SERVICE);
+                    if (imm != null) {
+                        imm.showSoftInput(etKeyword,
+                                android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
+                    }
+                });
+            }
         }
     }
 

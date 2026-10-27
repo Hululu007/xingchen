@@ -44,7 +44,9 @@ import java.util.Locale;
  * HgPrefetcher 预取模型→HgPlayResolver 解链注册→本地代理 URL→engine.start。</p>
  *
  * <p>全屏口径：竖屏剧在本页内沉浸（元素全隐＋系统栏隐，点屏唤极简控制、自动再隐）；
- * 横屏剧信箱式播＋「全屏观看」进 {@link HongguoLandActivity}。任何元素不常驻：
+ * 横屏剧信箱式播＋「全屏观看」在本窗内把整页转 90° 铺满（窗内转、窗口不转——
+ * 官方主界面 screenOrientation="behind"＋configChanges 自管，见四阶段回报横屏节；
+ * 旧 HongguoLandActivity 单独横屏页真转窗口的路已废弃删除）。任何元素不常驻：
  * 播放中空闲 4 秒自动隐（进度细线除外，它随播放一直动）。</p>
  *
  * <p>弹幕：本阶段只做开关与状态落盘（HgStore）。弹幕数据源在红果样本回包里
@@ -88,7 +90,9 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     private int currentPos = -1;
     private String playingVideoId;
     private boolean chromeHidden;
-    private boolean launchedLand;
+    /** 横屏窗内转模式（整页转 90°，窗口不转）；进入时的页下标，滑走即退出。 */
+    private boolean landMode;
+    private int landPos = -1;
     private boolean seeking;
     private long lastSaveMs;
     private final Handler ui = new Handler(Looper.getMainLooper());
@@ -339,6 +343,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
 
     private void onSettle(int position) {
         if (position < 0 || position >= session.items.size()) return;
+        if (landMode && position != landPos) exitLandMode(); // 滑离横屏页：窗内转自动退出
         if (position != currentPos) saveProgress();
         currentPos = position;
         adapter.setCurrentPos(position);
@@ -633,7 +638,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         }
         if (chromeHidden) {
             boolean portrait = !session.items.get(currentPos).isLandscape();
-            if (portrait) {
+            if (portrait || landMode) {
                 // 全屏沉浸点屏：只唤极简控制，自动再隐
                 updateFsBar();
                 binding.hgFsBar.setVisibility(View.VISIBLE);
@@ -727,8 +732,63 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     public void onFullscreenWatch(int position) {
         if (position != currentPos) return;
         saveProgress();
-        launchedLand = true;
-        HongguoLandActivity.start(this, position);
+        // 横屏全屏＝窗内转（不跳页、不转窗口）：再点一次退出
+        if (landMode) exitLandMode();
+        else enterLandMode(position);
+    }
+
+    /**
+     * 进横屏窗内转：根视图宽高互换＋绕中心转 90°＋平移回窗口中心，视频层与
+     * 控制层（顶栏/右列/本剧条/全屏控制条）整体转过去铺满。窗口本身保持
+     * behind＋竖屏锁定、永不旋转，故进出没有任何窗口旋转残影。
+     * 旋转方向取 -90°（顶边朝左）；方向手感待真机定。
+     */
+    private void enterLandMode(int position) {
+        if (landMode) return;
+        android.view.View root = binding.getRoot();
+        int w = root.getWidth();
+        int h = root.getHeight();
+        if (w <= 0 || h <= 0) {
+            android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+            w = dm.widthPixels;
+            h = dm.heightPixels;
+        }
+        if (w >= h) return; // 已是横向尺寸（异常），不转
+        landMode = true;
+        landPos = position;
+        ViewGroup.LayoutParams lp = root.getLayoutParams();
+        lp.width = h;
+        lp.height = w;
+        root.setLayoutParams(lp);
+        root.setPivotX(h / 2f);
+        root.setPivotY(w / 2f);
+        root.setTranslationX((w - h) / 2f);
+        root.setTranslationY((h - w) / 2f);
+        root.setRotation(-90f);
+        if (playerView != null) playerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FIT);
+        setChromeHidden(false);
+        armAutoHide();
+    }
+
+    /** 出横屏窗内转：全部变换复原，播放器与页表原样不动（同窗同引擎，无交接）。 */
+    private void exitLandMode() {
+        if (!landMode) return;
+        landMode = false;
+        landPos = -1;
+        android.view.View root = binding.getRoot();
+        root.setRotation(0f);
+        root.setTranslationX(0f);
+        root.setTranslationY(0f);
+        ViewGroup.LayoutParams lp = root.getLayoutParams();
+        lp.width = ViewGroup.LayoutParams.MATCH_PARENT;
+        lp.height = ViewGroup.LayoutParams.MATCH_PARENT;
+        root.setLayoutParams(lp);
+        if (playerView != null && currentPos >= 0 && currentPos < session.items.size()) {
+            playerView.setResizeMode(session.items.get(currentPos).isLandscape()
+                    ? AspectRatioFrameLayout.RESIZE_MODE_FIT : AspectRatioFrameLayout.RESIZE_MODE_ZOOM);
+        }
+        setChromeHidden(false);
+        armAutoHide();
     }
 
     @Override
@@ -750,25 +810,27 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     @Override
     protected void onResume() {
         super.onResume();
-        if (launchedLand) {
-            launchedLand = false;
-            // 从横屏页回来：按红果断点重起当前集
-            playingVideoId = null;
-            startCurrentPlayback();
-        }
     }
 
     @Override
     protected void onPause() {
         saveProgress();
-        // 去横屏页时把本页引擎停透：同一条本地流不许两个播放器同时拉（代理流按集单实例）
-        if (launchedLand) stopPlayback();
-        else if (player != null) player.pause();
+        if (player != null) player.pause();
         super.onPause();
+    }
+
+    /** 窗口不转、config 自管（Manifest 已声明全套 configChanges）：配置变化不重建页面，窗内转由 landMode 处理。 */
+    @Override
+    public void onConfigurationChanged(@androidx.annotation.NonNull android.content.res.Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
     }
 
     @Override
     protected void onBackInvoked() {
+        if (landMode) {
+            exitLandMode();
+            return;
+        }
         if (binding.hgFsBar.getVisibility() == View.VISIBLE) {
             binding.hgFsBar.setVisibility(View.GONE);
             return;

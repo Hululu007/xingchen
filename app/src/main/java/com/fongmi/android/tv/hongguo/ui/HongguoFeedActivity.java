@@ -312,6 +312,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             HgFeedSources.Tab t = tabs[i];
             groups[i].setOnClickListener(v -> {
                 if (t != tab) switchTab(t);
+                else refreshCurrentTab();
             });
         }
         refreshTabStyle();
@@ -338,6 +339,18 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         tab = target;
         refreshTabStyle();
         loadTab(target);
+    }
+
+    /**
+     * 再点当前页签＝刷新本页签（回顶部＋按 Open 语义重拉一批）：此前再点
+     * 没任何反应，用户想换一批只能杀进程重进（他点名「每次打开都一样」
+     * 的一条自救路也没有）。feed 无下拉刷新件，页签再点就是刷新口。
+     */
+    private void refreshCurrentTab() {
+        if (mineShowing) return;
+        saveProgress();
+        stopPlayback();
+        loadTab(tab);
     }
 
     private void loadTab(HgFeedSources.Tab target) {

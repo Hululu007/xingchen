@@ -260,6 +260,7 @@
         layout="@layout/view_hongguo_mine"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
+        android:layout_marginBottom="56dp"
         android:visibility="gone" />
 
     <!-- 三杠小抽屉：侧边压在刷剧页上，半幅、高度随内容；不再整屏开页。 -->

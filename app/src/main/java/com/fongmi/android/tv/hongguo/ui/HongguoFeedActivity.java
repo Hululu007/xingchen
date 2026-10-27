@@ -152,7 +152,8 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         public void onPlaybackStateChanged(int state) {
             if (state == Player.STATE_ENDED) {
                 if (mode == MODE_FEED) {
-                    // 短片播完循环当前条（账 §4.2；官方行为未定 U7 的兜底口径），不自动滑走
+                    // 短片播完循环当前条（账 §4.2；U7 已定论——官方同为原地
+                    // 循环重播、不自动滑下一条，u7-u5-dig-20261028.md 实证）
                     if (player != null) {
                         player.seekTo(0);
                         player.play();

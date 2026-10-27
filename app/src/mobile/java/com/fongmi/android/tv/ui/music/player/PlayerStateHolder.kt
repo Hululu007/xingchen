@@ -5,7 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.drawable.Drawable
 import android.os.Handler
 import android.os.Looper
-import com.bumptech.glide.request.target.CustomTarget
+import com.fongmi.android.tv.impl.CustomTarget
 import com.bumptech.glide.request.transition.Transition
 import com.fongmi.android.tv.bean.music.LyricVersion
 import com.fongmi.android.tv.bean.music.MusicTrack

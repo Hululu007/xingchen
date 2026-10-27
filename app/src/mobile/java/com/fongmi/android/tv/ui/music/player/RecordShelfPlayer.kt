@@ -57,7 +57,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.bumptech.glide.request.target.CustomTarget
+import com.fongmi.android.tv.impl.CustomTarget
 import com.bumptech.glide.request.transition.Transition
 import com.fongmi.android.tv.R
 import com.fongmi.android.tv.bean.music.MusicTrack

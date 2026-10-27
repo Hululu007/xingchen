@@ -74,14 +74,27 @@
             android:paddingBottom="22dp"
             android:visibility="gone">
 
-            <TextView
+            <FrameLayout
                 android:layout_width="60dp"
-                android:layout_height="60dp"
-                android:background="@drawable/bg_hg_avatar_circle"
-                android:gravity="center"
-                android:text="红"
-                android:textColor="#FFFFFF"
-                android:textSize="24sp" />
+                android:layout_height="60dp">
+
+                <TextView
+                    android:id="@+id/hg_mine_avatar_badge"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:background="@drawable/bg_hg_avatar_circle"
+                    android:gravity="center"
+                    android:text="红"
+                    android:textColor="#FFFFFF"
+                    android:textSize="24sp" />
+
+                <ImageView
+                    android:id="@+id/hg_mine_avatar"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:scaleType="centerCrop"
+                    android:visibility="gone" />
+            </FrameLayout>
 
             <TextView
                 android:id="@+id/hg_mine_nickname"

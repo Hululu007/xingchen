@@ -512,6 +512,57 @@ public final class HgApiClient {
         get(HOST + "/reading/bookapi/bookshelf/video/list" + BV, null, cellCallback(cb));
     }
 
+    /**
+     * 账号资料（account-info-dig-20261028.md 定版）：passport 口
+     * GET security.snssdk.com/passport/account/info/v2/?scene=normal，
+     * 凭据＝壳子托管的登录 Cookie（本面自己的 headers() 已统一附），
+     * csrf 头从 Cookie 的 passport_csrf_token 取。此口是异宿主、无 body
+     * 签名（与 U11 短信链不同——那条死在签名关，这条只认 Cookie 会话，
+     * 认不认 hongguoduanju.com 的会话待新版首登一发定论）。无 Cookie 直接失败不发请求。
+     */
+    public void fetchAccountInfo(HgCallback<com.fongmi.android.tv.hongguo.model.HgAccountProfile> cb) {
+        HgAuthProvider auth = authProvider;
+        String cookie = auth == null ? null : auth.cookie();
+        if (cookie == null || cookie.isEmpty()) {
+            cb.onError(-3, "未登录");
+            return;
+        }
+        HgDevice.Profile profile = HgDevice.profile();
+        StringBuilder url = new StringBuilder("https://security.snssdk.com/passport/account/info/v2/");
+        url.append("?scene=normal&passport-sdk-version=5051452&account_sdk_source=app");
+        url.append("&aid=").append(HgDevice.AID);
+        if (profile != null && profile.registered()) {
+            url.append("&device_id=").append(enc(profile.deviceId));
+            url.append("&iid=").append(enc(profile.installId));
+        }
+        Map<String, String> h = headers();
+        String csrf = cookieValue(cookie, "passport_csrf_token");
+        if (csrf != null && !csrf.isEmpty()) h.put("x-tt-passport-csrf-token", csrf);
+        Call call = OkHttp.newCall(url.toString(), h);
+        enqueue(call, new BodyCallback() {
+            @Override
+            void onBody(String text) {
+                com.fongmi.android.tv.hongguo.model.HgAccountProfile p =
+                        com.fongmi.android.tv.hongguo.model.HgParser.parseAccountInfo(text);
+                if (p == null) cb.onError(-2, "账号资料回包解析失败");
+                else cb.onSuccess(p);
+            }
+
+            @Override
+            void onFail(int code, String msg) {
+                cb.onError(code, msg);
+            }
+        }, "passport/account/info");
+    }
+
+    private static String cookieValue(String cookie, String name) {
+        for (String part : cookie.split(";")) {
+            String t = part.trim();
+            if (t.startsWith(name + "=")) return t.substring(name.length() + 1).trim();
+        }
+        return null;
+    }
+
     public void bookshelfVideoInfo(String seriesId, HgCallback<HgCellPage> cb) {
         Map<String, String> q = new HashMap<>();
         q.put("series_id", seriesId);

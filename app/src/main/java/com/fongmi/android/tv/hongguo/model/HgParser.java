@@ -877,4 +877,32 @@ public final class HgParser {
             return 0;
         }
     }
+    /**
+     * 账号资料解析（passport 信封，account-info-dig-20261028.md 定版）：
+     * {message:"success", data:{screen_name, avatar_url, name, user_id,
+     * sec_user_id, media:{avatar_url}}}。昵称＝screen_name（空回落 name），
+     * 头像＝avatar_url（空回落 media.avatar_url）。data 缺失或名/头像全空
+     * 返回 null（半份资料不落镜像）。注：字段集是客户端愿读的键，真回包
+     * 样本待新版首登抓一发对——解析容忍多/缺键。
+     */
+    public static HgAccountProfile parseAccountInfo(String json) {
+        if (json == null || json.isEmpty()) return null;
+        JsonObject root;
+        try {
+            root = JsonParser.parseString(json).getAsJsonObject();
+        } catch (Exception e) {
+            return null;
+        }
+        JsonObject data = obj(root, "data");
+        if (data == null) return null;
+        String name = firstStr(data, "screen_name", "name", "username");
+        String avatar = firstStr(data, "avatar_url");
+        if (avatar == null) {
+            JsonObject media = obj(data, "media");
+            if (media != null) avatar = firstStr(media, "avatar_url");
+        }
+        String uid = firstStr(data, "user_id", "sec_user_id");
+        if (name == null && avatar == null) return null;
+        return new HgAccountProfile(name, avatar, uid);
+    }
 }

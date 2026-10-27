@@ -50,6 +50,8 @@ public final class HgMineView extends LinearLayout {
     private View guestRow;
     private View userRow;
     private TextView nicknameView;
+    private android.widget.ImageView avatarView;
+    private TextView avatarBadge;
     private TextView emptyView;
     private final TextView[] tabViews = new TextView[4];
     private final MineAdapter adapter = new MineAdapter();
@@ -81,6 +83,8 @@ public final class HgMineView extends LinearLayout {
         guestRow = findViewById(R.id.hg_mine_guest_row);
         userRow = findViewById(R.id.hg_mine_user_row);
         nicknameView = findViewById(R.id.hg_mine_nickname);
+        avatarView = findViewById(R.id.hg_mine_avatar);
+        avatarBadge = findViewById(R.id.hg_mine_avatar_badge);
         emptyView = findViewById(R.id.hg_mine_empty);
         tabViews[TAB_HISTORY] = findViewById(R.id.hg_mine_tab_history);
         tabViews[TAB_FAV] = findViewById(R.id.hg_mine_tab_fav);
@@ -113,14 +117,49 @@ public final class HgMineView extends LinearLayout {
     }
 
     private void refreshAccount() {
-        // 头部双态（官方构成）：未登录＝大标题/副行＋立即登录钮；
-        // 已登录＝头像 60dp＋昵称位。昵称/头像 URL 星辰无数据源（登录只托管
-        // Cookie、无账号资料口子），昵称位显账号态文案、头像位用字徽占位，
-        // 尺寸数值照官方（60dp/20sp 粗）先落，数据待资料口子另定。
+        // 头部双态（官方构成）：未登录＝大标题/副行＋立即登录钮；已登录＝
+        // 头像 60dp＋昵称。昵称/头像走 passport 资料口（account-info-dig）：
+        // 先显本地镜像（登出已随 clearAccountMirrors 清），再按官方节奏
+        // 每次本面可见时回源刷新一次，回来落镜像重绑；回源失败静默保旧镜像。
         boolean in = LoginManager.isHongguoLoggedIn();
         guestRow.setVisibility(in ? GONE : VISIBLE);
         userRow.setVisibility(in ? VISIBLE : GONE);
-        if (in) nicknameView.setText("红果账号已登录");
+        if (!in) return;
+        bindProfile();
+        HgFeedSession.get().client.fetchAccountInfo(
+                new HgCallback<com.fongmi.android.tv.hongguo.model.HgAccountProfile>() {
+                    @Override
+                    public void onSuccess(com.fongmi.android.tv.hongguo.model.HgAccountProfile p) {
+                        HgStore.saveProfile(p.displayName, p.avatarUrl, p.userId);
+                        post(() -> {
+                            if (LoginManager.isHongguoLoggedIn()) bindProfile();
+                        });
+                    }
+
+                    @Override
+                    public void onError(int httpCode, String message) {
+                        // 静默：资料口认不认网页会话待首登定论，失败不冲镜像不报错
+                    }
+                });
+    }
+
+    /** 头部绑定：昵称＝资料镜像（无镜像回落账号态文案）；头像有图显图、无图显字徽。 */
+    private void bindProfile() {
+        String name = HgStore.profileName();
+        nicknameView.setText(name != null ? name : "红果账号已登录");
+        String avatar = HgStore.profileAvatar();
+        if (avatar != null && avatarView != null) {
+            avatarView.setVisibility(VISIBLE);
+            if (avatarBadge != null) avatarBadge.setVisibility(GONE);
+            ImgUtil.loadCircle("", avatar, avatarView);
+        } else {
+            if (avatarView != null) avatarView.setVisibility(GONE);
+            if (avatarBadge != null) {
+                avatarBadge.setVisibility(VISIBLE);
+                avatarBadge.setText(name != null && !name.isEmpty()
+                        ? name.substring(0, 1) : "红");
+            }
+        }
     }
 
     private void onAccountClick() {

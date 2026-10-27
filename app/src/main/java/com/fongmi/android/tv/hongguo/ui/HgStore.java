@@ -21,6 +21,9 @@ public final class HgStore {
     private static final String K_FAVED = "hongguo_faved_series";
     private static final String K_FOLLOWED = "hongguo_followed_series";
     private static final String K_RESERVED = "hongguo_reserved_series";
+    private static final String K_PROFILE_NAME = "hongguo_profile_name";
+    private static final String K_PROFILE_AVATAR = "hongguo_profile_avatar";
+    private static final String K_PROFILE_UID = "hongguo_profile_uid";
     private static final String K_HIST_PREFIX = "hongguo_hist_";
     private static final String K_LAST_SERIES = "hongguo_last_series";
     private static final String K_LAST_EP = "hongguo_last_ep";
@@ -201,6 +204,26 @@ public final class HgStore {
         Prefers.put(K_FAVED, "");
         Prefers.put(K_FOLLOWED, "");
         Prefers.put(K_RESERVED, "");
+        Prefers.put(K_PROFILE_NAME, "");
+        Prefers.put(K_PROFILE_AVATAR, "");
+        Prefers.put(K_PROFILE_UID, "");
+    }
+
+    /** 账号资料镜像（passport 资料口回填；登出随 clearAccountMirrors 一并清）。 */
+    public static void saveProfile(String name, String avatar, String uid) {
+        if (name != null) Prefers.put(K_PROFILE_NAME, name);
+        if (avatar != null) Prefers.put(K_PROFILE_AVATAR, avatar);
+        if (uid != null) Prefers.put(K_PROFILE_UID, uid);
+    }
+
+    public static String profileName() {
+        String v = Prefers.getString(K_PROFILE_NAME, "");
+        return v == null || v.isEmpty() ? null : v;
+    }
+
+    public static String profileAvatar() {
+        String v = Prefers.getString(K_PROFILE_AVATAR, "");
+        return v == null || v.isEmpty() ? null : v;
     }
 
     // ---------- 剧目元信息（列表页用：标题/封面/集数，随详情与流条目顺手落） ----------

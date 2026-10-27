@@ -305,6 +305,36 @@ public class HgOfflineTest {
                     null);
         }
 
+        // 15) 账号资料解析（account-info-dig-20261028.md 字段表造形样本——
+        // 非真回包：真样本待新版首登抓一发对；本节只验解析口径：passport
+        // 信封、screen_name/avatar_url 优先、media 回落、全空判 null）
+        {
+            String shape = "{\"message\":\"success\",\"data\":{"
+                    + "\"screen_name\":\"测试昵称\",\"name\":\"备用名\","
+                    + "\"avatar_url\":\"https://example.com/a.png\","
+                    + "\"user_id\":\"12345\",\"sec_user_id\":\"MS4wLjABAAAA\"}}";
+            com.fongmi.android.tv.hongguo.model.HgAccountProfile prof =
+                    HgParser.parseAccountInfo(shape);
+            check("资料解析 screen_name/avatar/user_id", prof != null
+                            && "测试昵称".equals(prof.displayName)
+                            && "https://example.com/a.png".equals(prof.avatarUrl)
+                            && "12345".equals(prof.userId),
+                    "实际=" + (prof == null ? null : prof.displayName));
+            String mediaOnly = "{\"message\":\"success\",\"data\":{"
+                    + "\"name\":\"只有名字\",\"media\":{\"avatar_url\":\"https://example.com/m.png\"}}}";
+            com.fongmi.android.tv.hongguo.model.HgAccountProfile prof2 =
+                    HgParser.parseAccountInfo(mediaOnly);
+            check("资料解析 name/media 回落", prof2 != null
+                            && "只有名字".equals(prof2.displayName)
+                            && "https://example.com/m.png".equals(prof2.avatarUrl),
+                    null);
+            check("资料全空判 null",
+                    HgParser.parseAccountInfo("{\"message\":\"success\",\"data\":{}}") == null
+                            && HgParser.parseAccountInfo("{\"message\":\"error\"}") == null
+                            && HgParser.parseAccountInfo("not json") == null,
+                    null);
+        }
+
         System.out.println(fail == 0 ? "ALL PASS" : ("FAILURES=" + fail));
         System.exit(fail == 0 ? 0 : 1);
     }

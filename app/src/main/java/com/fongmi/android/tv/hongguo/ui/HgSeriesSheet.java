@@ -95,14 +95,26 @@ public final class HgSeriesSheet {
                         item.getCoverUrl(), b.hgRowCover);
                 b.hgRowTitle.setText(item.getTitle() == null ? "" : item.getTitle());
                 StringBuilder sub = new StringBuilder();
-                if (item.getEpisodeCount() > 0) sub.append("全").append(item.getEpisodeCount()).append("集");
-                if (item.isFinished()) {
-                    if (sub.length() > 0) sub.append(" · ");
-                    sub.append("已完结");
-                }
-                if (item.getBadge() != null && !item.getBadge().isEmpty()) {
-                    if (sub.length() > 0) sub.append(" · ");
-                    sub.append(item.getBadge());
+                // 副行口径（U5 定版）：官方行副行＝sub_title_list 前两条
+                // （文案承载，含预约数/题材等），有就用它；没有才回落自拼的
+                // 集数/完结/角标（数据缺失面不至空白）
+                java.util.List<String> subTitles = item.getTags();
+                if (subTitles != null && !subTitles.isEmpty()) {
+                    int n = Math.min(2, subTitles.size());
+                    for (int i = 0; i < n; i++) {
+                        if (sub.length() > 0) sub.append(" · ");
+                        sub.append(subTitles.get(i));
+                    }
+                } else {
+                    if (item.getEpisodeCount() > 0) sub.append("全").append(item.getEpisodeCount()).append("集");
+                    if (item.isFinished()) {
+                        if (sub.length() > 0) sub.append(" · ");
+                        sub.append("已完结");
+                    }
+                    if (item.getBadge() != null && !item.getBadge().isEmpty()) {
+                        if (sub.length() > 0) sub.append(" · ");
+                        sub.append(item.getBadge());
+                    }
                 }
                 b.hgRowSub.setText(sub.toString());
                 b.hgRowSub.setVisibility(sub.length() > 0 ? View.VISIBLE : View.GONE);

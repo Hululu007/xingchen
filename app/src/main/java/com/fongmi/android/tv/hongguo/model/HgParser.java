@@ -240,7 +240,7 @@ public final class HgParser {
             if (sid == null) continue;
             seasons.add(new HgSeriesItem(sid, str(r, "series_title"), str(r, "series_cover"),
                     null, intOf(r, "episode_cnt", -1), false, false, null,
-                    null, null, null, Collections.emptyList(), null, false,
+                    null, null, null, subTitleList(r), null, false,
                     firstStr(album, "album_id_str", "album_id"), intOf(album, "season_cnt", -1),
                     Collections.emptyList(), -1, -1, intOrNull(r, "series_status"), null, null, null));
         }
@@ -248,6 +248,32 @@ public final class HgParser {
         seasons.sort((a, b) -> Integer.compare(seasonIndex(seasonRows, a.getSeriesId()),
                 seasonIndex(seasonRows, b.getSeriesId())));
         out.addAll(seasons);
+        return out;
+    }
+
+    /**
+     * 季行副标题表（U5 定版，u7-u5-dig-20261028.md）：官方系列单行的副行
+     * 就是 sub_title_list 前两条，没有独立的集数/热度字段位。REST 侧键名
+     * 两形并存（video_detail 是 series_sub_title_list、搜索 subscribe 行是
+     * sub_title_list），元素两形并存（对象 {content}／纯字符串），全容忍抽。
+     * 专辑回包本体尚无真样本，键名集待真样本逐字校——现按已实证字段族接。
+     */
+    private static List<String> subTitleList(JsonObject r) {
+        List<String> out = new ArrayList<>();
+        JsonArray a = arr(r, "series_sub_title_list");
+        if (a == null) a = arr(r, "sub_title_list");
+        if (a == null) return out;
+        for (JsonElement el : a) {
+            String v = null;
+            if (el.isJsonObject()) v = str(el.getAsJsonObject(), "content");
+            else if (el.isJsonPrimitive()) {
+                try {
+                    v = el.getAsString();
+                } catch (Exception ignored) {
+                }
+            }
+            if (v != null && !v.isEmpty()) out.add(v);
+        }
         return out;
     }
 

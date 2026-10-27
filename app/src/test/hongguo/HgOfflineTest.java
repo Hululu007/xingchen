@@ -247,6 +247,27 @@ public class HgOfflineTest {
                             && seasons.get(0).getEpisodeCount() == 10,
                     "实际=" + seasons.size());
             check("专辑已下架回空表", HgParser.parseAlbum("{\"code\":101001}").isEmpty(), null);
+            // 季行副标题（U5 定版）：sub_title_list 对象数组取 content、
+            // 字符串数组直取，两形都进 tags 供系列单副行前两条呈现
+            String albumSubJson = "{\"code\":0,\"data\":{\"album_data\":{"
+                    + "\"album_id_str\":\"999\",\"season_cnt\":2,"
+                    + "\"series_list\":["
+                    + "{\"series_id_str\":\"333\",\"series_title\":\"丙剧\",\"season_index\":1,"
+                    + "\"sub_title_list\":[{\"content\":\"100.9万人预约\"},{\"content\":\"末世\"},{\"content\":\"重生\"}]},"
+                    + "{\"series_id_str\":\"444\",\"series_title\":\"丁剧\",\"season_index\":2,"
+                    + "\"series_sub_title_list\":[\"已完结\",\"悬疑\"]}"
+                    + "]}}}";
+            java.util.List<com.fongmi.android.tv.hongguo.model.HgSeriesItem> subSeasons =
+                    HgParser.parseAlbum(albumSubJson);
+            check("专辑副标题对象数组抽取", subSeasons.size() == 2
+                            && subSeasons.get(0).getTags().size() == 3
+                            && "100.9万人预约".equals(subSeasons.get(0).getTags().get(0))
+                            && "末世".equals(subSeasons.get(0).getTags().get(1)),
+                    "实际=" + (subSeasons.isEmpty() ? "空" : subSeasons.get(0).getTags().toString()));
+            check("专辑副标题字符串数组抽取", subSeasons.size() == 2
+                            && subSeasons.get(1).getTags().size() == 2
+                            && "悬疑".equals(subSeasons.get(1).getTags().get(1)),
+                    null);
             // 搜索联想形状照 openhongguo ParseSuggest＋ohg suggest 实跑：
             // query_result_v2 行 {name, keyword, word_type}，word_type=2 的
             // keyword 是剧 id 可直达；富行缺失时回落 query_result 纯词表

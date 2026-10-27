@@ -544,12 +544,12 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         return -1;
     }
 
-    /** 点亮错误片；code 为失败出口编号（E1–E5／播放器环 P），带上屏方便定罪（诊断用，定罪后撤）。 */
+    /** 点亮错误片；code 为失败出口编号（E1–E5／播放器环 P），只进日志不上屏
+     * （诊断编号曾直接拼进文案、他真机截图里就是「加载失败（E1）」——内部编号不许给用户看）。 */
     private void showErrorWithCode(HgFeedAdapter.Holder holder, String code) {
         if (holder == null) return;
-        holder.binding.hgError.setText(code == null || code.isEmpty()
-                ? "加载失败，点按重试"
-                : "加载失败（" + code + "），点按重试");
+        if (code != null && !code.isEmpty()) android.util.Log.w("HgFeed", "条目加载失败 code=" + code);
+        holder.binding.hgError.setText("加载失败，点按重试");
         holder.binding.hgError.setVisibility(View.VISIBLE);
     }
 

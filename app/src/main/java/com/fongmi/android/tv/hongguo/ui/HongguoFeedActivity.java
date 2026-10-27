@@ -244,11 +244,17 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         // 加载失败态可点重试（列表为空时点状态文案重拉当前页签）：
         // 此前失败只剩切页签/杀进程两条路，文案写着「稍后再试」却没给试的口
         binding.hgState.setOnClickListener(v -> {
-            if (session.items.isEmpty() && !mineShowing) loadTab(tab);
+            if (mode == MODE_FEED && session.items.isEmpty() && !mineShowing) loadTab(tab);
         });
         setupShellFaces();
         mode = getIntent().getIntExtra(EXTRA_MODE, MODE_FEED);
         if (mode == MODE_SERIES) {
+            // 集流页不是刷剧页：刷剧页的页签栏/搜索/抽屉与自家底栏在集流里
+            // 全不该在场（此前从没按 mode 分过 chrome，集流里点页签会把
+            // 集流当场换成频道流、还共用同一份会话页表——交互串面实证）
+            binding.hgTopBar.setVisibility(View.GONE);
+            binding.hgBottomBar.setVisibility(View.GONE);
+            setPagerBottomMargin(0);
             String seriesId = getIntent().getStringExtra(EXTRA_SERIES_ID);
             session.items.clear();
             adapter.notifyDataSetChanged();
@@ -762,7 +768,9 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
 
     private void setChromeHidden(boolean hidden) {
         chromeHidden = hidden;
-        binding.hgTopBar.setVisibility(hidden ? View.GONE : View.VISIBLE);
+        if (mode == MODE_FEED) {
+            binding.hgTopBar.setVisibility(hidden ? View.GONE : View.VISIBLE);
+        }
         HgFeedAdapter.Holder h = currentHolder();
         if (h != null) {
             int v = hidden ? View.GONE : View.VISIBLE;
@@ -1072,8 +1080,10 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             playerView.setResizeMode(session.items.get(currentPos).isLandscape()
                     ? AspectRatioFrameLayout.RESIZE_MODE_FIT : AspectRatioFrameLayout.RESIZE_MODE_ZOOM);
         }
-        binding.hgBottomBar.setVisibility(View.VISIBLE);
-        setPagerBottomMargin(56);
+        if (mode == MODE_FEED) {
+            binding.hgBottomBar.setVisibility(View.VISIBLE);
+            setPagerBottomMargin(56);
+        }
         setChromeHidden(false);
         armAutoHide();
     }

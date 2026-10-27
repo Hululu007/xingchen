@@ -3804,7 +3804,14 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             return null;
         });
         putFunction("cacheCode0", args -> {
-            // 8.83 JSEngine.cacheCode0：发 EventBus CacheCode 事件。星辰无此事件类，空实现。
+            // 8.83 JSEngine.cacheCode0(Object code)（smali 11838）：tryGetString 取码串，
+            // 非空才 post event.rule.CacheCode(code)。消费侧：HkArticleFragment.onCacheCode
+            // 存入页面 cacheCode 字段（原版 ArticleListFragment.updateCacheCode 的等价面）。
+            String code = args != null && args.length > 0 ? getString(args[0]) : null;
+            if (!TextUtils.isEmpty(code)) {
+                EventBus.getDefault().post(
+                        new com.fongmi.android.tv.api.hk.event.rule.CacheCodeEvent(code));
+            }
             return null;
         });
         putFunction("buildWebDav", args -> {

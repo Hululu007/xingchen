@@ -330,6 +330,20 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
     }
 
     /**
+     * 规则 JS 调 cacheCode0(code) 的订阅（8.83 ArticleListFragment.updateCacheCode）：
+     * 把规则给的缓存代码存进本页 cacheCode 字段（该字段是移植时留下的、此前从未被读写）。
+     * 原版守卫是宿主为 FilmListActivity 且 autoCacheMd5 非空，星辰等价用 listHost（列表宿主页）＋页面在前台。
+     * 缺口如实记：原版随后在列表数据到达时经 AutoCacheUtil.saveCache(md5, list, cacheCode) 落盘，
+     * 星辰的自动缓存落盘子系统未移植（cacheOnly 仍是待补切片），故本字段暂无下游消费者；
+     * 事件链与存取本身是真的，落盘消费面待自动缓存切片补入时接上。
+     */
+    @org.greenrobot.eventbus.Subscribe(threadMode = org.greenrobot.eventbus.ThreadMode.MAIN)
+    public void onCacheCode(com.fongmi.android.tv.api.hk.event.rule.CacheCodeEvent event) {
+        if (!isResumed() || event == null || !listHost) return;
+        cacheCode = event.getCode();
+    }
+
+    /**
      * 规则 JS 调 refreshVideoSource(url, headers) 的订阅（8.83 ArticleListFragment.onRefreshVideoUrl
      * → ArticleWebViewHolder.updateVideoUrl）：把新视频地址与请求头存进 holder 的视频面；
      * 当前正展示视频条目时按新址立即重载（holder 建面时对视频条目本就直载 videoUrl，此处与之同义）。

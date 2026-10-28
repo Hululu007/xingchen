@@ -211,6 +211,10 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     private int mode = MODE_FEED;
     private String playingVideoId;
     private boolean chromeHidden;
+    /** 清屏态（集流竖屏，用户亲点口径）：播中点画面进入——界面件全隐、
+     * 只剩画面与右下全屏钮（钮变淡）；再点恢复。与 chromeHidden 分开记：
+     * chromeHidden 是横屏观看态的自动全隐，互不串。 */
+    private boolean cleanMode;
     /** 红果自家底栏当前面：false=首页（刷剧流本体） true=我的（壳内「我的」面）。 */
     private boolean mineShowing;
     private boolean drawerOpen;
@@ -816,6 +820,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         // 发现流位置随 settle 落盘：进程被杀重进时落位用（集流不记，断点在剧一级）
         if (mode == MODE_FEED) HgStore.saveFeedPos(tab.name(), position);
         adapter.setCurrentPos(position);
+        if (cleanMode) exitCleanMode(); // 清屏是当前页的观看态，滑页即退出、不串页
         setChromeHidden(false);
         HgFeedItem item = session.items.get(position);
         HgFeedAdapter.Holder holder = currentHolder();
@@ -1189,6 +1194,10 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                 h.binding.hgRightRail.setVisibility(v);
                 h.binding.hgInfo.setVisibility(v);
                 h.binding.hgSeriesBar.setVisibility(v);
+                // 进度线与清屏同进退；方钮透明度在恢复态归位（清屏的变淡
+                // 不许串到常态/别的页——回收不重绑时 bind 的归位管不到）
+                h.binding.hgProgressBox.setVisibility(v);
+                if (!hidden) h.binding.hgFsBtn.setAlpha(1f);
                 // 「弹」是发弹幕入口：重显时按弹幕开关恢复（与适配器 bindDanmakuState
                 // 同口径），弹幕关着不许把入口跟着 chrome 一起亮出来
                 h.binding.hgDanmakuBox.setVisibility(hidden ? View.GONE
@@ -1236,6 +1245,41 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         if (hidden) binding.hgFsBar.setVisibility(View.GONE);
     }
 
+    /**
+     * 进清屏（用户亲点口径「点一下屏幕只剩画面，啥都隐藏」「只剩这个按钮」）：
+     * 集流竖屏的标题栏/右列/信息摞/选集条/发弹幕入口/全屏观看筹/进度线与
+     * 系统栏全隐，唯一留屏的是右下全屏钮、且变淡（防烧屏）。选集条用
+     * INVISIBLE 不用 GONE——底部行是横排，条塌掉会把方钮拽到左边。
+     * 官方清屏机理（impl/catalogview/b 两集 400ms 淡变）是同族做法；咱家
+     * 按他口径以显隐＋钮降透明度落，淡值 0.35 为自定（官方同钮在 KMP
+     * 路径、透明度数值未抠到，账里单列）。
+     */
+    private void enterCleanMode() {
+        cleanMode = true;
+        binding.hgSeriesBar.setVisibility(View.GONE);
+        HgFeedAdapter.Holder h = currentHolder();
+        if (h != null) {
+            h.binding.hgRightRail.setVisibility(View.GONE);
+            h.binding.hgInfo.setVisibility(View.GONE);
+            h.binding.hgSeriesBar.setVisibility(View.INVISIBLE);
+            h.binding.hgDanmakuBox.setVisibility(View.GONE);
+            h.binding.hgFullscreenWatch.setVisibility(View.GONE);
+            h.binding.hgProgressBox.setVisibility(View.GONE);
+            h.binding.hgFsBtn.setVisibility(View.VISIBLE);
+            h.binding.hgFsBtn.setAlpha(0.35f);
+        }
+        new WindowInsetsControllerCompat(getWindow(), getWindow().getDecorView())
+                .hide(WindowInsetsCompat.Type.systemBars());
+    }
+
+    /** 出清屏：走 setChromeHidden(false) 的常态恢复口径（进度线/方钮
+     * 透明度在那条路上一并归位，见 setChromeHidden 注）。 */
+    private void exitCleanMode() {
+        if (!cleanMode) return;
+        cleanMode = false;
+        setChromeHidden(false);
+    }
+
     private void armAutoHide() {
         ui.removeCallbacks(hideChromeRunnable);
         // 刷剧面常显件不自动隐（他真机亲点，见类头显隐口径）；
@@ -1279,6 +1323,18 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             binding.hgFsBar.setVisibility(View.GONE);
             ui.removeCallbacks(hideFsRunnable);
             return;
+        }
+        if (mode == MODE_SERIES && !landMode && !landInstance) {
+            // 清屏口径（用户亲点）：播中点画面进清屏、清屏中点画面恢复；
+            // 暂停态点画面仍是续播（落到下面 togglePlayPause），清屏只在播中进
+            if (cleanMode) {
+                exitCleanMode();
+                return;
+            }
+            if (player != null && player.isPlaying()) {
+                enterCleanMode();
+                return;
+            }
         }
         if (chromeHidden) {
             boolean portrait = !session.items.get(currentPos).isLandscape();

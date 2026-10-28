@@ -6,13 +6,13 @@
 # 删的只有本功能（2026-10-27 立项的原生红果，一至五阶段）新增的东西：
 #   - 红果本体包 app/src/main/java/com/fongmi/android/tv/hongguo/（api/model/crypto/proxy/ui 全包）
 #     与它的离线单测 app/src/test/hongguo/；
-#   - 本体资源（main 源集）：activity/item/dialog/view_hongguo_* 布局 22 份、bg_hg_*/ic_hg_* 图形 50 份；
+#   - 本体资源（main 源集）：activity/item/dialog/view_hongguo_* 布局 35 份、bg_hg_*/ic_hg_* 图形 85 份；
 #   - 登录提供方 HongguoLoginProvider 与它在 LoginManager 里的注册行／loginHongguo 入口／
 #     三个静态桥／requestLogin 的红果分发支；
 #   - Nano 本地服务器的红果代理解密 process（HongguoStream 本体＋Nano 的 import 与注册行）；
 #   - 底栏短剧格：HomeActivity 的 import／注册行／点击分发支、isHongguoTabEnabled 改回
 #     false（格子不注册）、ic_nav_duanju 双态图标、nav_duanju 字符串；
-#   - Manifest（mobile）里红果五个 Activity 的登记。
+#   - Manifest（mobile）里红果七个 Activity＋书城浏览页＋横屏别名的登记。
 #
 # 不许误伤的共用件（海阔规则年代就有的壳子件，只是名字里带 Hongguo，与本功能无关，留）：
 #   - com.fongmi.android.tv.api.HongguoCommentApi / HongguoDanmakuApi / FqCommentSigner
@@ -23,7 +23,7 @@
 #   - 登录框架本体（LoginManager 注册表与通用口、PanLoginDialog、CloudAccountStore）、
 #     底栏组件本体（XcBottomBar/BottomTabs 与 ids.xml 的 hongguo 预声明 id——无害占位、
 #     与 2e7ddcc3 预声明时同状态）、Nano 其余 process。
-# 终检只认本功能专属标识（tv.hongguo 包名与五个 Activity 名、HongguoLoginProvider、
+# 终检只认本功能专属标识（tv.hongguo 包名与七个 Activity 名、HongguoLoginProvider、
 # loginHongguo 系入口名、HongguoStream、ic_nav_duanju/nav_duanju），不认泛 Hongguo 字样，
 # 免得把上面的共用件误报成残留。
 set -euo pipefail
@@ -104,6 +104,7 @@ app/src/main/res/layout/view_hongguo_series_sheet.xml
 app/src/main/res/drawable/bg_hg_actor_chip.xml
 app/src/main/res/drawable/bg_hg_avatar_circle.xml
 app/src/main/res/drawable/bg_hg_badge.xml
+app/src/main/res/drawable/bg_hg_check_off.xml
 app/src/main/res/drawable/bg_hg_progress_dot.xml
 app/src/main/res/drawable/bg_hg_refresh_pill.xml
 app/src/main/res/drawable/bg_hg_bottom_scrim.xml
@@ -140,6 +141,7 @@ app/src/main/res/drawable/bg_hg_followed_btn.xml
 app/src/main/res/drawable/bg_hg_grab.xml
 app/src/main/res/drawable/bg_hg_login_btn.xml
 app/src/main/res/drawable/bg_hg_mine_card.xml
+app/src/main/res/drawable/bg_hg_mine_badge.xml
 app/src/main/res/drawable/bg_hg_panel_chip_on.xml
 app/src/main/res/drawable/bg_hg_panel_track.xml
 app/src/main/res/drawable/bg_hg_series_bar.xml
@@ -148,6 +150,7 @@ app/src/main/res/drawable/ic_hg_back.xml
 app/src/main/res/drawable/ic_hg_home.xml
 app/src/main/res/drawable/ic_hg_mine.xml
 app/src/main/res/drawable/ic_hg_close.xml
+app/src/main/res/drawable/ic_hg_check_on.xml
 app/src/main/res/drawable/ic_hg_detail_arrow.xml
 app/src/main/res/drawable/ic_hg_comment.xml
 app/src/main/res/drawable/ic_hg_fullscreen.xml

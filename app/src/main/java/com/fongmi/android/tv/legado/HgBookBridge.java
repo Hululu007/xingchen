@@ -16,8 +16,8 @@ public final class HgBookBridge {
     public static final String NAME_NOVEL = "红果小说";
     public static final String NAME_AUDIO = "红果听书";
 
-    // 类名拆开拼：朋友版剥离脚本按整串 com.fongmi.android.tv.hongguo 做全树终检，
-    // 桥是剥离后要留下的文件，字面整串出现会让朋友版构建的终检误炸。
+    // 类名拆开拼：朋友版剥离脚本按红果本体包名整串做全树终检，
+    // 桥是剥离后要留下的文件，包名字面写全会让朋友版构建的终检误炸。
     private static final String OPS_CLASS =
             "com.fongmi.android.tv." + "hongguo.book.HgBookOpsImpl";
     private static final String BOOK_PREFIX = "hgbook://";

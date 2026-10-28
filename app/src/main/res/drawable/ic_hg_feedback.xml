@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 「反馈与帮助」行图标：照官方功能位 y93.i 的图源 exo（线描：
+     圆角气泡框＋底部尖尾＋居中短横）以矢量同形重绘，24dp 视口、
+     描边近黑。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M5.4,3.4h13.2a2.8,2.8 0 0 1 2.8,2.8v6.4a2.8,2.8 0 0 1 -2.8,2.8H5.4a2.8,2.8 0 0 1 -2.8,-2.8V6.2a2.8,2.8 0 0 1 2.8,-2.8z"
+        android:strokeWidth="1.9"
+        android:strokeColor="#FF1B1B1B"
+        android:strokeLineJoin="round" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M8.9,15.2 L11.3,20.4 L14.1,15.2"
+        android:strokeWidth="1.9"
+        android:strokeColor="#FF1B1B1B"
+        android:strokeLineJoin="round"
+        android:strokeLineCap="round" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M8.5,9.4h7"
+        android:strokeWidth="1.9"
+        android:strokeColor="#FF1B1B1B"
+        android:strokeLineCap="round" />
+</vector>

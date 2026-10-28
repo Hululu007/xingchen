@@ -59,7 +59,7 @@ grep -qF "tabs.add(new BottomTabs.Spec(R.id.hongguo, R.drawable.ic_nav_duanju_ou
 grep -qF "if (itemId == R.id.hongguo) {" "$HOME" || fail "HomeActivity 的短剧格点击分发对不上"
 grep -qF "红果「启动直达短剧」" "$HOME" || fail "HomeActivity 的启动直达短剧块对不上"
 grep -qF "<string name=\"nav_duanju\">短剧</string>" "$MSTRINGS" || fail "短剧格字符串 nav_duanju 对不上"
-for a in HongguoFeedActivity HongguoSearchActivity HongguoAuthorActivity HongguoSeriesDetailActivity; do
+for a in HongguoFeedActivity HongguoSearchActivity HongguoAuthorActivity HongguoSeriesDetailActivity HongguoPreferenceActivity HongguoFeedbackActivity; do
   grep -qF "android:name=\"com.fongmi.android.tv.hongguo.ui.$a\"" "$MANIFEST" || fail "Manifest 的红果登记对不上：$a"
 done
 grep -qF "android:name=\"com.fongmi.android.tv.hongguo.book.HgBookBrowseActivity\"" "$MANIFEST" || fail "Manifest 的红果书城浏览页登记对不上"
@@ -73,6 +73,8 @@ app/src/main/res/layout/item_hongguo_author_review.xml
 app/src/main/res/layout/item_hongguo_series_review.xml
 app/src/main/res/layout/activity_hongguo_feed.xml
 app/src/main/res/layout/activity_hongguo_search.xml
+app/src/main/res/layout/activity_hongguo_preference.xml
+app/src/main/res/layout/activity_hongguo_feedback.xml
 app/src/main/res/layout/dialog_hongguo_comments.xml
 app/src/main/res/layout/dialog_hongguo_danmaku.xml
 app/src/main/res/layout/dialog_hongguo_danmaku_settings.xml
@@ -132,6 +134,7 @@ app/src/main/res/drawable/bg_hg_follow_btn.xml
 app/src/main/res/drawable/bg_hg_followed_btn.xml
 app/src/main/res/drawable/bg_hg_grab.xml
 app/src/main/res/drawable/bg_hg_login_btn.xml
+app/src/main/res/drawable/bg_hg_mine_card.xml
 app/src/main/res/drawable/bg_hg_panel_chip_on.xml
 app/src/main/res/drawable/bg_hg_panel_track.xml
 app/src/main/res/drawable/bg_hg_series_bar.xml
@@ -173,6 +176,8 @@ app/src/main/res/drawable/ic_hg_phone.xml
 app/src/main/res/drawable/ic_hg_share.xml
 app/src/main/res/drawable/ic_hg_star.xml
 app/src/main/res/drawable/ic_hg_star_fill.xml
+app/src/main/res/drawable/ic_hg_pref.xml
+app/src/main/res/drawable/ic_hg_feedback.xml
 app/src/mobile/res/drawable/ic_nav_duanju_outline.xml
 app/src/mobile/res/drawable/ic_nav_duanju_filled.xml
 "
@@ -288,7 +293,7 @@ manifest = cut_exact(manifest, """        <!-- 红果刷剧页（三阶段）：
 manifest = cut_exact(manifest, """        <!-- 横屏独立页别名：与本体同类，靠 intent 旗 EXTRA_LAND_INSTANCE
              切换横屏面（状态条/横排控制条/锁定/右侧抽屉）。 -->
 """, "横屏别名登记注释")
-for name in ("HongguoFeedActivity", "HongguoSearchActivity", "HongguoAuthorActivity", "HongguoSeriesDetailActivity"):
+for name in ("HongguoFeedActivity", "HongguoSearchActivity", "HongguoAuthorActivity", "HongguoSeriesDetailActivity", "HongguoPreferenceActivity", "HongguoFeedbackActivity"):
     pattern = r"<activity\s+android:name=\"com\.fongmi\.android\.tv\.hongguo\.ui\." + name + r"\"[^>]*/>"
     manifest, n = re.subn(pattern, "", manifest)
     if n != 1:

@@ -586,6 +586,65 @@ public final class HgApiClient {
         });
     }
 
+    /**
+     * 看剧偏好读 GET /reading/user/preference/info/（a45/k.java:224 定版，
+     * 模板无版本段、不拼 BV；参数见 HgRequests.preferenceInfoParams）。
+     * 与资料口同宿主同 headers()（登录态统一附）；回包三区解析见
+     * HgParser.parsePreferenceInfo。偏好是账号维度数据：未登录时服务端
+     * 认不认、回什么形状，待新版首登实拉验（与预约列表同级状态）。
+     */
+    public void fetchWatchPreference(HgCallback<com.fongmi.android.tv.hongguo.model.HgPreference> cb) {
+        get(HOST + "/reading/user/preference/info/", HgRequests.preferenceInfoParams(), new BodyCallback() {
+            @Override
+            void onBody(String text) {
+                com.fongmi.android.tv.hongguo.model.HgPreference p =
+                        HgParser.parsePreferenceInfo(text);
+                if (p == null) cb.onError(-2, "看剧偏好回包解析失败");
+                else cb.onSuccess(p);
+            }
+
+            @Override
+            void onFail(int code, String msg) {
+                cb.onError(code, msg);
+            }
+        });
+    }
+
+    /**
+     * 看剧偏好保存 POST /reading/user/preference/set/（a45/k.java:364
+     * 定版，模板无版本段）。只提交与回包原态不同的选项（增量口径见
+     * HgPreference 类注）；无增量直接成功不发请求。回包 code 容忍判定
+     * 复用 isOkCode，非成功码按失败报、不假装存上。
+     */
+    public void saveWatchPreference(com.fongmi.android.tv.hongguo.model.HgPreference page,
+                                    HgCallback<Boolean> cb) {
+        java.util.List<com.fongmi.android.tv.hongguo.model.HgPreference.Option> changed =
+                page == null ? java.util.Collections.emptyList() : page.changedOptions();
+        if (changed.isEmpty()) {
+            cb.onSuccess(Boolean.TRUE);
+            return;
+        }
+        java.util.List<String[]> pairs = new java.util.ArrayList<>();
+        boolean[] selected = new boolean[changed.size()];
+        for (int i = 0; i < changed.size(); i++) {
+            pairs.add(new String[]{changed.get(i).id, changed.get(i).text});
+            selected[i] = changed.get(i).selected;
+        }
+        postJson(HOST + "/reading/user/preference/set/",
+                HgRequests.preferenceSetBody(pairs, selected), new BodyCallback() {
+                    @Override
+                    void onBody(String text) {
+                        if (isOkCode(text)) cb.onSuccess(Boolean.TRUE);
+                        else cb.onError(-2, "保存没被服务端接受");
+                    }
+
+                    @Override
+                    void onFail(int code, String msg) {
+                        cb.onError(code, msg);
+                    }
+                });
+    }
+
     public void bookshelfVideoList(HgCallback<HgCellPage> cb) {
         get(HOST + "/reading/bookapi/bookshelf/video/list" + BV, null, cellCallback(cb));
     }

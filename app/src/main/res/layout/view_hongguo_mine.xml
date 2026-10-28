@@ -197,6 +197,90 @@
         </LinearLayout>
     </FrameLayout>
 
+    <!-- 功能卡（官方 QuickAccessCard 定版：容器 cmi＝白卡圆角 8dp
+         （bg_hg_mine_card）、左右 margin 16dp、卡顶 padding 8dp、卡底
+         margin 8dp；格子 db1＝格 margin 上 8 下 24、内顶 padding 8、
+         图标 24dp、图标与标签间隔 8dp、标签 14sp；列数照卡内逻辑
+         ≤3 项 3 列）。官方主列表恒在项里非 commerce 的三项：看剧偏好
+         （y93.l0，图源 eys）、我的下载（y93.c）、反馈与帮助（y93.i，
+         图源 exo）——我的下载缺前置（红果无任何下载实物：无下载入口、
+         无落盘，见 mine-three-rows-20261029.md）不摆假行，本卡只落
+         看剧偏好与反馈与帮助两格，同位同序；金币/钱包/会员等 commerce
+         位按立项口径不做。 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="8dp"
+        android:background="@drawable/bg_hg_mine_card"
+        android:orientation="vertical"
+        android:paddingTop="8dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <LinearLayout
+                android:id="@+id/hg_mine_fn_pref"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:layout_marginBottom="24dp"
+                android:layout_weight="1"
+                android:gravity="center_horizontal"
+                android:orientation="vertical"
+                android:paddingTop="8dp">
+
+                <ImageView
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:contentDescription="@null"
+                    android:src="@drawable/ic_hg_pref" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="看剧偏好"
+                    android:textColor="#FF000000"
+                    android:textSize="14sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/hg_mine_fn_feedback"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:layout_marginBottom="24dp"
+                android:layout_weight="1"
+                android:gravity="center_horizontal"
+                android:orientation="vertical"
+                android:paddingTop="8dp">
+
+                <ImageView
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:contentDescription="@null"
+                    android:src="@drawable/ic_hg_feedback" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="反馈与帮助"
+                    android:textColor="#FF000000"
+                    android:textSize="14sp" />
+            </LinearLayout>
+
+            <View
+                android:layout_width="0dp"
+                android:layout_height="1dp"
+                android:layout_weight="1" />
+        </LinearLayout>
+    </LinearLayout>
+
     <!-- 页签条（官方 qb3/f：标题 16sp 选中粗体；右端搜索图标 20dp）。
          页签＝历史/收藏/点赞/预约（短剧范围，他亲定预约放点赞后面；国内版
          预约就是页内页签形态、与功能位「我的预约」互斥，本面取页签形态）。 -->

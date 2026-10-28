@@ -143,6 +143,12 @@ public final class HgMineView extends LinearLayout {
         grid.addItemDecoration(new MineGridSpacing());
         findViewById(R.id.hg_mine_login_btn).setOnClickListener(v -> onAccountClick());
         userRow.setOnClickListener(v -> onAccountClick());
+        // 功能卡两格（官方同位）：看剧偏好＝服务端偏好页；反馈与帮助＝
+        // 官方反馈网页（应用内 WebView）。我的下载缺前置未落，见布局注。
+        findViewById(R.id.hg_mine_fn_pref).setOnClickListener(v ->
+                HongguoPreferenceActivity.start(getContext()));
+        findViewById(R.id.hg_mine_fn_feedback).setOnClickListener(v ->
+                HongguoFeedbackActivity.start(getContext()));
         findViewById(R.id.hg_mine_search).setOnClickListener(v ->
                 getContext().startActivity(new android.content.Intent(
                         getContext(), HongguoSearchActivity.class)));

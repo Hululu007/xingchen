@@ -289,6 +289,72 @@ public class HgInteractionTest {
         check("抖音兑换失败回包 Cookie 为 null",
                 HgPassportClient.loginCookie(p4, null) == null, null);
 
+        // ---------- 看剧偏好（读参/保存体照 a45/k rpc 模型逐字；解析固件按
+        // PreferenceInfoRspData 字段拼装、非真回包——真回包待新版首登实拉） ----------
+        java.util.Map<String, String> prefParams = HgRequests.preferenceInfoParams();
+        check("偏好读参 scene=1/content_type=category",
+                "1".equals(prefParams.get("scene")) && "category".equals(prefParams.get("content_type")),
+                prefParams.toString());
+        String prefJson = "{\"code\":0,\"data\":{"
+                + "\"common_data\":{\"title\":\"性别偏好\",\"sub_text\":\"选一个更懂你\","
+                + "\"content_type\":\"gender\",\"select_type\":1,"
+                + "\"content\":[{\"id\":\"1\",\"content\":\"男频\",\"status\":1},"
+                + "{\"id\":\"2\",\"content\":\"女频\",\"status\":0}]},"
+                + "\"preference_list\":[{\"preference_key\":\"watch_type\",\"preference_name\":\"观看类型\","
+                + "\"style_type\":1,\"option_list\":[{\"id\":\"t1\",\"content\":\"真人剧\",\"is_selected\":true},"
+                + "{\"id\":\"t2\",\"content\":\"漫剧\",\"is_selected\":false}]}],"
+                + "\"genre_preference\":{\"genres\":[{\"genre\":101,\"text\":\"都市\",\"is_selected\":true},"
+                + "{\"genre\":102,\"text\":\"古装\",\"is_selected\":false}]}"
+                + "}}";
+        com.fongmi.android.tv.hongguo.model.HgPreference pref = HgParser.parsePreferenceInfo(prefJson);
+        check("偏好解析三区齐全", pref != null && pref.sections.size() == 3,
+                pref == null ? "null" : "sections=" + pref.sections.size());
+        check("偏好性别区：标题/单选/status=1 记已选",
+                pref != null && pref.sections.get(0).kind == com.fongmi.android.tv.hongguo.model.HgPreference.KIND_GENDER
+                        && "性别偏好".equals(pref.sections.get(0).title)
+                        && !pref.sections.get(0).multi
+                        && pref.sections.get(0).options.get(0).selected
+                        && !pref.sections.get(0).options.get(1).selected, null);
+        check("偏好资料区：style_type=1 多选、is_selected 进模型",
+                pref != null && pref.sections.get(1).kind == com.fongmi.android.tv.hongguo.model.HgPreference.KIND_PROFILE
+                        && pref.sections.get(1).multi
+                        && pref.sections.get(1).options.get(0).selected
+                        && !pref.sections.get(1).options.get(1).selected, null);
+        check("偏好题材区：标题恒 null（不自创）、genre 数值转 id 串",
+                pref != null && pref.sections.get(2).kind == com.fongmi.android.tv.hongguo.model.HgPreference.KIND_GENRE
+                        && pref.sections.get(2).title == null
+                        && "101".equals(pref.sections.get(2).options.get(0).id)
+                        && pref.sections.get(2).options.get(0).selected, null);
+        check("偏好初始无增量", pref != null && !pref.hasChanges() && pref.changedOptions().isEmpty(), null);
+        if (pref != null) {
+            pref.sections.get(0).options.get(0).selected = false;
+            pref.sections.get(0).options.get(1).selected = true;
+            pref.sections.get(2).options.get(1).selected = true;
+        }
+        check("偏好增量只算翻转项（3 项）", pref != null && pref.changedOptions().size() == 3,
+                pref == null ? "null" : "changed=" + pref.changedOptions().size());
+        String noneJson = "{\"data\":{\"common_data\":{\"content_type\":\"none\","
+                + "\"content\":[{\"id\":\"1\",\"content\":\"x\",\"status\":1}]}}}";
+        com.fongmi.android.tv.hongguo.model.HgPreference nonePage = HgParser.parsePreferenceInfo(noneJson);
+        check("偏好 common_data=none 整区跳过", nonePage != null && nonePage.isEmpty(), null);
+        check("偏好坏回包解析为 null", HgParser.parsePreferenceInfo("not json") == null, null);
+        JsonObject setBody = HgRequests.preferenceSetBody(
+                java.util.Arrays.asList(new String[]{"2", "女频"}, new String[]{"102", "古装"}),
+                new boolean[]{true, true});
+        JsonObject setItem = setBody.getAsJsonArray("content").get(0).getAsJsonObject();
+        check("偏好保存体 content_type=category/scene=1",
+                "category".equals(setBody.get("content_type").getAsString())
+                        && setBody.get("scene").getAsInt() == 1, setBody.toString());
+        check("偏好保存体 content 项 id 串/content/status=like(1)",
+                "2".equals(setItem.get("id").getAsString())
+                        && "女频".equals(setItem.get("content").getAsString())
+                        && setItem.get("status").getAsInt() == 1, setItem.toString());
+        JsonObject unsetBody = HgRequests.preferenceSetBody(
+                java.util.Collections.singletonList(new String[]{"1", "男频"}), new boolean[]{false});
+        check("偏好保存体取消项 status=not_set(0)",
+                unsetBody.getAsJsonArray("content").get(0).getAsJsonObject().get("status").getAsInt() == 0,
+                unsetBody.toString());
+
         System.out.println(fail == 0 ? "ALL PASS HgInteractionTest" : "FAILURES=" + fail);
         if (fail > 0) System.exit(1);
     }

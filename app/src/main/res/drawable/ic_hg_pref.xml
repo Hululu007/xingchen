@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 「看剧偏好」行图标：照官方功能位 y93.l0 的图源 eys（72×72 线描：
+     圆角屏幕框＋居中播放三角＋底部短横）以矢量同形重绘，24dp 视口、
+     描边近黑。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M5.4,3.4h13.2a2.8,2.8 0 0 1 2.8,2.8v7a2.8,2.8 0 0 1 -2.8,2.8H5.4a2.8,2.8 0 0 1 -2.8,-2.8v-7a2.8,2.8 0 0 1 2.8,-2.8z"
+        android:strokeWidth="1.9"
+        android:strokeColor="#FF1B1B1B"
+        android:strokeLineJoin="round" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M10.2,7.3l5.1,2.9 -5.1,2.9z"
+        android:strokeWidth="1.9"
+        android:strokeColor="#FF1B1B1B"
+        android:strokeLineJoin="round" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M8.7,20.2h6.6"
+        android:strokeWidth="1.9"
+        android:strokeColor="#FF1B1B1B"
+        android:strokeLineCap="round" />
+</vector>

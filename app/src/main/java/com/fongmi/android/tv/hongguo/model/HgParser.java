@@ -912,6 +912,104 @@ public final class HgParser {
         return out;
     }
 
+    // ---------- 看剧偏好 ----------
+
+    /**
+     * 看剧偏好回包 → 分区选项（模型与逐字段出处见 HgPreference 类注）。
+     * 回包不可解析返回 null；data 在但三区皆空返回空页（页面走空态，
+     * 不编造选项）。性别区 content_type="none" 照官方 PreferenceActivity
+     * 判据跳过；题材区标题官方未抠死，恒 null 不自创。
+     */
+    public static HgPreference parsePreferenceInfo(String json) {
+        if (json == null || json.isEmpty()) return null;
+        JsonObject root;
+        try {
+            root = JsonParser.parseString(json).getAsJsonObject();
+        } catch (Exception e) {
+            return null;
+        }
+        JsonObject data = obj(root, "data");
+        if (data == null) data = root;
+        HgPreference page = new HgPreference();
+        JsonObject common = obj(data, "common_data");
+        if (common != null && !"none".equals(str(common, "content_type"))) {
+            HgPreference.Section s = new HgPreference.Section();
+            s.kind = HgPreference.KIND_GENDER;
+            s.key = str(common, "content_type");
+            s.title = str(common, "title");
+            s.subText = str(common, "sub_text");
+            s.multi = intOf(common, "select_type", 1) == 2;
+            JsonArray content = arr(common, "content");
+            if (content != null) {
+                for (JsonElement el : content) {
+                    if (!el.isJsonObject()) continue;
+                    JsonObject o = el.getAsJsonObject();
+                    HgPreference.Option opt = new HgPreference.Option();
+                    opt.id = str(o, "id");
+                    opt.text = str(o, "content");
+                    opt.selected = opt.fetchedSelected = statusLiked(o.get("status"));
+                    if (opt.text != null && !opt.text.isEmpty()) s.options.add(opt);
+                }
+            }
+            if (!s.options.isEmpty()) page.sections.add(s);
+        }
+        JsonArray plist = arr(data, "preference_list");
+        if (plist != null) {
+            for (JsonElement el : plist) {
+                if (!el.isJsonObject()) continue;
+                JsonObject p = el.getAsJsonObject();
+                HgPreference.Section s = new HgPreference.Section();
+                s.kind = HgPreference.KIND_PROFILE;
+                s.key = str(p, "preference_key");
+                s.title = str(p, "preference_name");
+                int style = intOf(p, "style_type", 0);
+                s.multi = style == 1 || style == 2;
+                JsonArray opts = arr(p, "option_list");
+                if (opts != null) {
+                    for (JsonElement oe : opts) {
+                        if (!oe.isJsonObject()) continue;
+                        JsonObject o = oe.getAsJsonObject();
+                        HgPreference.Option opt = new HgPreference.Option();
+                        opt.id = str(o, "id");
+                        opt.text = str(o, "content");
+                        opt.selected = opt.fetchedSelected = boolOf(o, "is_selected");
+                        if (opt.text != null && !opt.text.isEmpty()) s.options.add(opt);
+                    }
+                }
+                if (!s.options.isEmpty()) page.sections.add(s);
+            }
+        }
+        JsonObject genreData = obj(data, "genre_preference");
+        JsonArray genres = genreData == null ? null : arr(genreData, "genres");
+        if (genres != null) {
+            HgPreference.Section s = new HgPreference.Section();
+            s.kind = HgPreference.KIND_GENRE;
+            s.key = "genre";
+            s.title = null;
+            s.multi = true;
+            for (JsonElement el : genres) {
+                if (!el.isJsonObject()) continue;
+                JsonObject o = el.getAsJsonObject();
+                HgPreference.Option opt = new HgPreference.Option();
+                long g = longOf(o, "genre", 0);
+                opt.id = g > 0 ? String.valueOf(g) : str(o, "genre");
+                opt.text = str(o, "text");
+                opt.selected = opt.fetchedSelected = boolOf(o, "is_selected");
+                if (opt.text != null && !opt.text.isEmpty()) s.options.add(opt);
+            }
+            if (!s.options.isEmpty()) page.sections.add(s);
+        }
+        return page;
+    }
+
+    /** PreferenceStatus 容忍判定：数字 1／串 "like"／"1" 记已选（枚举在回包里的序列化形态未定版）。 */
+    private static boolean statusLiked(JsonElement el) {
+        if (el == null || !el.isJsonPrimitive()) return false;
+        if (el.getAsJsonPrimitive().isNumber()) return el.getAsInt() == 1;
+        String s = el.getAsString();
+        return "1".equals(s) || "like".equalsIgnoreCase(s);
+    }
+
     // ---------- 基础取值 ----------
 
     private static JsonObject obj(JsonObject o, String key) {

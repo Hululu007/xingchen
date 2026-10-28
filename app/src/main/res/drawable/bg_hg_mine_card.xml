@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 「我的」功能卡底（官方 QuickAccessCard 的 cmi 容器底
+     skin_mine_background_corner_light 逐字：白底、圆角 8dp）。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <corners android:radius="8dp" />
+    <solid android:color="#FFFFFFFF" />
+</shape>

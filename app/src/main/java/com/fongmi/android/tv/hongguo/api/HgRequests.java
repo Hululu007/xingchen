@@ -507,4 +507,50 @@ public final class HgRequests {
         q.put("is_online", String.valueOf(online));
         return q;
     }
+
+    // ---------- 看剧偏好（官方 UserApiService 逐字定版，a45/k.java） ----------
+
+    /** 看剧偏好场景值：UserPreferenceScene.my_read_preference（「我的」入口缺省场景）。 */
+    public static final int PREFERENCE_SCENE_MINE = 1;
+
+    /**
+     * 偏好读参 GET /reading/user/preference/info/（a45/k.java:224 模板无
+     * 版本段）。字段照 PreferenceActivity 非冷启分支逐字：scene=
+     * my_read_preference、content_type="category"；enable_preference_v709
+     * 在官方取 MinePreference 服务端配置、本地无配置源，按模型缺省 false
+     * 送；skip_gender_select 只在冷启分支赋值，本面送 false。
+     */
+    public static java.util.Map<String, String> preferenceInfoParams() {
+        java.util.Map<String, String> q = new java.util.HashMap<>();
+        q.put("scene", String.valueOf(PREFERENCE_SCENE_MINE));
+        q.put("content_type", "category");
+        q.put("enable_preference_v709", "false");
+        q.put("skip_gender_select", "false");
+        return q;
+    }
+
+    /**
+     * 偏好保存体 POST /reading/user/preference/set/（a45/k.java:364 模板无
+     * 版本段）。形状照 UserPreferenceSetRequest{content_type, scene,
+     * content[]}，content 元素照 PreferenceContentData{id, content,
+     * status}：status 是 PreferenceStatus 枚举值（like=1/not_set=0），
+     * 只收与回包原态不同的选项（增量，见 HgPreference 类注）。
+     * changes 每项＝{id, content}，selected 与下标同序。
+     */
+    public static JsonObject preferenceSetBody(java.util.List<String[]> changes, boolean[] selected) {
+        JsonObject body = new JsonObject();
+        body.addProperty("content_type", "category");
+        body.addProperty("scene", PREFERENCE_SCENE_MINE);
+        JsonArray content = new JsonArray();
+        for (int i = 0; i < changes.size(); i++) {
+            JsonObject item = new JsonObject();
+            // PreferenceContentData.id 在 rpc 模型里是 String，逐字送串不转数
+            if (changes.get(i)[0] != null) item.addProperty("id", changes.get(i)[0]);
+            item.addProperty("content", changes.get(i)[1]);
+            item.addProperty("status", selected[i] ? 1 : 0);
+            content.add(item);
+        }
+        body.add("content", content);
+        return body;
+    }
 }

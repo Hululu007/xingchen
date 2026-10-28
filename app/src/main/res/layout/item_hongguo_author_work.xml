@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 红果作者页作品卡（双列，构成照官方作者页实拍＋搜索卡 b7l 同族落值：
+     白卡、封面 3:4 定比 6dp 圆角、底部 32dp 渐变压左下文案（集数/副标题段）、
+     标题 14sp 粗黑 2 行、底部作者行＝12dp 圆头像＋名＋右侧点赞数）。
+     数据＝HgAuthorWork（作品/收藏/点赞三签共用）。 -->
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginStart="5dp"
+    android:layout_marginEnd="5dp"
+    android:layout_marginBottom="10dp"
+    android:background="#FFFFFFFF"
+    android:paddingBottom="12dp">
+
+    <ImageView
+        android:id="@+id/hg_aw_cover"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:background="@drawable/bg_hg_cover_r6"
+        android:clipToOutline="true"
+        android:contentDescription="@null"
+        android:scaleType="centerCrop"
+        app:layout_constraintDimensionRatio="3:4"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
+    <View
+        android:layout_width="0dp"
+        android:layout_height="32dp"
+        android:background="@drawable/bg_hg_card_gradient_bottom"
+        app:layout_constraintBottom_toBottomOf="@id/hg_aw_cover"
+        app:layout_constraintEnd_toEndOf="@id/hg_aw_cover"
+        app:layout_constraintStart_toStartOf="@id/hg_aw_cover" />
+
+    <TextView
+        android:id="@+id/hg_aw_overlay"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="10dp"
+        android:layout_marginBottom="6dp"
+        android:textColor="#FFFFFFFF"
+        android:textSize="12sp"
+        android:textStyle="bold"
+        app:layout_constraintBottom_toBottomOf="@id/hg_aw_cover"
+        app:layout_constraintStart_toStartOf="@id/hg_aw_cover" />
+
+    <TextView
+        android:id="@+id/hg_aw_title"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="10dp"
+        android:layout_marginTop="8dp"
+        android:layout_marginEnd="10dp"
+        android:ellipsize="end"
+        android:lineSpacingExtra="4dp"
+        android:maxLines="2"
+        android:textColor="#FF1D2129"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/hg_aw_cover" />
+
+    <ImageView
+        android:id="@+id/hg_aw_avatar"
+        android:layout_width="12dp"
+        android:layout_height="12dp"
+        android:layout_marginStart="10dp"
+        android:layout_marginTop="8dp"
+        android:contentDescription="@null"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/hg_aw_title" />
+
+    <TextView
+        android:id="@+id/hg_aw_author"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="4dp"
+        android:layout_marginEnd="6dp"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:textColor="#FF86909C"
+        android:textSize="12sp"
+        app:layout_constraintBottom_toBottomOf="@id/hg_aw_avatar"
+        app:layout_constraintEnd_toStartOf="@id/hg_aw_digg"
+        app:layout_constraintStart_toEndOf="@id/hg_aw_avatar"
+        app:layout_constraintTop_toTopOf="@id/hg_aw_avatar" />
+
+    <TextView
+        android:id="@+id/hg_aw_digg"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="10dp"
+        android:textColor="#FF86909C"
+        android:textSize="12sp"
+        app:layout_constraintBottom_toBottomOf="@id/hg_aw_avatar"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="@id/hg_aw_avatar" />
+</androidx.constraintlayout.widget.ConstraintLayout>

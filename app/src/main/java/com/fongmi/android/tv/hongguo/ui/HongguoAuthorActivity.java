@@ -1,39 +1,55 @@
 package com.fongmi.android.tv.hongguo.ui;
 
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Color;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.View;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import android.app.AlertDialog;
 
+import androidx.recyclerview.widget.GridLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.databinding.ActivityHongguoAuthorBinding;
 import com.fongmi.android.tv.hongguo.api.HgCallback;
+import com.fongmi.android.tv.hongguo.model.HgAuthorWork;
+import com.fongmi.android.tv.hongguo.model.HgUserProfile;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.utils.ImgUtil;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
- * 红果·作者主页（官方原生轨 SeriesGuestProfileFragment 构成，dig-mine-profile
- * §2.8／dig-mine2 §3：KMP 轨本地缺省关、缺省走原生轨——本页照原生轨）。
+ * 红果·作者主页（官方 SeriesGuestProfile 构成，2026-10-29 按实拍 113562
+ * ＋本机实拉补全）。
  *
- * <p>构成：置顶 chip 行（22dp 头像＋名）＋头像姓名行（58dp／20sp 粗）＋
- * 简介＋数据行与关注钮同带（PugcFollowButton 定版：未关注橙渐变
- * 「关注」、已关注浅底「已关注」、本人隐藏）＋「作品」页签。数据行
- * 数据源已抠实（ui-align-batch2）：GET /reading/user/profile/get/ 的
- * user_relation 三计数（关注/粉丝/获赞），进页回源填充、名/头像/简介
- * 同步以服务端为准、关注钮初态以 relation_type 校准；无源整行 GONE。
- * 作品口只定位到 GuestProfileSeriesDataCenter、端点未抠死，作品区
- * 只留空态文案（详见 fix-author-page-20261028 账与 batch2 汇总）。</p>
+ * <p>页头：置顶 chip 行＋头像姓名行（58dp／20sp 粗）＋头衔徽标
+ * （user_title_info 的 zh_title/图标，如「已入驻」）＋副标题行
+ * （user_expand.sub_title_list 拼串，点行复制红果号）＋简介＋数据行与
+ * 关注钮同带；页头底用服务端 data.bg_color/bg_covers。数据行与徽标
+ * 数据源＝GET /reading/user/profile/get/（进页回源，名/头像/简介同步
+ * 以服务端为准，关注钮初态以 relation_type 校准）。</p>
  *
- * <p>关注走真接口双路（HgCommentClient.doFollowAction：主路 commentapi
- * do_action Subscribe/CancelSubscribe，备路 follow/ 端点主路非 0 才试）；
- * 状态单一事实源＝HgStore 作者关注集（与 feed 头像徽标同读，回页即一致）。
- * 取关先弹官方同款确认框（文案「不再关注该作者？」逐字）。</p>
+ * <p>三页签（作品/收藏/点赞，收藏/点赞受服务端隐私开关控制显隐）：
+ * 作品＝POST commentapi/user/profile/:uid/v1/（实拉定版）——子档筹由
+ * 服务端 tabs 驱动（全部 tab_type=5／剧作 tab_type=11／合集 sub=13／
+ * 剧评 sub=121），排序 最新 time_desc／最热 smart_hot_desc，cursor
+ * 整串回传翻页；收藏＝GET bookshelf/video/info 的 target_user_id 维度；
+ * 点赞＝GET ugc/action/mget action_type=3。三签同走 HgAuthorWorksAdapter
+ * 双列卡（剧评子档整宽行带星级）。</p>
+ *
+ * <p>关注走真接口双路（HgCommentClient.doFollowAction）；状态单一事实
+ * 源＝HgStore 作者关注集。底部浮动关注卡：未关注且非本人时出（文案照
+ * 实拍），关注后收。</p>
  */
 public class HongguoAuthorActivity extends BaseActivity {
 
@@ -51,10 +67,44 @@ public class HongguoAuthorActivity extends BaseActivity {
         context.startActivity(intent);
     }
 
+    private static final int TAB_WORKS = 0;
+    private static final int TAB_SHELF = 1;
+    private static final int TAB_LIKES = 2;
+
+    /** 作品子档规格：tab_type＋sub_tab_type（-1＝不带）。 */
+    private static final class SubSpec {
+        final String label;
+        final int tabType;
+        final int subTabType;
+
+        SubSpec(String label, int tabType, int subTabType) {
+            this.label = label;
+            this.tabType = tabType;
+            this.subTabType = subTabType;
+        }
+
+        boolean same(SubSpec o) {
+            return o != null && tabType == o.tabType && subTabType == o.subTabType;
+        }
+    }
+
     private ActivityHongguoAuthorBinding binding;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private String uid;
     private boolean followBusy;
+    private HgUserProfile profile;
+
+    private HgAuthorWorksAdapter adapter;
+    private int tab = TAB_WORKS;
+    private final List<SubSpec> subs = new ArrayList<>();
+    private int subIndex = 0;
+    private boolean chipsFromServer;
+    private boolean sortHot;
+    private String cursor = "";
+    private boolean hasMore;
+    private boolean loading;
+    private boolean loadedOnce;
+    private int loadGen;
 
     @Override
     protected ViewBinding getBinding() {
@@ -81,6 +131,7 @@ public class HongguoAuthorActivity extends BaseActivity {
         binding.hgAuthorName.setText(name == null ? "" : name);
         bindAvatar(binding.hgAuthorChipAvatar, avatar, name);
         bindAvatar(binding.hgAuthorAvatar, avatar, name);
+        bindAvatar(binding.hgAuthorFloatAvatar, avatar, name);
         if (desc != null && !desc.isEmpty()) {
             binding.hgAuthorDesc.setText(desc);
             binding.hgAuthorDesc.setVisibility(View.VISIBLE);
@@ -88,54 +139,130 @@ public class HongguoAuthorActivity extends BaseActivity {
         // 本人门禁的页内侧：自己看自己不亮关注钮（入口侧已拦，这里兜底）
         if (uid.equals(HgStore.profileUid())) binding.hgAuthorFollow.setVisibility(View.GONE);
         binding.hgAuthorFollow.setOnClickListener(v -> onFollowClicked());
+        binding.hgAuthorFloatFollow.setOnClickListener(v -> onFollowClicked());
+        binding.hgAuthorSubline.setOnClickListener(v -> copyHongguoId());
+
+        subs.add(new SubSpec("全部", 5, -1));
+        subs.add(new SubSpec("剧作", 11, -1));
+        buildChips();
+
+        adapter = new HgAuthorWorksAdapter(work -> {
+            // 剧评行与帖子卡只展示：剧评无独立去处、帖子官方去帖子详情页
+            // （咱家未做此页，见汇总账），不摆假跳转；视频/剧作卡进剧播放
+            if (work.kind != HgAuthorWork.KIND_VIDEO) return;
+            String sid = work.playSeriesId();
+            if (sid == null || sid.isEmpty()) return;
+            HongguoFeedActivity.startSeries(this, sid, work.title, work.cover);
+        });
+        GridLayoutManager glm = new GridLayoutManager(this, 2);
+        glm.setSpanSizeLookup(new GridLayoutManager.SpanSizeLookup() {
+            @Override
+            public int getSpanSize(int position) {
+                return adapter.spanOf(position);
+            }
+        });
+        binding.hgAuthorList.setLayoutManager(glm);
+        binding.hgAuthorList.setAdapter(adapter);
+        binding.hgAuthorList.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override
+            public void onScrolled(RecyclerView rv, int dx, int dy) {
+                if (dy <= 0 || loading || !hasMore) return;
+                int last = glm.findLastVisibleItemPosition();
+                if (last >= adapter.size() - 4) loadMore();
+            }
+        });
+        binding.hgAuthorEmpty.setOnClickListener(v -> {
+            if (!loading && adapter.size() == 0) loadFirst();
+        });
+
+        binding.hgAuthorTabWorksBox.setOnClickListener(v -> switchTab(TAB_WORKS));
+        binding.hgAuthorTabShelfBox.setOnClickListener(v -> switchTab(TAB_SHELF));
+        binding.hgAuthorTabLikesBox.setOnClickListener(v -> switchTab(TAB_LIKES));
+        binding.hgAuthorSortNew.setOnClickListener(v -> setSort(false));
+        binding.hgAuthorSortHot.setOnClickListener(v -> setSort(true));
+
         refreshFollowButton();
         refreshProfile();
+        loadFirst();
     }
 
+    // ---------- 页头回源 ----------
+
     /**
-     * 资料回源（profile/get 定版口，a45/k.java:344）：数据行三计数照
-     * ct0 填充；名/头像/简介以服务端为准（入口 extras 只作回源前占位）；
-     * 关注钮初态以 relation_type 校准本地镜像（服务端为准、镜像跟随）。
-     * 回源失败静默，保留入口数据与镜像态，不摆假数。
+     * 资料回源（profile/get 定版口）：数据行三计数照 ct0 填充；名/头像/
+     * 简介以服务端为准（入口 extras 只作回源前占位）；关注钮初态以
+     * relation_type 校准本地镜像（服务端为准、镜像跟随）；徽标/副标题/
+     * 页头底/隐私开关同包带回。回源失败静默，不摆假数。
      */
     private void refreshProfile() {
-        HgFeedSession.get().client.fetchUserProfile(uid,
-                new HgCallback<com.fongmi.android.tv.hongguo.model.HgUserProfile>() {
-                    @Override
-                    public void onSuccess(com.fongmi.android.tv.hongguo.model.HgUserProfile p) {
-                        mainHandler.post(() -> {
-                            if (isFinishing() || p == null) return;
-                            if (p.name != null && !p.name.isEmpty()) {
-                                binding.hgAuthorChipName.setText(p.name);
-                                binding.hgAuthorName.setText(p.name);
-                            }
-                            String displayName = binding.hgAuthorName.getText().toString();
-                            if (p.avatar != null && !p.avatar.isEmpty()) {
-                                bindAvatar(binding.hgAuthorChipAvatar, p.avatar, displayName);
-                                bindAvatar(binding.hgAuthorAvatar, p.avatar, displayName);
-                            }
-                            if (p.desc != null && !p.desc.isEmpty()) {
-                                binding.hgAuthorDesc.setText(p.desc);
-                                binding.hgAuthorDesc.setVisibility(View.VISIBLE);
-                            }
-                            if (p.hasRelationCounts()) {
-                                binding.hgAuthorStatFollow.setText(formatStat(p.followUserNum));
-                                binding.hgAuthorStatFans.setText(formatStat(p.fansNum));
-                                binding.hgAuthorStatDigg.setText(formatStat(p.recvDiggedCount));
-                                binding.hgAuthorStats.setVisibility(View.VISIBLE);
-                            }
-                            if (p.followedByMe != null) {
-                                HgStore.setAuthorFollowed(uid, p.followedByMe);
-                                refreshFollowButton();
-                            }
-                        });
+        HgFeedSession.get().client.fetchUserProfile(uid, new HgCallback<HgUserProfile>() {
+            @Override
+            public void onSuccess(HgUserProfile p) {
+                mainHandler.post(() -> {
+                    if (isFinishing() || p == null) return;
+                    profile = p;
+                    if (p.name != null && !p.name.isEmpty()) {
+                        binding.hgAuthorChipName.setText(p.name);
+                        binding.hgAuthorName.setText(p.name);
                     }
-
-                    @Override
-                    public void onError(int code, String msg) {
-                        // 静默：保留入口数据，数据行维持 GONE
+                    String displayName = binding.hgAuthorName.getText().toString();
+                    if (p.avatar != null && !p.avatar.isEmpty()) {
+                        bindAvatar(binding.hgAuthorChipAvatar, p.avatar, displayName);
+                        bindAvatar(binding.hgAuthorAvatar, p.avatar, displayName);
+                        bindAvatar(binding.hgAuthorFloatAvatar, p.avatar, displayName);
                     }
+                    if (p.desc != null && !p.desc.isEmpty()) {
+                        binding.hgAuthorDesc.setText(p.desc);
+                        binding.hgAuthorDesc.setVisibility(View.VISIBLE);
+                    }
+                    if (p.hasRelationCounts()) {
+                        binding.hgAuthorStatFollow.setText(formatStat(p.followUserNum));
+                        binding.hgAuthorStatFans.setText(formatStat(p.fansNum));
+                        binding.hgAuthorStatDigg.setText(formatStat(p.recvDiggedCount));
+                        binding.hgAuthorStats.setVisibility(View.VISIBLE);
+                    }
+                    // 头衔徽标：有图标图优先摆图，否则摆文字筹
+                    if (p.titleBadgeIcon != null && !p.titleBadgeIcon.isEmpty()) {
+                        binding.hgAuthorBadgeIcon.setVisibility(View.VISIBLE);
+                        binding.hgAuthorBadge.setVisibility(View.GONE);
+                        ImgUtil.load(displayName, p.titleBadgeIcon, binding.hgAuthorBadgeIcon);
+                    } else if (p.titleBadge != null && !p.titleBadge.isEmpty()) {
+                        binding.hgAuthorBadge.setText(p.titleBadge);
+                        binding.hgAuthorBadge.setVisibility(View.VISIBLE);
+                        binding.hgAuthorBadgeIcon.setVisibility(View.GONE);
+                    }
+                    if (p.subTitleLine != null && !p.subTitleLine.isEmpty()) {
+                        binding.hgAuthorSubline.setText(p.subTitleLine);
+                        binding.hgAuthorSubline.setVisibility(View.VISIBLE);
+                    }
+                    // 页头底：色优先于图（bg_color 是官方定版底色，bg_covers 垫其上偏淡显）
+                    if (p.bgColor != null) {
+                        try {
+                            binding.hgAuthorHeader.setBackgroundColor(Color.parseColor(p.bgColor));
+                        } catch (Exception ignored) {
+                        }
+                    }
+                    if (p.bgCover != null && !p.bgCover.isEmpty()) {
+                        binding.hgAuthorBg.setVisibility(View.VISIBLE);
+                        binding.hgAuthorBg.setAlpha(0.45f);
+                        ImgUtil.load("", p.bgCover, binding.hgAuthorBg);
+                    }
+                    // 隐私开关：作者关掉的签不摆
+                    if (!p.shelfOpen) binding.hgAuthorTabShelfBox.setVisibility(View.GONE);
+                    if (!p.diggOpen) binding.hgAuthorTabLikesBox.setVisibility(View.GONE);
+                    if (p.followedByMe != null) {
+                        HgStore.setAuthorFollowed(uid, p.followedByMe);
+                        refreshFollowButton();
+                    }
+                    refreshFloatCard();
                 });
+            }
+
+            @Override
+            public void onError(int code, String msg) {
+                // 静默：保留入口数据，数据行维持 GONE
+            }
+        });
     }
 
     /** 计数拼一串（官方 SeriesProfileSocialRecordLayout 的数＋单位同串口径）。 */
@@ -148,6 +275,18 @@ public class HongguoAuthorActivity extends BaseActivity {
         ImgUtil.loadCircle(name, avatar, view);
     }
 
+    private void copyHongguoId() {
+        if (profile == null) return;
+        String text = profile.hongguoId != null && !profile.hongguoId.isEmpty()
+                ? profile.hongguoId : profile.subTitleLine;
+        if (text == null || text.isEmpty()) return;
+        ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+        if (cm != null) cm.setPrimaryClip(ClipData.newPlainText("红果号", text));
+        Toast.makeText(this, "红果号已复制", Toast.LENGTH_SHORT).show();
+    }
+
+    // ---------- 关注 ----------
+
     private void refreshFollowButton() {
         boolean followed = HgStore.isAuthorFollowed(uid);
         binding.hgAuthorFollow.setText(followed ? "已关注" : "关注");
@@ -155,6 +294,15 @@ public class HongguoAuthorActivity extends BaseActivity {
                 ? com.fongmi.android.tv.R.drawable.bg_hg_followed_btn
                 : com.fongmi.android.tv.R.drawable.bg_hg_follow_btn);
         binding.hgAuthorFollow.setTextColor(followed ? 0xFF4E5969 : 0xFFFFFFFF);
+        refreshFloatCard();
+    }
+
+    /** 浮动关注卡：未关注、非本人、资料已回源（或本地镜像未关注）才出；已关注即收。 */
+    private void refreshFloatCard() {
+        if (binding == null) return;
+        boolean self = uid != null && uid.equals(HgStore.profileUid());
+        boolean followed = HgStore.isAuthorFollowed(uid);
+        binding.hgAuthorFloat.setVisibility(!self && !followed ? View.VISIBLE : View.GONE);
     }
 
     private void onFollowClicked() {
@@ -203,5 +351,182 @@ public class HongguoAuthorActivity extends BaseActivity {
                 });
             }
         });
+    }
+
+    // ---------- 页签/子档/排序 ----------
+
+    private void switchTab(int target) {
+        if (tab == target) return;
+        tab = target;
+        paintTabs();
+        loadFirst();
+    }
+
+    private void paintTabs() {
+        paintTab(binding.hgAuthorTabWorks, binding.hgAuthorTabWorksLine, tab == TAB_WORKS);
+        paintTab(binding.hgAuthorTabShelf, binding.hgAuthorTabShelfLine, tab == TAB_SHELF);
+        paintTab(binding.hgAuthorTabLikes, binding.hgAuthorTabLikesLine, tab == TAB_LIKES);
+        binding.hgAuthorSubrow.setVisibility(tab == TAB_WORKS ? View.VISIBLE : View.GONE);
+    }
+
+    private void paintTab(TextView tv, View line, boolean on) {
+        tv.setTextColor(on ? 0xFF1D2129 : 0xFF86909C);
+        tv.setTypeface(null, on ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+        line.setVisibility(on ? View.VISIBLE : View.INVISIBLE);
+    }
+
+    private void setSort(boolean hot) {
+        if (sortHot == hot) return;
+        sortHot = hot;
+        binding.hgAuthorSortNew.setTextColor(hot ? 0xFF1D2129 : 0xFFFF7E0D);
+        binding.hgAuthorSortHot.setTextColor(hot ? 0xFFFF7E0D : 0xFF1D2129);
+        if (tab == TAB_WORKS) loadFirst();
+    }
+
+    private void buildChips() {
+        binding.hgAuthorChips.removeAllViews();
+        for (int i = 0; i < subs.size(); i++) {
+            SubSpec spec = subs.get(i);
+            TextView chip = new TextView(this);
+            chip.setText(spec.label);
+            chip.setTextSize(13);
+            chip.setPadding(dp(14), dp(6), dp(14), dp(6));
+            android.widget.LinearLayout.LayoutParams lp =
+                    new android.widget.LinearLayout.LayoutParams(
+                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
+            if (i > 0) lp.setMarginStart(dp(8));
+            chip.setLayoutParams(lp);
+            final int index = i;
+            chip.setOnClickListener(v -> {
+                if (subIndex == index) return;
+                subIndex = index;
+                buildChips();
+                loadFirst();
+            });
+            boolean on = i == subIndex;
+            chip.setBackgroundResource(on
+                    ? com.fongmi.android.tv.R.drawable.bg_hg_sub_chip_on
+                    : com.fongmi.android.tv.R.drawable.bg_hg_sub_chip);
+            chip.setTextColor(on ? 0xFFFF7E0D : 0xFF4E5969);
+            binding.hgAuthorChips.addView(chip);
+        }
+    }
+
+    /** 服务端 tabs 到货后重建子档：全部（固定首位）＋剧作（固定）＋服务端其余子档。 */
+    private void rebuildSubsFromServer(List<HgAuthorWork.SubTab> serverSubs) {
+        if (chipsFromServer || serverSubs == null || serverSubs.isEmpty()) return;
+        chipsFromServer = true;
+        SubSpec current = subs.get(subIndex);
+        List<SubSpec> next = new ArrayList<>();
+        next.add(new SubSpec("全部", 5, -1));
+        next.add(new SubSpec("剧作", 11, -1));
+        for (HgAuthorWork.SubTab st : serverSubs) {
+            if (st.tabType <= 0 || st.tabType == 100) continue;
+            String label = st.name == null || st.name.isEmpty()
+                    ? (st.tabType == 13 ? "合集" : st.tabType == 121 ? "剧评" : "其他")
+                    : st.name;
+            next.add(new SubSpec(label, 5, st.tabType));
+        }
+        subs.clear();
+        subs.addAll(next);
+        subIndex = 0;
+        for (int i = 0; i < subs.size(); i++) {
+            if (subs.get(i).same(current)) {
+                subIndex = i;
+                break;
+            }
+        }
+        buildChips();
+    }
+
+    private int dp(int v) {
+        return Math.round(v * getResources().getDisplayMetrics().density);
+    }
+
+    // ---------- 列表加载 ----------
+
+    private void loadFirst() {
+        loadGen++;
+        cursor = "";
+        hasMore = false;
+        loadedOnce = false;
+        adapter.setItems(null);
+        showEmpty("加载中…");
+        requestPage(true);
+    }
+
+    private void loadMore() {
+        if (loading || !hasMore) return;
+        requestPage(false);
+    }
+
+    private void requestPage(boolean first) {
+        loading = true;
+        final int gen = loadGen;
+        HgCallback<HgAuthorWork.Page> cb = new HgCallback<HgAuthorWork.Page>() {
+            @Override
+            public void onSuccess(HgAuthorWork.Page page) {
+                mainHandler.post(() -> {
+                    if (isFinishing() || gen != loadGen) return;
+                    loading = false;
+                    loadedOnce = true;
+                    if (page.subTabs != null && !page.subTabs.isEmpty()) {
+                        rebuildSubsFromServer(page.subTabs);
+                    }
+                    if (first) adapter.setItems(page.items);
+                    else adapter.addItems(page.items);
+                    cursor = page.nextCursor;
+                    hasMore = page.hasMore && !page.nextCursor.isEmpty();
+                    if (adapter.size() == 0) showEmpty(emptyText());
+                    else hideEmpty();
+                });
+            }
+
+            @Override
+            public void onError(int code, String msg) {
+                mainHandler.post(() -> {
+                    if (isFinishing() || gen != loadGen) return;
+                    loading = false;
+                    if (adapter.size() == 0) showEmpty("加载失败，点这里重试");
+                });
+            }
+        };
+        if (tab == TAB_WORKS) {
+            SubSpec spec = subs.get(subIndex);
+            HgFeedSession.get().fqClient.authorProfileList(uid, spec.tabType, spec.subTabType,
+                    sortHot ? "smart_hot_desc" : "time_desc", cursor, cb);
+        } else if (tab == TAB_SHELF) {
+            HgFeedSession.get().client.authorShelf(uid, parseOffset(cursor), cb);
+        } else {
+            HgFeedSession.get().client.authorLikes(uid, parseOffset(cursor), cb);
+        }
+    }
+
+    private static int parseOffset(String cursor) {
+        if (cursor == null || cursor.isEmpty()) return 0;
+        try {
+            return Math.max(0, Integer.parseInt(cursor.trim()));
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    private String emptyText() {
+        if (tab == TAB_SHELF) return "还没有收藏";
+        if (tab == TAB_LIKES) return "还没有点赞";
+        SubSpec spec = subs.get(subIndex);
+        if (spec.tabType == 11) return "还没有剧作";
+        if (spec.subTabType == 121) return "还没有剧评";
+        return "还没有作品";
+    }
+
+    private void showEmpty(String text) {
+        binding.hgAuthorEmpty.setText(text);
+        binding.hgAuthorEmpty.setVisibility(View.VISIBLE);
+    }
+
+    private void hideEmpty() {
+        binding.hgAuthorEmpty.setVisibility(View.GONE);
     }
 }

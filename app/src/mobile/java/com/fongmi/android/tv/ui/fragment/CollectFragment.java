@@ -326,8 +326,22 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
         new Thread(() -> {
             try {
                 Drive115 drive = new Drive115();
-                List<CloudFile> found = drive.searchFiles(keyword, 0, 30);
-                if (found == null || found.isEmpty()) return;
+                // 连翻三页（30×3）：结果可能文件夹扎堆在前，只取第一页文件会被挤掉；
+                // 某一页失败就停在已拿到的，后面页的失败不丢已得结果。
+                List<CloudFile> found = new ArrayList<>();
+                for (int page = 0; page < 3; page++) {
+                    List<CloudFile> chunk;
+                    try {
+                        chunk = drive.searchFiles(keyword, page * 30, 30);
+                    } catch (Exception e) {
+                        if (page == 0) throw e;
+                        break;
+                    }
+                    if (chunk == null || chunk.isEmpty()) break;
+                    found.addAll(chunk);
+                    if (chunk.size() < 30) break;
+                }
+                if (found.isEmpty()) return;
                 Site site = Site.get(PAN115_SITE_KEY, "115网盘");
                 List<Vod> items = new ArrayList<>();
                 for (CloudFile f : found) {

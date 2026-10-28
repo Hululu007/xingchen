@@ -556,7 +556,10 @@ public class Drive115 implements CloudDrive {
 
     /**
      * 全盘搜索文件（115 网页端搜索口径：webapi/files/search + search_value，
-     * 参数集与 listDir 同构）。搜索结果的文件项里 cid 是其所在目录、目录项里
+     * 参数集与 listDir 同构）。type 是服务端的类型过滤（0 全部／1 文件夹／
+     * 2 文档／3 图片／4 视频／5 音频／6 压缩包，胖5 内置 115 工具表实证）：
+     * 不传 type 时服务端只回文件夹、文件永远搜不到，必须显式传 0。
+     * 搜索结果的文件项里 cid 是其所在目录、目录项里
      * pid 是其上级目录，parentCid 按此回填（供从结果直达所在目录）。
      * 缩略图按 PY 活口径取 u（备选 thumb）；顶层键、首条目键名与缩略图有无
      * 随调试日志打出，真机一跑即可对死。
@@ -572,6 +575,7 @@ public class Drive115 implements CloudDrive {
         p.put("offset", String.valueOf(offset));
         p.put("limit", String.valueOf(limit));
         p.put("show_dir", "1");
+        p.put("type", "0");
         p.put("format", "json");
         JSONObject d = reqJson(API_SEARCH, p, null, null, null);
         if (!d.optBoolean("state", false) && d.has("error")) {

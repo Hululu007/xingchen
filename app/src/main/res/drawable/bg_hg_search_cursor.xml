@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 红果搜索框光标：官方 skin_shape_edit_text_cursor_light 原文——
+     品牌橙 #FFFA7705、2dp 宽、20dp 高。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#FFFA7705" />
+    <size android:width="2dp" android:height="20dp" />
+</shape>

@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 红果搜索联想行：照官方 b7z（holder_sug_item）逐项落值——左搜索图标
+     24dp（marginStart 16dp、上下 margin 10dp）＋联想词 17sp（marginStart
+     8dp、单行省略；字色官方布局未设、走应用主题字色 #FF303030）＋右端
+     回填箭头 24dp（marginEnd 16dp）＋底部 0.5dp 分隔线（色 #1A161823、
+     左右各让 16dp）。 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <ImageView
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:layout_marginStart="16dp"
+            android:layout_marginTop="10dp"
+            android:layout_marginBottom="10dp"
+            android:contentDescription="@null"
+            android:src="@drawable/ic_hg_search_gray" />
+
+        <TextView
+            android:id="@+id/hg_sug_text"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:includeFontPadding="false"
+            android:maxLines="1"
+            android:textColor="#FF303030"
+            android:textSize="17sp" />
+
+        <ImageView
+            android:id="@+id/hg_sug_arrow"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:layout_marginEnd="16dp"
+            android:contentDescription="回填"
+            android:src="@drawable/ic_hg_sug_arrow" />
+    </LinearLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="0.5dp"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:background="#1A161823" />
+</LinearLayout>

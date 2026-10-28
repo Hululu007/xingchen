@@ -83,6 +83,8 @@ app/src/main/res/layout/item_hongguo_episode.xml
 app/src/main/res/layout/item_hongguo_feed.xml
 app/src/main/res/layout/item_hongguo_mine_card.xml
 app/src/main/res/layout/item_hongguo_search.xml
+app/src/main/res/layout/item_hongguo_search_header.xml
+app/src/main/res/layout/item_hongguo_search_sug.xml
 app/src/main/res/layout/item_hongguo_search_text.xml
 app/src/main/res/layout/item_hongguo_series_row.xml
 app/src/main/res/layout/item_hongguo_theater.xml
@@ -137,6 +139,15 @@ app/src/main/res/drawable/ic_hg_pause.xml
 app/src/main/res/drawable/ic_hg_play.xml
 app/src/main/res/drawable/ic_hg_playing_orange.xml
 app/src/main/res/drawable/ic_hg_search.xml
+app/src/main/res/drawable/bg_hg_search_input.xml
+app/src/main/res/drawable/bg_hg_search_cursor.xml
+app/src/main/res/drawable/bg_hg_card_gradient_top.xml
+app/src/main/res/drawable/bg_hg_card_gradient_bottom.xml
+app/src/main/res/drawable/bg_hg_avatar_clip.xml
+app/src/main/res/drawable/ic_hg_search_gray.xml
+app/src/main/res/drawable/ic_hg_clear_gray.xml
+app/src/main/res/drawable/ic_hg_play_circle.xml
+app/src/main/res/drawable/ic_hg_sug_arrow.xml
 app/src/main/res/drawable/ic_hg_share.xml
 app/src/main/res/drawable/ic_hg_star.xml
 app/src/main/res/drawable/ic_hg_star_fill.xml

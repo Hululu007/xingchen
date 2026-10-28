@@ -16,6 +16,7 @@ import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+import androidx.recyclerview.widget.StaggeredGridLayoutManager;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.android.tv.R;
@@ -33,12 +34,15 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 红果搜索面：三态一列表——落地/清空时显搜索历史（本地 HgStore，最近在前，
- * 末尾带清除行）；输入中 300ms 防抖拉联想（search/suggest 已签名口，
+ * 红果搜索面：三态——落地/清空时显搜索历史（本地 HgStore，最近在前，
+ * 块头带清除位）；输入中 300ms 防抖拉联想（search/suggest 已签名口，
  * word_type=2 的词条带剧 id 可直达进剧，其余回填再搜）；提交后走
  * search/tab 结果（offset 翻页，滑到底续拉）。
  * 2026-10-28 逐项重对补全：此前联想接口在客户端里是旧无签名死形、
  * 界面从没调用，历史与翻页同样缺失，整个搜索只有第一页结果。
+ * 2026-10-28 整页形态对齐官方：页面底白、搜索栏照 cqh/c8m 原值、历史块
+ * 照 as1（「搜索历史」＋右端清除位）、联想行照 b7z、结果改双列瀑布卡
+ * 照 b7l 构成（详见 hongguo/search-page-align-20261028.md）。
  */
 public class HongguoSearchActivity extends BaseActivity {
 
@@ -53,10 +57,12 @@ public class HongguoSearchActivity extends BaseActivity {
     private static final int TYPE_RESULT = 0;
     private static final int TYPE_TEXT = 1;
     private static final int TYPE_HEADER = 2;
-    private static final int TYPE_CLEAR = 3;
+    private static final int TYPE_SUG = 3;
 
     private ActivityHongguoSearchBinding binding;
     private HgFeedSession session;
+    private LinearLayoutManager linearManager;
+    private StaggeredGridLayoutManager gridManager;
     private int mode = MODE_HISTORY;
     private final List<HgSeriesItem> results = new ArrayList<>();
     private final List<HgSuggestion> suggestions = new ArrayList<>();
@@ -88,7 +94,21 @@ public class HongguoSearchActivity extends BaseActivity {
 
     @Override
     protected boolean useDarkSystemIcons() {
-        return false;
+        // 整页浅底（官方白底）后系统图标转深色，与官方浅面一致
+        return true;
+    }
+
+    /** 结果态双列瀑布（StaggeredGrid）、其余态单列；网格时列表两侧各让 5dp 与卡 margin 拼成 10dp 边距。 */
+    private void useGrid(boolean grid) {
+        RecyclerView.LayoutManager want = grid ? gridManager : linearManager;
+        if (binding.hgSearchList.getLayoutManager() != want) {
+            binding.hgSearchList.setLayoutManager(want);
+        }
+        int side = grid ? Math.round(5 * getResources().getDisplayMetrics().density) : 0;
+        if (binding.hgSearchList.getPaddingStart() != side) {
+            binding.hgSearchList.setPadding(side, binding.hgSearchList.getPaddingTop(),
+                    side, binding.hgSearchList.getPaddingBottom());
+        }
     }
 
     @Override
@@ -109,22 +129,25 @@ public class HongguoSearchActivity extends BaseActivity {
             @Override
             public int getItemViewType(int position) {
                 if (mode == MODE_RESULT) return TYPE_RESULT;
-                if (mode == MODE_HISTORY) {
-                    if (position == 0) return TYPE_HEADER;
-                    if (position == history.size() + 1) return TYPE_CLEAR;
-                }
+                if (mode == MODE_SUGGEST) return TYPE_SUG;
+                if (position == 0) return TYPE_HEADER;
                 return TYPE_TEXT;
             }
 
             @NonNull
             @Override
             public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+                LayoutInflater inflater = LayoutInflater.from(parent.getContext());
                 if (viewType == TYPE_RESULT) {
-                    return new ResultHolder(ItemHongguoSearchBinding.inflate(
-                            LayoutInflater.from(parent.getContext()), parent, false));
+                    return new ResultHolder(ItemHongguoSearchBinding.inflate(inflater, parent, false));
                 }
-                TextView tv = (TextView) LayoutInflater.from(parent.getContext())
-                        .inflate(R.layout.item_hongguo_search_text, parent, false);
+                if (viewType == TYPE_HEADER) {
+                    return new HeaderHolder(inflater.inflate(R.layout.item_hongguo_search_header, parent, false));
+                }
+                if (viewType == TYPE_SUG) {
+                    return new SugHolder(inflater.inflate(R.layout.item_hongguo_search_sug, parent, false));
+                }
+                TextView tv = (TextView) inflater.inflate(R.layout.item_hongguo_search_text, parent, false);
                 return new TextHolder(tv);
             }
 
@@ -135,46 +158,65 @@ public class HongguoSearchActivity extends BaseActivity {
                     ItemHongguoSearchBinding b = ((ResultHolder) holder).binding;
                     ImgUtil.load(item.getTitle() == null ? "" : item.getTitle(), item.getCoverUrl(), b.hgSCover);
                     b.hgSTitle.setText(item.getTitle() == null ? "" : item.getTitle());
-                    StringBuilder meta = new StringBuilder();
-                    if (item.getEpisodeCount() > 0) meta.append("全").append(item.getEpisodeCount()).append("集");
-                    if (item.getDesc() != null && !item.getDesc().isEmpty()) {
-                        if (meta.length() > 0) meta.append(" · ");
-                        meta.append(item.getDesc());
+                    // 角标（tag_info）压封面顶部渐变带，有才显（官方 b7l TagView 缺省 gone 同口径）
+                    if (item.getBadge() != null && !item.getBadge().isEmpty()) {
+                        b.hgSBadge.setVisibility(View.VISIBLE);
+                        b.hgSBadge.setText(item.getBadge());
+                    } else {
+                        b.hgSBadge.setVisibility(View.GONE);
                     }
-                    b.hgSMeta.setText(meta.toString());
+                    // 封面左下文案位（官方双列卡 play_cnt_desc 同位）：优先热度文案，其次全X集，都无则藏
+                    String overlay = item.getRecText();
+                    if ((overlay == null || overlay.isEmpty()) && item.getEpisodeCount() > 0) {
+                        overlay = "全" + item.getEpisodeCount() + "集";
+                    }
+                    if (overlay != null && !overlay.isEmpty()) {
+                        b.hgSOverlay.setVisibility(View.VISIBLE);
+                        b.hgSOverlay.setText(overlay);
+                    } else {
+                        b.hgSOverlay.setVisibility(View.GONE);
+                    }
+                    // 作者行（12dp 圆头像＋名字）：搜索 cell 带作者才显（官方 b7l 作者位同构）
+                    if (item.getAuthorName() != null && !item.getAuthorName().isEmpty()) {
+                        b.hgSAuthorAvatar.setVisibility(View.VISIBLE);
+                        b.hgSAuthorName.setVisibility(View.VISIBLE);
+                        ImgUtil.load(item.getAuthorName(), item.getAuthorAvatar(), b.hgSAuthorAvatar);
+                        b.hgSAuthorName.setText(item.getAuthorName());
+                    } else {
+                        b.hgSAuthorAvatar.setVisibility(View.GONE);
+                        b.hgSAuthorName.setVisibility(View.GONE);
+                    }
                     b.getRoot().setOnClickListener(v ->
                             HongguoFeedActivity.startSeries(HongguoSearchActivity.this,
                                     item.getSeriesId(), item.getTitle(), item.getCoverUrl()));
                     return;
                 }
-                TextView tv = ((TextHolder) holder).text;
                 int type = getItemViewType(position);
                 if (type == TYPE_HEADER) {
-                    tv.setText("历史搜索");
-                    tv.setTextColor(0x99FFFFFF);
-                    tv.setOnClickListener(null);
-                    tv.setClickable(false);
-                } else if (type == TYPE_CLEAR) {
-                    tv.setText("清除历史记录");
-                    tv.setTextColor(0x99FFFFFF);
-                    tv.setOnClickListener(v -> {
+                    ((HeaderHolder) holder).clear.setOnClickListener(v -> {
                         HgStore.clearSearchHistory();
                         showHistory();
                     });
-                } else if (mode == MODE_HISTORY) {
+                } else if (type == TYPE_SUG) {
+                    HgSuggestion s = suggestions.get(position);
+                    SugHolder h = (SugHolder) holder;
+                    h.text.setText(s.getText());
+                    h.itemView.setOnClickListener(v -> onSuggestionClick(s));
+                    // 右端箭头＝只回填不搜（官方 SugItemHolder G2 口径）
+                    h.arrow.setOnClickListener(v -> {
+                        binding.hgSearchInput.setText(s.getText());
+                        binding.hgSearchInput.setSelection(s.getText().length());
+                    });
+                } else {
+                    TextView tv = ((TextHolder) holder).text;
                     String word = history.get(position - 1);
                     tv.setText(word);
-                    tv.setTextColor(0xF2FFFFFF);
+                    tv.setTextColor(0xFF303030);
                     tv.setOnClickListener(v -> {
                         binding.hgSearchInput.setText(word);
                         binding.hgSearchInput.setSelection(word.length());
                         doSearch();
                     });
-                } else {
-                    HgSuggestion s = suggestions.get(position);
-                    tv.setText(s.getText());
-                    tv.setTextColor(0xF2FFFFFF);
-                    tv.setOnClickListener(v -> onSuggestionClick(s));
                 }
             }
 
@@ -182,18 +224,29 @@ public class HongguoSearchActivity extends BaseActivity {
             public int getItemCount() {
                 if (mode == MODE_RESULT) return results.size();
                 if (mode == MODE_SUGGEST) return suggestions.size();
-                return history.isEmpty() ? 0 : history.size() + 2;
+                return history.isEmpty() ? 0 : history.size() + 1;
             }
         };
-        binding.hgSearchList.setLayoutManager(new LinearLayoutManager(this));
+        linearManager = new LinearLayoutManager(this);
+        gridManager = new StaggeredGridLayoutManager(2, StaggeredGridLayoutManager.VERTICAL);
+        binding.hgSearchList.setLayoutManager(linearManager);
         binding.hgSearchList.setAdapter(adapter);
+        if (android.os.Build.VERSION.SDK_INT >= 29) {
+            binding.hgSearchInput.setTextCursorDrawable(R.drawable.bg_hg_search_cursor);
+        }
         binding.hgSearchList.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override
             public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
                 if (mode != MODE_RESULT || dy <= 0) return;
-                LinearLayoutManager lm = (LinearLayoutManager) rv.getLayoutManager();
-                if (lm == null) return;
-                if (lm.findLastVisibleItemPosition() >= results.size() - 4) loadMore();
+                int last = -1;
+                RecyclerView.LayoutManager lm = rv.getLayoutManager();
+                if (lm instanceof StaggeredGridLayoutManager) {
+                    int[] pos = ((StaggeredGridLayoutManager) lm).findLastVisibleItemPositions(null);
+                    for (int p : pos) last = Math.max(last, p);
+                } else if (lm instanceof LinearLayoutManager) {
+                    last = ((LinearLayoutManager) lm).findLastVisibleItemPosition();
+                }
+                if (last >= results.size() - 4) loadMore();
             }
         });
         showHistory();
@@ -235,6 +288,8 @@ public class HongguoSearchActivity extends BaseActivity {
     @Override
     protected void initEvent() {
         binding.hgSearchGo.setOnClickListener(v -> doSearch());
+        // 框内清除钮（官方 c8m hgs 同位）：有字才显，点按清空回落地态
+        binding.hgSearchClear.setOnClickListener(v -> binding.hgSearchInput.setText(""));
         binding.hgSearchInput.setOnEditorActionListener((v, actionId, event) -> {
             if (actionId == EditorInfo.IME_ACTION_SEARCH) {
                 doSearch();
@@ -249,6 +304,8 @@ public class HongguoSearchActivity extends BaseActivity {
 
             @Override
             public void onTextChanged(CharSequence s, int start, int before, int count) {
+                binding.hgSearchClear.setVisibility(
+                        s == null || s.length() == 0 ? View.GONE : View.VISIBLE);
                 if (pendingSuggest != null) mainHandler.removeCallbacks(pendingSuggest);
                 String text = s == null ? "" : s.toString().trim();
                 if (text.isEmpty()) {
@@ -276,6 +333,7 @@ public class HongguoSearchActivity extends BaseActivity {
     private void showHistory() {
         binding.hgSearchTabs.setVisibility(View.GONE);
         mode = MODE_HISTORY;
+        useGrid(false);
         history.clear();
         history.addAll(HgStore.searchHistory());
         binding.hgSearchState.setVisibility(View.GONE);
@@ -296,6 +354,7 @@ public class HongguoSearchActivity extends BaseActivity {
                     if (suggestions.isEmpty()) return;
                     binding.hgSearchTabs.setVisibility(View.GONE);
                     mode = MODE_SUGGEST;
+                    useGrid(false);
                     binding.hgSearchState.setVisibility(View.GONE);
                     adapter.notifyDataSetChanged();
                 });
@@ -338,6 +397,7 @@ public class HongguoSearchActivity extends BaseActivity {
     private void loadSearchFirstPage() {
         loadingMore = false;
         lastPageFull = false;
+        useGrid(true);
         results.clear();
         adapter.notifyDataSetChanged();
         binding.hgSearchState.setVisibility(View.VISIBLE);
@@ -389,7 +449,8 @@ public class HongguoSearchActivity extends BaseActivity {
             tv.setText(tab.title);
             tv.setTextSize(15);
             boolean on = tab.type == searchTabType;
-            tv.setTextColor(on ? 0xFFFFFFFF : 0x99FFFFFF);
+            // 页签字色随整页浅底翻转（官方页签条材料值未抠到，此为适配值非真值）
+            tv.setTextColor(on ? 0xFF000000 : 0x99000000);
             tv.setTypeface(null, on ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
             tv.setPadding(Math.round(12 * density), Math.round(8 * density),
                     Math.round(12 * density), Math.round(8 * density));
@@ -446,6 +507,26 @@ public class HongguoSearchActivity extends BaseActivity {
         TextHolder(TextView text) {
             super(text);
             this.text = text;
+        }
+    }
+
+    private static final class HeaderHolder extends RecyclerView.ViewHolder {
+        final View clear;
+
+        HeaderHolder(View root) {
+            super(root);
+            this.clear = root.findViewById(R.id.hg_hist_clear);
+        }
+    }
+
+    private static final class SugHolder extends RecyclerView.ViewHolder {
+        final TextView text;
+        final View arrow;
+
+        SugHolder(View root) {
+            super(root);
+            this.text = root.findViewById(R.id.hg_sug_text);
+            this.arrow = root.findViewById(R.id.hg_sug_arrow);
         }
     }
 }

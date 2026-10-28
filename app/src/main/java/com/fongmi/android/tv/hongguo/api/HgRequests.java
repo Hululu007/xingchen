@@ -177,6 +177,24 @@ public final class HgRequests {
         return body;
     }
 
+    /**
+     * 作者页动态 UGC 视频的批量详情请求体（官方 SeriesGuestUgcVideo
+     * DataSource 定版：source＝FromUgcProfile_SingleRowVideo(17)、
+     * video_id_type＝SeriesId、dr_scene＝player、series_id＝vid 本身）：
+     * 回包该 vid 的 video_data 是 UgcVideoDetail 形、自带 video_model，
+     * 是 UGC 视频唯一的取模路（单集 video_model 口对 UGC vid 回 101000）。
+     */
+    public static JsonObject ugcBatchBody(String videoId) {
+        JsonObject biz = new JsonObject();
+        biz.addProperty("source", 17);
+        biz.addProperty("video_id_type", 1);
+        JsonObject body = new JsonObject();
+        body.add("biz_param", biz);
+        body.addProperty("dr_scene", "player");
+        body.addProperty("series_id", videoId == null ? "" : videoId);
+        return body;
+    }
+
     /** 批量详情 multi_video_detail 请求体（openhongguo SeriesBatchBody，series_id 逗号拼）。 */
     public static JsonObject seriesBatchBody(Collection<String> seriesIds) {
         JsonObject biz = new JsonObject();

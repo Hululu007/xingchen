@@ -435,6 +435,37 @@ public final class HgApiClient {
         });
     }
 
+    /**
+     * 动态 UGC 视频详情 POST /novel/player/multi_video_detail/player/v1
+     * （官方 UGC 数据源口径 source=17，见 HgRequests.ugcBatchBody）：
+     * 回该 vid 的详情（video_data 自带 video_model，HgParser 挂到
+     * HgSeriesDetail.ugcVideoModel）；回包无此条/无模型时 detail 为
+     * null 或模型为空，调用方自行回落。
+     */
+    public void fetchUgcVideoDetail(String videoId, HgCallback<HgSeriesDetail> cb) {
+        if (videoId == null || videoId.isEmpty()) {
+            cb.onError(-1, "videoId 为空");
+            return;
+        }
+        postSigned(HgDevice.PATH_SERIES_BATCH, HgRequests.ugcBatchBody(videoId), new BodyCallback() {
+            @Override
+            void onBody(String text) {
+                Map<String, HgSeriesDetail> map = HgParser.parseSeriesBatch(text);
+                HgSeriesDetail detail = map.get(videoId);
+                if (detail == null && !map.isEmpty()) {
+                    detail = map.values().iterator().next();
+                }
+                if (detail == null) cb.onError(-2, "回包无该视频详情");
+                else cb.onSuccess(detail);
+            }
+
+            @Override
+            void onFail(int code, String msg) {
+                cb.onError(code, msg);
+            }
+        });
+    }
+
     /** 单剧详情 POST /novel/player/video_detail/v1/（入参实为剧 id seriesId）。 */
     /**
      * 专辑详情（多季系列的各季表）：POST /novel/player/album_detail/v1/，

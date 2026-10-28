@@ -88,6 +88,15 @@ public class NovelReaderActivity extends AppCompatActivity {
     private boolean sawNotBottom = false;
     private final Runnable autoNextRecheck = this::maybeAutoNext;
     private int preloadingFor = -1;
+    // 无缝切章（仅纵滑模式，他 2026-10-28 定案）：tvContent 里顺流拼着的
+    // 章块——seamText 是工作副本（每次拼/剪后整本重 set），seamBlocks 记
+    // 每块的 [章下标, 起始字符偏移]、seamTexts 同序存各块未样式化正文。
+    // 单块时全部口径退化回整章（loadChapter 复位），覆盖/滑动模式不启用。
+    private android.text.SpannableStringBuilder seamText;
+    private final java.util.List<int[]> seamBlocks = new java.util.ArrayList<>();
+    private final java.util.List<String> seamTexts = new java.util.ArrayList<>();
+    private boolean seamAppending = false;
+    private int seamKnownChapter = -1;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -607,8 +616,15 @@ public class NovelReaderActivity extends AppCompatActivity {
                 t.setTextColor(ReadingSkin.SUB);
             }
             t.setOnClickListener(v -> {
+                int prev = pageMode();
+                float frac = currentFraction();
                 prefs.edit().putInt(KEY_PAGE_MODE, idx).apply();
                 refreshPageSeg();
+                // 离开纵滑时无缝拼接作废：拼着的多章文本对翻页模式是错位
+                // 账本，按当前章内进度整章重载回单块（切回纵滑再重新起流）
+                if (prev == 0 && idx != 0 && seamBlocks.size() > 1) {
+                    goChapter(session.chapterIndex, Math.round(frac * 10000));
+                }
                 ToastUtil.show(this, "已切换为" + modes[idx] + "翻页",
                         Toast.LENGTH_SHORT);
             });
@@ -695,7 +711,12 @@ public class NovelReaderActivity extends AppCompatActivity {
     private void pickPageMode() {
         String[] modes = {"纵滑", "覆盖", "滑动"};
         ReadDialogs.optionsChecked(this, "翻页模式", modes, pageMode(), which -> {
+            int prev = pageMode();
+            float frac = currentFraction();
             prefs.edit().putInt(KEY_PAGE_MODE, which).apply();
+            if (prev == 0 && which != 0 && seamBlocks.size() > 1) {
+                goChapter(session.chapterIndex, Math.round(frac * 10000));
+            }
             ToastUtil.show(this, "已切换为" + modes[which] + "翻页", Toast.LENGTH_SHORT);
         });
     }
@@ -1031,10 +1052,18 @@ public class NovelReaderActivity extends AppCompatActivity {
                 loadUiDoneAt = System.currentTimeMillis();
                 preloadNextChapter();
                 currentText = text;
+                // 无缝状态复位回单块（跳章/书签/换源都从这里重新起流）
+                seamBlocks.clear();
+                seamTexts.clear();
+                seamText = null;
+                seamKnownChapter = session.chapterIndex;
                 if (TextUtils.isEmpty(text)) {
                     tvContent.setText("正文抓取失败，换一章试试");
                 } else {
-                    tvContent.setText(dropCap(text));
+                    seamText = new android.text.SpannableStringBuilder(dropCap(text));
+                    tvContent.setText(seamText);
+                    seamBlocks.add(new int[]{session.chapterIndex, 0});
+                    seamTexts.add(text);
                 }
                 scrollView.post(() -> {
                     if (session.startFraction >= 0) {
@@ -1115,7 +1144,8 @@ public class NovelReaderActivity extends AppCompatActivity {
     }
 
     /**
-     * 章末自动接下一章：三种翻页模式通用（纵滑滚到底 / 覆盖·滑动翻到最后一屏）。
+     * 章末自动接下一章：覆盖/滑动模式用（翻到最后一屏后整章替换）。
+     * 纵滑模式已改走无缝拼接（maybeSeamless），不经此路。
      * 只在"刚滑到底"的跳变触发，且本次加载 1.5 秒后才生效——打开时恢复到底部
      * 进度、加载完的初始滚动都不会误触。
      */
@@ -1123,6 +1153,12 @@ public class NovelReaderActivity extends AppCompatActivity {
         if (session == null || loading) return;
         java.util.List<ReadingSession.Chapter> chs = session.chapters;
         if (chs == null || chs.size() <= 1) return;
+        // 纵滑模式走无缝拼接（下一章直接接在本章后面连续下滑，不跳页）；
+        // 覆盖/滑动模式维持下面的整章替换自动接
+        if (pageMode() == 0 && !seamBlocks.isEmpty()) {
+            maybeSeamless();
+            return;
+        }
         if (session.chapterIndex >= chs.size() - 1) {
             wasBottom = true;
             return;
@@ -1149,6 +1185,138 @@ public class NovelReaderActivity extends AppCompatActivity {
             goChapter(session.chapterIndex + 1);
         }
         wasBottom = true;
+    }
+
+    // ---------------- 无缝切章（仅纵滑） ----------------
+
+    /**
+     * 无缝驱动（滚动事件里调）：先跟当前章（跨界就落进度/预存），
+     * 再看离内容底还剩多少——不足一屏半就把下一章拼上来。
+     */
+    private void maybeSeamless() {
+        if (seamText == null || seamBlocks.isEmpty()) return;
+        trackSeamChapter();
+        if (seamAppending) return;
+        int lastIdx = seamBlocks.get(seamBlocks.size() - 1)[0];
+        if (lastIdx >= session.chapters.size() - 1) return;
+        View child = scrollView.getChildAt(0);
+        if (child == null) return;
+        int remaining = child.getHeight() - (scrollView.getScrollY() + scrollView.getHeight());
+        if (remaining > scrollView.getHeight() * 3 / 2) return;
+        appendNextSeamChapter(lastIdx + 1);
+    }
+
+    /** 拼下一章：取文口径与预存同路（缓存按目标章下标、未命中解析后回存）。抓不到不拼、停在章末。 */
+    private void appendNextSeamChapter(int nextIdx) {
+        seamAppending = true;
+        final ReadingSession s = session;
+        final ReadingSession.Chapter ch = s.chapters.get(nextIdx);
+        final String key = bookKey();
+        Task.execute(() -> {
+            String text = "";
+            try {
+                if (TextUtils.isEmpty(s.localId)) {
+                    text = com.fongmi.android.tv.read.ReadingDownload
+                            .loadNovelChapter(this, key, nextIdx);
+                    if (TextUtils.isEmpty(text)) {
+                        text = resolveText(s, ch);
+                        if (!TextUtils.isEmpty(text)) {
+                            com.fongmi.android.tv.read.ReadingDownload
+                                    .saveNovelChapter(this, key, nextIdx, text);
+                        }
+                    }
+                } else {
+                    text = resolveText(s, ch);
+                }
+            } catch (Throwable ignored) {
+                // 取文异常按抓不到处理：不拼、停在章末（seamAppending 由 UI 段复位）
+                text = "";
+            }
+            final String body = text;
+            runOnUiThread(() -> {
+                seamAppending = false;
+                // 期间被跳章/换源复位过：seamText 已换代或尾块已不是上一章，弃拼
+                if (session != s || seamText == null || seamBlocks.isEmpty()
+                        || seamBlocks.get(seamBlocks.size() - 1)[0] != nextIdx - 1) return;
+                if (TextUtils.isEmpty(body)) return;
+                int start = seamText.length();
+                android.text.SpannableStringBuilder seg =
+                        new android.text.SpannableStringBuilder();
+                seg.append("\n\n");
+                int nameStart = seg.length();
+                seg.append(ch.name == null ? "" : ch.name);
+                seg.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD),
+                        nameStart, seg.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                seg.setSpan(new android.text.style.RelativeSizeSpan(1.3f),
+                        nameStart, seg.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                seg.append("\n\n");
+                seg.append(dropCap(body));
+                seamText.append(seg);
+                tvContent.setText(seamText);
+                seamBlocks.add(new int[]{nextIdx, start});
+                seamTexts.add(body);
+            });
+        });
+    }
+
+    /** 块顶 Y（滚动内容坐标）：tvContent 在内容列里的 top＋该块起始偏移所在行的行顶。 */
+    private int seamBlockTopY(android.text.Layout layout, int blockPos) {
+        int offset = seamBlocks.get(blockPos)[1];
+        int line = layout.getLineForOffset(Math.min(offset, Math.max(0, layout.getText().length() - 1)));
+        return tvContent.getTop() + layout.getLineTop(line);
+    }
+
+    private int seamBlockPosOf(int chapterIndex) {
+        for (int i = 0; i < seamBlocks.size(); i++) {
+            if (seamBlocks.get(i)[0] == chapterIndex) return i;
+        }
+        return -1;
+    }
+
+    /**
+     * 跨界跟踪：当前章＝最后一个「块顶已滚过视口顶」的块。跨界时把会话
+     * 章下标/地址/当前正文切过去并落进度、预存再下一章、顺手修剪窗口。
+     * 页首章名头（tvChapterHead）不跟着改——它标的是全文第一块的章，
+     * 后续各章的章名在流内自带标题行。
+     */
+    private void trackSeamChapter() {
+        if (seamBlocks.size() <= 1 || seamText == null) return;
+        android.text.Layout layout = tvContent.getLayout();
+        if (layout == null) return;
+        int y = scrollView.getScrollY();
+        int pos = 0;
+        for (int i = 0; i < seamBlocks.size(); i++) {
+            if (seamBlockTopY(layout, i) <= y + dp(4)) pos = i;
+            else break;
+        }
+        int chapter = seamBlocks.get(pos)[0];
+        if (chapter == seamKnownChapter) return;
+        seamKnownChapter = chapter;
+        session.chapterIndex = chapter;
+        ReadingSession.Chapter ch = session.currentChapter();
+        session.chapterUrl = ch.url;
+        currentText = seamTexts.get(pos);
+        updateProgressLabel();
+        saveProgress();
+        preloadNextChapter();
+        pruneSeamBlocks();
+    }
+
+    /** 窗口修剪：只留最近 3 块且当前块在最末才剪首块（剪完 scrollY 同步减首块高，视口不跳）。 */
+    private void pruneSeamBlocks() {
+        if (seamBlocks.size() < 3 || seamText == null) return;
+        if (seamBlockPosOf(session.chapterIndex) != seamBlocks.size() - 1) return;
+        android.text.Layout layout = tvContent.getLayout();
+        if (layout == null) return;
+        int cut = seamBlocks.get(1)[1];
+        if (cut <= 0) return;
+        int cutHeight = seamBlockTopY(layout, 1) - seamBlockTopY(layout, 0);
+        seamText.delete(0, cut);
+        seamBlocks.remove(0);
+        seamTexts.remove(0);
+        for (int[] b : seamBlocks) b[1] -= cut;
+        tvContent.setText(seamText);
+        scrollView.scrollTo(0, Math.max(0, scrollView.getScrollY() - cutHeight));
     }
 
     /** 预存下一章：当前章上屏后后台把下一章正文抓进章节缓存，接章时直接命中。 */
@@ -1228,6 +1396,26 @@ public class NovelReaderActivity extends AppCompatActivity {
     // ---------------- 进度 ----------------
 
     private float currentFraction() {
+        // 无缝态（多块）：口径是「当前章内」的进度——滚动枢纽（进度标/
+        // 书签/听书起点/存进度）都按章记，整篇口径会让跨界后进度倒退
+        if (pageMode() == 0 && seamBlocks.size() > 1 && seamText != null) {
+            try {
+                android.text.Layout layout = tvContent.getLayout();
+                int pos = seamBlockPosOf(session.chapterIndex);
+                if (layout != null && pos >= 0) {
+                    int top = seamBlockTopY(layout, pos);
+                    int bottom = pos + 1 < seamBlocks.size()
+                            ? seamBlockTopY(layout, pos + 1)
+                            : tvContent.getTop() + tvContent.getHeight();
+                    int span = bottom - top;
+                    if (span <= scrollView.getHeight()) return 1f;
+                    int denom = Math.max(1, span - scrollView.getHeight());
+                    return Math.min(1f, Math.max(0f,
+                            (scrollView.getScrollY() - top) * 1f / denom));
+                }
+            } catch (Throwable ignored) {
+            }
+        }
         try {
             // 一屏装得下的短章：没有可滚距离，本身就是已到底（旧口径算成 0，
             // 进度恒 0%、自动接也永远判不到底）
@@ -1240,6 +1428,23 @@ public class NovelReaderActivity extends AppCompatActivity {
     }
 
     private void scrollToFraction(float frac) {
+        // 无缝态：frac 是章内进度，滚到当前块内的对应位置（字号变更后重定位用）
+        if (pageMode() == 0 && seamBlocks.size() > 1 && seamText != null) {
+            try {
+                android.text.Layout layout = tvContent.getLayout();
+                int pos = seamBlockPosOf(session.chapterIndex);
+                if (layout != null && pos >= 0) {
+                    int top = seamBlockTopY(layout, pos);
+                    int bottom = pos + 1 < seamBlocks.size()
+                            ? seamBlockTopY(layout, pos + 1)
+                            : tvContent.getTop() + tvContent.getHeight();
+                    int span = Math.max(1, (bottom - top) - scrollView.getHeight());
+                    scrollView.scrollTo(0, top + (int) (frac * span));
+                    return;
+                }
+            } catch (Throwable ignored) {
+            }
+        }
         try {
             int max = Math.max(1, tvContent.getHeight() - scrollView.getHeight());
             scrollView.scrollTo(0, (int) (frac * max));

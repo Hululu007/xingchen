@@ -84,6 +84,7 @@ import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 private val AccentRed = Color(0xFFFA243C)
 
@@ -185,10 +186,19 @@ fun PlayerRoot(barRect: Rect?, onClose: () -> Unit) {
         if (closing) return
         closing = true
         scope.launch {
-            if (barRect != null) {
-                expand.animateTo(0f, tween(320, easing = EaseBs4A))
+            try {
+                if (barRect != null) {
+                    // 收回动画只是皮：450ms 没演完（被开页动画顶掉/帧时钟卡住）就直接退，
+                    // 不许让动画把 finish 永久挡死（2026-10-28 三星真机 ANR 定根）
+                    withTimeoutOrNull(450) {
+                        expand.animateTo(0f, tween(320, easing = EaseBs4A))
+                    }
+                }
+            } catch (t: Throwable) {
+                // 动画取消/异常不许带走退出通道
+            } finally {
+                onClose()
             }
-            onClose()
         }
     }
     fun openTools() {

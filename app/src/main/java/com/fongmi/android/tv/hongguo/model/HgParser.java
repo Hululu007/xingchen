@@ -701,6 +701,13 @@ public final class HgParser {
         if (value != null && !value.isEmpty()) o.addProperty(key, value);
     }
 
+    /** 目标键缺失或为空串、且来源值非空时才填（来源为空不写，不拿空串盖有值）。 */
+    private static void fillIfBlank(JsonObject o, String key, String value) {
+        if (value == null || value.isEmpty()) return;
+        String cur = str(o, key);
+        if (cur == null || cur.isEmpty()) o.addProperty(key, value);
+    }
+
     /**
      * 在 data 子树里找数组，抽出带剧 id + 标题的对象为条目。深度上限 8：
      * bookmall/tab 真回包（2026-10-27 实拉存档）的剧条目在
@@ -737,18 +744,14 @@ public final class HgParser {
                     for (JsonElement ve : vids) {
                         if (ve == null || !ve.isJsonObject()) continue;
                         JsonObject copy = ve.getAsJsonObject().deepCopy();
-                        if (str(copy, "author_name") == null && aName != null) {
-                            copy.addProperty("author_name", aName);
-                        }
-                        if (str(copy, "author_avatar") == null && aAvatar != null) {
-                            copy.addProperty("author_avatar", aAvatar);
-                        }
-                        if (str(copy, "author_desc") == null && aDesc != null) {
-                            copy.addProperty("author_desc", aDesc);
-                        }
-                        if (str(copy, "author_uid") == null && aUid != null) {
-                            copy.addProperty("author_uid", aUid);
-                        }
+                        // 条目自带空串同样算缺：str() 对 "" 返回非 null，旧判
+                        // 「==null 才补」会让自带 author_*:"" 挡住 ugc 层真值
+                        // ——与 normalizeDiscoverEntry 的空串盖真值同型
+                        // （96fa6fa5 只修了归一路径，此处是 collectSeries 路径）
+                        fillIfBlank(copy, "author_name", aName);
+                        fillIfBlank(copy, "author_avatar", aAvatar);
+                        fillIfBlank(copy, "author_desc", aDesc);
+                        fillIfBlank(copy, "author_uid", aUid);
                         HgSeriesItem item = asSeriesItem(copy);
                         if (item != null) out.add(item);
                     }

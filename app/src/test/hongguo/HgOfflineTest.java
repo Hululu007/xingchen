@@ -588,6 +588,36 @@ public class HgOfflineTest {
                     null);
         }
 
+        // §21 空串不挡真值（collectSeries 作者抬升路径，与 96fa6fa5 的
+        //     normalizeDiscoverEntry 同型补齐）：video_list 条目自带
+        //     author_*:"" 时，ugc_user_info 的真值必须抬得进来；
+        //     条目自带非空作者时以自带为准、不被 ugc 覆盖。
+        {
+            String raw = "{\"code\":0,\"data\":{\"video_detail\":{"
+                    + "\"ugc_user_info\":{\"user_id\":\"42\",\"base_info\":{"
+                    + "\"user_name\":\"真作者\",\"user_avatar\":\"https://a/b.png\","
+                    + "\"description\":\"作者简介\"}},"
+                    + "\"video_list\":["
+                    + "{\"series_id\":\"111\",\"title\":\"剧一\",\"vid\":\"222\","
+                    + "\"author_name\":\"\",\"author_uid\":\"\"},"
+                    + "{\"series_id\":\"333\",\"title\":\"剧二\",\"vid\":\"444\","
+                    + "\"author_name\":\"自带作者\",\"author_uid\":\"7\"}"
+                    + "]}}}";
+            com.fongmi.android.tv.hongguo.model.HgCellPage page = HgParser.parseCellPage(raw);
+            java.util.List<com.fongmi.android.tv.hongguo.model.HgSeriesItem> items = page.getItems();
+            check("§21 作者抬升抽出 2 条", items != null && items.size() == 2,
+                    "实际=" + (items == null ? -1 : items.size()));
+            if (items != null && items.size() == 2) {
+                check("§21 自带空串被 ugc 真值补上", "真作者".equals(items.get(0).getAuthorName())
+                                && "42".equals(items.get(0).getAuthorUid())
+                                && "https://a/b.png".equals(items.get(0).getAuthorAvatar()),
+                        "实际=" + items.get(0).getAuthorName() + "/" + items.get(0).getAuthorUid());
+                check("§21 自带非空不被覆盖", "自带作者".equals(items.get(1).getAuthorName())
+                                && "7".equals(items.get(1).getAuthorUid()),
+                        "实际=" + items.get(1).getAuthorName() + "/" + items.get(1).getAuthorUid());
+            }
+        }
+
         System.out.println(fail == 0 ? "ALL PASS" : ("FAILURES=" + fail));
         System.exit(fail == 0 ? 0 : 1);
     }

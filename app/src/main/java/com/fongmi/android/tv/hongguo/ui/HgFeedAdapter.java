@@ -215,7 +215,9 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
 
     /** 弹幕开关态：关时芯片压暗。弹幕内容本阶段不接（见 Activity 注）。 */
     public void bindDanmakuState(Holder holder) {
-        holder.binding.hgDanmaku.setAlpha(HgStore.isDanmakuOn() ? 1f : 0.55f);
+        // 官方态样（他发的官方图 113482 放大亲验）：关＝字右下带斜杠、字不变暗；
+        // 开＝净字。此前用透明度 0.55 表示关，样子不对，已改斜杠口径
+        holder.binding.hgDanmakuSlash.setVisibility(HgStore.isDanmakuOn() ? View.GONE : View.VISIBLE);
     }
 
     /** 系列剧款（账 §5.2）：胶囊文案只拼有实证的部分——季数来自 album_serial_count；在追人数无字段（U5）不拼。 */
@@ -297,7 +299,7 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         b.hgAvatarBox.setOnClickListener(v -> host.onAction(holder.getBindingAdapterPosition(), Action.FOLLOW));
         b.hgReserve.setOnClickListener(v -> host.onAction(holder.getBindingAdapterPosition(), Action.RESERVE));
         b.hgSeriesBar.setOnClickListener(v -> host.onSeriesBar(holder.getBindingAdapterPosition()));
-        b.hgDanmaku.setOnClickListener(v -> host.onDanmakuToggle(holder.getBindingAdapterPosition()));
+        b.hgDanmakuBox.setOnClickListener(v -> host.onDanmakuToggle(holder.getBindingAdapterPosition()));
         b.hgFullscreenWatch.setOnClickListener(v -> host.onFullscreenWatch(holder.getBindingAdapterPosition()));
         b.hgError.setOnClickListener(v -> host.onRetry(holder.getBindingAdapterPosition()));
         View.OnClickListener descToggle = v -> {

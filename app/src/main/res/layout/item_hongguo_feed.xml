@@ -189,21 +189,37 @@
         </LinearLayout>
     </LinearLayout>
 
-    <TextView
-        android:id="@+id/hg_danmaku"
+    <FrameLayout
+        android:id="@+id/hg_danmaku_box"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="start|bottom"
         android:layout_marginStart="12dp"
-        android:layout_marginBottom="158dp"
-        android:background="@drawable/bg_hg_chip"
-        android:paddingStart="10dp"
-        android:paddingTop="6dp"
-        android:paddingEnd="10dp"
-        android:paddingBottom="6dp"
-        android:text="弹"
-        android:textColor="#FFFFFF"
-        android:textSize="14sp" />
+        android:layout_marginBottom="158dp">
+
+        <TextView
+            android:id="@+id/hg_danmaku"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_hg_chip"
+            android:paddingStart="10dp"
+            android:paddingTop="6dp"
+            android:paddingEnd="10dp"
+            android:paddingBottom="6dp"
+            android:text="弹"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp" />
+
+        <View
+            android:id="@+id/hg_danmaku_slash"
+            android:layout_width="13dp"
+            android:layout_height="2.5dp"
+            android:layout_gravity="end|bottom"
+            android:layout_marginEnd="4dp"
+            android:layout_marginBottom="7dp"
+            android:background="#FFFFFF"
+            android:rotation="-38" />
+    </FrameLayout>
 
     <LinearLayout
         android:id="@+id/hg_info"

@@ -952,7 +952,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             h.binding.hgRightRail.setVisibility(v);
             h.binding.hgInfo.setVisibility(v);
             h.binding.hgSeriesBar.setVisibility(v);
-            h.binding.hgDanmaku.setVisibility(v);
+            h.binding.hgDanmakuBox.setVisibility(v);
             // 全屏观看钮非常驻件：隐藏时一并收；重显口径与适配器绑定一致
             // （真实宽高判横屏或 cell 朝向预判，旧版重显只认真实宽高、与绑定
             // 口径不一致，预判条目会把钮弄丢——审计实证）

@@ -75,13 +75,18 @@ public class CloudFile {
         return n.endsWith(".mp4") || n.endsWith(".mkv") || n.endsWith(".avi")
                 || n.endsWith(".rmvb") || n.endsWith(".flv") || n.endsWith(".mov")
                 || n.endsWith(".wmv") || n.endsWith(".ts") || n.endsWith(".m2ts")
-                || n.endsWith(".webm") || n.endsWith(".m3u8");
+                || n.endsWith(".webm") || n.endsWith(".m3u8")
+                || n.endsWith(".mpg") || n.endsWith(".mpeg") || n.endsWith(".rm")
+                || n.endsWith(".3gp") || n.endsWith(".f4v") || n.endsWith(".asf")
+                || n.endsWith(".vob") || n.endsWith(".m4v") || n.endsWith(".mts");
     }
 
     private static boolean isVideoExt(String ext) {
         switch (ext) {
             case "mp4": case "mkv": case "avi": case "rmvb": case "flv": case "mov":
             case "wmv": case "ts": case "m2ts": case "webm": case "m3u8":
+            case "mpg": case "mpeg": case "rm": case "3gp": case "f4v": case "asf":
+            case "vob": case "m4v": case "mts":
                 return true;
             default:
                 return false;

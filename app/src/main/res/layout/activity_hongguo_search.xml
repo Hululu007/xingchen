@@ -44,6 +44,21 @@
             android:textSize="15sp" />
     </LinearLayout>
 
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:id="@+id/hg_search_tabs"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:paddingStart="6dp"
+            android:paddingEnd="6dp"
+            android:visibility="gone" />
+    </HorizontalScrollView>
+
     <TextView
         android:id="@+id/hg_search_state"
         android:layout_width="wrap_content"

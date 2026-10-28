@@ -392,7 +392,25 @@ public final class HgParser {
         List<HgSeriesItem> items = new ArrayList<>();
         JsonObject data = obj(root, "data");
         collectSeries(data != null ? data : root, items, 0);
-        return new HgCellPage(code, msg, items, root);
+        // 搜索回包的页签面（data.search_tabs）：只收视频面三页签
+        // （11 综合/29 剧集/30 视频），顺序照服务端下发
+        List<HgSearchTab> tabs = new ArrayList<>();
+        // search_tabs 的挂载层随回包形变（存档真回包在根级、无 data 包裹）：
+        // 与 collectSeries 同口径，data 在用 data、否则用根级
+        JsonObject tabScope = data != null && data.has("search_tabs") ? data : root;
+        if (tabScope.has("search_tabs") && tabScope.get("search_tabs").isJsonArray()) {
+            for (com.google.gson.JsonElement el : tabScope.getAsJsonArray("search_tabs")) {
+                if (el == null || !el.isJsonObject()) continue;
+                JsonObject t = el.getAsJsonObject();
+                int type = intOf(t, "tab_type", -1);
+                String title = str(t, "title");
+                if ((type == 11 || type == 29 || type == 30)
+                        && title != null && !title.isEmpty()) {
+                    tabs.add(new HgSearchTab(type, title));
+                }
+            }
+        }
+        return new HgCellPage(code, msg, items, root, false, null, null, null, tabs);
     }
 
     // ---------- bookmall 频道面（openhongguo parse.go 逐函数对照移植） ----------

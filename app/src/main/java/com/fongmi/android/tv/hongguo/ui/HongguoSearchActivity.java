@@ -23,6 +23,7 @@ import com.fongmi.android.tv.databinding.ActivityHongguoSearchBinding;
 import com.fongmi.android.tv.databinding.ItemHongguoSearchBinding;
 import com.fongmi.android.tv.hongguo.api.HgCallback;
 import com.fongmi.android.tv.hongguo.model.HgCellPage;
+import com.fongmi.android.tv.hongguo.model.HgSearchTab;
 import com.fongmi.android.tv.hongguo.model.HgSeriesItem;
 import com.fongmi.android.tv.hongguo.model.HgSuggestion;
 import com.fongmi.android.tv.ui.base.BaseActivity;
@@ -65,6 +66,9 @@ public class HongguoSearchActivity extends BaseActivity {
     private Runnable pendingSuggest;
     private int suggestSeq;
     private String currentKeyword = "";
+    // 搜索结果页签（服务端 search_tabs 下发，视频面三页签）：当前页签与页签表
+    private int searchTabType = 11;
+    private java.util.List<HgSearchTab> searchTabs = new java.util.ArrayList<>();
     private boolean loadingMore;
     private boolean lastPageFull;
     private final List<String> cues = new ArrayList<>();
@@ -270,6 +274,7 @@ public class HongguoSearchActivity extends BaseActivity {
     }
 
     private void showHistory() {
+        binding.hgSearchTabs.setVisibility(View.GONE);
         mode = MODE_HISTORY;
         history.clear();
         history.addAll(HgStore.searchHistory());
@@ -289,6 +294,7 @@ public class HongguoSearchActivity extends BaseActivity {
                     suggestions.clear();
                     if (list != null) suggestions.addAll(list);
                     if (suggestions.isEmpty()) return;
+                    binding.hgSearchTabs.setVisibility(View.GONE);
                     mode = MODE_SUGGEST;
                     binding.hgSearchState.setVisibility(View.GONE);
                     adapter.notifyDataSetChanged();
@@ -322,19 +328,32 @@ public class HongguoSearchActivity extends BaseActivity {
         HgStore.addSearchHistory(keyword);
         currentKeyword = keyword;
         mode = MODE_RESULT;
+        searchTabType = 11;
+        searchTabs = new java.util.ArrayList<>();
+        binding.hgSearchTabs.setVisibility(View.GONE);
+        loadSearchFirstPage();
+    }
+
+    /** 结果第一页（提交搜索与换页签共用）：按当前 searchTabType 重查。 */
+    private void loadSearchFirstPage() {
         loadingMore = false;
         lastPageFull = false;
         results.clear();
         adapter.notifyDataSetChanged();
         binding.hgSearchState.setVisibility(View.VISIBLE);
         binding.hgSearchState.setText("搜索中…");
-        session.client.searchTab(keyword, new HgCallback<HgCellPage>() {
+        session.client.searchTab(currentKeyword, 0, searchTabType, new HgCallback<HgCellPage>() {
             @Override
             public void onSuccess(HgCellPage page) {
                 runOnUiThread(() -> {
+                    if (mode != MODE_RESULT) return;
                     results.clear();
                     if (page.getItems() != null) results.addAll(page.getItems());
                     lastPageFull = page.getItems() != null && page.getItems().size() >= 20;
+                    if (page.getTabs() != null && !page.getTabs().isEmpty()) {
+                        searchTabs = page.getTabs();
+                        renderSearchTabs();
+                    }
                     adapter.notifyDataSetChanged();
                     if (results.isEmpty()) {
                         binding.hgSearchState.setVisibility(View.VISIBLE);
@@ -355,11 +374,42 @@ public class HongguoSearchActivity extends BaseActivity {
         });
     }
 
+    /** 页签排：服务端下发几页签摆几页签（不足两页签不摆），选中态白字加粗。 */
+    private void renderSearchTabs() {
+        android.widget.LinearLayout strip = binding.hgSearchTabs;
+        strip.removeAllViews();
+        if (searchTabs.size() < 2) {
+            strip.setVisibility(View.GONE);
+            return;
+        }
+        strip.setVisibility(View.VISIBLE);
+        float density = getResources().getDisplayMetrics().density;
+        for (HgSearchTab tab : searchTabs) {
+            TextView tv = new TextView(this);
+            tv.setText(tab.title);
+            tv.setTextSize(15);
+            boolean on = tab.type == searchTabType;
+            tv.setTextColor(on ? 0xFFFFFFFF : 0x99FFFFFF);
+            tv.setTypeface(null, on ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+            tv.setPadding(Math.round(12 * density), Math.round(8 * density),
+                    Math.round(12 * density), Math.round(8 * density));
+            tv.setOnClickListener(v -> switchSearchTab(tab.type));
+            strip.addView(tv);
+        }
+    }
+
+    private void switchSearchTab(int type) {
+        if (type == searchTabType || mode != MODE_RESULT) return;
+        searchTabType = type;
+        renderSearchTabs();
+        loadSearchFirstPage();
+    }
+
     /** 结果翻页：offset＝已取条数；回包不满整页即到底，失败安静停（已显结果不丢）。 */
     private void loadMore() {
         if (loadingMore || !lastPageFull || currentKeyword.isEmpty()) return;
         loadingMore = true;
-        session.client.searchTab(currentKeyword, results.size(), new HgCallback<HgCellPage>() {
+        session.client.searchTab(currentKeyword, results.size(), searchTabType, new HgCallback<HgCellPage>() {
             @Override
             public void onSuccess(HgCellPage page) {
                 runOnUiThread(() -> {

@@ -22,6 +22,8 @@ public final class HgCellPage {
     private final String nextOffset;
     private final String sessionId;
     private final HgContinuation continuation;
+    /** 搜索结果页签（只有 search/tab 回包带，其余面为空表）。 */
+    private final List<HgSearchTab> tabs;
 
     HgCellPage(int code, String message, List<HgSeriesItem> items, JsonObject raw) {
         this(code, message, items, raw, false, null, null, null);
@@ -30,6 +32,13 @@ public final class HgCellPage {
     HgCellPage(int code, String message, List<HgSeriesItem> items, JsonObject raw,
                boolean hasMore, String nextOffset, String sessionId,
                HgContinuation continuation) {
+        this(code, message, items, raw, hasMore, nextOffset, sessionId, continuation,
+                Collections.emptyList());
+    }
+
+    HgCellPage(int code, String message, List<HgSeriesItem> items, JsonObject raw,
+               boolean hasMore, String nextOffset, String sessionId,
+               HgContinuation continuation, List<HgSearchTab> tabs) {
         this.code = code;
         this.message = message;
         this.items = Collections.unmodifiableList(items);
@@ -38,6 +47,7 @@ public final class HgCellPage {
         this.nextOffset = nextOffset;
         this.sessionId = sessionId;
         this.continuation = continuation;
+        this.tabs = Collections.unmodifiableList(tabs);
     }
 
     public int getCode() { return code; }
@@ -48,4 +58,5 @@ public final class HgCellPage {
     public String getNextOffset() { return nextOffset; }
     public String getSessionId() { return sessionId; }
     public HgContinuation getContinuation() { return continuation; }
+    public List<HgSearchTab> getTabs() { return tabs; }
 }

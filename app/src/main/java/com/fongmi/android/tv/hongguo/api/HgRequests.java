@@ -223,6 +223,17 @@ public final class HgRequests {
         return pairs;
     }
 
+    /** 换页签：同翻页口径再换 tab_type（回包 search_tabs 的 tab_type 与请求同键）。 */
+    public static java.util.List<String[]> searchPairs(String keyword, int offset, int tabType) {
+        java.util.List<String[]> base = searchPairs(keyword, offset);
+        java.util.List<String[]> out = new java.util.ArrayList<>(base.size());
+        for (String[] kv : base) {
+            out.add("tab_type".equals(kv[0])
+                    ? new String[]{"tab_type", String.valueOf(tabType)} : kv);
+        }
+        return out;
+    }
+
     /** 翻页：同 searchPairs、offset 换成已取条数（openhongguo SearchOffset 口径）。 */
     public static java.util.List<String[]> searchPairs(String keyword, int offset) {
         java.util.List<String[]> base = searchPairs(keyword);

@@ -356,6 +356,24 @@ public class HgOfflineTest {
                     null);
         }
 
+        // 16) 搜索结果页签（e1_search 真回包）：search_tabs 服务端下发 7 页签，
+        //     只收视频面三页签（11 综合/29 剧集/30 视频）且顺序照下发；
+        //     综合条目仍抽得出（回归不破）
+        {
+            String probeDir = dir + "tabprobe-20261028/";
+            String raw = Files.readString(Paths.get(probeDir + "e1_search.json"));
+            com.fongmi.android.tv.hongguo.model.HgCellPage page = HgParser.parseCellPage(raw);
+            java.util.List<com.fongmi.android.tv.hongguo.model.HgSearchTab> tabs = page.getTabs();
+            check("搜索页签抽出 3 个视频面页签", tabs.size() == 3, "实际=" + tabs.size());
+            check("搜索页签顺序与标题", tabs.size() == 3
+                            && tabs.get(0).type == 11 && "综合".equals(tabs.get(0).title)
+                            && tabs.get(1).type == 29 && "剧集".equals(tabs.get(1).title)
+                            && tabs.get(2).type == 30 && "视频".equals(tabs.get(2).title),
+                    "实际=" + tabs.size());
+            check("搜索综合条目仍抽出>0", page.getItems() != null && !page.getItems().isEmpty(),
+                    "实际=" + (page.getItems() == null ? -1 : page.getItems().size()));
+        }
+
         System.out.println(fail == 0 ? "ALL PASS" : ("FAILURES=" + fail));
         System.exit(fail == 0 ? 0 : 1);
     }

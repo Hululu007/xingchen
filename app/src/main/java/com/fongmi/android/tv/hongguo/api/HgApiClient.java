@@ -488,7 +488,12 @@ public final class HgApiClient {
 
     /** 搜索翻页：同 searchTab，offset 为已取条数。 */
     public void searchTab(String keyword, int offset, HgCallback<HgCellPage> cb) {
-        getSigned("/reading/bookapi/search/tab/v", HgRequests.searchPairs(keyword, offset), new BodyCallback() {
+        searchTab(keyword, offset, 11, cb);
+    }
+
+    /** 搜索换页签：tabType 取回包 search_tabs 的 tab_type（11 综合/29 剧集/30 视频）。 */
+    public void searchTab(String keyword, int offset, int tabType, HgCallback<HgCellPage> cb) {
+        getSigned("/reading/bookapi/search/tab/v", HgRequests.searchPairs(keyword, offset, tabType), new BodyCallback() {
             @Override
             void onBody(String text) {
                 cb.onSuccess(HgParser.parseCellPage(text));

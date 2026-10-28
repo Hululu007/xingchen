@@ -60,6 +60,9 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
 
         void onFullscreenWatch(int position);
 
+        /** 集流作者行关注钮：只在未关注时亮，点击＝关注作者（取关走作者页）。 */
+        void onAuthorFollow(int position);
+
         void onRetry(int position);
 
         void onHolderBound(Holder holder, int position);
@@ -175,13 +178,30 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         b.hgProgressDot.setTranslationX(0f);
         // 条目款式（账 §3/§5）：挂多季/专辑关系的走系列剧款，其余作者款
         boolean seriesStyle = item.multiSeason || item.albumId != null || !item.siblings.isEmpty();
-        // 作者：有真名才带 @；无名整行藏；系列剧款不走作者行
-        if (!seriesStyle && item.authorName != null && !item.authorName.isEmpty()) {
-            b.hgAuthor.setVisibility(View.VISIBLE);
-            b.hgAuthor.setText("@" + item.authorName);
-        } else {
+        // 作者行分工：集流＝官方 InfoPanel 作者行（头像 30dp＋名＋箭头＋
+        // 关注钮）；流页＝纯文本「@名」行（官方流页实拍同此）。有真名才显，
+        // 无名整行藏；系列剧款两边都不走作者行
+        boolean hasAuthor = !seriesStyle && item.authorName != null && !item.authorName.isEmpty();
+        if (seriesMode && hasAuthor) {
             b.hgAuthor.setVisibility(View.GONE);
+            b.hgAuthorRow.setVisibility(View.VISIBLE);
+            b.hgAuthorName.setText(item.authorName);
+            if (item.authorAvatar != null && !item.authorAvatar.isEmpty()) {
+                b.hgInfoAvatar.setVisibility(View.VISIBLE);
+                ImgUtil.loadCircle("", item.authorAvatar, b.hgInfoAvatar);
+            } else {
+                b.hgInfoAvatar.setVisibility(View.GONE);
+            }
+            boolean followed = item.authorUid != null && HgStore.isAuthorFollowed(item.authorUid);
+            b.hgFollowBtn.setVisibility(item.authorUid != null && !followed ? View.VISIBLE : View.GONE);
+        } else {
+            b.hgAuthorRow.setVisibility(View.GONE);
+            b.hgAuthor.setVisibility(hasAuthor ? View.VISIBLE : View.GONE);
+            if (hasAuthor) b.hgAuthor.setText("@" + item.authorName);
         }
+        // 集流页右列不设头像盒（官方实拍 113558：集流右列只有收藏/评论/
+        // 点赞三件；流页保留头像盒＋关注角标）
+        b.hgAvatarBox.setVisibility(seriesMode ? View.GONE : View.VISIBLE);
         // 头像：有头像址走圆形图；没有用作者/剧名首字圆牌，不编假图
         if (item.authorAvatar != null && !item.authorAvatar.isEmpty()) {
             b.hgAvatarInitial.setVisibility(View.GONE);
@@ -208,9 +228,34 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
             b.hgDescMore.setText(expanded ? "收起" : "展开");
         }
         bindSeriesStyle(b, item, seriesStyle);
+        // 集流标题行＋通行标签行（非专辑款）：官方摞里标题/标签是常设位，
+        // 此前只有专辑款有这两样、普通集流条目全缺；流页不设（标题在剧条里）
+        if (seriesMode && !seriesStyle) {
+            b.hgEpTitleRow.setVisibility(View.VISIBLE);
+            b.hgEpTitle.setText(item.title == null ? "" : item.title);
+            if (item.badge != null && !item.badge.isEmpty()) {
+                b.hgEpBadge.setVisibility(View.VISIBLE);
+                b.hgEpBadge.setText(item.badge);
+            } else {
+                b.hgEpBadge.setVisibility(View.GONE);
+            }
+            fillTags(b.hgTagsRowMain, item);
+        } else {
+            b.hgEpTitleRow.setVisibility(View.GONE);
+            b.hgTagsRowMain.setVisibility(View.GONE);
+        }
         bindHotRow(holder, item);
-        // 作者声明：数据有才显，没有不编（账 §3.5，字段名未定 U4、数据槽已留）
-        if (!seriesStyle && item.statement != null && !item.statement.isEmpty()) {
+        // 次级信息行（官方 recommendReason）：数据一直在条目里、此前从未上屏
+        if (item.recText != null && !item.recText.isEmpty()) {
+            b.hgRecText.setVisibility(View.VISIBLE);
+            b.hgRecText.setText(item.recText);
+        } else {
+            b.hgRecText.setVisibility(View.GONE);
+        }
+        // 作者声明：数据有才显，没有不编（账 §3.5）。集流模式与 seriesStyle
+        // 解绑——官方实拍 113558 集流页（系列剧）左下就有声明行，旧条件
+        // 「非系列款才显」把集流里的系列剧声明整行吞了
+        if ((seriesMode || !seriesStyle) && item.statement != null && !item.statement.isEmpty()) {
             b.hgStatement.setVisibility(View.VISIBLE);
             b.hgStatement.setText("ⓘ 作者声明：" + item.statement);
         } else {
@@ -287,12 +332,19 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         b.hgReserve.setAlpha(reserved ? 0.75f : 1f);
     }
 
-    /** 「弹」＝发弹幕入口（官方 A25：PublishDanmakuEntranceView，显隐跟
-     * danmakuEnableByUser）：弹幕开着才显，关着整盒不显、字样保持常态。
-     * 它不是开关——开关在抽屉（自家小设置），点击走 onDanmakuPublish 开编辑层。 */
+    /** 「弹」＝发弹幕入口（官方 A25：PublishDanmakuEntranceView）：它不是
+     * 开关——开关在更多面板/抽屉，点击走 onDanmakuPublish 开编辑层。
+     * 显隐分工：集流页常显、关态带斜杠（官方实拍 113558 证，与官方弹幕
+     * 开关图标的三态画法同义）；流页维持开着才显（A25 旧口径、实拍未推翻）。 */
     public void bindDanmakuState(Holder holder) {
-        holder.binding.hgDanmakuBox.setVisibility(
-                !landInstance && HgStore.isDanmakuOn() ? View.VISIBLE : View.GONE);
+        ItemHongguoFeedBinding b = holder.binding;
+        if (landInstance) {
+            b.hgDanmakuBox.setVisibility(View.GONE);
+            return;
+        }
+        boolean on = HgStore.isDanmakuOn();
+        b.hgDanmakuBox.setVisibility(seriesMode || on ? View.VISIBLE : View.GONE);
+        b.hgDanmakuSlash.setVisibility(seriesMode && !on ? View.VISIBLE : View.GONE);
     }
 
     /**
@@ -352,12 +404,17 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
             b.hgBadgeChip.setVisibility(View.GONE);
         }
         b.hgSeriesTitle.setText((item.title == null ? "" : item.title) + " ›");
-        b.hgTagsRow.removeAllViews();
-        float density = b.getRoot().getResources().getDisplayMetrics().density;
+        fillTags(b.hgTagsRow, item);
+    }
+
+    /** 标签筹填充（系列款行与普通款通行行共用）：最多 4 枚，数据空整行藏。 */
+    private void fillTags(LinearLayout row, HgFeedItem item) {
+        row.removeAllViews();
+        float density = row.getResources().getDisplayMetrics().density;
         int shown = 0;
         for (String tag : item.tags) {
             if (shown >= 4) break;
-            android.widget.TextView chip = new android.widget.TextView(b.getRoot().getContext());
+            android.widget.TextView chip = new android.widget.TextView(row.getContext());
             chip.setText(tag);
             chip.setTextSize(12);
             chip.setTextColor(0xFFFFFFFF);
@@ -369,10 +426,10 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
                     ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             if (shown > 0) lp.setMarginStart(Math.round(6 * density));
             chip.setLayoutParams(lp);
-            b.hgTagsRow.addView(chip);
+            row.addView(chip);
             shown++;
         }
-        b.hgTagsRow.setVisibility(shown > 0 ? View.VISIBLE : View.GONE);
+        row.setVisibility(shown > 0 ? View.VISIBLE : View.GONE);
     }
 
     /** 热评/主演说行（账 §3.4）：文案有才显；前缀按种类（2＝主演说，其余热评）。 */
@@ -421,6 +478,9 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         // 语义）；旧占位把点头像当「关注作者」的 Action.FOLLOW 已整段摘除
         b.hgAvatarBox.setOnClickListener(v -> host.onAuthor(holder.getBindingAdapterPosition()));
         b.hgAuthor.setOnClickListener(v -> host.onAuthor(holder.getBindingAdapterPosition()));
+        b.hgAuthorRow.setOnClickListener(v -> host.onAuthor(holder.getBindingAdapterPosition()));
+        b.hgFollowBtn.setOnClickListener(v -> host.onAuthorFollow(holder.getBindingAdapterPosition()));
+        b.hgEpTitleRow.setOnClickListener(v -> host.onSeriesBar(holder.getBindingAdapterPosition()));
         b.hgReserve.setOnClickListener(v -> host.onAction(holder.getBindingAdapterPosition(), Action.RESERVE));
         b.hgSeriesBar.setOnClickListener(v -> host.onSeriesBar(holder.getBindingAdapterPosition()));
         b.hgDanmakuBox.setOnClickListener(v -> host.onDanmakuPublish(holder.getBindingAdapterPosition()));

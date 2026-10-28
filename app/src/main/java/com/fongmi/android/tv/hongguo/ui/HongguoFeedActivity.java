@@ -1217,10 +1217,10 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                 // 不许串到常态/别的页——回收不重绑时 bind 的归位管不到）
                 h.binding.hgProgressBox.setVisibility(v);
                 if (!hidden) h.binding.hgFsBtn.setAlpha(1f);
-                // 「弹」是发弹幕入口：重显时按弹幕开关恢复（与适配器 bindDanmakuState
-                // 同口径），弹幕关着不许把入口跟着 chrome 一起亮出来
-                h.binding.hgDanmakuBox.setVisibility(hidden ? View.GONE
-                        : (HgStore.isDanmakuOn() ? View.VISIBLE : View.GONE));
+                // 「弹」重显走适配器同一口径（集流常显带斜杠/流页开才显，
+                // 见 HgFeedAdapter.bindDanmakuState），不许在这里另立一份
+                if (hidden) h.binding.hgDanmakuBox.setVisibility(View.GONE);
+                else adapter.bindDanmakuState(h);
                 // 全屏观看钮非常驻件：隐藏时一并收；重显口径与适配器绑定一致
                 // （真实宽高判横屏或 cell 朝向预判，旧版重显只认真实宽高、与绑定
                 // 口径不一致，预判条目会把钮弄丢——审计实证）
@@ -1606,6 +1606,42 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         authorReturnRefresh = true;
         HongguoAuthorActivity.start(this, authorUid, item.authorName,
                 item.authorAvatar, item.authorDesc);
+    }
+
+    /**
+     * 集流作者行关注钮（只未关注时亮）：与作者页同一条关注链——未登录先拉
+     * 壳子统一登录、不落状态；乐观先行＋真接口收口，失败回滚并如实提示。
+     * 取关不在此钮（钮已关注即不亮），走作者页的确认框口径。
+     */
+    @Override
+    public void onAuthorFollow(int position) {
+        if (position < 0 || position >= session.items.size()) return;
+        HgFeedItem item = session.items.get(position);
+        String uid = item.authorUid;
+        if (uid == null || uid.isEmpty() || HgStore.isAuthorFollowed(uid)) return;
+        if (session.interactions.requiresLogin()) {
+            promptHongguoLogin();
+            return;
+        }
+        HgStore.setAuthorFollowed(uid, true);
+        adapter.notifyItemChanged(position);
+        session.fqClient.doFollowAction(true, uid, new HgCallback<Void>() {
+            @Override
+            public void onSuccess(Void result) {
+            }
+
+            @Override
+            public void onError(int code, String msg) {
+                ui.post(() -> {
+                    HgStore.setAuthorFollowed(uid, false);
+                    if (currentPos >= 0 && currentPos < session.items.size()) {
+                        adapter.notifyItemChanged(currentPos);
+                    }
+                    android.widget.Toast.makeText(HongguoFeedActivity.this,
+                            "关注没成功，再试试", android.widget.Toast.LENGTH_SHORT).show();
+                });
+            }
+        });
     }
 
     /**

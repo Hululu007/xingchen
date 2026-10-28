@@ -218,6 +218,17 @@
             android:text="弹"
             android:textColor="#FFFFFF"
             android:textSize="14sp" />
+
+        <!-- 关态斜杠（集流页官方实拍 113558：弹幕关时「弹」带斜杠常显，
+             与官方弹幕关图标的三态画法同义；只集流模式用） -->
+        <View
+            android:id="@+id/hg_danmaku_slash"
+            android:layout_width="30dp"
+            android:layout_height="2dp"
+            android:layout_gravity="center"
+            android:background="#FFFFFF"
+            android:rotation="-45"
+            android:visibility="gone" />
     </FrameLayout>
 
     <LinearLayout
@@ -241,6 +252,66 @@
             android:textColor="#FFFFFF"
             android:textSize="16sp"
             android:textStyle="bold" />
+
+        <!-- 集流作者行（官方 InfoPanel 作者行 cuc 定版）：头像 30dp 圆形＋
+             作者名 16sp 粗＋箭头 8×16＋关注钮（底白 solid 圆角 4dp、文案
+             「关注」10sp 粗橘 #FFFA7705、内距 H4/V3；未关注且有作者 uid
+             才亮，已关注/无 uid 不亮——与官方 fox 缺省 gone 同向）。
+             只集流模式出；流页走上面的 hg_author 纯文本行（流页实拍同此） -->
+        <LinearLayout
+            android:id="@+id/hg_author_row"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="6dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:visibility="gone">
+
+            <ImageView
+                android:id="@+id/hg_info_avatar"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:contentDescription="@null"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/hg_author_name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:maxWidth="200dp"
+                android:shadowColor="#80000000"
+                android:shadowDx="0"
+                android:shadowDy="1"
+                android:shadowRadius="3"
+                android:textColor="#FFFFFF"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <ImageView
+                android:layout_width="8dp"
+                android:layout_height="16dp"
+                android:layout_marginStart="4dp"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_hg_detail_arrow" />
+
+            <TextView
+                android:id="@+id/hg_follow_btn"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/bg_hg_follow_mini"
+                android:paddingStart="4dp"
+                android:paddingTop="3dp"
+                android:paddingEnd="4dp"
+                android:paddingBottom="3dp"
+                android:text="关注"
+                android:textColor="#FFFA7705"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:visibility="gone" />
+        </LinearLayout>
 
         <!-- 系列剧款（账 §5/§3）：多季系列条目的另一副样子，默认藏；
              胶囊条＝系列剧入口（与剧条/左滑同去处），角标＋剧名、标签筹一排在其下 -->
@@ -329,6 +400,59 @@
                 android:orientation="horizontal" />
         </LinearLayout>
 
+        <!-- 集流标题行（官方 InfoPanel 标题位）：角标筹＋剧名 20sp 粗。
+             只集流非专辑款出（专辑款用系列剧款内的标题行、流页不设此行——
+             流页标题在剧条里）；此前集流普通款摞里没有标题行、是缺件。
+             点它开选集单（与选集条同去处） -->
+        <LinearLayout
+            android:id="@+id/hg_ep_title_row"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/hg_ep_badge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_hg_badge"
+                android:paddingStart="7dp"
+                android:paddingTop="3dp"
+                android:paddingEnd="7dp"
+                android:paddingBottom="3dp"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/hg_ep_title"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:shadowColor="#80000000"
+                android:shadowDx="0"
+                android:shadowDy="1"
+                android:shadowRadius="3"
+                android:textColor="#FFFFFF"
+                android:textSize="20sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <!-- 标签筹行（官方 InfoPanel 摞内常设行 hrq：数据有才出筹）：
+             此前只有系列剧款里有、普通款有标签也不显——本行给非专辑款用，
+             填充逻辑与系列款共用一份 -->
+        <LinearLayout
+            android:id="@+id/hg_tags_row_main"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal"
+            android:visibility="gone" />
+
         <!-- 热评/主演说行（账 §3.4）：数据有才显，长文带「展开」 -->
         <LinearLayout
             android:id="@+id/hg_hot_row"
@@ -386,6 +510,24 @@
             android:text="展开"
             android:textColor="#CCFFFFFF"
             android:textSize="13sp"
+            android:visibility="gone" />
+
+        <!-- 次级信息行（官方 InfoHeader 的 recommendReason）：数据一直在
+             条目里（recText）但此前从未绑上屏——本批补行。官方承载布局
+             未定位，字号/颜色为自定小字（账里标明待核），数据有才显 -->
+        <TextView
+            android:id="@+id/hg_rec_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:shadowColor="#80000000"
+            android:shadowDx="0"
+            android:shadowDy="1"
+            android:shadowRadius="3"
+            android:textColor="#CCFFFFFF"
+            android:textSize="12sp"
             android:visibility="gone" />
 
         <!-- 作者声明（账 §3.5）：数据有才显，没有不编 -->

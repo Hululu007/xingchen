@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 作者行关注钮底（官方 cuc 的 y2：白 solid、圆角 4dp；钮字橘 #FFFA7705） -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="4dp" />
+    <solid android:color="#FFFFFFFF" />
+</shape>

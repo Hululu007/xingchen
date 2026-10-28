@@ -1999,6 +1999,10 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
      * 抽屉、锁定钮走锁定机。
      */
     private void setupLandChrome() {
+        // 横排条内层宽＝屏宽×0.78 居中（官方 ca_ 的 f0w 约束定版），XML 给不出百分比宽、代码落位
+        ViewGroup.LayoutParams ilp = binding.hgLandBarInner.getLayoutParams();
+        ilp.width = (int) (getResources().getDisplayMetrics().widthPixels * 0.78f);
+        binding.hgLandBarInner.setLayoutParams(ilp);
         binding.hgLandLike.setOnClickListener(v -> {
             if (!landLocked) onAction(currentPos, HgFeedAdapter.Action.LIKE);
         });
@@ -2044,7 +2048,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         if (player == null) return;
         if (!player.isPlaying()) {
             player.play();
-            binding.hgLandPlayHint.setVisibility(View.GONE);
+            setLandPauseHint(false);
             setChromeHidden(false);
             armAutoHide();
             return;
@@ -2054,9 +2058,28 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             armAutoHide();
         } else {
             player.pause();
-            binding.hgLandPlayHint.setVisibility(View.VISIBLE);
+            setLandPauseHint(true);
             ui.removeCallbacks(hideChromeRunnable);
         }
+    }
+
+    /**
+     * 横屏暂停提示（官方 ce9 两件套）：左下播放三角＋右下时间文本同显同隐；
+     * 时间文本＝当前播放位置（00:00:00 形态，照官方 evj 缺省串的时:分:秒格式），
+     * 亮着时随状态条 ticker 一起保鲜（见 tickLandStatus）。
+     */
+    private void setLandPauseHint(boolean show) {
+        binding.hgLandPlayHint.setVisibility(show ? View.VISIBLE : View.GONE);
+        binding.hgLandTime.setVisibility(show ? View.VISIBLE : View.GONE);
+        if (show) refreshLandTimeText();
+    }
+
+    private void refreshLandTimeText() {
+        if (player == null) return;
+        long ms = Math.max(0, player.getPosition());
+        long totalSec = ms / 1000;
+        binding.hgLandTime.setText(String.format(java.util.Locale.US, "%02d:%02d:%02d",
+                totalSec / 3600, (totalSec % 3600) / 60, totalSec % 60));
     }
 
     /** 横排条三件态（与右列 bindInteractionState 同源）：填充态＋计数（数据有才显）＋弹幕开关态。 */
@@ -2102,14 +2125,21 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                 if (first != null) def = first.getDefinition();
             }
         }
-        binding.hgLandDefinition.setText(def == null ? "" : HgPanelLogic.definitionLabel(def));
-        binding.hgLandSpeed.setText(HgPanelLogic.speedLabel(HgStore.getSpeed()));
+        // 清晰度位（官方 hlk）：无当前档串时整位隐藏，不留空占位（kr3/t0.w0 定版）
+        if (def == null) {
+            binding.hgLandDefinition.setVisibility(View.GONE);
+        } else {
+            binding.hgLandDefinition.setVisibility(View.VISIBLE);
+            binding.hgLandDefinition.setText(HgPanelLogic.definitionLabel(def));
+        }
+        binding.hgLandSpeed.setText(HgPanelLogic.landSpeedLabel(HgStore.getSpeed()));
     }
 
     /** 状态条（官方 cah 口径）：实时时钟＋电量百分比，随 400ms ticker 刷新；计数顺带保鲜。 */
     private void tickLandStatus() {
         binding.hgLandClock.setText(new java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
                 .format(new java.util.Date()));
+        if (binding.hgLandTime.getVisibility() == View.VISIBLE) refreshLandTimeText();
         android.content.Intent bi = registerReceiver(null,
                 new android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED));
         if (bi != null) {
@@ -2494,6 +2524,34 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                     binding.hgFsBar.setPadding(binding.hgFsBar.getPaddingLeft(),
                             binding.hgFsBar.getPaddingTop(),
                             binding.hgFsBar.getPaddingRight(), fsBottom);
+                }
+                // 横屏控制条同规：条高＝40dp＋导航高、底内距＝导航高（内层内容盒仍 40dp）
+                ViewGroup.LayoutParams llp = binding.hgLandBar.getLayoutParams();
+                int landH = Math.round(40 * getResources().getDisplayMetrics().density) + nav;
+                if (llp.height != landH) {
+                    llp.height = landH;
+                    binding.hgLandBar.setLayoutParams(llp);
+                }
+                if (binding.hgLandBar.getPaddingBottom() != nav) {
+                    binding.hgLandBar.setPadding(binding.hgLandBar.getPaddingLeft(),
+                            binding.hgLandBar.getPaddingTop(),
+                            binding.hgLandBar.getPaddingRight(), nav);
+                }
+                // 「我的」面底边距跟底栏实际占位走：56dp＋导航高（旧写死 50dp 比底栏还矮 6dp、且不让位）
+                ViewGroup.MarginLayoutParams mlp =
+                        (ViewGroup.MarginLayoutParams) binding.hgMine.getRoot().getLayoutParams();
+                int mineBottom = Math.round(56 * getResources().getDisplayMetrics().density) + nav;
+                if (mlp.bottomMargin != mineBottom) {
+                    mlp.bottomMargin = mineBottom;
+                    binding.hgMine.getRoot().setLayoutParams(mlp);
+                }
+                // 锁定钮水平边距＝屏宽×11%（官方 P5() 定版 (屏宽×0.22)/2；旧写死 10dp 作废）
+                ViewGroup.MarginLayoutParams klp =
+                        (ViewGroup.MarginLayoutParams) binding.hgLandLock.getLayoutParams();
+                int lockMargin = (int) (getResources().getDisplayMetrics().widthPixels * 0.11f);
+                if (klp.leftMargin != lockMargin) {
+                    klp.leftMargin = lockMargin;
+                    binding.hgLandLock.setLayoutParams(klp);
                 }
             }
             ViewGroup.MarginLayoutParams lp =

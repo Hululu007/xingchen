@@ -55,6 +55,16 @@ public final class HgPanelLogic {
         return Float.toString(speed) + "x";
     }
 
+    /**
+     * 横屏条倍速位文案（官方 ca_ 的 hls 位口径，kr3/t0.x0 定版）：1 倍速显
+     * 「倍速」二字（与布局静态文本同），其余显浮点原样＋x（2.0x/1.25x/0.75x），
+     * 与 speedLabel 的整数去小数口径是两回事，不混用。
+     */
+    public static String landSpeedLabel(float speed) {
+        if (speed == 1f) return "倍速";
+        return Float.toString(speed) + "x";
+    }
+
     /** 速度在档表中的下标；不在表内回落 1x 的下标（官方找不到回落下标 1 同口径）。 */
     public static int speedIndex(float speed) {
         for (int i = 0; i < SPEEDS.length; i++) {

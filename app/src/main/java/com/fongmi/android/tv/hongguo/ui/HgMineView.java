@@ -16,6 +16,8 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.hongguo.api.HgCallback;
+import com.fongmi.android.tv.hongguo.model.HgAuthorWork;
+import com.fongmi.android.tv.hongguo.model.HgHistoryEntry;
 import com.fongmi.android.tv.hongguo.model.HgSeriesItem;
 import com.fongmi.android.tv.login.LoginManager;
 import com.fongmi.android.tv.utils.ImgUtil;
@@ -36,7 +38,9 @@ import java.util.Set;
  * 未看完、收藏＝全部/真人剧/追更（他 2026-10-28 定）、预约＝已上线/待上线。
  * 格子走书架卡（封面比 114:159、新样式圆角 12dp、右上角标原文）；历史
  * 副行＝官方百分比算法（ceil(当前集×100/总集数)），收藏副行＝「X集/Y集」
- * 样式档。收藏读本地镜像＋服务端追剧架刷新；点格子回刷剧页续播。</p>
+ * 样式档。收藏读本地镜像＋服务端追剧架刷新；点赞读本地镜像＋本人点赞
+ * 列表（mget 本人维度）并集刷新；历史读本地断点＋服务端观看历史
+ * （read_history/list）同步补缺（本地断点为准）；点格子回刷剧页续播。</p>
  */
 public final class HgMineView extends LinearLayout {
 
@@ -86,6 +90,10 @@ public final class HgMineView extends LinearLayout {
     private int favFilter = FAV_ALL;
     private int followFilter = FOLLOW_ALL;
     private boolean followRefreshing;
+    private boolean likeRefreshing;
+    private boolean likeSynced;
+    private boolean historyRefreshing;
+    private boolean historySynced;
     private int reserveFilter = RES_ONLINE;
     private final java.util.Map<String, String> reserveDue = new java.util.HashMap<>();
     private boolean reserveRefreshing;
@@ -166,6 +174,9 @@ public final class HgMineView extends LinearLayout {
 
     /** 每次切到本面时调：账号态与当前页签数据都按最新状态重读。 */
     public void refresh() {
+        // 点赞/历史的服务端同步每轮进面各做一次（renderTab 内以此旗防重入）
+        likeSynced = false;
+        historySynced = false;
         refreshAccount();
         renderTab();
         backfillMissingCovers();
@@ -656,6 +667,115 @@ public final class HgMineView extends LinearLayout {
                 && LoginManager.isHongguoLoggedIn()) {
             refreshFavFromServer();
         }
+        if (currentTab == TAB_LIKE && LoginManager.isHongguoLoggedIn()) {
+            refreshLikedFromServer();
+        }
+        if (currentTab == TAB_HISTORY && LoginManager.isHongguoLoggedIn()) {
+            refreshHistoryFromServer();
+        }
+    }
+
+    /**
+     * 点赞页签后台刷新：本人点赞列表（ugc/action/mget 的本人维度，
+     * 官方 VideoLikeDataServer 同口）回来后与本地镜像取并集落盘重列——
+     * 服务端有、本地没有的补进镜像（他端点的赞在这边能看到）；本地有、
+     * 服务端没回的保留不删（会话认账未定版前不拿服务端单方面清本地，
+     * 防把用户已有点赞弄丢）。服务端回空不冲镜像行（防冲空口径同
+     * 收藏/追更/预约）。未登录不回源，格子维持纯本地镜像。
+     */
+    private void refreshLikedFromServer() {
+        if (likeRefreshing || likeSynced) return;
+        likeRefreshing = true;
+        HgFeedSession.get().client.fetchMyLikes(new HgCallback<List<HgAuthorWork>>() {
+            @Override
+            public void onSuccess(List<HgAuthorWork> list) {
+                post(() -> {
+                    likeRefreshing = false;
+                    likeSynced = true;
+                    if (list == null || list.isEmpty()) return;
+                    for (HgAuthorWork w : list) {
+                        String id = w.seriesId;
+                        if (id == null || id.isEmpty()) continue;
+                        HgStore.setLiked(id, true);
+                        String[] local = HgStore.metaOf(id);
+                        String title = !w.title.isEmpty() ? w.title
+                                : local != null ? local[0] : null;
+                        String cover = !w.cover.isEmpty() ? w.cover
+                                : local != null ? local[1] : null;
+                        int count = w.episodeCount > 0 ? w.episodeCount
+                                : local != null ? parseCount(local) : -1;
+                        HgStore.putMeta(id, title, cover, count);
+                    }
+                    if (currentTab == TAB_LIKE) renderTab();
+                });
+            }
+
+            @Override
+            public void onError(int httpCode, String message) {
+                post(() -> {
+                    likeRefreshing = false;
+                    likeSynced = true;
+                });
+                // 镜像已先显，刷新失败不打扰
+            }
+        });
+    }
+
+    /**
+     * 历史页签后台同步：服务端观看历史（read_history/list 的 Watch＋
+     * Album 两路）作同步源——本地没有的剧按服务端断点导入（他端看过
+     * 的在这边续得上）；本地已有断点的剧集数/秒数一律不动（本地为准，
+     * HgStore.importServerHistory 内守），元信息只补本地缺的字段。
+     * 服务端回空/失败不冲本地历史。未登录不回源（历史是设备维度数据，
+     * 未登录时格子就是纯本地，维持现状）。
+     */
+    private void refreshHistoryFromServer() {
+        if (historyRefreshing || historySynced) return;
+        historyRefreshing = true;
+        HgFeedSession.get().client.fetchReadHistory(new HgCallback<List<HgHistoryEntry>>() {
+            @Override
+            public void onSuccess(List<HgHistoryEntry> list) {
+                post(() -> {
+                    historyRefreshing = false;
+                    historySynced = true;
+                    if (list == null || list.isEmpty()) return;
+                    boolean changed = false;
+                    for (HgHistoryEntry e : list) {
+                        String[] local = HgStore.metaOf(e.seriesId);
+                        if (local == null) {
+                            HgStore.putMeta(e.seriesId, e.title, e.cover, e.episodeCount);
+                            changed = true;
+                        } else {
+                            String title = local[0] != null && !local[0].isEmpty()
+                                    ? local[0] : e.title;
+                            String cover = local[1] != null && !local[1].isEmpty()
+                                    ? local[1] : e.cover;
+                            int count = parseCount(local) > 0
+                                    ? parseCount(local) : e.episodeCount;
+                            if (!title.equals(local[0]) || !cover.equals(local[1])
+                                    || count != parseCount(local)) {
+                                HgStore.putMeta(e.seriesId, title, cover, count);
+                                changed = true;
+                            }
+                        }
+                        if (HgStore.importServerHistory(e.seriesId, e.episodeIndex,
+                                e.positionMs, e.readTsMs)) {
+                            changed = true;
+                        }
+                    }
+                    if (changed && currentTab == TAB_HISTORY) renderTab();
+                });
+            }
+
+            @Override
+            public void onError(int httpCode, String message) {
+                post(() -> {
+                    historyRefreshing = false;
+                    historySynced = true;
+                });
+                // 本地历史已先显，同步失败不打扰
+            }
+        });
     }
 
     private static int parseCount(String[] meta) {

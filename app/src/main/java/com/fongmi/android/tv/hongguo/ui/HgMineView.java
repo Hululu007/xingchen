@@ -28,14 +28,15 @@ import java.util.Set;
  * 红果「我的」面（刷剧页壳内、底栏「我的」格）：登录区＋页签排＋海报格子，
  * 页签点开直接是格子内容，不再一层层菜单条（他对旧集合页的定罪点）。
  *
- * <p>构成按国内版官方包源码对照（dig-mine-profile／dig-mine2）＋他的收敛口径：
- * 登录区照官方双态（未登录 c_x／已登录头像 60dp＋昵称）；功能列表只留短剧
- * 相关且有真去处的项（我的预约开预约页）；页签＝历史／收藏／点赞（官方
- * qb3/f 标题 16sp＋右端搜索图标）；子筛行照书架壳 auf（42dp＋编辑 14sp 粗）：
- * 历史＝全部/已看完/未看完、收藏＝全部/真人剧/追更（他 2026-10-28 定）。
- * 格子走书架卡（封面比 114:159、圆角、右上角标原文）；历史副行＝官方百分比
- * 算法（ceil(当前集×100/总集数)），收藏副行＝「X集/Y集」样式档。
- * 收藏读本地镜像＋服务端追剧架刷新；点格子回刷剧页续播。</p>
+ * <p>构成按国内版官方包源码对照（mine-rework-spec-20261028）＋他的收敛口径：
+ * 登录区照官方双态（未登录 c_x／已登录头像 60dp＋昵称）；页签＝历史／收藏／
+ * 点赞／预约（官方 qb3/f 标题 16sp＋右端搜索图标；国内版预约是页内页签
+ * 形态、与功能位互斥，本面取页签形态，他亲定预约放点赞后面）；子筛行照
+ * 书架壳 auf（42dp＋二级页签 bb8 样式＋编辑 14sp 粗）：历史＝全部/已看完/
+ * 未看完、收藏＝全部/真人剧/追更（他 2026-10-28 定）、预约＝已上线/待上线。
+ * 格子走书架卡（封面比 114:159、新样式圆角 12dp、右上角标原文）；历史
+ * 副行＝官方百分比算法（ceil(当前集×100/总集数)），收藏副行＝「X集/Y集」
+ * 样式档。收藏读本地镜像＋服务端追剧架刷新；点格子回刷剧页续播。</p>
  */
 public final class HgMineView extends LinearLayout {
 
@@ -46,6 +47,7 @@ public final class HgMineView extends LinearLayout {
     private static final int TAB_HISTORY = 0;
     private static final int TAB_FAV = 1;
     private static final int TAB_LIKE = 2;
+    private static final int TAB_RESERVE = 3;
 
     private static final int HIST_ALL = 0;
     private static final int HIST_DONE = 1;
@@ -53,6 +55,8 @@ public final class HgMineView extends LinearLayout {
     private static final int FAV_ALL = 0;
     private static final int FAV_REAL = 1;
     private static final int FAV_FOLLOW = 2;
+    private static final int RES_ONLINE = 0;
+    private static final int RES_UPCOMING = 1;
 
     private View guestRow;
     private View userRow;
@@ -64,11 +68,13 @@ public final class HgMineView extends LinearLayout {
     private TextView editBtn;
     private View editBar;
     private TextView editCount;
-    private final TextView[] tabViews = new TextView[3];
+    private final TextView[] tabViews = new TextView[4];
     private final MineAdapter adapter = new MineAdapter();
     private int currentTab = TAB_HISTORY;
     private int histFilter = HIST_ALL;
     private int favFilter = FAV_ALL;
+    private int reserveFilter = RES_ONLINE;
+    private final java.util.Map<String, String> reserveDue = new java.util.HashMap<>();
     private boolean editing;
     private final java.util.Set<String> selected = new java.util.HashSet<>();
     private OnOpenSeries openListener;
@@ -108,13 +114,12 @@ public final class HgMineView extends LinearLayout {
         tabViews[TAB_HISTORY] = findViewById(R.id.hg_mine_tab_history);
         tabViews[TAB_FAV] = findViewById(R.id.hg_mine_tab_fav);
         tabViews[TAB_LIKE] = findViewById(R.id.hg_mine_tab_like);
+        tabViews[TAB_RESERVE] = findViewById(R.id.hg_mine_tab_reserve);
         RecyclerView grid = findViewById(R.id.hg_mine_grid);
         grid.setLayoutManager(new GridLayoutManager(getContext(), 3));
         grid.setAdapter(adapter);
         findViewById(R.id.hg_mine_login_btn).setOnClickListener(v -> onAccountClick());
         userRow.setOnClickListener(v -> onAccountClick());
-        findViewById(R.id.hg_mine_entry_reserve).setOnClickListener(
-                v -> HongguoReserveActivity.start(getContext()));
         findViewById(R.id.hg_mine_search).setOnClickListener(v ->
                 getContext().startActivity(new android.content.Intent(
                         getContext(), HongguoSearchActivity.class)));
@@ -293,20 +298,30 @@ public final class HgMineView extends LinearLayout {
                 favFilter = FAV_FOLLOW;
                 renderTab();
             });
+        } else if (currentTab == TAB_RESERVE) {
+            addChip("已上线", reserveFilter == RES_ONLINE, v -> {
+                reserveFilter = RES_ONLINE;
+                renderTab();
+            });
+            addChip("待上线", reserveFilter == RES_UPCOMING, v -> {
+                reserveFilter = RES_UPCOMING;
+                renderTab();
+            });
         }
     }
 
     private void addChip(String text, boolean on, OnClickListener click) {
+        // 二级页签样式照 bb8.xml：14sp、左右 padding 14dp、上下 5dp、带底选择器
         TextView chip = new TextView(getContext());
         chip.setText(text);
-        chip.setTextSize(13);
+        chip.setTextSize(14);
         chip.setTextColor(on ? 0xFFFF7A1A : 0xFF333333);
         chip.setTypeface(null, on ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
         android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
         bg.setCornerRadius(dp(10));
         bg.setColor(on ? 0xFFFFF3E8 : 0xFFF5F5F5);
         chip.setBackground(bg);
-        chip.setPadding(dp(12), dp(5), dp(12), dp(5));
+        chip.setPadding(dp(14), dp(5), dp(14), dp(5));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         lp.rightMargin = dp(8);
@@ -337,7 +352,12 @@ public final class HgMineView extends LinearLayout {
         for (String id : new ArrayList<>(selected)) {
             if (currentTab == TAB_HISTORY) HgStore.removeHistory(id);
             else if (currentTab == TAB_LIKE) HgStore.setLiked(id, false);
-            else if (currentTab == TAB_FAV && favFilter == FAV_FOLLOW) HgStore.setFollowed(id, false);
+            else if (currentTab == TAB_RESERVE) {
+                // 取消预约走预约开关（本地镜像＋服务端同步，失败回滚在开关内）
+                if (HgStore.isReserved(id)) {
+                    HgFeedSession.get().remoteInteractions.toggleReserve(id);
+                }
+            } else if (currentTab == TAB_FAV && favFilter == FAV_FOLLOW) HgStore.setFollowed(id, false);
             else if (currentTab == TAB_FAV) HgStore.setFaved(id, false);
         }
         selected.clear();
@@ -353,6 +373,26 @@ public final class HgMineView extends LinearLayout {
         }
         renderChips();
         List<Row> rows = new ArrayList<>();
+        if (currentTab == TAB_RESERVE) {
+            for (String id : HgStore.reservedIds()) {
+                String[] meta = HgStore.metaOf(id);
+                if (meta == null) continue;
+                int count = parseCount(meta);
+                boolean online = count > 0;
+                if (reserveFilter == RES_ONLINE && !online) continue;
+                if (reserveFilter == RES_UPCOMING && online) continue;
+                String due = reserveDue.get(id);
+                String metaText = due != null && !due.isEmpty() ? "已预约 · " + due : "已预约";
+                rows.add(new Row(id, meta[0], meta[1], count, metaText,
+                        meta.length > 3 ? meta[3] : null));
+            }
+            adapter.setRows(rows);
+            emptyView.setVisibility(rows.isEmpty() ? VISIBLE : GONE);
+            emptyView.setText(LoginManager.isHongguoLoggedIn()
+                    ? "还没有预约的剧" : "登录后这里显示你预约的剧");
+            if (LoginManager.isHongguoLoggedIn()) refreshReservedFromServer();
+            return;
+        }
         if (currentTab == TAB_HISTORY) {
             for (HgStore.HistoryRecord r : HgStore.historyRecords()) {
                 if (r.title == null) continue;
@@ -458,6 +498,38 @@ public final class HgMineView extends LinearLayout {
         });
     }
 
+    /** 预约页签后台刷新：服务端预约列表回来后同步镜像与上线时间，以服务端为准重列（回空不冲镜像行）。 */
+    private void refreshReservedFromServer() {
+        HgFeedSession.get().client.fetchMyReservations(new HgCallback<java.util.List<HgSeriesItem>>() {
+            @Override
+            public void onSuccess(java.util.List<HgSeriesItem> list) {
+                post(() -> {
+                    if (currentTab != TAB_RESERVE || list == null || list.isEmpty()) return;
+                    for (HgSeriesItem s : list) {
+                        if (s.getSeriesId() == null) continue;
+                        HgStore.setReserved(s.getSeriesId(), true);
+                        String[] local = HgStore.metaOf(s.getSeriesId());
+                        String title = s.getTitle() != null ? s.getTitle()
+                                : local != null ? local[0] : null;
+                        String cover = s.getCoverUrl() != null ? s.getCoverUrl()
+                                : local != null ? local[1] : null;
+                        HgStore.putMeta(s.getSeriesId(), title, cover, s.getEpisodeCount(),
+                                s.getBadge());
+                        if (s.getDueStartText() != null) {
+                            reserveDue.put(s.getSeriesId(), s.getDueStartText());
+                        }
+                    }
+                    renderTab();
+                });
+            }
+
+            @Override
+            public void onError(int httpCode, String message) {
+                // 镜像已先显，刷新失败不打扰
+            }
+        });
+    }
+
     /** 书架副行样式档（官方 c3()）：有断点＝「X集/Y集」，没看过＝「未看过」。 */
     private static String shelfMeta(String seriesId, int total) {
         HgStore.Progress p = HgStore.progressOf(seriesId);
@@ -552,12 +624,12 @@ public final class HgMineView extends LinearLayout {
                 meta = itemView.findViewById(R.id.hg_m_meta);
                 badge = itemView.findViewById(R.id.hg_m_badge);
                 check = itemView.findViewById(R.id.hg_m_check);
-                // 封面圆角：浅灰底垫＋8dp 圆角裁切（官方 SimpleShortVideoCover
-                // 的圆角卡面；旧版直角裸图被他点名「生硬」）
+                // 封面圆角：浅灰底垫＋12dp 圆角裁切（官方新样式书架卡
+                // bookcover f(12dp)，x33/k.java:248；旧版直角裸图被他点名「生硬」）
                 android.graphics.drawable.GradientDrawable round =
                         new android.graphics.drawable.GradientDrawable();
                 round.setColor(0xFFF5F5F5);
-                round.setCornerRadius(dp(8));
+                round.setCornerRadius(dp(12));
                 cover.setBackground(round);
                 cover.setClipToOutline(true);
             }

@@ -107,42 +107,9 @@
         </LinearLayout>
     </FrameLayout>
 
-    <!-- 功能列表（官方 pj() 主列表的短剧子集：只留有真数据/真去处的项；
-         我的预约开预约页（新剧预约数据面未抠到，本版先做我的预约一面）；
-         金币/商城/钱包/会员是官方商业件，第三方不做；我的下载无下载功能不摆） -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp">
-
-        <LinearLayout
-            android:id="@+id/hg_mine_entry_reserve"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:gravity="center_horizontal"
-            android:orientation="vertical"
-            android:padding="6dp">
-
-            <ImageView
-                android:layout_width="26dp"
-                android:layout_height="26dp"
-                android:contentDescription="@null"
-                android:src="@drawable/ic_hg_entry_reserve" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text="我的预约"
-                android:textColor="#FF000000"
-                android:textSize="12sp" />
-        </LinearLayout>
-    </LinearLayout>
-
     <!-- 页签条（官方 qb3/f：标题 16sp 选中粗体；右端搜索图标 20dp）。
-         页签＝历史/收藏/点赞（短剧范围）；预约走上方功能位开页，不占页签。 -->
+         页签＝历史/收藏/点赞/预约（短剧范围，他亲定预约放点赞后面；国内版
+         预约就是页内页签形态、与功能位「我的预约」互斥，本面取页签形态）。 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -173,6 +140,14 @@
             android:layout_height="wrap_content"
             android:padding="8dp"
             android:text="点赞"
+            android:textSize="16sp" />
+
+        <TextView
+            android:id="@+id/hg_mine_tab_reserve"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:padding="8dp"
+            android:text="预约"
             android:textSize="16sp" />
 
         <View

@@ -82,6 +82,24 @@ public final class HgPassportClient {
     }
 
     /**
+     * 抖音授权码兑换登录（web 授权路的尾跳）：code 是用户在抖音授权页
+     * 点同意后回跳带回的授权码，POST /passport/auth/login/ 换红果会话，
+     * 成功回调与短信登录同形状（可直接落托管的 Cookie 串，走同一
+     * {@link #loginCookie}）。探针 P4 已证兑换口对本形状只判码本身；
+     * 真码兑换成功回包未验（等首登）。
+     */
+    public void douyinAuthLogin(String code, HgCallback<String> cb) {
+        postForm("/passport/auth/login/", HgRequests.douyinAuthForm(code), (text, setCookie) -> {
+            String cookie = loginCookie(text, setCookie);
+            if (cookie != null) cb.onSuccess(cookie);
+            else {
+                String err = passportError(text);
+                cb.onError(-2, err != null ? err : "登录没成功，请稍后再试");
+            }
+        }, cb::onError);
+    }
+
+    /**
      * passport 回包错误码：0＝成功形状；正数＝服务端 error_code（先查
      * data.error_code——探针真回包所在层，再查顶层作防御）；-1＝回包不是
      * 可解析的 JSON 对象；-2＝顶层 message=error 但无码可取。
@@ -127,6 +145,9 @@ public final class HgPassportClient {
                 return "验证码不对，请重新输入";
             case 1203:
                 return "验证码不对或者已经过期了，请重新获取一个";
+            case 1902:
+                // 抖音授权码过期/无效（探针 P4 真回包：dialog_tips=aweme_v2_10007:code_expired）
+                return "授权已过期，请重新点抖音一键登录";
             default:
                 break;
         }

@@ -116,6 +116,23 @@ public final class HgRequests {
         return form;
     }
 
+    /**
+     * 抖音授权码兑换表单 POST /passport/auth/login/（impl/b.b() 组参逐字：
+     * platform=aweme_v2、expires_in=0、code 明文不 xor、platform_app_id=
+     * 红果登记值 7828）。探针 P4 以此形状假码实跑：回 error_code=1902、
+     * dialog_tips=aweme_v2_10007:code_expired——兑换口判到码本身、非身份
+     * 拒绝（证据账 douyin-login-probe-20261028.md）。platform 与 app_id
+     * 的定值在 {@link HgDouyinAuth}。
+     */
+    public static java.util.Map<String, String> douyinAuthForm(String code) {
+        java.util.Map<String, String> form = new LinkedHashMap<>();
+        form.put("platform", HgDouyinAuth.PLATFORM);
+        form.put("expires_in", "0");
+        form.put("code", code == null ? "" : code);
+        form.put("platform_app_id", HgDouyinAuth.PLATFORM_APP_ID);
+        return form;
+    }
+
     /** 单集 video_model 请求体（openhongguo PlaybackBody）：biz 仅三字段、platform=3。 */
     public static JsonObject playbackBody(String videoId) {
         JsonObject biz = new JsonObject();

@@ -77,7 +77,8 @@ public class HistoryDialog extends BaseAlertDialog implements ConfigAdapter.OnCl
     @Override
     public void onAttach(@NonNull Context context) {
         super.onAttach(context);
-        listener = isFull() ? (ConfigListener) context : (ConfigListener) getParentFragment();
+        Object host = isFull() ? context : getParentFragment();
+        listener = host instanceof ConfigListener configListener ? configListener : null;
     }
 
     @Override
@@ -111,7 +112,7 @@ public class HistoryDialog extends BaseAlertDialog implements ConfigAdapter.OnCl
 
     @Override
     public void onTextClick(Config item) {
-        listener.setConfig(item);
+        if (listener != null) listener.setConfig(item);
         dismiss();
     }
 

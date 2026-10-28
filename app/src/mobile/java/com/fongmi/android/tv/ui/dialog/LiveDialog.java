@@ -64,7 +64,8 @@ public class LiveDialog extends BaseBottomSheetDialog implements LiveAdapter.OnC
     @Override
     public void onAttach(@NonNull Context context) {
         super.onAttach(context);
-        listener = isFull() ? (LiveListener) context : (LiveListener) getParentFragment();
+        Object host = isFull() ? context : getParentFragment();
+        listener = host instanceof LiveListener liveListener ? liveListener : null;
     }
 
     @NonNull
@@ -103,7 +104,7 @@ public class LiveDialog extends BaseBottomSheetDialog implements LiveAdapter.OnC
 
     @Override
     public void onItemClick(Live item) {
-        listener.setLive(item);
+        if (listener != null) listener.setLive(item);
         dismiss();
     }
 

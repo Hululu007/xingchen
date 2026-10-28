@@ -108,21 +108,31 @@ public class LiveControlDialog extends BaseBottomSheetDialog {
         ActivityLiveBinding parent = parent();
         if (parent == null) return;
         binding.config.setOnClickListener(v -> {
-            listener().onLiveConfigPanel();
+            Listener listener = listener();
+            if (listener != null) listener.onLiveConfigPanel();
             dismiss();
         });
-        binding.source.setOnClickListener(v -> listener().onLiveSourcePanel());
+        binding.source.setOnClickListener(v -> {
+            Listener listener = listener();
+            if (listener != null) listener.onLiveSourcePanel();
+        });
         binding.epg.setOnClickListener(v -> {
-            listener().onLiveEpgPanel();
+            Listener listener = listener();
+            if (listener != null) listener.onLiveEpgPanel();
             dismiss();
         });
-        binding.cast.setOnClickListener(v -> listener().onLiveCastPanel());
+        binding.cast.setOnClickListener(v -> {
+            Listener listener = listener();
+            if (listener != null) listener.onLiveCastPanel();
+        });
         binding.pip.setOnClickListener(v -> {
-            listener().onLivePiPPanel();
+            Listener listener = listener();
+            if (listener != null) listener.onLivePiPPanel();
             dismiss();
         });
         binding.background.setOnClickListener(v -> {
-            listener().onLiveBackgroundPanel();
+            Listener listener = listener();
+            if (listener != null) listener.onLiveBackgroundPanel();
             dismiss();
         });
         binding.invert.setOnClickListener(v -> active(binding.invert, parent.control.action.invert));
@@ -141,13 +151,14 @@ public class LiveControlDialog extends BaseBottomSheetDialog {
     }
 
     private Listener listener() {
-        return (Listener) requireActivity();
+        return requireActivity() instanceof Listener listener ? listener : null;
     }
 
     private void onTrack(View view) {
         Integer type = parseTagInt(view);
         if (type == null) return;
-        listener().onLiveTrackPanel(type);
+        Listener listener = listener();
+        if (listener != null) listener.onLiveTrackPanel(type);
     }
 
     private Integer parseTagInt(View view) {
@@ -185,7 +196,8 @@ public class LiveControlDialog extends BaseBottomSheetDialog {
     }
 
     private void setListStyle(boolean classic) {
-        listener().onLiveListStylePanel(classic);
+        Listener listener = listener();
+        if (listener != null) listener.onLiveListStylePanel(classic);
         setListStyleSelected();
     }
 
@@ -202,7 +214,8 @@ public class LiveControlDialog extends BaseBottomSheetDialog {
         Integer tag = parseTagInt(view);
         if (tag == null) return;
         for (TextView textView : scales) textView.setSelected(false);
-        listener().onLiveScalePanel(tag);
+        Listener listener = listener();
+        if (listener != null) listener.onLiveScalePanel(tag);
         view.setSelected(true);
     }
 

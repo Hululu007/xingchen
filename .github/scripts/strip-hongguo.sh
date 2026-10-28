@@ -6,7 +6,7 @@
 # 删的只有本功能（2026-10-27 立项的原生红果，一至五阶段）新增的东西：
 #   - 红果本体包 app/src/main/java/com/fongmi/android/tv/hongguo/（api/model/crypto/proxy/ui 全包）
 #     与它的离线单测 app/src/test/hongguo/；
-#   - 本体资源（main 源集）：activity/item/dialog/view_hongguo_* 布局 15 份、bg_hg_*/ic_hg_* 图形 27 份；
+#   - 本体资源（main 源集）：activity/item/dialog/view_hongguo_* 布局 14 份、bg_hg_*/ic_hg_* 图形 35 份；
 #   - 登录提供方 HongguoLoginProvider 与它在 LoginManager 里的注册行／loginHongguo 入口／
 #     三个静态桥／requestLogin 的红果分发支；
 #   - Nano 本地服务器的红果代理解密 process（HongguoStream 本体＋Nano 的 import 与注册行）；
@@ -70,7 +70,6 @@ app/src/main/res/layout/dialog_hongguo_comments.xml
 app/src/main/res/layout/dialog_hongguo_episodes.xml
 app/src/main/res/layout/item_hongguo_comment.xml
 app/src/main/res/layout/item_hongguo_episode.xml
-app/src/main/res/layout/item_hongguo_episode_page.xml
 app/src/main/res/layout/item_hongguo_feed.xml
 app/src/main/res/layout/item_hongguo_search.xml
 app/src/main/res/layout/item_hongguo_search_text.xml
@@ -87,6 +86,12 @@ app/src/main/res/drawable/bg_hg_refresh_pill.xml
 app/src/main/res/drawable/bg_hg_bottom_scrim.xml
 app/src/main/res/drawable/bg_hg_chip.xml
 app/src/main/res/drawable/bg_hg_episode_chip.xml
+app/src/main/res/drawable/bg_hg_ep_cell.xml
+app/src/main/res/drawable/bg_hg_ep_dot.xml
+app/src/main/res/drawable/bg_hg_ep_fav.xml
+app/src/main/res/drawable/bg_hg_ep_fav_on.xml
+app/src/main/res/drawable/bg_hg_ep_grab.xml
+app/src/main/res/drawable/bg_hg_ep_sheet.xml
 app/src/main/res/drawable/bg_hg_follow_badge.xml
 app/src/main/res/drawable/bg_hg_grab.xml
 app/src/main/res/drawable/bg_hg_login_btn.xml
@@ -96,6 +101,7 @@ app/src/main/res/drawable/ic_hg_back.xml
 app/src/main/res/drawable/ic_hg_home.xml
 app/src/main/res/drawable/ic_hg_mine.xml
 app/src/main/res/drawable/ic_hg_close.xml
+app/src/main/res/drawable/ic_hg_detail_arrow.xml
 app/src/main/res/drawable/ic_hg_comment.xml
 app/src/main/res/drawable/ic_hg_fullscreen.xml
 app/src/main/res/drawable/ic_hg_heart.xml
@@ -103,6 +109,7 @@ app/src/main/res/drawable/ic_hg_heart_fill.xml
 app/src/main/res/drawable/ic_hg_menu.xml
 app/src/main/res/drawable/ic_hg_pause.xml
 app/src/main/res/drawable/ic_hg_play.xml
+app/src/main/res/drawable/ic_hg_playing_orange.xml
 app/src/main/res/drawable/ic_hg_search.xml
 app/src/main/res/drawable/ic_hg_share.xml
 app/src/main/res/drawable/ic_hg_star.xml

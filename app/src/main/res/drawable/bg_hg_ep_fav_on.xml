@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 选集单头部收藏钮底·已收藏态（色板取官方已解值 @color/oc＝#08000000，
+     圆角 8dp 与未收藏态一致）。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="8dp" />
+    <solid android:color="#08000000" />
+</shape>

@@ -1,72 +1,170 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 红果选集弹层：半屏底部层（官方：单高＝屏高 50%、顶部小横把、无关闭钮），
-     剧名＋完结标记＋演员区＋简介，集数格子 6 列、每页 30 集横向分页。 -->
+<!-- 红果选集单（官方 dig E1–E19 定版）：半屏底部层（单高＝屏高 50%、可拉升、
+     顶部横把 36×4、无 × 关闭钮），单体白底圆角顶；头部＝封面 44×62 圆角 4
+     ＋剧名 16sp 粗体（maxWidth 170dp）＋跳详情箭头 8×16＋右端收藏钮 72×28，
+     作者副行（作者名＋圆点＋sub_title_list[0]，12sp 灰，有才显）；简介 14sp
+     折叠 2 行、展开文案「更多」；集格单个 RecyclerView 连续竖滚 6 列。
+     官方头部没有「选集·已完结·全X集」文案行与完结标记（E10），不许再加。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#FF1C1C1E"
-    android:orientation="vertical"
-    android:paddingStart="16dp"
-    android:paddingEnd="16dp"
-    android:paddingBottom="12dp">
+    android:background="@drawable/bg_hg_ep_sheet"
+    android:orientation="vertical">
 
     <View
         android:layout_width="36dp"
         android:layout_height="4dp"
         android:layout_gravity="center_horizontal"
         android:layout_marginTop="8dp"
-        android:background="@drawable/bg_hg_grab" />
+        android:background="@drawable/bg_hg_ep_grab" />
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
         android:layout_marginTop="14dp"
+        android:layout_marginEnd="16dp"
         android:gravity="center_vertical"
         android:orientation="horizontal">
 
-        <TextView
-            android:id="@+id/hg_ep_title"
+        <ImageView
+            android:id="@+id/hg_ep_cover"
+            android:layout_width="44dp"
+            android:layout_height="62dp"
+            android:contentDescription="@null"
+            android:scaleType="centerCrop" />
+
+        <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
             android:layout_weight="1"
-            android:ellipsize="end"
-            android:maxLines="1"
-            android:textColor="#FFFFFF"
-            android:textSize="16sp"
-            android:textStyle="bold" />
+            android:orientation="vertical">
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="24dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/hg_ep_title"
+                    android:layout_width="wrap_content"
+                    android:layout_height="match_parent"
+                    android:ellipsize="end"
+                    android:gravity="center_vertical"
+                    android:maxLines="1"
+                    android:maxWidth="170dp"
+                    android:textColor="#FF1B1B1B"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+                <ImageView
+                    android:id="@+id/hg_ep_detail_arrow"
+                    android:layout_width="8dp"
+                    android:layout_height="16dp"
+                    android:layout_marginStart="4dp"
+                    android:contentDescription="@null"
+                    android:src="@drawable/ic_hg_detail_arrow" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/hg_ep_author_row"
+                android:layout_width="match_parent"
+                android:layout_height="20dp"
+                android:layout_marginTop="4dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/hg_ep_author"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textColor="#66000000"
+                    android:textSize="12sp" />
+
+                <View
+                    android:id="@+id/hg_ep_author_dot"
+                    android:layout_width="2dp"
+                    android:layout_height="2dp"
+                    android:layout_marginStart="6dp"
+                    android:layout_marginEnd="6dp"
+                    android:background="@drawable/bg_hg_ep_dot"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/hg_ep_sub"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textColor="#66000000"
+                    android:textSize="12sp" />
+            </LinearLayout>
+        </LinearLayout>
 
         <TextView
-            android:id="@+id/hg_ep_status"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:text="已完结"
-            android:textColor="#FFFA7705"
+            android:id="@+id/hg_ep_fav"
+            android:layout_width="72dp"
+            android:layout_height="28dp"
+            android:layout_gravity="center_vertical"
+            android:layout_marginStart="12dp"
+            android:background="@drawable/bg_hg_ep_fav"
+            android:gravity="center"
+            android:text="收藏"
+            android:textColor="#FFFFFF"
             android:textSize="12sp"
-            android:visibility="gone" />
+            android:textStyle="bold" />
     </LinearLayout>
 
     <LinearLayout
         android:id="@+id/hg_ep_actors"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="12dp"
+        android:layout_marginEnd="16dp"
         android:orientation="horizontal"
         android:visibility="gone" />
 
-    <TextView
-        android:id="@+id/hg_ep_desc"
+    <LinearLayout
+        android:id="@+id/hg_ep_desc_block"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
-        android:ellipsize="end"
-        android:maxLines="3"
-        android:textColor="#B3FFFFFF"
-        android:textSize="13sp" />
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="10dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="24dp"
+        android:orientation="vertical">
 
-    <androidx.viewpager2.widget.ViewPager2
-        android:id="@+id/hg_ep_pager"
+        <TextView
+            android:id="@+id/hg_ep_desc"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:lineSpacingExtra="5dp"
+            android:maxLines="2"
+            android:textColor="#FF000000"
+            android:textSize="14sp" />
+
+        <TextView
+            android:id="@+id/hg_ep_desc_more"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:text="更多"
+            android:textColor="#FF527EB0"
+            android:textSize="14sp"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/hg_ep_grid"
         android:layout_width="match_parent"
-        android:layout_height="270dp"
-        android:layout_marginTop="12dp" />
+        android:layout_height="0dp"
+        android:layout_weight="1" />
 </LinearLayout>

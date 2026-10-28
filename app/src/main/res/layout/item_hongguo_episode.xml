@@ -1,10 +1,33 @@
 <?xml version="1.0" encoding="utf-8"?>
-<TextView xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/hg_ep_num"
+<!-- 选集格（官方 E17：53×52dp 口径——高 52dp 定值，宽随 6 列均分；格底
+     圆角 8dp、常态 #08000000/当前集 #1AFA7705 由 bg_hg_ep_cell 的 selected
+     态切换；集号 14sp 居中；右上 12dp「正在播放」标，官方是橙色 Lottie，
+     我方以静态三角代用）。 -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="46dp"
-    android:layout_margin="4dp"
-    android:background="@drawable/bg_hg_episode_chip"
-    android:gravity="center"
-    android:textColor="#FFFFFF"
-    android:textSize="14sp" />
+    android:layout_height="52dp"
+    android:layout_marginStart="4dp"
+    android:layout_marginTop="4dp"
+    android:layout_marginEnd="4dp"
+    android:layout_marginBottom="4dp">
+
+    <TextView
+        android:id="@+id/hg_ep_num"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@drawable/bg_hg_ep_cell"
+        android:gravity="center"
+        android:textColor="#FF000000"
+        android:textSize="14sp" />
+
+    <ImageView
+        android:id="@+id/hg_ep_playing"
+        android:layout_width="12dp"
+        android:layout_height="12dp"
+        android:layout_gravity="top|end"
+        android:layout_marginTop="4dp"
+        android:layout_marginEnd="4dp"
+        android:contentDescription="@null"
+        android:src="@drawable/ic_hg_playing_orange"
+        android:visibility="gone" />
+</FrameLayout>

@@ -1,10 +1,12 @@
 package com.fongmi.android.tv.hongguo.ui;
 
 import android.app.Activity;
+import android.graphics.Outline;
 import android.graphics.Typeface;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewOutlineProvider;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -16,8 +18,8 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.databinding.DialogHongguoEpisodesBinding;
 import com.fongmi.android.tv.databinding.ItemHongguoEpisodeBinding;
-import com.fongmi.android.tv.databinding.ItemHongguoEpisodePageBinding;
 import com.fongmi.android.tv.hongguo.model.HgSeriesDetail;
+import com.fongmi.android.tv.utils.ImgUtil;
 import com.google.android.material.bottomsheet.BottomSheetBehavior;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 
@@ -26,18 +28,26 @@ import java.util.List;
 import java.util.function.IntConsumer;
 
 /**
- * 选集弹层（官方口径）：半屏底部层（单高＝屏高 50%、可拉升），顶部小横把、
- * 无关闭钮；集格 6 列、每页 30 集横向分页；当前集＝橙字 #FFFA7705＋粗体＋
- * 底 #1AFA7705。演员区与完结标记只认详情真字段（celebrities/series_status），
- * 没数据不显。点集回调全局下标由播放页跳播。剧头尚未展开时只列已知集。
+ * 选集单（官方 dig-search-sheets.md 第二节 E1–E19 定版）：半屏底部层
+ * （单高＝屏高 50%、可拉升），顶部小横把、无 × 关闭钮，单体白底。
+ * 头部＝封面 44×62 圆角 4dp＋剧名 16sp 粗体（maxWidth 170dp）＋跳详情
+ * 箭头＋右端收藏钮 72×28；作者副行（作者名＋圆点＋sub_title_list[0]，
+ * 12sp 灰）数据有才显；简介 14sp 折叠 2 行、展开文案「更多」，空则整行
+ * 不显。官方头部没有「选集·已完结·全X集」文案行与完结标记（E10），
+ * 不许再加。集格单个 RecyclerView 连续竖滚、6 列（E14/E16，无分页）；
+ * 格高 52dp、圆角 8dp、底 #08000000（E17）；当前集＝橙字 #FFFA7705＋
+ * 粗体＋底 #1AFA7705（E18，逐值对上），并带 12dp 橙色播放三角代用官方
+ * 的「正在播放」Lottie（我方无此资源，静态近似）。点集回调全局下标由
+ * 播放页跳播。剧头尚未展开时只列已知集。
  */
 public final class HgEpisodeSheet {
 
-    /** 每页集数（官方：手机 6 列×5 行＝30 集一页）。 */
-    private static final int PER_PAGE = 30;
     private static final int COLUMNS = 6;
-    /** 一行格高：格 46dp＋上下 margin 各 4dp。 */
-    private static final int ROW_DP = 54;
+    // 集号字色三档（官方 E18 浅皮肤解值）：未看黑／看过 gray_40／不可播 gray_20
+    private static final int COLOR_UNWATCHED = 0xFF000000;
+    private static final int COLOR_WATCHED = 0x66000000;
+    private static final int COLOR_UNPLAYABLE = 0x33000000;
+    private static final int COLOR_CURRENT = 0xFFFA7705;
 
     private HgEpisodeSheet() {
     }
@@ -59,78 +69,12 @@ public final class HgEpisodeSheet {
                 LayoutInflater.from(activity));
         BottomSheetDialog dialog = new BottomSheetDialog(activity);
         dialog.setContentView(binding.getRoot());
-        binding.hgEpTitle.setText(current.seriesBarText());
         HgSeriesDetail detail = session.detailOf(current.seriesId);
-        String desc = detail != null && detail.getDesc() != null ? detail.getDesc() : current.desc;
-        if (desc == null || desc.isEmpty()) binding.hgEpDesc.setVisibility(View.GONE);
-        else binding.hgEpDesc.setText(desc);
 
-        // 完结标记：详情口径（没下发默认完结）或条目下发值＝1，任一成立才显
-        boolean finished = (detail != null && detail.isFinished())
-                || (current.seriesStatus != null && current.seriesStatus == 1);
-        binding.hgEpStatus.setVisibility(finished ? View.VISIBLE : View.GONE);
+        bindHeader(activity, binding, dialog, session, current, detail);
         bindActors(activity, binding, detail);
-
-        int pageCount = (positions.size() + PER_PAGE - 1) / PER_PAGE;
-        binding.hgEpPager.setAdapter(new RecyclerView.Adapter<PageHolder>() {
-            @NonNull
-            @Override
-            public PageHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-                return new PageHolder(ItemHongguoEpisodePageBinding.inflate(
-                        LayoutInflater.from(parent.getContext()), parent, false));
-            }
-
-            @Override
-            public void onBindViewHolder(@NonNull PageHolder holder, int page) {
-                int from = page * PER_PAGE;
-                int to = Math.min(positions.size(), from + PER_PAGE);
-                List<Integer> slice = positions.subList(from, to);
-                RecyclerView grid = holder.binding.hgEpPageGrid;
-                grid.setLayoutManager(new GridLayoutManager(activity, COLUMNS));
-                grid.setNestedScrollingEnabled(false);
-                grid.setAdapter(new RecyclerView.Adapter<EpHolder>() {
-                    @NonNull
-                    @Override
-                    public EpHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-                        return new EpHolder(ItemHongguoEpisodeBinding.inflate(
-                                LayoutInflater.from(parent.getContext()), parent, false));
-                    }
-
-                    @Override
-                    public void onBindViewHolder(@NonNull EpHolder h, int index) {
-                        int globalPos = slice.get(index);
-                        HgFeedItem ep = session.items.get(globalPos);
-                        TextView tv = h.binding.hgEpNum;
-                        tv.setText(ep.episodeIndex > 0 ? String.valueOf(ep.episodeIndex) : String.valueOf(from + index + 1));
-                        boolean isCurrent = globalPos == currentGlobalPos;
-                        tv.setSelected(isCurrent);
-                        tv.setTextColor(isCurrent ? 0xFFFA7705 : 0xFFFFFFFF);
-                        tv.setTypeface(null, isCurrent ? Typeface.BOLD : Typeface.NORMAL);
-                        tv.setOnClickListener(v -> {
-                            dialog.dismiss();
-                            if (globalPos != currentGlobalPos) onPick.accept(globalPos);
-                        });
-                    }
-
-                    @Override
-                    public int getItemCount() {
-                        return slice.size();
-                    }
-                });
-            }
-
-            @Override
-            public int getItemCount() {
-                return pageCount;
-            }
-        });
-        int currentIdx = positions.indexOf(currentGlobalPos);
-        if (currentIdx > 0) binding.hgEpPager.setCurrentItem(currentIdx / PER_PAGE, false);
-        // 分页器高＝最满页的行数×行距（页再多也只有 5 行）
-        int rows = (Math.min(positions.size(), PER_PAGE) + COLUMNS - 1) / COLUMNS;
-        ViewGroup.LayoutParams plp = binding.hgEpPager.getLayoutParams();
-        plp.height = (int) (rows * ROW_DP * activity.getResources().getDisplayMetrics().density);
-        binding.hgEpPager.setLayoutParams(plp);
+        bindDesc(binding, current, detail);
+        bindGrid(activity, binding, dialog, session, current, positions, currentGlobalPos, onPick);
 
         // 半屏起步（官方单高＝屏高 50%）、可拉升到近全屏
         int half = (int) (activity.getResources().getDisplayMetrics().heightPixels * 0.5f);
@@ -146,6 +90,161 @@ public final class HgEpisodeSheet {
             }
         });
         dialog.show();
+    }
+
+    /**
+     * 头部（E6–E9）：封面（详情优先、否则条目）圆角 4dp；剧名只出剧名本体
+     * （官方绑 AlbumDetailModel.title，不拼集数/完结文案，E10）；箭头点击
+     * ＝进该剧集流（等价 HongguoFeedActivity.startSeries）；收藏钮走现行
+     * interactions 口子（与系列单同口径，未登录在口子内处理）。
+     * 作者副行（E8 形态①）：作者名＋2dp 圆点＋sub_title_list[0]，12sp 灰，
+     * 哪段有数据显哪段，两段皆空整行不显。sub_title_list 在详情模型里
+     * 没有字段位，只能取条目 tags（频道 cell 的 sub_title_list 经
+     * HgSeriesItem.tags 携带）；集流条目不带 tags 时副段缺省、不编。
+     */
+    private static void bindHeader(Activity activity, DialogHongguoEpisodesBinding binding,
+                                   BottomSheetDialog dialog, HgFeedSession session,
+                                   HgFeedItem current, HgSeriesDetail detail) {
+        String title = detail != null && detail.getTitle() != null && !detail.getTitle().isEmpty()
+                ? detail.getTitle() : current.title;
+        String cover = detail != null && detail.getCoverUrl() != null && !detail.getCoverUrl().isEmpty()
+                ? detail.getCoverUrl() : current.coverUrl;
+        binding.hgEpTitle.setText(title == null ? "" : title);
+        float radius = 4f * activity.getResources().getDisplayMetrics().density;
+        binding.hgEpCover.setOutlineProvider(new ViewOutlineProvider() {
+            @Override
+            public void getOutline(View view, Outline outline) {
+                outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), radius);
+            }
+        });
+        binding.hgEpCover.setClipToOutline(true);
+        ImgUtil.load(title == null ? "" : title, cover, binding.hgEpCover);
+
+        if (current.seriesId == null) {
+            binding.hgEpDetailArrow.setVisibility(View.GONE);
+            binding.hgEpFav.setVisibility(View.GONE);
+        } else {
+            binding.hgEpDetailArrow.setOnClickListener(v -> {
+                dialog.dismiss();
+                HongguoFeedActivity.startSeries(activity, current.seriesId, title, cover);
+            });
+            bindFav(binding, session.interactions, current.seriesId);
+            binding.hgEpFav.setOnClickListener(v -> {
+                session.interactions.toggleFavorite(current.seriesId);
+                bindFav(binding, session.interactions, current.seriesId);
+            });
+        }
+
+        String author = detail != null && detail.getAuthorName() != null && !detail.getAuthorName().isEmpty()
+                ? detail.getAuthorName() : current.authorName;
+        String sub = current.tags != null && !current.tags.isEmpty() ? current.tags.get(0) : null;
+        boolean hasAuthor = author != null && !author.isEmpty();
+        boolean hasSub = sub != null && !sub.isEmpty();
+        if (!hasAuthor && !hasSub) {
+            binding.hgEpAuthorRow.setVisibility(View.GONE);
+            return;
+        }
+        binding.hgEpAuthorRow.setVisibility(View.VISIBLE);
+        binding.hgEpAuthor.setVisibility(hasAuthor ? View.VISIBLE : View.GONE);
+        if (hasAuthor) binding.hgEpAuthor.setText(author);
+        binding.hgEpAuthorDot.setVisibility(hasAuthor && hasSub ? View.VISIBLE : View.GONE);
+        binding.hgEpSub.setVisibility(hasSub ? View.VISIBLE : View.GONE);
+        if (hasSub) binding.hgEpSub.setText(sub);
+    }
+
+    /** 收藏钮状态回显：已收藏＝灰底灰字（色板取官方已解值），未收藏＝橙底白字。 */
+    private static void bindFav(DialogHongguoEpisodesBinding binding,
+                                HgInteractions interactions, String seriesId) {
+        boolean fav = interactions.isFavorite(seriesId);
+        binding.hgEpFav.setBackgroundResource(fav
+                ? R.drawable.bg_hg_ep_fav_on : R.drawable.bg_hg_ep_fav);
+        binding.hgEpFav.setTextColor(fav ? COLOR_WATCHED : 0xFFFFFFFF);
+    }
+
+    /**
+     * 简介（E11）：14sp、折叠 2 行，展开文案「更多」（色 #FF527EB0）；
+     * 文本没溢出 2 行就不出「更多」；简介为空整块不显。
+     */
+    private static void bindDesc(DialogHongguoEpisodesBinding binding,
+                                 HgFeedItem current, HgSeriesDetail detail) {
+        String desc = detail != null && detail.getDesc() != null ? detail.getDesc() : current.desc;
+        if (desc == null || desc.isEmpty()) {
+            binding.hgEpDescBlock.setVisibility(View.GONE);
+            return;
+        }
+        binding.hgEpDesc.setText(desc);
+        binding.hgEpDesc.post(() -> {
+            android.text.Layout layout = binding.hgEpDesc.getLayout();
+            if (layout != null && layout.getLineCount() > 0
+                    && layout.getEllipsisCount(layout.getLineCount() - 1) > 0) {
+                binding.hgEpDescMore.setVisibility(View.VISIBLE);
+            }
+        });
+        binding.hgEpDescMore.setOnClickListener(v -> {
+            binding.hgEpDesc.setMaxLines(Integer.MAX_VALUE);
+            binding.hgEpDescMore.setVisibility(View.GONE);
+        });
+    }
+
+    /**
+     * 集格（E14/E16/E17/E18）：单个 RecyclerView 连续竖滚、6 列。
+     * 看过档以本地断点推定（HgStore 只存最新断点：断点集之前的集与
+     * 断点集本身有进度者判看过）；不可播＝条目没带 videoId。
+     */
+    private static void bindGrid(Activity activity, DialogHongguoEpisodesBinding binding,
+                                 BottomSheetDialog dialog, HgFeedSession session,
+                                 HgFeedItem current, List<Integer> positions,
+                                 int currentGlobalPos, IntConsumer onPick) {
+        HgStore.Progress progress = current.seriesId == null
+                ? null : HgStore.progressOf(current.seriesId);
+        binding.hgEpGrid.setLayoutManager(new GridLayoutManager(activity, COLUMNS));
+        binding.hgEpGrid.setAdapter(new RecyclerView.Adapter<EpHolder>() {
+            @NonNull
+            @Override
+            public EpHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+                return new EpHolder(ItemHongguoEpisodeBinding.inflate(
+                        LayoutInflater.from(parent.getContext()), parent, false));
+            }
+
+            @Override
+            public void onBindViewHolder(@NonNull EpHolder h, int index) {
+                int globalPos = positions.get(index);
+                HgFeedItem ep = session.items.get(globalPos);
+                TextView tv = h.binding.hgEpNum;
+                tv.setText(ep.episodeIndex > 0 ? String.valueOf(ep.episodeIndex)
+                        : String.valueOf(index + 1));
+                boolean isCurrent = globalPos == currentGlobalPos;
+                tv.setSelected(isCurrent);
+                boolean watched = progress != null && ep.episodeIndex > 0
+                        && (ep.episodeIndex < progress.episodeIndex
+                        || (ep.episodeIndex == progress.episodeIndex && progress.positionMs > 0));
+                if (isCurrent) {
+                    tv.setTextColor(COLOR_CURRENT);
+                    tv.setTypeface(null, Typeface.BOLD);
+                } else if (ep.videoId == null) {
+                    tv.setTextColor(COLOR_UNPLAYABLE);
+                    tv.setTypeface(null, Typeface.NORMAL);
+                } else if (watched) {
+                    tv.setTextColor(COLOR_WATCHED);
+                    tv.setTypeface(null, Typeface.NORMAL);
+                } else {
+                    tv.setTextColor(COLOR_UNWATCHED);
+                    tv.setTypeface(null, Typeface.NORMAL);
+                }
+                h.binding.hgEpPlaying.setVisibility(isCurrent ? View.VISIBLE : View.GONE);
+                h.itemView.setOnClickListener(v -> {
+                    dialog.dismiss();
+                    if (globalPos != currentGlobalPos) onPick.accept(globalPos);
+                });
+            }
+
+            @Override
+            public int getItemCount() {
+                return positions.size();
+            }
+        });
+        int curIdx = positions.indexOf(currentGlobalPos);
+        if (curIdx > 0) binding.hgEpGrid.post(() -> binding.hgEpGrid.scrollToPosition(curIdx));
     }
 
     /**
@@ -186,15 +285,6 @@ public final class HgEpisodeSheet {
             shown++;
         }
         binding.hgEpActors.setVisibility(shown > 0 ? View.VISIBLE : View.GONE);
-    }
-
-    private static final class PageHolder extends RecyclerView.ViewHolder {
-        final ItemHongguoEpisodePageBinding binding;
-
-        PageHolder(ItemHongguoEpisodePageBinding binding) {
-            super(binding.getRoot());
-            this.binding = binding;
-        }
     }
 
     private static final class EpHolder extends RecyclerView.ViewHolder {

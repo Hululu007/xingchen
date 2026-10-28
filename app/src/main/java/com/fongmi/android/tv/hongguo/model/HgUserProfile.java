@@ -26,12 +26,22 @@ public final class HgUserProfile {
     /** 我已关注他（relation_type＝Follow/MutualFollow）；判读不出为 null。 */
     public final Boolean followedByMe;
     /**
-     * 副标题行（user_expand.sub_title_list 各段以「 | 」拼，官方作者页
-     * 「出品方 | 红果号：数字」那行同源）；回包没带为 null。
+     * 副标题行（user_tag.sub_title_list 各段 text 以「 | 」拼＋末段
+     * 「红果号：biz_user_id」，官方作者页「出品方 | 红果号：数字」那行
+     * 同源：KMP 映射 yy3/a 取 userTag.subTitleList 与 baseInfo.bizUserID
+     * 逐字，2026-10-29 实拉三样本对实拍校验值定版）；无段为 null。
      */
     public final String subTitleLine;
-    /** 红果号数字（从 sub_title_line 的「红果号：」段抽出，供点行复制）；无为 null。 */
+    /**
+     * 红果号数字＝base_info.biz_user_id 原值（官方作者页点行复制的正是
+     * 它、KMP 依赖层参数名 hgAccount，SeriesGuestProfileFragment Ih 逐字）；
+     * 供点行复制，无为 null。
+     */
     public final String hongguoId;
+    /** 蓝 V 标在身（user_tag.is_blue_vip；与「已入驻」头衔徽标是两回事）。 */
+    public final boolean blueVip;
+    /** V 标图标地址（user_tag.vip_icon_url，48×48 圆 V 图，服务端定版）；无为 null。 */
+    public final String vipIconUrl;
     /**
      * 头衔徽标文案（user_tag.user_title_info 首条 zh_title，官方作者页名旁
      * 「已入驻」蓝标同源，本机实拉验通）；无为 null。
@@ -52,7 +62,8 @@ public final class HgUserProfile {
                          int followUserNum, int fansNum, int recvDiggedCount,
                          String relationType, Boolean followedByMe) {
         this(userId, name, avatar, desc, followUserNum, fansNum, recvDiggedCount,
-                relationType, followedByMe, null, null, null, null, null, null, true, true);
+                relationType, followedByMe, null, null, null, null, null, null,
+                true, true, false, null);
     }
 
     public HgUserProfile(String userId, String name, String avatar, String desc,
@@ -61,7 +72,7 @@ public final class HgUserProfile {
                          String subTitleLine, String hongguoId) {
         this(userId, name, avatar, desc, followUserNum, fansNum, recvDiggedCount,
                 relationType, followedByMe, subTitleLine, hongguoId,
-                null, null, null, null, true, true);
+                null, null, null, null, true, true, false, null);
     }
 
     public HgUserProfile(String userId, String name, String avatar, String desc,
@@ -70,7 +81,8 @@ public final class HgUserProfile {
                          String subTitleLine, String hongguoId,
                          String titleBadge, String titleBadgeIcon,
                          String bgColor, String bgCover,
-                         boolean shelfOpen, boolean diggOpen) {
+                         boolean shelfOpen, boolean diggOpen,
+                         boolean blueVip, String vipIconUrl) {
         this.userId = userId;
         this.name = name;
         this.avatar = avatar;
@@ -88,6 +100,8 @@ public final class HgUserProfile {
         this.bgCover = bgCover;
         this.shelfOpen = shelfOpen;
         this.diggOpen = diggOpen;
+        this.blueVip = blueVip;
+        this.vipIconUrl = vipIconUrl;
     }
 
     /** 计数三组齐备才算有数据行（任一计数缺失时整行不显，不摆半份数）。 */

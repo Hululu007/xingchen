@@ -34,7 +34,9 @@ import java.util.List;
  *
  * <p>页头：置顶 chip 行＋头像姓名行（58dp／20sp 粗）＋头衔徽标
  * （user_title_info 的 zh_title/图标，如「已入驻」）＋副标题行
- * （user_expand.sub_title_list 拼串，点行复制红果号）＋简介＋数据行与
+ * （user_tag.sub_title_list 段拼串＋末段「红果号：biz_user_id」，
+ * 点行复制红果号原值；2026-10-29 再挖定版，见 HgUserProfile 类注）
+ * ＋头像右下 V 标（is_blue_vip＋vip_icon_url）＋简介＋数据行与
  * 关注钮同带；页头底用服务端 data.bg_color/bg_covers。数据行与徽标
  * 数据源＝GET /reading/user/profile/get/（进页回源，名/头像/简介同步
  * 以服务端为准，关注钮初态以 relation_type 校准）。</p>
@@ -234,6 +236,13 @@ public class HongguoAuthorActivity extends BaseActivity {
                     if (p.subTitleLine != null && !p.subTitleLine.isEmpty()) {
                         binding.hgAuthorSubline.setText(p.subTitleLine);
                         binding.hgAuthorSubline.setVisibility(View.VISIBLE);
+                    }
+                    // V 标：认证旗＋服务端图标双齐才显（图色随账号档变，不自绘）
+                    if (p.blueVip && p.vipIconUrl != null && !p.vipIconUrl.isEmpty()) {
+                        binding.hgAuthorVipBadge.setVisibility(View.VISIBLE);
+                        ImgUtil.load("", p.vipIconUrl, binding.hgAuthorVipBadge);
+                    } else {
+                        binding.hgAuthorVipBadge.setVisibility(View.GONE);
                     }
                     // 页头底：色优先于图（bg_color 是官方定版底色，bg_covers 垫其上偏淡显）
                     if (p.bgColor != null) {

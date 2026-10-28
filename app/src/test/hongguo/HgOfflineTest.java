@@ -832,6 +832,46 @@ public class HgOfflineTest {
                 check("§28 粉丝数真值", p.fansNum == 425645, "实际=" + p.fansNum);
                 check("§28 头像回归（误删防线）", p.avatar != null && p.avatar.contains("novel-pic"),
                         "实际=" + p.avatar);
+                // 副标题行定版（2026-10-29 再挖）：user_tag.sub_title_list 段
+                // ＋「红果号：biz_user_id」末段；潮汐 biz＝214150138426
+                check("§28 副标题行＝出品方 | 红果号", "出品方 | 红果号：214150138426".equals(p.subTitleLine),
+                        "实际=" + p.subTitleLine);
+                check("§28 红果号＝biz_user_id 原值", "214150138426".equals(p.hongguoId),
+                        "实际=" + p.hongguoId);
+                check("§28 V 标旗＋图标", p.blueVip && p.vipIconUrl != null
+                                && p.vipIconUrl.contains("ad979c8b5f9f1ef63958bf823d31bfd7"),
+                        "实际=" + p.blueVip + "/" + p.vipIconUrl);
+            }
+        }
+        {
+            // 副标题行校验值样本（2026-10-29 实拉灿灿剧场）：实拍 113563 行
+            // 「出品方 | 红果号：195870576971」——biz 必须逐字对上才算定版；
+            // 该号两签隐私为 off（解析须回 false）
+            String raw = Files.readString(Paths.get(dir + "author_profile_cancan.json"));
+            com.fongmi.android.tv.hongguo.model.HgUserProfile p = HgParser.parseUserProfile(raw);
+            check("§28 灿灿资料解析非空", p != null, null);
+            if (p != null) {
+                check("§28 灿灿副标题行逐字对实拍", "出品方 | 红果号：195870576971".equals(p.subTitleLine),
+                        "实际=" + p.subTitleLine);
+                check("§28 灿灿红果号校验值", "195870576971".equals(p.hongguoId),
+                        "实际=" + p.hongguoId);
+                check("§28 灿灿粉丝数/两签隐私关", p.fansNum == 15382 && !p.shelfOpen && !p.diggOpen,
+                        "实际=" + p.fansNum + "/" + p.shelfOpen + "/" + p.diggOpen);
+                check("§28 灿灿 V 标在身", p.blueVip && p.vipIconUrl != null, null);
+            }
+        }
+        {
+            // 个人作者样本（2026-10-29 实拉陈景枫）：副标题段是职业标
+            // 「男演员」、user_expand 那份 text 恒 null 不得混入；V 图是橙 V
+            String raw = Files.readString(Paths.get(dir + "author_profile_person.json"));
+            com.fongmi.android.tv.hongguo.model.HgUserProfile p = HgParser.parseUserProfile(raw);
+            check("§28 个人作者解析非空", p != null, null);
+            if (p != null) {
+                check("§28 个人副标题行＝男演员 | 红果号", "男演员 | 红果号：200760160548".equals(p.subTitleLine),
+                        "实际=" + p.subTitleLine);
+                check("§28 个人 V 图为橙 V 地址", p.blueVip && p.vipIconUrl != null
+                                && p.vipIconUrl.contains("322b408658a8f496a604c1759d346f76"),
+                        "实际=" + p.vipIconUrl);
             }
         }
         {

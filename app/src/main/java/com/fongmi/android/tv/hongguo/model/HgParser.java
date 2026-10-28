@@ -1200,40 +1200,28 @@ public final class HgParser {
                 }
             }
         }
-        // 副标题行（user_expand.sub_title_list，官方作者页「出品方 | 红果号：
-        // 数字」行同源；元素两形并存：对象取 text/content、纯字符串直用）
-        String subTitleLine = null;
-        String hongguoId = null;
-        JsonObject expand = obj(ugc, "user_expand");
-        JsonArray subs = expand == null ? null : arr(expand, "sub_title_list");
-        if (subs != null) {
-            List<String> parts = new ArrayList<>();
-            for (JsonElement el : subs) {
-                String v = null;
-                if (el.isJsonObject()) v = firstStr(el.getAsJsonObject(), "text", "content");
-                else if (el.isJsonPrimitive()) {
-                    try {
-                        v = el.getAsString();
-                    } catch (Exception ignored) {
-                    }
-                }
-                if (v != null && !v.isEmpty()) parts.add(v);
-            }
-            if (!parts.isEmpty()) {
-                subTitleLine = String.join(" | ", parts);
-                for (String part : parts) {
-                    int at = part.indexOf("红果号");
-                    if (at < 0) continue;
-                    String digits = part.substring(at).replaceAll("[^0-9]", "");
-                    if (!digits.isEmpty()) hongguoId = digits;
-                }
-            }
+        // 副标题行（定版 2026-10-29 再挖）：官方 KMP 映射 yy3/a 逐字——
+        // 段文取 user_tag.sub_title_list（UserTag 模型 @SerializedName 逐字，
+        // 不是 user_expand 那份：expand 的元素 text 恒 null、只带标签图标，
+        // 旧版读它永远拼不出行）；末段「红果号：」＋base_info.biz_user_id
+        // （rpc UserBaseInfo @SerializedName 逐字；实拉灿灿剧场 biz＝
+        // 195870576971 与实拍 113563 校验值逐字对上）。红果号原值另存
+        // hongguoId 供点行复制（官方点行复制的正是 biz 值，KMP 依赖层
+        // 参数名 hgAccount）。
+        JsonObject tag = obj(ugc, "user_tag");
+        List<String> subParts = subTitleTexts(tag);
+        if (subParts.isEmpty()) {
+            // 兜底：个别形状把带字段放 user_expand 时仍读得到（定版主源在上）
+            subParts = subTitleTexts(obj(ugc, "user_expand"));
         }
+        String hongguoId = base == null ? null : firstStr(base, "biz_user_id");
+        if (hongguoId != null && hongguoId.isEmpty()) hongguoId = null;
+        if (hongguoId != null) subParts.add("红果号：" + hongguoId);
+        String subTitleLine = subParts.isEmpty() ? null : String.join(" | ", subParts);
         // 头衔徽标（user_tag.user_title_info：zh_title＋icon.icon_default_url，
         // 本机实拉出品方作者验通：「已入驻」＋35×16 图标）
         String titleBadge = null;
         String titleBadgeIcon = null;
-        JsonObject tag = obj(ugc, "user_tag");
         JsonArray titles = tag == null ? null : arr(tag, "user_title_info");
         if (titles != null && titles.size() > 0 && titles.get(0).isJsonObject()) {
             JsonObject t0 = titles.get(0).getAsJsonObject();
@@ -1266,6 +1254,14 @@ public final class HgParser {
             shelfOpen = !"off".equals(str(privacy, "person_bookshelf_video_list_switcher"));
             diggOpen = !"off".equals(str(privacy, "person_digg_video_switcher"));
         }
+        // V 标（user_tag.is_blue_vip＋vip_icon_url 定版 2026-10-29：官方
+        // KMP 映射 yy3/a 把 isBlueVip 搬进作者页 tag 状态、评论海报侧同旗
+        // 选蓝 V 图标 icon_short_video_comment_blue_v_*；实拉两样本的
+        // vip_icon_url 均为 48×48 圆 V 图、色随账号档变（蓝/橙），故图直用
+        // 服务端地址、不自绘。显隐门＝旗为真且地址非空，见 Activity。
+        boolean blueVip = tag != null && boolOf(tag, "is_blue_vip");
+        String vipIconUrl = tag == null ? null : str(tag, "vip_icon_url");
+        if (vipIconUrl != null && vipIconUrl.isEmpty()) vipIconUrl = null;
         return new HgUserProfile(
                 firstStr(ugc, "user_id"),
                 base == null ? null : firstStr(base, "user_name"),
@@ -1278,7 +1274,26 @@ public final class HgParser {
                 titleBadge, titleBadgeIcon,
                 bgColor == null || bgColor.isEmpty() ? null : bgColor,
                 bgCover == null || bgCover.isEmpty() ? null : bgCover,
-                shelfOpen, diggOpen);
+                shelfOpen, diggOpen, blueVip, vipIconUrl);
+    }
+
+    /** sub_title_list 段文抽取（元素两形并存：对象取 text/content、纯字符串直用；空段跳过）。 */
+    private static List<String> subTitleTexts(JsonObject holder) {
+        List<String> parts = new ArrayList<>();
+        JsonArray subs = holder == null ? null : arr(holder, "sub_title_list");
+        if (subs == null) return parts;
+        for (JsonElement el : subs) {
+            String v = null;
+            if (el.isJsonObject()) v = firstStr(el.getAsJsonObject(), "text", "content");
+            else if (el.isJsonPrimitive()) {
+                try {
+                    v = el.getAsString();
+                } catch (Exception ignored) {
+                }
+            }
+            if (v != null && !v.isEmpty()) parts.add(v);
+        }
+        return parts;
     }
 
     // ---------- 作者主页三签（2026-10-29 本机实拉定版，probe-author 存档） ----------

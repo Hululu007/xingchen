@@ -943,6 +943,71 @@ public class HgOfflineTest {
                             null, null).isEmpty(), null);
         }
 
+        {
+            // §30) 详情页参与评分写口＋不感兴趣（2026-10-29 定版＋实拉，账
+            // detail-score-share-20261029.md）：提交体照 p12/w.e 逐字
+            // （commit_source=12/group_type=1/data_type=3/comment_type=0/
+            // business{score 十分制,book_id,shark,trans{watch_duration 字符串}}、
+            // 无 text）；改分体照 editor q1.c（comment_id＋沿原评论的
+            // source/type 组合）；不感兴趣体照 st3/r（Dislike=1/Book=10/
+            // Server=1、object_id=剧 id、business.video_id=当前集 vid）。
+            String sid = "7697561772433099800";
+            com.google.gson.JsonObject sp = com.fongmi.android.tv.hongguo.api.HgCommentClient
+                    .scorePayload(sid, 8, 372);
+            check("§30 评分提交·源/组/数型", sp.get("commit_source").getAsInt() == 12
+                    && sp.get("group_id").getAsString().equals(sid)
+                    && sp.get("group_type").getAsInt() == 1
+                    && sp.get("data_type").getAsInt() == 3
+                    && sp.get("comment_type").getAsInt() == 0
+                    && !sp.has("text"), sp.toString());
+            com.google.gson.JsonObject scoreBiz = sp.getAsJsonObject("business_param");
+            check("§30 评分提交·business 四件", scoreBiz.get("score").getAsInt() == 8
+                    && scoreBiz.get("book_id").getAsString().equals(sid)
+                    && scoreBiz.getAsJsonObject("shark_param").get("type").getAsString().equals("short_play")
+                    && scoreBiz.getAsJsonObject("trans_param").get("watch_duration").getAsString().equals("372"),
+                    scoreBiz.toString());
+            com.google.gson.JsonObject up = com.fongmi.android.tv.hongguo.api.HgCommentClient
+                    .scoreUpdatePayload("7699907828563231513", sid, 6, 900);
+            com.google.gson.JsonObject updBiz = up.getAsJsonObject("business_param");
+            check("§30 改分·comment_id＋新分", up.get("comment_id").getAsString().equals("7699907828563231513")
+                    && up.get("commit_source").getAsInt() == 12
+                    && up.get("data_type").getAsInt() == 3
+                    && updBiz.get("score").getAsInt() == 6
+                    && updBiz.getAsJsonObject("trans_param").get("watch_duration").getAsString().equals("900"),
+                    up.toString());
+            com.google.gson.JsonObject dk = com.fongmi.android.tv.hongguo.api.HgRequests
+                    .dislikeSeriesBody(sid, "7612345678901234567");
+            check("§30 不感兴趣·动作/对象/原因", dk.get("action_type").getAsInt() == 1
+                    && dk.get("object_id").getAsString().equals(sid)
+                    && dk.get("object_type").getAsInt() == 10
+                    && dk.get("action_category").getAsInt() == 1
+                    && dk.get("reason_type").getAsInt() == 1
+                    && dk.get("action_reason").getAsString().isEmpty()
+                    && dk.getAsJsonObject("business_param").get("video_id").getAsString()
+                            .equals("7612345678901234567"), dk.toString());
+            // 已评回显：匿名真回包无 user_comment → -1；注入真条目（score "10"
+            // 字符串型）后 myScore=10＋comment_id 原样
+            String rawAnon = Files.readString(Paths.get(dir + "series_comments_rating.json"));
+            com.fongmi.android.tv.hongguo.model.HgSeriesRating rAnon =
+                    com.fongmi.android.tv.hongguo.api.HgCommentParser.parseSeriesRating(rawAnon);
+            check("§30 匿名回包无本人分", rAnon.myScore == -1 && rAnon.myCommentId.isEmpty()
+                    && !rAnon.hasMine(), "实际=" + rAnon.myScore + "/" + rAnon.myCommentId);
+            String rawMine = Files.readString(Paths.get(dir + "series_comments_mine.json"));
+            com.fongmi.android.tv.hongguo.model.HgSeriesRating rMine =
+                    com.fongmi.android.tv.hongguo.api.HgCommentParser.parseSeriesRating(rawMine);
+            check("§30 已评回显 10 分＋id", rMine.myScore == 10
+                    && rMine.myCommentId.equals("7699907828563231513") && rMine.hasMine(),
+                    "实际=" + rMine.myScore + "/" + rMine.myCommentId);
+            // 信封码透传：2026-10-29 实拉原文（评分 add/update 同为 103006
+            // 「用户未登录」；不感兴趣 code=0 受理）
+            check("§30 信封码·未登录 103006", com.fongmi.android.tv.hongguo.api.HgCommentParser
+                    .envelopeCode("{\"code\":103006,\"message\":\"用户未登录\",\"data\":null}") == 103006, null);
+            check("§30 信封码·受理 0", com.fongmi.android.tv.hongguo.api.HgCommentParser
+                    .envelopeCode("{\"code\":0,\"message\":\"请求成功\",\"data\":{}}") == 0, null);
+            check("§30 信封码·坏包 MIN", com.fongmi.android.tv.hongguo.api.HgCommentParser
+                    .envelopeCode("not json") == Integer.MIN_VALUE, null);
+        }
+
         System.out.println(fail == 0 ? "ALL PASS" : ("FAILURES=" + fail));
         System.exit(fail == 0 ? 0 : 1);
     }

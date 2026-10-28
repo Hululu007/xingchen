@@ -46,8 +46,18 @@ import java.util.Locale;
  * （与选集单同一落点口径）；底栏收藏＝bookshelf/video/update 真口
  * 乐观先行＋失败回滚；继续播放＝进集流（断点由集流侧续）。</p>
  *
- * <p>未摆：分享/更多（官方顶栏位，咱家无对应功能不摆假钮）、参与评分
- * 的发评入口（发剧评的写口参数未验通，评分卡右列只作信息呈现）。</p>
+ * <p>参与评分（2026-10-29 补）：评分卡五星可点（整星，十分制＝星数×2）、
+ * 提交走 comment/add（commit_source=12 纯打分体，p12/w.e 定版）、已评回显
+ * 走整剧评论回包 extra.user_comment、改分走 comment/update；门槛是端上
+ * 校验（官方 CSSPlayletCommentListView 同口径：can_comment_threshold 秒
+ * 对 HgStore 按剧累计观看，累计由播放页按位置增量记账），watch_duration
+ * 随体上送。两口 2026-10-29 本机实拉只差登录（code=103006「用户未登录」），
+ * 成功回包待首登验。半星是官方实验旗能力、咱家只做整星。</p>
+ *
+ * <p>顶右分享＝系统分享（文案与集流页分享同口径「我在看《剧名》」——官方
+ * 分享内容由服务端分享模型驱动、包内无客户端文案模板）；更多＝官方「⋯」
+ * 的不感兴趣形态（do_action Dislike，2026-10-29 实拉匿名受理）；举报形态
+ * 走字节 spam SDK 自有链、请求形状未验通，不摆。</p>
  */
 public class HongguoSeriesDetailActivity extends BaseActivity {
 
@@ -73,6 +83,14 @@ public class HongguoSeriesDetailActivity extends BaseActivity {
     private boolean favBusy;
     private boolean descExpanded;
     private int segment;
+    // 参与评分：本人已评（十分制，-1 未评）、本人评论 id（改分用）、
+    // 当前点选的待提交分（0 未选）、门槛秒（回包 extra）、提交在途旗
+    private int myScore = -1;
+    private String myCommentId = "";
+    private int pendingScore;
+    private int thresholdSec = -1;
+    private boolean scoreBusy;
+    private final TextView[] starViews = new TextView[5];
 
     @Override
     protected ViewBinding getBinding() {
@@ -111,6 +129,27 @@ public class HongguoSeriesDetailActivity extends BaseActivity {
             binding.hgSdDesc.setMaxLines(descExpanded ? Integer.MAX_VALUE : 3);
             binding.hgSdExpand.setText(descExpanded ? "收起" : "展开");
         });
+        // 评分卡五星逐颗建（点按分颗接）：整星，点第 i 颗＝(i+1)×2 十分制
+        for (int i = 0; i < starViews.length; i++) {
+            TextView star = new TextView(this);
+            star.setText("★");
+            star.setTextSize(19);
+            star.setPadding(dp(1), 0, dp(1), 0);
+            final int idx = i;
+            star.setOnClickListener(v -> {
+                if (scoreBusy) return;
+                pendingScore = (idx + 1) * 2;
+                paintStars();
+                paintScoreAction();
+            });
+            starViews[i] = star;
+            binding.hgSdStars.addView(star);
+        }
+        binding.hgSdScoreAction.setOnClickListener(v -> submitScore());
+        binding.hgSdShare.setOnClickListener(v -> shareSeries());
+        binding.hgSdMore.setOnClickListener(v -> showMoreMenu());
+        paintStars();
+        paintScoreAction();
         loadDetail();
         loadReviews();
     }
@@ -325,6 +364,7 @@ public class HongguoSeriesDetailActivity extends BaseActivity {
             binding.hgSdCollectors.setText(HgFormat.countLine(rating.collectorsCount) + "人收藏");
         }
         int th = rating.canCommentThresholdSec;
+        thresholdSec = th;
         if (th >= 60 && th % 60 == 0) {
             binding.hgSdThreshold.setText("看" + (th / 60) + "分钟参与评分");
         } else if (th > 0) {
@@ -332,6 +372,157 @@ public class HongguoSeriesDetailActivity extends BaseActivity {
         } else {
             binding.hgSdThreshold.setText("");
         }
+        // 已评回显（extra.user_comment）：服务端为准刷新本人态
+        if (rating.myScore >= 0) {
+            myScore = rating.myScore;
+            myCommentId = rating.myCommentId;
+            if (pendingScore == myScore) pendingScore = 0;
+        }
+        paintStars();
+        paintScoreAction();
+    }
+
+    // ---------- 参与评分 ----------
+
+    /** 星面：待提交分优先、否则本人已评分、再否则全灰。 */
+    private void paintStars() {
+        int shown = pendingScore > 0 ? pendingScore : Math.max(myScore, 0);
+        int filled = Math.round(shown / 2f);
+        for (int i = 0; i < starViews.length; i++) {
+            if (starViews[i] == null) continue;
+            starViews[i].setTextColor(i < filled ? 0xFFFFC53D : 0x59FFFFFF);
+        }
+    }
+
+    /** 状态/提交行：提交中／提交评分／修改评分／已评分／点击评分 五态。 */
+    private void paintScoreAction() {
+        TextView action = binding.hgSdScoreAction;
+        if (action == null) return;
+        if (scoreBusy) {
+            action.setText("提交中…");
+            action.setTextColor(0x99FFFFFF);
+        } else if (pendingScore > 0 && pendingScore != myScore) {
+            action.setText(myScore >= 0 ? "修改评分" : "提交评分");
+            action.setTextColor(0xFFFFC53D);
+        } else if (myScore >= 0) {
+            action.setText("已评分");
+            action.setTextColor(0xBFFFFFFF);
+        } else {
+            action.setText("点击评分");
+            action.setTextColor(0xBFFFFFFF);
+        }
+    }
+
+    private void submitScore() {
+        if (scoreBusy) return;
+        if (pendingScore <= 0 || pendingScore == myScore) {
+            if (myScore < 0) Toast.makeText(this, "请先选择打分等级", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (HgFeedSession.get().interactions.requiresLogin()) {
+            promptLogin();
+            return;
+        }
+        // 门槛在端上（官方同口径）：累计观看没到门槛不发请求
+        long watchedSec = HgStore.watchMsOf(seriesId) / 1000;
+        if (thresholdSec > 0 && watchedSec < thresholdSec) {
+            long remainMin = Math.max(1, (long) Math.ceil((thresholdSec - watchedSec) / 60.0));
+            Toast.makeText(this, "还需观看" + remainMin + "分钟才能评分", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        scoreBusy = true;
+        paintScoreAction();
+        final int score = pendingScore;
+        HgCallback<Void> cb = new HgCallback<Void>() {
+            @Override
+            public void onSuccess(Void v) {
+                mainHandler.post(() -> {
+                    scoreBusy = false;
+                    myScore = score;
+                    pendingScore = 0;
+                    paintStars();
+                    paintScoreAction();
+                    Toast.makeText(HongguoSeriesDetailActivity.this, "评分已提交", Toast.LENGTH_SHORT).show();
+                    loadReviews();
+                });
+            }
+
+            @Override
+            public void onError(int code, String msg) {
+                mainHandler.post(() -> {
+                    scoreBusy = false;
+                    paintScoreAction();
+                    if (code == HgCommentClient.CODE_NOT_LOGIN) {
+                        promptLogin();
+                        return;
+                    }
+                    Toast.makeText(HongguoSeriesDetailActivity.this, "评分没成功，再试试", Toast.LENGTH_SHORT).show();
+                });
+            }
+        };
+        if (myScore >= 0 && !myCommentId.isEmpty()) {
+            HgFeedSession.get().fqClient.updateScore(myCommentId, seriesId, score, watchedSec, cb);
+        } else {
+            HgFeedSession.get().fqClient.submitScore(seriesId, score, watchedSec, cb);
+        }
+    }
+
+    private void promptLogin() {
+        boolean delivered = com.fongmi.android.tv.login.LoginManager.loginHongguoDelivered();
+        if (!delivered) Toast.makeText(this, "登录界面暂时打不开，稍后再试", Toast.LENGTH_SHORT).show();
+    }
+
+    // ---------- 分享/更多 ----------
+
+    /** 系统分享：文案与集流页分享同口径（官方分享内容由服务端模型驱动、无客户端模板）。 */
+    private void shareSeries() {
+        String title = binding.hgSdTitle.getText() == null ? "" : binding.hgSdTitle.getText().toString().trim();
+        Intent send = new Intent(Intent.ACTION_SEND);
+        send.setType("text/plain");
+        send.putExtra(Intent.EXTRA_TEXT, title.isEmpty() ? "红果短剧" : "我在看《" + title + "》");
+        startActivity(Intent.createChooser(send, "分享"));
+    }
+
+    /** 更多小单：只放「不感兴趣」一项真功能（举报形态未验通不摆，见类头账）。 */
+    private void showMoreMenu() {
+        android.widget.PopupMenu menu = new android.widget.PopupMenu(this, binding.hgSdMore);
+        menu.getMenu().add(0, 1, 0, "不感兴趣");
+        menu.setOnMenuItemClickListener(item -> {
+            dislikeSeries();
+            return true;
+        });
+        menu.show();
+    }
+
+    private void dislikeSeries() {
+        // business.video_id＝当前在看集（断点集，没有就第一集，再没有传空串——
+        // 官方 UGC 分支即空串形状、服务端已受理）
+        String vid = "";
+        if (detail != null && !detail.getEpisodes().isEmpty()) {
+            HgStore.Progress p = HgStore.progressOf(seriesId);
+            int idx = p != null && p.episodeIndex > 0 ? p.episodeIndex - 1 : 0;
+            if (idx >= detail.getEpisodes().size()) idx = 0;
+            vid = detail.getEpisodes().get(idx).getVideoId();
+        }
+        HgFeedSession.get().fqClient.dislikeSeries(seriesId, vid, new HgCallback<Void>() {
+            @Override
+            public void onSuccess(Void v) {
+                mainHandler.post(() -> Toast.makeText(HongguoSeriesDetailActivity.this,
+                        "感谢反馈", Toast.LENGTH_SHORT).show());
+            }
+
+            @Override
+            public void onError(int code, String msg) {
+                mainHandler.post(() -> {
+                    if (code == HgCommentClient.CODE_NOT_LOGIN) {
+                        promptLogin();
+                        return;
+                    }
+                    Toast.makeText(HongguoSeriesDetailActivity.this,
+                            "反馈没成功，再试试", Toast.LENGTH_SHORT).show();
+                });
+            }
+        });
     }
 
     private final class ReviewAdapter extends RecyclerView.Adapter<ReviewAdapter.Holder> {

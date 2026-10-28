@@ -35,7 +35,7 @@ public class ThemeDialog extends BaseAlertDialog implements ThemeAdapter.OnClick
 
     @Override
     public void onItemClick(int color) {
-        ((Listener) requireParentFragment()).setTheme(color);
+        if (requireParentFragment() instanceof Listener listener) listener.setTheme(color);
         dismiss();
     }
 

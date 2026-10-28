@@ -249,7 +249,9 @@ public class ConfigDialog extends BaseAlertDialog {
         App.post(() -> {
             if (activity.isFinishing() || activity.isDestroyed()) return;
             dismissAllowingStateLoss();
-            App.post(() -> ((ConfigListener) activity).setConfig(saveConfig("file:/" + path.replace(Path.rootPath(), ""), binding.name.getText().toString().trim())), 100);
+            App.post(() -> {
+                if (activity instanceof ConfigListener listener) listener.setConfig(saveConfig("file:/" + path.replace(Path.rootPath(), ""), binding.name.getText().toString().trim()));
+            }, 100);
         }, 100);
     });
 }

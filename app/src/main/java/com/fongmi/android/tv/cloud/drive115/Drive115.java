@@ -524,21 +524,44 @@ public class Drive115 implements CloudDrive {
         for (int i = 0; i < arr.length(); i++) {
             JSONObject o = arr.optJSONObject(i);
             if (o == null) continue;
-            CloudFile f = new CloudFile();
-            // 115 返回：fid（文件）或 cid（目录）
-            boolean isDir = o.has("cid") && !o.has("fid");
-            f.setDir(isDir);
-            f.setId(isDir ? o.optString("cid") : o.optString("fid"));
-            f.setName(o.optString("n"));
-            f.setSize(o.optLong("s", 0));
-            f.setPickCode(o.optString("pc"));
-            f.setSha1(o.optString("sha"));
-            f.setIcon(o.optString("ico"));
-            if (!isDir) f.setThumbUrl(thumbOf(o));
+            CloudFile f = parseEntry(o);
             f.setParentCid(cid);
             files.add(f);
         }
         return files;
+    }
+
+    /**
+     * 回包条目解析（listDir/searchFiles 共用）：短键与长键两套方言都认。
+     * 短键＝PY 活口径（n/s/pc/sha/ico、fid/cid）；长键＝胖5 客户端在收的
+     * 形态（file_name/file_size/pick_code、fid/file_id）。服务端按请求
+     * 形态回哪套静态定不死，双认后哪套来了都不空表。parentCid 由调用方
+     * 按各自口径回填（列表＝请求 cid、搜索＝条目自带归属）。
+     * 文件判定：有 fid/file_id 即文件（搜索回包里文件的 cid 是其所在
+     * 目录、不是自身），否则有 cid 即目录——短键旧口径原样保留。
+     */
+    private static CloudFile parseEntry(JSONObject o) {
+        CloudFile f = new CloudFile();
+        String fid = o.optString("fid");
+        if (fid.isEmpty()) fid = o.optString("file_id");
+        boolean isDir = fid.isEmpty() && o.has("cid");
+        f.setDir(isDir);
+        f.setId(isDir ? o.optString("cid") : fid);
+        String name = o.optString("n");
+        if (name.isEmpty()) name = o.optString("file_name");
+        f.setName(name);
+        long size = o.optLong("s", 0);
+        if (size == 0) size = o.optLong("file_size", 0);
+        f.setSize(size);
+        String pc = o.optString("pc");
+        if (pc.isEmpty()) pc = o.optString("pick_code");
+        f.setPickCode(pc);
+        String sha = o.optString("sha");
+        if (sha.isEmpty()) sha = o.optString("sha1");
+        f.setSha1(sha);
+        f.setIcon(o.optString("ico"));
+        if (!isDir) f.setThumbUrl(thumbOf(o));
+        return f;
     }
 
     @Override
@@ -595,18 +618,9 @@ public class Drive115 implements CloudDrive {
         for (int i = 0; i < arr.length(); i++) {
             JSONObject o = arr.optJSONObject(i);
             if (o == null) continue;
-            CloudFile f = new CloudFile();
-            boolean isDir = o.has("cid") && !o.has("fid");
-            f.setDir(isDir);
-            f.setId(isDir ? o.optString("cid") : o.optString("fid"));
-            f.setName(o.optString("n"));
-            f.setSize(o.optLong("s", 0));
-            f.setPickCode(o.optString("pc"));
-            f.setSha1(o.optString("sha"));
-            f.setIcon(o.optString("ico"));
-            if (!isDir) f.setThumbUrl(thumbOf(o));
+            CloudFile f = parseEntry(o);
             // 结果不在当前目录下，parentCid 只能取结果项自带的归属，别沿用 listDir 的请求 cid
-            f.setParentCid(isDir ? o.optString("pid") : o.optString("cid"));
+            f.setParentCid(f.isDir() ? o.optString("pid") : o.optString("cid"));
             files.add(f);
         }
         try {
@@ -638,6 +652,59 @@ public class Drive115 implements CloudDrive {
             form.put((isDir ? "cid" : "fid") + "[" + i + "]", ids.get(i));
         }
         JSONObject d = reqJson("https://webapi.115.com/rb/delete", null, form, null, null);
+        return d.optBoolean("state", false);
+    }
+
+    /**
+     * 新建文件夹（webapi /files/add，胖5 files.rs 同名口）：pid＋cname。
+     * 回包 data 里带新目录的 cid/file_name，取不到就按入参回填（列表随后会刷新）。
+     * 参数与回包形状待新版装机首验（本机 cookie 已过期、拿不到真回包）。
+     */
+    @Override
+    public CloudFile createFolder(String parentId, String name) throws Exception {
+        Map<String, String> form = new HashMap<>();
+        form.put("pid", parentId == null ? "0" : parentId);
+        form.put("cname", name == null ? "" : name.trim());
+        JSONObject d = reqJson("https://webapi.115.com/files/add", null, form, null, null);
+        if (!d.optBoolean("state", false)) {
+            throw new Exception(d.optString("error", "新建文件夹失败"));
+        }
+        CloudFile f = new CloudFile();
+        f.setDir(true);
+        JSONObject data = d.optJSONObject("data");
+        String cid = data == null ? "" : data.optString("cid");
+        if (cid.isEmpty()) cid = d.optString("cid");
+        f.setId(cid);
+        String rn = data == null ? "" : data.optString("file_name");
+        f.setName(rn.isEmpty() ? (name == null ? "" : name.trim()) : rn);
+        f.setParentCid(parentId == null ? "0" : parentId);
+        return f;
+    }
+
+    /** 重命名（webapi /files/edit）：文件用 fid、目录用 cid（与 delete 的键口径同），新名走 file_name。待装机首验。 */
+    public boolean rename(CloudFile file, String newName) throws Exception {
+        Map<String, String> form = new HashMap<>();
+        form.put(file.isDir() ? "cid" : "fid", file.getId());
+        form.put("file_name", newName == null ? "" : newName.trim());
+        JSONObject d = reqJson("https://webapi.115.com/files/edit", null, form, null, null);
+        return d.optBoolean("state", false);
+    }
+
+    /** 移动（webapi /files/move）：pid 是目标目录，条目键与 delete 同口径。待装机首验。 */
+    public boolean move(CloudFile file, String targetCid) throws Exception {
+        Map<String, String> form = new HashMap<>();
+        form.put("pid", targetCid == null ? "0" : targetCid);
+        form.put((file.isDir() ? "cid" : "fid") + "[0]", file.getId());
+        JSONObject d = reqJson("https://webapi.115.com/files/move", null, form, null, null);
+        return d.optBoolean("state", false);
+    }
+
+    /** 复制（webapi /files/copy）：形态与 move 同，只换口。待装机首验。 */
+    public boolean copy(CloudFile file, String targetCid) throws Exception {
+        Map<String, String> form = new HashMap<>();
+        form.put("pid", targetCid == null ? "0" : targetCid);
+        form.put((file.isDir() ? "cid" : "fid") + "[0]", file.getId());
+        JSONObject d = reqJson("https://webapi.115.com/files/copy", null, form, null, null);
         return d.optBoolean("state", false);
     }
 

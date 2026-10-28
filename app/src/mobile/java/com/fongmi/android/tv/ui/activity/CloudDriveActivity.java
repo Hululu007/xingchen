@@ -283,6 +283,9 @@ public class CloudDriveActivity extends BaseActivity {
             if (file.isDir()) {
                 dialog.dismiss();
                 openDirFromSearch(file);
+            } else if (file.isAudio()) {
+                dialog.dismiss();
+                playAudio(file);
             } else if (file.isVideo()) {
                 // 他定的规矩「在哪点开视频，回来还是在哪里」：点视频不关弹窗，
                 // 播放页盖在弹窗上头，看完返回弹窗还在——关键词、结果、滚动位置都原样
@@ -717,7 +720,7 @@ public class CloudDriveActivity extends BaseActivity {
         updateDriveInfo();
         // 流畅度 D5（他拍板「我在哪点开视频的，回来还是在哪里」）：纯从播放/子页返回不再重拉目录——
         // 已加载的页数与滚动位置原样保留，只刷顶部会员信息（L-15 的这一半保留在 updateDriveInfo）。
-        // 只有页内数据动作（长按删除/离线提交/转存成功/新建文件夹）在离开期间完成的，
+        // 只有页内数据动作（长按管理/离线提交/转存成功/新建文件夹）在离开期间完成的，
         // 才经 markResumeRefresh 标记、回来全量重拉（那种情况数据真变了，位置让位于正确性）。
         if (resumeRefresh) fetchFiles();
     }
@@ -783,13 +786,14 @@ public class CloudDriveActivity extends BaseActivity {
     }
 
     /**
-     * 展示过滤（他定的两条口径，文件列表与搜索结果共用）：
-     * 只留文件夹＋视频；视频里大小在 30MB 以内的短片直接藏掉（治短视频广告，「广告没有这么大」）。
+     * 展示过滤（文件列表与搜索结果共用）：全类型可见（2026-10-28 做全口径——
+     * 文档/图片/压缩包/音频都列，非视频走长按管理动作）；他定的视频口径保留：
+     * 大小在 30MB 以内的短视频直接藏掉（治短视频广告，「广告没有这么大」）。
      * 大小取不到/为 0 的视频不藏，免得误伤字段缺失的正常文件。文件夹永远不受影响。
      */
     private static boolean visibleInList(CloudFile f) {
         if (f.isDir()) return true;
-        if (!f.isVideo()) return false;
+        if (!f.isVideo()) return true;
         return f.getSize() <= 0 || f.getSize() > MIN_VIDEO_SIZE;
     }
 
@@ -825,7 +829,7 @@ public class CloudDriveActivity extends BaseActivity {
                     int added = 0;
                     if (result != null) {
                         fetchedCount = append ? fetchedCount + result.size() : result.size();
-                        // 展示口径（他定的）：只显文件夹＋大于 30MB 的视频（visibleInList）。
+                        // 展示口径：全类型可见，只藏 30MB 以内的短视频（visibleInList）。
                         // 过滤只在组装展示处做，不动各 Drive 的 listDir；分页 offset 与 hasMore 都按原始条数算，
                         // 免得一页全是被过滤的文件时被误判成到底、把后面的视频漏掉。
                         for (CloudFile f : result) if (visibleInList(f)) {
@@ -1016,10 +1020,106 @@ public class CloudDriveActivity extends BaseActivity {
     }
 
     /**
+     * 文件管理动作单（长按、或非视频/音频文件点击）：按能力给项，不给点了才失败的空项。
+     * 播放只对视频/音频给；重命名/移动/复制目前只有 115 有口（Drive115），其余网盘不显示；
+     * 删除三家都有。
+     */
+    private void showFileActions(CloudFile file) {
+        List<String> actions = new ArrayList<>();
+        if (file.isVideo() || file.isAudio()) actions.add("播放");
+        boolean is115 = drive != null && Drive115.ID.equals(drive.getId());
+        if (is115) {
+            actions.add("重命名");
+            actions.add("移动到…");
+            actions.add("复制到…");
+        }
+        actions.add("删除");
+        String[] items = actions.toArray(new String[0]);
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(file.getName())
+                .setItems(items, (d, which) -> {
+                    String action = actions.get(which);
+                    if ("播放".equals(action)) {
+                        if (file.isVideo()) playFile(file);
+                        else playAudio(file);
+                    } else if ("重命名".equals(action)) showRenameDialog(file);
+                    else if ("移动到…".equals(action)) showMoveOrCopyPicker(file, false);
+                    else if ("复制到…".equals(action)) showMoveOrCopyPicker(file, true);
+                    else if ("删除".equals(action)) confirmDelete(file);
+                })
+                .create();
+        MusicGlassDialogs.attach(dialog);
+        dialog.show();
+    }
+
+    private void showRenameDialog(CloudFile file) {
+        EditText input = makeInput("新名称");
+        input.setText(file.getName());
+        input.setSelection(input.getText().length());
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("重命名")
+                .setView(input)
+                .setPositiveButton("确定", (d, w) -> {
+                    String name = input.getText().toString().trim();
+                    if (name.isEmpty()) {
+                        Notify.show("名称不能为空");
+                        return;
+                    }
+                    if (name.equals(file.getName())) return;
+                    doRename(file, name);
+                })
+                .setNegativeButton("取消", null)
+                .create();
+        MusicGlassDialogs.attach(dialog);
+        keepDialogStill(dialog);
+        dialog.show();
+    }
+
+    private void doRename(CloudFile file, String newName) {
+        new Thread(() -> {
+            try {
+                boolean ok = ((Drive115) drive).rename(file, newName);
+                runOnUiThread(() -> {
+                    Notify.show(ok ? "已重命名" : "重命名失败");
+                    if (ok) refreshAfterDataChange();
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> Notify.show("重命名失败：" + msg(e)));
+            }
+        }).start();
+    }
+
+    /** 移动/复制的目标选择：复用文件夹选择器，但不写「保存到」的记忆（那是转存/离线的口径）。 */
+    private void showMoveOrCopyPicker(CloudFile file, boolean copy) {
+        TargetFolder target = new TargetFolder(rootCid, "根目录");
+        showFolderPicker(target, () -> doMoveOrCopy(file, target.cid, copy),
+                copy ? "复制到这里" : "移动到这里", false);
+    }
+
+    private void doMoveOrCopy(CloudFile file, String targetCid, boolean copy) {
+        if (!copy && targetCid != null && targetCid.equals(file.getParentCid())) {
+            Notify.show("已经在这个文件夹里了");
+            return;
+        }
+        new Thread(() -> {
+            try {
+                boolean ok = copy ? ((Drive115) drive).copy(file, targetCid)
+                        : ((Drive115) drive).move(file, targetCid);
+                runOnUiThread(() -> {
+                    Notify.show(ok ? (copy ? "已复制" : "已移动") : (copy ? "复制失败" : "移动失败"));
+                    if (ok) refreshAfterDataChange();
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> Notify.show((copy ? "复制失败：" : "移动失败：") + msg(e)));
+            }
+        }).start();
+    }
+
+    /**
      * FAB 菜单按各家 drive 的真实能力建，不支持的入口直接不显示，不再先给入口、点了才弹失败：
      * 离线下载：115／PikPak 实现，夸克恒抛 → 夸克不显示；
      * 转存分享链接：三家均已实现（115 待真机首验；夸克本批按 sharepage 口径补齐、待真机首验；PikPak 已验实现）→ 三家都显示；
-     * 新建文件夹：只有 PikPak 覆盖 createFolder（DrivePikPak:731），115／夸克走 CloudDrive 默认实现恒抛 → 只 PikPak 显示；
+     * 新建文件夹：PikPak 已实现、115 本批补 /files/add（待真机首验），夸克走默认实现恒抛 → 夸克不显示；
      * 离线任务：115／PikPak 的 taskList 已实现，夸克 taskList 返回空表、taskDelete 恒抛 → 夸克不显示。
      */
     private List<String> fabActions() {
@@ -1027,9 +1127,10 @@ public class CloudDriveActivity extends BaseActivity {
         String id = drive == null ? "" : drive.getId();
         boolean isQuark = DriveQuark.ID.equals(id);
         boolean isPikPak = DrivePikPak.ID.equals(id);
+        boolean is115 = Drive115.ID.equals(id);
         if (!isQuark) actions.add("离线下载");
         actions.add("转存分享链接");
-        if (isPikPak) actions.add("新建文件夹");
+        if (isPikPak || is115) actions.add("新建文件夹");
         if (!isQuark) actions.add("离线任务");
         return actions;
     }
@@ -1401,6 +1502,15 @@ public class CloudDriveActivity extends BaseActivity {
      * 形态随文件页弹窗口径：MusicGlassDialogs 玻璃壳（深面白字）＋压小窗口（复用离线任务的压小法）。
      */
     private void showFolderPicker(TargetFolder target, Runnable onChanged) {
+        showFolderPicker(target, onChanged, "就存这里", true);
+    }
+
+    /**
+     * 文件夹选择器本体：positiveText 是定选钮文案；remember=true 时定选写
+     * 「保存到」记忆（转存/离线口径），移动/复制传 false 不污染那份记忆。
+     */
+    private void showFolderPicker(TargetFolder target, Runnable onChanged,
+                                  String positiveText, boolean remember) {
         FolderPickerState st = new FolderPickerState();
         st.path.add(new Crumb(rootCid, "根目录"));
         if (!target.cid.equals(rootCid)) st.path.add(new Crumb(target.cid, target.name));
@@ -1424,14 +1534,17 @@ public class CloudDriveActivity extends BaseActivity {
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("选择文件夹")
                 .setView(layout)
-                .setPositiveButton("就存这里", (d, w) -> {
+                .setPositiveButton(positiveText, (d, w) -> {
                     Crumb top = st.path.get(st.path.size() - 1);
                     target.cid = top.cid;
                     target.name = top.name;
-                    // 落盘时点定在这里：点「就存这里」选定即记（按网盘分开），下次打开弹窗默认就是它；
+                    // 落盘时点定在这里：点定选钮选定即记（按网盘分开），下次打开弹窗默认就是它；
                     // 选择器「打开在上次所选处」用的就是同一个 target，记忆只有这一份，不打架。
-                    Prefers.put(PREF_SAVE_CID + drive.getId(), target.cid);
-                    Prefers.put(PREF_SAVE_NAME + drive.getId(), target.name);
+                    // 移动/复制是借用选择器（remember=false），不许动这份记忆。
+                    if (remember) {
+                        Prefers.put(PREF_SAVE_CID + drive.getId(), target.cid);
+                        Prefers.put(PREF_SAVE_NAME + drive.getId(), target.name);
+                    }
                     onChanged.run();
                 })
                 .setNegativeButton("取消", null)
@@ -1789,10 +1902,10 @@ public class CloudDriveActivity extends BaseActivity {
                 if (file.isDir()) openDir(file);
                 else if (file.isVideo()) playFile(file);
                 else if (file.isAudio()) playAudio(file);
-                else Notify.show("暂不支持打开该文件类型");
+                else showFileActions(file);
             });
             h.itemView.setOnLongClickListener(v -> {
-                confirmDelete(file);
+                showFileActions(file);
                 return true;
             });
         }

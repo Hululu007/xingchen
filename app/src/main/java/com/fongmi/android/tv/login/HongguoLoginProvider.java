@@ -12,25 +12,20 @@ import com.fongmi.android.tv.cloud.CloudAccountStore;
  * 凭证由 {@link com.fongmi.android.tv.hongguo.api.HgLoginAuthProvider} 回填给
  * 红果接口客户端（HgApiClient 的 HgAuthProvider 注入点）。
  * <p>
- * 登录本体（2026-10-28 换网页登录路）：原生短信链已判死——passport 请求
- * 缺 TTNet 原生签名头（libmetasec_ml），咱们直发被 403（证据账
- * ~/workspace/hongguo/passport-login-dig.md、app-study §12.2/U11），
- * 原生短信弹窗与 passport 客户端已整删，不留两套。
- * 改走壳子统一登录弹窗（PanLoginDialog）在红果短剧网页版完成登录。
- * 网址定版（2026-10-28 他点名纠正后实查，账 audit-1455-identical.md）：
- * 红果自家网页版是 hongguoduanju.com——页脚备案京ICP备2021028909号-43
- * 主体北京笔墨留香科技有限公司（与 App 同主体同备案号段）、静态资源走
- * fqnovelstatic 的 apps/hongguo 路径、海报走 byteimg，是字节自家物业；
- * 登录为页内弹框（手机号＋短信验证码／App 扫码两路）。此前接的番茄
- * fanqienovel.com 是助手误判（只因同账号系就当唯一入口），已撤；
- * 搜索里盛传的 hongguo.com 域名根本不解析，是引流假站，不许再用。
- * 弹窗按 COOKIE_DOMAIN 整域抓取 Cookie 串落本托管槽位，HgApiClient
- * 拼头处以登录 Cookie 覆盖游客 Cookie（接缝在 HgLoginAuthProvider，
- * 本类零感知）。
+ * 登录本体（2026-10-28 复活原生短信链）：全链原生——原生弹窗
+ * （HongguoSmsLoginDialog，手机号＋验证码＋协议勾选）＋原生 passport
+ * 请求链（HgPassportClient：HgDevice 注册档案＋HgSign 签名）。
+ * 当年判死的 403 已由探针定根为两道门（随机假设备号未注册＋无签名头），
+ * 现行栈两道全过（证据账 ~/workspace/hongguo/login-route-dig-20261028.md）。
+ * 网页登录路（hongguoduanju.com、番茄 fanqienovel.com）已按他亲令整撤：
+ * 本提供方不再持任何网页登录地址/抓取域，不留 WebView 登录或兜底路径。
+ * 登录产出的会话串（Set-Cookie 优先、data.session_key 组 sessionid 兜底）
+ * 由弹窗经 LoginManager 落本托管槽位，HgApiClient 拼头处以登录 Cookie
+ * 覆盖游客 Cookie（接缝在 HgLoginAuthProvider，本类零感知）。
  * <p>
- * 未验项（如实）：网页登录实际种哪些 Cookie、网页会话带到已签名
- * fqnovel/bookapi 链后账号维度接口认不认账，只能等他本人在弹窗里用
- * 手机号＋短信验证码真登一次定（账内 U-web1/U-web2）。
+ * 未验项（如实）：登录成功回包→会话落盘、原生会话在 bookapi 账号面
+ * 认不认账，只能等他本人用真号在弹窗里走完一次首登定（登录后第一验
+ * HgLoginSessionCheck 会把 account/info 与书架两口的回包形状记进日志）。
  * <p>
  * 有效性判定口径：会话 Cookie 的身份键是 sessionid / sessionid_ss
  * （字节 passport 通行命名），任一非空才算登录成立；只做格式判定，不预判
@@ -40,12 +35,6 @@ public class HongguoLoginProvider implements LoginProvider {
 
     /** 提供方 id。 */
     public static final String ID = "hongguo";
-
-    /** 网页登录入口：红果短剧网页版首页（页内点「登录/注册」弹框登录）。 */
-    public static final String LOGIN_URL = "https://hongguoduanju.com/";
-
-    /** 登录 Cookie 抓取域（PanLoginDialog 按此域读 CookieManager 全量串）。 */
-    public static final String COOKIE_DOMAIN = "hongguoduanju.com";
 
     @Override
     public String id() {

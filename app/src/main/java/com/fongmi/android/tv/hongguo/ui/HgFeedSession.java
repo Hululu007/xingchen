@@ -7,8 +7,10 @@ import com.fongmi.android.tv.hongguo.api.HgApiClient;
 import com.fongmi.android.tv.hongguo.api.HgCallback;
 import com.fongmi.android.tv.hongguo.api.HgModelCache;
 import com.fongmi.android.tv.hongguo.api.HgPrefetcher;
+import com.fongmi.android.tv.hongguo.model.HgParser;
 import com.fongmi.android.tv.hongguo.model.HgSeriesDetail;
 import com.fongmi.android.tv.hongguo.model.HgSeriesItem;
+import com.fongmi.android.tv.hongguo.model.HgVideoModel;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
@@ -231,6 +233,7 @@ public final class HgFeedSession {
     }
 
     private void applyClip(int position, HgFeedItem head, HgSeriesDetail detail) {
+        seedUgcModel(detail);
         String title = detail != null && detail.getTitle() != null ? detail.getTitle() : head.title;
         HgStore.putMeta(head.seriesId, title,
                 detail != null && detail.getCoverUrl() != null ? detail.getCoverUrl() : head.coverUrl,
@@ -323,7 +326,22 @@ public final class HgFeedSession {
         });
     }
 
+    /**
+     * UGC 单条视频的随详情 model 灌缓存：动态视频的 model 装在详情里
+     * （UgcVideoDetail.video_model）、单集取模型口对它回 101000——展开
+     * 定形态时先把 model 按集 vid 入缓存，解链器命中缓存直接起播。
+     */
+    private void seedUgcModel(HgSeriesDetail detail) {
+        if (detail == null || detail.getUgcVideoModel() == null) return;
+        for (HgSeriesDetail.Episode ep : detail.getEpisodes()) {
+            HgVideoModel m = HgParser.parseUgcVideoModel(detail.getUgcVideoModel(),
+                    ep.getVideoId(), detail.getUgcVideoWidth(), detail.getUgcVideoHeight());
+            if (m != null) cache.put(ep.getVideoId(), m);
+        }
+    }
+
     private void applyDetail(int position, HgFeedItem head, HgSeriesDetail detail) {
+        seedUgcModel(detail);
         String title = detail != null && detail.getTitle() != null ? detail.getTitle() : head.title;
         // 元信息顺手落盘：追更/收藏/历史列表页靠它显示标题封面（不另拉接口）
         HgStore.putMeta(head.seriesId, title,

@@ -94,7 +94,54 @@ public class HongguoAuthorActivity extends BaseActivity {
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private String uid;
     private boolean followBusy;
+    private boolean ugcOpening;
     private HgUserProfile profile;
+
+    /** 当前是否停在作品签的动态子档（tab_type=5：UGC 视频＋帖子）。 */
+    private boolean isDynamicTab() {
+        if (tab != TAB_WORKS || subIndex < 0 || subIndex >= subs.size()) return false;
+        return subs.get(subIndex).tabType == 5;
+    }
+
+    /**
+     * 动态 UGC 视频点播：先按官方 UGC 口径（source=17）拉批量详情，
+     * 详情自带 video_model 就灌进会话模型缓存，再以该 vid 为「剧」进
+     * 集流单播放器面（详情在解析层成唯一一集、解链命中缓存起播）。
+     * 预拉失败也照常进页——页内展开会再拉单剧详情、同口径回填模型，
+     * 两路都断才落到页面的取链失败态，不在作者页堵死。
+     */
+    private void openUgcVideo(HgAuthorWork work) {
+        String vid = work.id;
+        if (vid == null || vid.isEmpty() || ugcOpening) return;
+        ugcOpening = true;
+        HgFeedSession session = HgFeedSession.get();
+        session.client.fetchUgcVideoDetail(vid, new HgCallback<com.fongmi.android.tv.hongguo.model.HgSeriesDetail>() {
+            @Override
+            public void onSuccess(com.fongmi.android.tv.hongguo.model.HgSeriesDetail detail) {
+                mainHandler.post(() -> {
+                    ugcOpening = false;
+                    if (detail != null && detail.getUgcVideoModel() != null) {
+                        com.fongmi.android.tv.hongguo.model.HgVideoModel m =
+                                com.fongmi.android.tv.hongguo.model.HgParser.parseUgcVideoModel(
+                                        detail.getUgcVideoModel(), vid,
+                                        detail.getUgcVideoWidth(), detail.getUgcVideoHeight());
+                        if (m != null) session.cache.put(vid, m);
+                    }
+                    HongguoFeedActivity.startSeries(HongguoAuthorActivity.this,
+                            vid, work.title, work.cover, uid);
+                });
+            }
+
+            @Override
+            public void onError(int code, String msg) {
+                mainHandler.post(() -> {
+                    ugcOpening = false;
+                    HongguoFeedActivity.startSeries(HongguoAuthorActivity.this,
+                            vid, work.title, work.cover, uid);
+                });
+            }
+        });
+    }
 
     private HgAuthorWorksAdapter adapter;
     private int tab = TAB_WORKS;
@@ -149,9 +196,18 @@ public class HongguoAuthorActivity extends BaseActivity {
         buildChips();
 
         adapter = new HgAuthorWorksAdapter(work -> {
-            // 剧评行与帖子卡只展示：剧评无独立去处、帖子官方去帖子详情页
-            // （咱家未做此页，见汇总账），不摆假跳转；视频/剧作卡进剧播放
+            // 剧评行只展示（无独立去处，不摆假跳转）；帖子卡进帖子详情页；
+            // 动态（tab_type=5）的视频卡是 UGC 单条视频、走 UGC 取链；
+            // 剧作/收藏/点赞的视频卡进剧播放
+            if (work.kind == HgAuthorWork.KIND_POST) {
+                HongguoPostActivity.start(this, work, uid);
+                return;
+            }
             if (work.kind != HgAuthorWork.KIND_VIDEO) return;
+            if (isDynamicTab() && work.seriesId.isEmpty()) {
+                openUgcVideo(work);
+                return;
+            }
             String sid = work.playSeriesId();
             if (sid == null || sid.isEmpty()) return;
             HongguoFeedActivity.startSeries(this, sid, work.title, work.cover);

@@ -1599,6 +1599,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         ui.removeCallbacks(ticker);
         ui.removeCallbacks(hideChromeRunnable);
         ui.removeCallbacks(hideFsRunnable);
+        ui.removeCallbacks(hideRefreshHintRunnable);
         saveProgress();
         if (playerView != null) playerView.setPlayer(null);
         if (engine != null) {

@@ -60,7 +60,7 @@ public class AudioBookActivity extends Activity implements ServiceConnection {
     private TextView tvTitle, tvChapter, tvPos, tvDur;
     private android.widget.LinearLayout tvSpeedVal, tvTimerVal;
     private android.widget.SeekBar seekBar;
-    private TextView btnPlay;
+    private android.widget.ImageView btnPlay;
     private android.widget.LinearLayout voiceRow;
     private boolean seeking;
     private int speedIndex = 1;
@@ -416,7 +416,17 @@ public class AudioBookActivity extends Activity implements ServiceConnection {
         ctrls.setPadding(0, dp(20), 0, 0);
         TextView prev = ctrlCircle("⏮", dp(60), false);
         prev.setOnClickListener(v -> playDelta(-1));
-        btnPlay = ctrlCircle("⏸", dp(88), true);
+        btnPlay = new android.widget.ImageView(this);
+        btnPlay.setLayoutParams(new android.widget.LinearLayout.LayoutParams(
+                dp(88), dp(88)));
+        btnPlay.setPadding(dp(26), dp(26), dp(26), dp(26));
+        btnPlay.setBackground(ReadingSkin.goldCircle(this));
+        btnPlay.setImageResource(R.drawable.ic_music_pause);
+        btnPlay.setImageTintList(android.content.res.ColorStateList.valueOf(0xFF0A2115));
+        try {
+            btnPlay.setElevation(dp(8));
+        } catch (Throwable ignored) {
+        }
         btnPlay.setOnClickListener(v -> toggle());
         TextView next = ctrlCircle("⏭", dp(60), false);
         next.setOnClickListener(v -> playDelta(1));
@@ -918,7 +928,8 @@ public class AudioBookActivity extends Activity implements ServiceConnection {
                     }
                     tvPos.setText(fmt(pos));
                     tvDur.setText(fmt(dur));
-                    btnPlay.setText(player().isPlaying() ? "⏸" : "▶");
+                    btnPlay.setImageResource(player().isPlaying()
+                            ? R.drawable.ic_music_pause : R.drawable.ic_music_play);
                     // 迷你条：播放状态变化上报（恢复播放取消 10 秒计时）
                     try {
                         ListenMiniBar.get(AudioBookActivity.this)

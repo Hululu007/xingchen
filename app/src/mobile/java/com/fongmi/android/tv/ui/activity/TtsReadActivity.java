@@ -96,7 +96,7 @@ public class TtsReadActivity extends Activity
 
     private TextView tvChapter, tvSeg, tvPos, tvDur, tvSpeed, tvTimer, tvVoice;
     private SeekBar seekBar;
-    private TextView btnPlay;
+    private android.widget.ImageView btnPlay;
     // 正文跟读：整章段拼接显示、当前段高亮
     private android.widget.ScrollView bodyScroll;
     private TextView tvBody;
@@ -523,11 +523,10 @@ public class TtsReadActivity extends Activity
         prev.setOnClickListener(v -> jumpChapter(-1));
         TextView next = ctrlButton("⏭");
         next.setOnClickListener(v -> jumpChapter(1));
-        btnPlay = new TextView(this);
-        btnPlay.setText("⏸");
-        btnPlay.setTextSize(30);
-        btnPlay.setTextColor(0xFF0C2B33);
-        btnPlay.setGravity(Gravity.CENTER);
+        btnPlay = new android.widget.ImageView(this);
+        btnPlay.setPadding(dp(18), dp(18), dp(18), dp(18));
+        btnPlay.setImageResource(R.drawable.ic_music_pause);
+        btnPlay.setImageTintList(android.content.res.ColorStateList.valueOf(0xFF0C2B33));
         android.graphics.drawable.GradientDrawable disc =
                 new android.graphics.drawable.GradientDrawable();
         disc.setShape(android.graphics.drawable.GradientDrawable.OVAL);
@@ -1160,7 +1159,8 @@ public class TtsReadActivity extends Activity
                     }
                     tvPos.setText(fmt(pos));
                     tvDur.setText(fmt(dur));
-                    btnPlay.setText(player().isPlaying() ? "⏸" : "▶");
+                    btnPlay.setImageResource(player().isPlaying()
+                            ? R.drawable.ic_music_pause : R.drawable.ic_music_play);
                     // 迷你条：播放状态变化上报（恢复播放取消 10 秒计时）
                     try {
                         ListenMiniBar.get(TtsReadActivity.this)

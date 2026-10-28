@@ -122,9 +122,9 @@ public class HgOfflineTest {
         //    数据是真的、只换外层包法，验新解析器吃得对不对。
         {
             // §23 预约分档参数（官方 GetUserSubscribeListRequest.is_online）
-            java.util.Map<String, String> on = HgRequests.subscribeListParams(0, true);
-            java.util.Map<String, String> off = HgRequests.subscribeListParams(50, false);
-            java.util.Map<String, String> legacy = HgRequests.subscribeListParams(0);
+            java.util.Map<String, String> on = com.fongmi.android.tv.hongguo.api.HgRequests.subscribeListParams(0, true);
+            java.util.Map<String, String> off = com.fongmi.android.tv.hongguo.api.HgRequests.subscribeListParams(50, false);
+            java.util.Map<String, String> legacy = com.fongmi.android.tv.hongguo.api.HgRequests.subscribeListParams(0);
             check("§23 is_online 参数形态", "true".equals(on.get("is_online"))
                     && "false".equals(off.get("is_online"))
                     && "1".equals(on.get("tab_type")) && "50".equals(on.get("limit"))
@@ -669,14 +669,14 @@ public class HgOfflineTest {
         {
             // §24 数字格式（官方 o6 的 (计数, 单位) 对拼法：万以下无单位、
             // 万起 x.x万；亿界未抠到不猜、按万进位）
-            check("§24 数字万以下直显", "9999".equals(HgFormat.countUnit(9999)[0])
-                    && "".equals(HgFormat.countUnit(9999)[1]), null);
-            check("§24 数字万级一位小数", "1.0".equals(HgFormat.countUnit(10000)[0])
-                    && "万".equals(HgFormat.countUnit(10000)[1])
-                    && "12.3".equals(HgFormat.countUnit(123456)[0]), null);
-            check("§24 数字负数与零", "0".equals(HgFormat.countUnit(0)[0])
-                    && "".equals(HgFormat.countUnit(-5)[1]), null);
-            String line = HgFormat.countLine(23456);
+            check("§24 数字万以下直显", "9999".equals(com.fongmi.android.tv.hongguo.HgFormat.countUnit(9999)[0])
+                    && "".equals(com.fongmi.android.tv.hongguo.HgFormat.countUnit(9999)[1]), null);
+            check("§24 数字万级一位小数", "1.0".equals(com.fongmi.android.tv.hongguo.HgFormat.countUnit(10000)[0])
+                    && "万".equals(com.fongmi.android.tv.hongguo.HgFormat.countUnit(10000)[1])
+                    && "12.3".equals(com.fongmi.android.tv.hongguo.HgFormat.countUnit(123456)[0]), null);
+            check("§24 数字负数与零", "0".equals(com.fongmi.android.tv.hongguo.HgFormat.countUnit(0)[0])
+                    && "".equals(com.fongmi.android.tv.hongguo.HgFormat.countUnit(-5)[1]), null);
+            String line = com.fongmi.android.tv.hongguo.HgFormat.countLine(23456);
             check("§24 countLine 拼整串", "2.3万".equals(line), "实际=" + line);
         }
 

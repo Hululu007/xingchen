@@ -50,6 +50,8 @@ public final class HgSubscribeRecallDialog {
 
     public static void show(Activity activity, List<HgSeriesItem> items, Listener listener) {
         if (activity == null || items == null || items.isEmpty()) return;
+        // 双保险：宿主已收尾/已销毁时 show 必抛 BadToken，调用方已双判、此处再守一道
+        if (activity.isFinishing() || activity.isDestroyed()) return;
         DialogHongguoSubscribeRecallBinding binding =
                 DialogHongguoSubscribeRecallBinding.inflate(LayoutInflater.from(activity));
         BottomSheetDialog dialog = new BottomSheetDialog(activity);

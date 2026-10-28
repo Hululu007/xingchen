@@ -2813,7 +2813,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             public void onSuccess(List<HgSeriesItem> list) {
                 runOnUiThread(() -> {
                     recallChecking = false;
-                    if (list == null || isFinishing()) return;
+                    if (list == null || isFinishing() || isDestroyed()) return;
                     java.util.List<String> onlineIds = new java.util.ArrayList<>();
                     java.util.Map<String, HgSeriesItem> byId = new HashMap<>();
                     for (HgSeriesItem s : list) {
@@ -2833,7 +2833,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                     HgStore.addRecallPrompted(freshIds);
                     List<HgSeriesItem> fresh = new java.util.ArrayList<>();
                     for (String id : freshIds) fresh.add(byId.get(id));
-                    if (mode != MODE_FEED || mineShowing || isFinishing()) return;
+                    if (mode != MODE_FEED || mineShowing || isFinishing() || isDestroyed()) return;
                     HgSubscribeRecallDialog.show(HongguoFeedActivity.this, fresh,
                             new HgSubscribeRecallDialog.Listener() {
                                 @Override

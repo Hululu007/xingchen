@@ -63,6 +63,9 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         /** 集流作者行关注钮：只在未关注时亮，点击＝关注作者（取关走作者页）。 */
         void onAuthorFollow(int position);
 
+        /** 「从第1集开始看」引导筹：回第一集从头播（不走断点）。 */
+        void onStartFromFirst(int position);
+
         void onRetry(int position);
 
         void onHolderBound(Holder holder, int position);
@@ -260,6 +263,14 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
             b.hgStatement.setText("ⓘ 作者声明：" + item.statement);
         } else {
             b.hgStatement.setVisibility(View.GONE);
+        }
+        // 「从第1集开始看」引导筹（官方触发链定版）：集流里、本剧断点集
+        // 数大于 1 才出——断点在第一集或没断点都不出
+        if (seriesMode && item.episodeIndex > 0) {
+            HgStore.Progress bp = HgStore.progressOf(item.seriesId);
+            b.hgGuideChip.setVisibility(bp != null && bp.episodeIndex > 1 ? View.VISIBLE : View.GONE);
+        } else {
+            b.hgGuideChip.setVisibility(View.GONE);
         }
         applyCatalogMode(b);
         b.hgSeriesText.setText(seriesMode ? item.seriesCatalogText() : item.seriesBarText());
@@ -481,6 +492,7 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         b.hgAuthorRow.setOnClickListener(v -> host.onAuthor(holder.getBindingAdapterPosition()));
         b.hgFollowBtn.setOnClickListener(v -> host.onAuthorFollow(holder.getBindingAdapterPosition()));
         b.hgEpTitleRow.setOnClickListener(v -> host.onSeriesBar(holder.getBindingAdapterPosition()));
+        b.hgGuideChip.setOnClickListener(v -> host.onStartFromFirst(holder.getBindingAdapterPosition()));
         b.hgReserve.setOnClickListener(v -> host.onAction(holder.getBindingAdapterPosition(), Action.RESERVE));
         b.hgSeriesBar.setOnClickListener(v -> host.onSeriesBar(holder.getBindingAdapterPosition()));
         b.hgDanmakuBox.setOnClickListener(v -> host.onDanmakuPublish(holder.getBindingAdapterPosition()));

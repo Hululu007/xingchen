@@ -1626,6 +1626,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         HgStore.setAuthorFollowed(uid, true);
         adapter.notifyItemChanged(position);
         session.fqClient.doFollowAction(true, uid, new HgCallback<Void>() {
+
             @Override
             public void onSuccess(Void result) {
             }
@@ -1642,6 +1643,25 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                 });
             }
         });
+    }
+
+    /**
+     * 「从第1集开始看」引导筹点击：回本剧第一集、从 0 起播（不走断点）。
+     * 已在第一集页时直接 seek 回 0；跳页时借 play() 的 pendingSeekMs
+     * 一次性口径（与清晰度切换续播同机制）压掉断点定位。
+     */
+    @Override
+    public void onStartFromFirst(int position) {
+        if (mode != MODE_SERIES || position < 0 || position >= session.items.size()) return;
+        HgFeedItem item = session.items.get(position);
+        int target = findEpisodePosition(item.seriesId, 1);
+        if (target < 0) return;
+        if (target == currentPos) {
+            if (player != null) player.seekTo(0);
+            return;
+        }
+        pendingSeekMs = 0;
+        jumpTo(target);
     }
 
     /**

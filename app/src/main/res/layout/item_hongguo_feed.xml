@@ -241,6 +241,44 @@
         android:layout_marginBottom="50dp"
         android:orientation="vertical">
 
+        <!-- 返回指定集引导筹（官方 ctm 定版：高 24dp、底 #33FFFFFF 圆角
+             8dp、图标 16dp、文案 12sp 白、尾箭头 10dp）：本剧有断点且断点
+             集不在第一集时才出（官方触发链定版），文案串「从第1集开始看」，
+             点它回第一集从头播；只集流模式出 -->
+        <LinearLayout
+            android:id="@+id/hg_guide_chip"
+            android:layout_width="wrap_content"
+            android:layout_height="24dp"
+            android:layout_marginBottom="8dp"
+            android:background="@drawable/bg_hg_guide_chip"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:visibility="gone">
+
+            <ImageView
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:layout_marginStart="4dp"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_hg_play" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:text="从第1集开始看"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp" />
+
+            <ImageView
+                android:layout_width="10dp"
+                android:layout_height="10dp"
+                android:layout_marginStart="4dp"
+                android:layout_marginEnd="4dp"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_hg_catalog_arrow" />
+        </LinearLayout>
+
         <TextView
             android:id="@+id/hg_author"
             android:layout_width="wrap_content"

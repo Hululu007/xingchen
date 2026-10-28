@@ -2,7 +2,7 @@
 <!-- 系列剧半屏单（账 §5.4）：进多季系列前先选部，白底圆角顶、底部弹出，形态同选集弹层。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="wrap_content"
+    android:layout_height="match_parent"
     android:background="@drawable/bg_hg_sheet"
     android:orientation="vertical"
     android:paddingStart="20dp"
@@ -28,6 +28,7 @@
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/hg_series_list"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp" />
+        android:layout_height="0dp"
+        android:layout_marginTop="8dp"
+        android:layout_weight="1" />
 </LinearLayout>

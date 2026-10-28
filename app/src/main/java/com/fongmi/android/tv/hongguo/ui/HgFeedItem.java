@@ -83,6 +83,15 @@ public final class HgFeedItem {
     public int hotKind;
     /** 作者声明文案（账 §3.5）：字段名未实证（U4），有数据才填、没填不显。 */
     public String statement;
+    /**
+     * 作者 uid（cell ugc_user_info.user_id 抬升，见 HgSeriesItem.authorUid）：
+     * 点头像/作者名进作者主页、关注作者都靠它；没带为 null（详情面不下发，
+     * 集流的页由会话层从进剧条目继承）。后置字段（与 statement 同惯例，
+     * 不进构造器），fromSeries 与各 with* 副本负责携带。
+     */
+    public String authorUid;
+    /** 作者简介（ugc base_info.description；样本恒空，有才带）。 */
+    public String authorDesc;
     /** 横屏预判（cell vertical=false，账 §3.8）：取模型宽高到手前先据此给全屏观看钮。 */
     public boolean landscapeHint;
 
@@ -164,6 +173,8 @@ public final class HgFeedItem {
             item.reservable = true;
             item.dueStartText = s.getDueStartText();
         }
+        item.authorUid = s.getAuthorUid();
+        item.authorDesc = s.getAuthorDesc();
         item.statement = s.getStatement();
         if (s.getVertical() != null) item.landscapeHint = !s.getVertical();
         return item;
@@ -181,6 +192,8 @@ public final class HgFeedItem {
         copy.hotComment = hotComment;
         copy.hotKind = hotKind;
         copy.statement = statement;
+        copy.authorUid = authorUid;
+        copy.authorDesc = authorDesc;
         copy.landscapeHint = landscapeHint;
         return copy;
     }
@@ -198,6 +211,8 @@ public final class HgFeedItem {
         copy.hotComment = hotComment;
         copy.hotKind = hotKind;
         copy.statement = statement;
+        copy.authorUid = authorUid;
+        copy.authorDesc = authorDesc;
         copy.landscapeHint = landscapeHint;
         return copy;
     }
@@ -225,6 +240,8 @@ public final class HgFeedItem {
         copy.hotComment = hotComment;
         copy.hotKind = hotKind;
         copy.statement = statement;
+        copy.authorUid = authorUid;
+        copy.authorDesc = authorDesc;
         copy.landscapeHint = landscapeHint;
         return copy;
     }
@@ -234,13 +251,57 @@ public final class HgFeedItem {
         return videoWidth > 0 && videoHeight > 0 && videoWidth > videoHeight;
     }
 
-    /** 本剧条文案素材：集数已知才带「 · 全N集」（形态照官方实拍，账 §3.6）；完结态下发＝1 时带「 · 已完结」。 */
-    public String seriesBarText() {
+    /**
+     * 剧条前缀（官方 CatalogView 定版，dig-seriessdk §2：前缀是独立文本位、
+     * 按内容类型三档——Album→「合集」、Movie→「电影」、其余→「选集」，
+     * 串源 e4_/eeq/eer）。自家数据面没有 Movie 类型字段，movie 恒传 false
+     * （拼法已备、暂不触发，账 fix-rail-catalog-series 留痕）。
+     */
+    public static String catalogPrefix(boolean album, boolean movie) {
+        if (movie) return "电影";
+        if (album) return "合集";
+        return "选集";
+    }
+
+    /** 电影分钟数（官方口径：时长秒数 /60 向上取整）。 */
+    public static int movieMinutes(long durationSec) {
+        if (durationSec <= 0) return 0;
+        return (int) Math.ceil(durationSec / 60.0);
+    }
+
+    /**
+     * 剧条标题段（官方 catalogview/l 拼法定版，dig-seriessdk §2）：剧名＋状态段——
+     * 电影「剧名 · 共X分钟」；已完结「剧名 · 已完结 · 全N集」；未完结
+     * 「剧名 · 全N集」。集数未知不编「全0集」：完结只带「 · 已完结」、
+     * 未完结不带状态段。官方另有付费/番茄原著改编/每日更新三段，自家
+     * 数据面无对应字段，不拼。
+     */
+    public static String catalogTitleText(String title, boolean finished,
+                                          int episodeCount, int movieMinutes) {
         StringBuilder sb = new StringBuilder();
-        if (category != null && !category.isEmpty()) sb.append(category).append(' ');
         if (title != null) sb.append(title);
-        if (episodeCount > 0) sb.append(" · 全").append(episodeCount).append("集");
-        if (seriesStatus != null && seriesStatus == 1) sb.append(" · 已完结");
+        if (movieMinutes > 0) {
+            sb.append(" · 共").append(movieMinutes).append("分钟");
+        } else if (episodeCount > 0) {
+            if (finished) sb.append(" · 已完结");
+            sb.append(" · 全").append(episodeCount).append("集");
+        } else if (finished) {
+            sb.append(" · 已完结");
+        }
         return sb.toString();
+    }
+
+    /**
+     * 本剧条文案：前缀＋标题段（dig-seriessdk §2 定版，取代旧「类目＋剧名
+     * ＋全N集＋已完结」序——旧序出自实拍读图，集数/完结段次序与类目词都
+     * 被代码级证据推翻）。前缀与标题段之间以一空格相接（官方是两文本位
+     * 相邻，自家单 TextView 以空格代行，与实拍类目款的接法一致）。
+     * 合集判定与适配器系列剧款同口径（multiSeason／albumId／兄弟部任一）。
+     */
+    public String seriesBarText() {
+        boolean album = multiSeason || albumId != null || !siblings.isEmpty();
+        boolean finished = seriesStatus != null && seriesStatus == 1;
+        return catalogPrefix(album, false) + " "
+                + catalogTitleText(title, finished, episodeCount, 0);
     }
 }

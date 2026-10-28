@@ -69,8 +69,11 @@ public final class HgSeriesSheet {
         Window window = dialog.getWindow();
         if (window != null) {
             window.setGravity(Gravity.BOTTOM);
-            window.setLayout(WindowManager.LayoutParams.MATCH_PARENT,
-                    WindowManager.LayoutParams.WRAP_CONTENT);
+            // 单高定版（dig-seriessdk §5）：官方系列单＝屏高×0.6（全屏
+            // 变体×1.0 是官方 b14 配置位，自家不做变体、固定 0.6）；
+            // 旧 WRAP_CONTENT 内容自适应是自定值，作废
+            int sheetHeight = (int) (activity.getResources().getDisplayMetrics().heightPixels * 0.6);
+            window.setLayout(WindowManager.LayoutParams.MATCH_PARENT, sheetHeight);
             window.setBackgroundDrawableResource(android.R.color.transparent);
             window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
             WindowManager.LayoutParams lp = window.getAttributes();

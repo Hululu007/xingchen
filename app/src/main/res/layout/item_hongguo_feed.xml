@@ -46,7 +46,10 @@
         android:visibility="gone" />
 
     <!-- 右列（官方真值：容器 paddingEnd 4dp/paddingTop 7dp、头像 41.5dp、订阅角标 22dp、
-         动作间距 12dp、单件高 40dp/图标 32dp/计数 10sp 压图标右下、点赞槽宽 46dp） -->
+         动作间距 12dp、单件高 40dp/图标 32dp/计数在图标下方居中、点赞槽宽 46dp；
+         序位照 dig-seriessdk §4 的 Series 家族：头像→收藏→评论→点赞→分享；
+         分享件无计数时图标下显「分享」二字＝官方 SeriesShareView 的
+         getShareCountText 缺省文案，图标 ic_hg_share 为自绘同形（已登记 strip 清单）） -->
     <LinearLayout
         android:id="@+id/hg_right_rail"
         android:layout_width="wrap_content"
@@ -113,7 +116,8 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="2dp"
                 android:textColor="#FFFFFF"
-                android:textSize="10sp"
+                android:textSize="12sp"
+                android:textStyle="bold"
                 android:visibility="gone" />
         </LinearLayout>
 
@@ -137,7 +141,8 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="2dp"
                 android:textColor="#FFFFFF"
-                android:textSize="10sp"
+                android:textSize="12sp"
+                android:textStyle="bold"
                 android:visibility="gone" />
         </LinearLayout>
 
@@ -161,7 +166,8 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="2dp"
                 android:textColor="#FFFFFF"
-                android:textSize="10sp"
+                android:textSize="12sp"
+                android:textStyle="bold"
                 android:visibility="gone" />
         </LinearLayout>
 

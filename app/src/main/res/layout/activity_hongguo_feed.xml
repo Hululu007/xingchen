@@ -142,6 +142,16 @@
             android:src="@drawable/ic_hg_search" />
     </LinearLayout>
 
+    <!-- 剧页顶部渐变（官方 axo ke：108dp、黑→透明）：标题栏的可读性垫层，
+         随标题栏同显隐（清屏时一并收） -->
+    <View
+        android:id="@+id/hg_top_scrim"
+        android:layout_width="match_parent"
+        android:layout_height="108dp"
+        android:layout_gravity="top"
+        android:background="@drawable/bg_hg_top_scrim"
+        android:visibility="gone" />
+
     <!-- 竖屏剧页标题栏（官方 ShortSeriesActivity 标题栏构成：返回＋标题＋
          倍速位＋更多；官方是 Compose 件，自家以原生 View 近似，容器高 44dp
          照官方 ikp）。只在集流模式在场，横屏观看态随 chrome 一起隐。 -->
@@ -178,11 +188,14 @@
             android:id="@+id/hg_series_speed"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:drawableStart="@drawable/ic_hg_speed_gauge"
+            android:drawablePadding="3dp"
+            android:gravity="center_vertical"
             android:paddingStart="10dp"
             android:paddingTop="8dp"
             android:paddingEnd="10dp"
             android:paddingBottom="8dp"
-            android:text="倍速"
+            android:text="1.0x"
             android:textColor="#FFFFFF"
             android:textSize="14sp" />
 

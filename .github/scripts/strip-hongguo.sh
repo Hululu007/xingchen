@@ -101,6 +101,7 @@ app/src/main/res/drawable/bg_hg_chip.xml
 app/src/main/res/drawable/bg_hg_cover_r6.xml
 app/src/main/res/drawable/bg_hg_cover_r12.xml
 app/src/main/res/drawable/bg_hg_catalog_bar.xml
+app/src/main/res/drawable/bg_hg_top_scrim.xml
 app/src/main/res/drawable/bg_hg_tag_chip.xml
 app/src/main/res/drawable/bg_hg_dialog_dark.xml
 app/src/main/res/drawable/bg_hg_drawer.xml
@@ -151,6 +152,7 @@ app/src/main/res/drawable/ic_hg_play_circle.xml
 app/src/main/res/drawable/ic_hg_sug_arrow.xml
 app/src/main/res/drawable/ic_hg_catalog_arrow.xml
 app/src/main/res/drawable/ic_hg_expand.xml
+app/src/main/res/drawable/ic_hg_speed_gauge.xml
 app/src/main/res/drawable/ic_hg_share.xml
 app/src/main/res/drawable/ic_hg_star.xml
 app/src/main/res/drawable/ic_hg_star_fill.xml

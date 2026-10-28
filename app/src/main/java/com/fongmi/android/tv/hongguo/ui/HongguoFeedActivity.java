@@ -471,6 +471,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                 // 剧页、更多开五项面板（与长按中心带同面板）、倍速位只读显示
                 // 当前持久档（长按临时 2 倍速不写这里，走它自己的提示胶囊）
                 binding.hgSeriesBar.setVisibility(View.VISIBLE);
+                binding.hgTopScrim.setVisibility(View.VISIBLE);
                 binding.hgSeriesTitle.setText(getIntent().getStringExtra(EXTRA_TITLE));
                 binding.hgSeriesBack.setOnClickListener(v -> finish());
                 binding.hgSeriesMore.setOnClickListener(v -> showMorePanel());
@@ -823,6 +824,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         if (cleanMode) exitCleanMode(); // 清屏是当前页的观看态，滑页即退出、不串页
         setChromeHidden(false);
         HgFeedItem item = session.items.get(position);
+        refreshSeriesTitle(item);
         HgFeedAdapter.Holder holder = currentHolder();
         if (holder != null) attachSurface(holder);
         if (item.seriesHead) {
@@ -998,6 +1000,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         // 此前恒为播放器默认 1x；长按快进的临时覆盖不经此口
         player.setPlaybackSpeed(HgStore.getSpeed());
         refreshSeriesSpeedText();
+        refreshSeriesTitle(item);
         if (landInstance) refreshLandTexts();
         startDanmakuFor(item, startAt);
         armAutoHide();
@@ -1167,8 +1170,20 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
 
     /** 剧页标题栏倍速位文案（官方定版：1.0 显「倍速」，其余显原始浮点串如「1.25x」）。 */
     private void refreshSeriesSpeedText() {
-        float speed = HgStore.getSpeed();
-        binding.hgSeriesSpeed.setText(speed == 1f ? "倍速" : Float.toString(speed) + "x");
+        // 集流标题栏倍速位恒显数值串（官方实拍 113558：1.0 也显「1.0x」、
+        // 带仪表图标；旧「1.0 显倍速二字」是横屏横排条的口径、串面了）
+        binding.hgSeriesSpeed.setText(Float.toString(HgStore.getSpeed()) + "x");
+    }
+
+    /** 集流标题栏标题：显当前集「第N集」（官方实拍 113558 证），不是剧名；
+     * 剧头页还没展开成集（episodeIndex&lt;0）时回落进剧时带的剧名。 */
+    private void refreshSeriesTitle(HgFeedItem item) {
+        if (mode != MODE_SERIES || landInstance) return;
+        if (item != null && item.episodeIndex > 0) {
+            binding.hgSeriesTitle.setText("第" + item.episodeIndex + "集");
+        } else {
+            binding.hgSeriesTitle.setText(getIntent().getStringExtra(EXTRA_TITLE));
+        }
     }
 
     private void setChromeHidden(boolean hidden) {
@@ -1180,6 +1195,10 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         // （landMode 保底）与横屏实例随全屏全隐藏一起收——进/出横屏都经此函数收口
         binding.hgSeriesBar.setVisibility(
                 mode == MODE_SERIES && !landMode && !landInstance ? View.VISIBLE : View.GONE);
+        // 顶部渐变随标题栏同显隐，清屏态一并收（exitCleanMode 时 cleanMode
+        // 已先清零、经此恢复）
+        binding.hgTopScrim.setVisibility(
+                mode == MODE_SERIES && !landMode && !landInstance && !cleanMode ? View.VISIBLE : View.GONE);
         HgFeedAdapter.Holder h = currentHolder();
         if (h != null) {
             if (landInstance) {
@@ -1257,6 +1276,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     private void enterCleanMode() {
         cleanMode = true;
         binding.hgSeriesBar.setVisibility(View.GONE);
+        binding.hgTopScrim.setVisibility(View.GONE);
         HgFeedAdapter.Holder h = currentHolder();
         if (h != null) {
             h.binding.hgRightRail.setVisibility(View.GONE);

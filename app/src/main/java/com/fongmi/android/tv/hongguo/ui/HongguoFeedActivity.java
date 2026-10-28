@@ -129,6 +129,12 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     // （他 07:35 点名「竖屏横屏进入全屏完全乱」的实证之一）。监听器取
     // 物理朝向定方向：60–120°（顶边朝左）用 -90°、240–300°（顶边朝右）
     // 用 +90°；横屏中途翻面（两横向区之间）跟着翻 180°。
+    // 下拉刷新（官方 feed 有此件）：手势接管状态与提示胶囊
+    private boolean pullTracking;
+    private boolean pullRefreshing;
+    private float pullStartY;
+    private float pullDy;
+    private final Runnable hideRefreshHintRunnable = this::hideRefreshHint;
     private android.view.OrientationEventListener orientationListener;
     private int lastOrientationDeg = -1;
     private float landRotation = -90f;
@@ -269,6 +275,21 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         binding.hgPager.setOrientation(ViewPager2.ORIENTATION_VERTICAL);
         binding.hgPager.setOffscreenPageLimit(1);
         binding.hgPager.setAdapter(adapter);
+        // 下拉刷新手势：挂在翻页器的内层列表上，只在刷剧面第一条、
+        // 下拉越过起拖线时才接管，正常翻页与点按一概不碰
+        RecyclerView feedRv = (RecyclerView) binding.hgPager.getChildAt(0);
+        feedRv.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        feedRv.addOnItemTouchListener(new RecyclerView.SimpleOnItemTouchListener() {
+            @Override
+            public boolean onInterceptTouchEvent(RecyclerView rv, android.view.MotionEvent e) {
+                return onPullIntercept(e);
+            }
+
+            @Override
+            public void onTouchEvent(RecyclerView rv, android.view.MotionEvent e) {
+                onPullTouch(e);
+            }
+        });
         binding.hgPager.registerOnPageChangeCallback(new ViewPager2.OnPageChangeCallback() {
             @Override
             public void onPageSelected(int position) {
@@ -421,8 +442,88 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     /**
      * 再点当前页签＝刷新本页签（回顶部＋按 Open 语义重拉一批）：此前再点
      * 没任何反应，用户想换一批只能杀进程重进（他点名「每次打开都一样」
-     * 的一条自救路也没有）。feed 无下拉刷新件，页签再点就是刷新口。
+     * 的一条自救路也没有）。页签再点与下拉刷新共用此口。
      */
+    private boolean pullEnabled() {
+        return mode == MODE_FEED && !landMode && !mineShowing && !pullRefreshing
+                && binding.hgPager.getCurrentItem() == 0
+                && binding.hgPager.getScrollState() == ViewPager2.SCROLL_STATE_IDLE;
+    }
+
+    private boolean onPullIntercept(android.view.MotionEvent e) {
+        if (!pullEnabled()) return false;
+        switch (e.getActionMasked()) {
+            case android.view.MotionEvent.ACTION_DOWN:
+                pullStartY = e.getY();
+                pullDy = 0;
+                return false;
+            case android.view.MotionEvent.ACTION_MOVE:
+                pullDy = e.getY() - pullStartY;
+                if (pullDy > pullPx(28)) {
+                    pullTracking = true;
+                    showPullHint(pullDy);
+                    return true;
+                }
+                return false;
+            default:
+                return false;
+        }
+    }
+
+    private void onPullTouch(android.view.MotionEvent e) {
+        if (!pullTracking) return;
+        switch (e.getActionMasked()) {
+            case android.view.MotionEvent.ACTION_MOVE:
+                pullDy = e.getY() - pullStartY;
+                showPullHint(pullDy);
+                break;
+            case android.view.MotionEvent.ACTION_UP:
+            case android.view.MotionEvent.ACTION_CANCEL:
+                pullTracking = false;
+                if (pullDy * 0.45f >= pullPx(64)) startPullRefresh();
+                else hideRefreshHint();
+                break;
+            default:
+                break;
+        }
+    }
+
+    private void showPullHint(float dy) {
+        float shown = Math.min(Math.max(dy, 0) * 0.45f, pullPx(96));
+        View hint = binding.hgRefreshHint;
+        hint.setVisibility(View.VISIBLE);
+        hint.setAlpha(Math.min(1f, shown / pullPx(48)));
+        hint.setTranslationY(shown - pullPx(40));
+        binding.hgRefreshText.setText(shown >= pullPx(64) ? "松开刷新" : "下拉刷新");
+    }
+
+    private void startPullRefresh() {
+        pullRefreshing = true;
+        View hint = binding.hgRefreshHint;
+        hint.setVisibility(View.VISIBLE);
+        hint.setAlpha(1f);
+        hint.setTranslationY(pullPx(8));
+        binding.hgRefreshSpin.setVisibility(View.VISIBLE);
+        binding.hgRefreshText.setText("正在刷新");
+        refreshCurrentTab();
+        // 收尾在 loadTab 的成败回调里（hideRefreshHint），此处只留超时兜底
+        ui.removeCallbacks(hideRefreshHintRunnable);
+        ui.postDelayed(hideRefreshHintRunnable, 6000);
+    }
+
+    private void hideRefreshHint() {
+        pullRefreshing = false;
+        ui.removeCallbacks(hideRefreshHintRunnable);
+        binding.hgRefreshSpin.setVisibility(View.GONE);
+        binding.hgRefreshHint.setVisibility(View.GONE);
+        binding.hgRefreshHint.setTranslationY(0);
+        binding.hgRefreshHint.setAlpha(1f);
+    }
+
+    private float pullPx(float dp) {
+        return dp * getResources().getDisplayMetrics().density;
+    }
+
     private void refreshCurrentTab() {
         if (mineShowing) return;
         saveProgress();
@@ -446,6 +547,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             public void onSuccess(List<HgSeriesItem> result) {
                 runOnUiThread(() -> {
                     if (tab != target || seq != loadSeq) return;
+                    if (pullRefreshing) hideRefreshHint();
                     appendSeriesItems(result, target);
                     adapter.notifyDataSetChanged();
                     if (session.items.isEmpty()) {
@@ -463,6 +565,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             public void onError(int httpCode, String message) {
                 runOnUiThread(() -> {
                     if (tab != target || seq != loadSeq) return;
+                    if (pullRefreshing) hideRefreshHint();
                     binding.hgState.setVisibility(View.VISIBLE);
                     binding.hgState.setText("加载失败，稍后再试");
                 });

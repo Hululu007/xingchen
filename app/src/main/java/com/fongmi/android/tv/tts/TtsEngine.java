@@ -15,11 +15,17 @@ import java.util.Set;
 
 /**
  * 朗读合成引擎（后台单线程）：
- * 按 (章, 段) 队列逐段合成 mp3 落缓存，当前段优先、后段预取。
+ * 按 (章, 段) 队列逐段合成音频落缓存，当前段优先、后段预取。
  * 回调跑在 worker 线程，调用方自行切回主线程。
- * 失败：单段重试一次，再败即报人话错误并停工（不许回退系统机械声）。
+ * 供应商两家（他 2026-10-27 令「不许只押一家」）：Edge 神经音色优先，
+ * 失败即切系统 TTS 兜底（本会话内保持系统声、不来回跳音色），
+ * 两家全败才报人话错误并停工。引擎模式可在设置里选（自动/Edge/系统）。
  */
 public class TtsEngine {
+
+    public static final int MODE_AUTO = 0;
+    public static final int MODE_EDGE = 1;
+    public static final int MODE_SYSTEM = 2;
 
     /** 章正文提供方（调方实现，可阻塞）。 */
     public interface TextProvider {
@@ -32,6 +38,10 @@ public class TtsEngine {
         void onChapterEmpty(int chapterIndex);
 
         void onTtsError(String humanMsg);
+
+        /** Edge 失败、已切系统语音兜底（每次会话至多报一次，供页面提示）。 */
+        default void onFallbackToSystem() {
+        }
     }
 
     private static class Need {
@@ -49,8 +59,12 @@ public class TtsEngine {
     }
 
     private final File root;
+    private final android.content.Context appContext;
     private final TextProvider provider;
     private final Listener listener;
+    private SystemTtsSynth systemSynth;
+    private volatile boolean edgeDown;
+    private volatile int engineMode = MODE_AUTO;
     private final Deque<Need> queue = new ArrayDeque<>();
     private final Set<String> queued = new HashSet<>();
     private final Map<Integer, List<String>> segCache = new HashMap<>();
@@ -65,6 +79,7 @@ public class TtsEngine {
     public TtsEngine(Context context, String bookKey, TextProvider provider, Listener listener) {
         this.provider = provider;
         this.listener = listener;
+        this.appContext = context.getApplicationContext();
         this.voiceId = EdgeVoiceCatalog.defaultVoice();
         this.rate = 1.0f;
         String safe = bookKey.replaceAll("[^a-zA-Z0-9]", "_");
@@ -78,6 +93,21 @@ public class TtsEngine {
     public void setVoice(String voiceId, float rate) {
         if (voiceId != null) this.voiceId = voiceId;
         this.rate = rate;
+    }
+
+    /** 引擎模式（自动/Edge/系统）：页面设置项调；切模式后由页面重备当前段。 */
+    public void setEngineMode(int mode) {
+        this.engineMode = mode;
+        if (mode == MODE_EDGE) edgeDown = false;
+    }
+
+    public int engineMode() {
+        return engineMode;
+    }
+
+    /** 当前实际在用系统语音（模式=系统，或自动模式已兜底）。 */
+    public boolean usingSystem() {
+        return engineMode == MODE_SYSTEM || edgeDown;
     }
 
     public String voiceId() {
@@ -156,9 +186,11 @@ public class TtsEngine {
             return;
         }
         if (n.seg < 0 || n.seg >= segs.size()) return;
-        File f = cacheFile(n.chapter, n.seg);
-        if (!f.exists()) {
+        File f = fileFor(n.chapter, n.seg);
+        if (f == null) {
             if (!synthesize(n, segs.get(n.seg))) return; // 已报错停工
+            f = fileFor(n.chapter, n.seg);
+            if (f == null) return;
         }
         // 已 shutdown 就不再回调/预取：在途段是 shutdown 前起的活，
         // 合成返回时页面多半已退出，回调摸已销毁宿主没有意义。
@@ -186,13 +218,18 @@ public class TtsEngine {
         }
     }
 
+    /**
+     * 合成一段：按引擎模式走 Edge / 系统 / 自动（Edge 先行、败了切系统并
+     * 在本会话内钉住系统声）。Edge 只试一次（12 秒快收），不静默重试——
+     * 干挂重试正是 2026-10-28 定根的病象。两家全败才 fail()。
+     */
     private boolean synthesize(Need n, String text) {
-        String v = voiceId;
-        float r = rate;
-        for (int attempt = 0; attempt < 2 && running; attempt++) {
+        boolean wantSystemOnly = engineMode == MODE_SYSTEM;
+        if (!wantSystemOnly && !edgeDown) {
+            String edgeErr = null;
             try {
-                byte[] mp3 = new EdgeTtsClient().synthesize(text, v, r);
-                File f = cacheFile(n.chapter, n.seg);
+                byte[] mp3 = new EdgeTtsClient().synthesize(text, voiceId, rate);
+                File f = edgeFile(n.chapter, n.seg);
                 f.getParentFile().mkdirs();
                 File tmp = new File(f.getParent(), f.getName() + ".part");
                 try (FileOutputStream out = new FileOutputStream(tmp)) {
@@ -204,17 +241,48 @@ public class TtsEngine {
                 }
                 return true;
             } catch (EdgeTtsClient.TtsException e) {
-                if (attempt == 1) {
-                    fail(e.getMessage());
-                    return false;
-                }
+                edgeErr = e.getMessage();
             } catch (Throwable t) {
-                if (attempt == 1) {
-                    fail(EdgeTtsClient.ERR_OFFLINE);
-                    return false;
-                }
+                edgeErr = EdgeTtsClient.ERR_OFFLINE;
+            }
+            if (engineMode == MODE_EDGE) {
+                fail(edgeErr);
+                return false;
+            }
+            // 自动模式：钉住系统声并报一次，剩下段不再轮番试 Edge
+            edgeDown = true;
+            try {
+                listener.onFallbackToSystem();
+            } catch (Throwable ignored) {
             }
         }
+        // 系统语音（模式=系统 / 自动兜底）
+        File sf = sysFile(n.chapter, n.seg);
+        File tmp = new File(sf.getParent(), sf.getName() + ".part.wav");
+        boolean ok = false;
+        try {
+            if (systemSynth == null) systemSynth = new SystemTtsSynth(appContext);
+            ok = systemSynth.synthesize(text, rate, tmp);
+        } catch (Throwable ignored) {
+            ok = false;
+        }
+        if (ok) {
+            try {
+                sf.getParentFile().mkdirs();
+                if (sf.exists()) sf.delete();
+                if (tmp.renameTo(sf)) return true;
+                tmp.delete();
+            } catch (Throwable ignored) {
+            }
+        } else {
+            try {
+                tmp.delete();
+            } catch (Throwable ignored) {
+            }
+        }
+        fail(engineMode == MODE_SYSTEM
+                ? "系统语音不可用，请检查系统朗读设置后重试"
+                : "朗读服务连不上，系统语音也不可用，请检查网络后重试");
         return false;
     }
 
@@ -229,11 +297,32 @@ public class TtsEngine {
         }
     }
 
-    private File cacheFile(int chapter, int seg) {
+    private File edgeFile(int chapter, int seg) {
         String v = voiceId.replaceAll("[^a-zA-Z0-9]", "_");
         String rateTag = EdgeTtsClient.rateTag(rate).replace("+", "p").replace("%", "").replace("-", "m");
         File dir = new File(root, v + "_" + rateTag);
         return new File(dir, "ch" + chapter + "_seg" + seg + ".mp3");
+    }
+
+    /** 系统语音段文件：语速由合成时定（文件名带语速档，同 Edge 口径分目录）。 */
+    private File sysFile(int chapter, int seg) {
+        String rateTag = String.valueOf(Math.round(rate * 100));
+        File dir = new File(root, "sys_" + rateTag);
+        return new File(dir, "ch" + chapter + "_seg" + seg + ".wav");
+    }
+
+    /** 已落盘的段文件（按当前实际引擎优先，防跨会话混音色）；都没有返回 null。 */
+    private File fileFor(int chapter, int seg) {
+        File e = edgeFile(chapter, seg);
+        File s = sysFile(chapter, seg);
+        if (usingSystem()) {
+            if (s.exists()) return s;
+            if (e.exists()) return e;
+        } else {
+            if (e.exists()) return e;
+            if (s.exists()) return s;
+        }
+        return null;
     }
 
     /** 清 3 天前的旧缓存（有界）。 */
@@ -262,7 +351,7 @@ public class TtsEngine {
         if (fs == null) return;
         for (File f : fs) {
             if (f.isDirectory()) collect(f, out);
-            else if (f.getName().endsWith(".mp3")) out.add(f);
+            else if (f.getName().endsWith(".mp3") || f.getName().endsWith(".wav")) out.add(f);
         }
     }
 
@@ -270,6 +359,13 @@ public class TtsEngine {
         running = false;
         synchronized (queue) {
             queue.notify();
+        }
+        if (systemSynth != null) {
+            try {
+                systemSynth.shutdown();
+            } catch (Throwable ignored) {
+            }
+            systemSynth = null;
         }
         // 只置旗时 worker 若正卡在在途合成的网络调用里，要等整段返回才
         // 退出；interrupt 让等待中的 worker 立刻醒，在途段返回后也会被

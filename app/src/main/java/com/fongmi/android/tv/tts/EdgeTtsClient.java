@@ -23,8 +23,6 @@ import okhttp3.WebSocket;
 import okhttp3.WebSocketListener;
 import okio.ByteString;
 
-import com.github.catvod.net.GlobalProxy;
-import com.github.catvod.net.SourceGate;
 
 /**
  * Edge 大声朗读合成客户端（「阅读」生态在线朗读同款通路）。
@@ -41,7 +39,8 @@ import com.github.catvod.net.SourceGate;
  * ②api.msedgeservices.com 的 v1 路径是 Azure 订阅密钥口，不认浏览器 token，
  * 查询串形状在它上面照样 403——必须走 speech.platform.bing.com 的 edge/v1。
  * <p>
- * 失败一律抛 TtsException（人话），调用方不许回退系统机械声。
+ * 失败一律抛 TtsException（人话）；引擎层有系统语音兜底（他 2026-10-27
+ * 令「不许只押一家供应商」，原「不许回退系统声」自家禁令就此作废）。
  */
 public class EdgeTtsClient {
 
@@ -51,7 +50,8 @@ public class EdgeTtsClient {
     public static final String ERR_REJECTED = "朗读服务拒绝了连接，可能是服务端有变动，请稍后再试";
     /** 服务端有 HTTP 响应但非拒绝类错误。 */
     public static final String ERR_SERVER = "朗读服务暂时不可用，请稍后再试";
-    /** 45 秒没等到合成结果。 */
+    /** 12 秒没等到合成结果（2026-10-28 由 45 秒压下：干挂比失败更伤，
+     * 超时由引擎切系统语音兜底，不在这干等）。 */
     public static final String ERR_TIMEOUT = "朗读服务响应超时，请重试";
     /** 建连后中途断开且没拿到音频。 */
     public static final String ERR_BROKEN = "朗读服务中途断开了连接，请重试";
@@ -82,14 +82,13 @@ public class EdgeTtsClient {
     private static final String OUTPUT_FORMAT = "audio-24khz-48kbitrate-mono-mp3";
 
     /**
-     * 合成连接走节点门：挂 SourceGate 选择器链，无线程打点——
-     * 判据：合成服务是固定基础设施端点，不归属任何书源，逐源开关不适用；
-     * 默认直连，只有「全部走节点」总开关能把它带走（与门内其它无归属流量同口径）。
+     * 合成连接直连（2026-10-28 定根后改）：此前挂 SourceGate 节点门，
+     * TTS 线程无归属打点会被 fallback 猜测误路由到书源的节点口、耗到
+     * 超时干挂（ttsprobe/FINDINGS.md）。合成端点是固定基础设施，
+     * 不归属任何书源——直连，系统分应用 VPN 由用户自己掌控。
      */
     private static final OkHttpClient CLIENT = new OkHttpClient.Builder()
-            .proxySelector(SourceGate.wrapSelector(
-                    GlobalProxy.wrapSelector(java.net.ProxySelector.getDefault())))
-            .connectTimeout(15, TimeUnit.SECONDS)
+            .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.MILLISECONDS)
             .build();
 
@@ -436,8 +435,9 @@ public class EdgeTtsClient {
     }
 
     /**
-     * 合成一段文本 → mp3 字节。阻塞调用（调方自开线程），单段 45 秒超时。
-     * 抛 TtsException（人话），绝不回退系统 TTS。
+     * 合成一段文本 → mp3 字节。阻塞调用（调方自开线程），单段 12 秒超时
+     * （2026-10-28 由 45 秒压下，见 ERR_TIMEOUT）。抛 TtsException（人话）；
+     * 失败后是否切系统语音由引擎决定（他 2026-10-27 令：不许只押一家）。
      */
     public byte[] synthesize(String text, String voiceId, float rate) throws TtsException {
         if (TextUtils.isEmpty(text) || TextUtils.isEmpty(voiceId)) {
@@ -511,7 +511,7 @@ public class EdgeTtsClient {
         });
 
         try {
-            boolean ok = done.await(45, TimeUnit.SECONDS);
+            boolean ok = done.await(12, TimeUnit.SECONDS);
             if (!ok) {
                 failure.compareAndSet(null, ERR_TIMEOUT);
             }

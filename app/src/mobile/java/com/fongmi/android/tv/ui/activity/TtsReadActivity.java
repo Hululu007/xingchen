@@ -15,6 +15,7 @@ import android.os.Looper;
 import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.ViewGroup;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.SeekBar;
 import android.widget.TextView;
@@ -46,17 +47,23 @@ import java.util.Map;
 import com.fongmi.android.tv.R;
 
 /**
- * 神经朗读播放页（功能线最小面，视觉随后换皮）：
- * 小说阅读器「朗读」入口 → 按段合成（Edge 神经音色）→ 逐段播放。
+ * 智能朗读播放页（2026-10-28 照红果智能朗读页定版重做）：
+ * 小说阅读器「朗读」入口 → 按段合成 → 逐段播放；深青底、封面＋章名行、
+ * 大字正文当前段高亮跟读、±15s 进度、功能行＋运输行、底部音色/边听边读双卡。
+ * 供应商两家：Edge 神经音色优先、失败切系统 TTS 兜底（他 2026-10-27 令）。
  * 复用 PlaybackService（后台＋锁屏）＋ PlayerManager；进度记 ReadingStore（kind="TTS"，
  * 与 NOVEL 阅读进度分开记，互不冲）；与音乐播放器分家（只借底层服务）。
- * 失败人话提示，不许回退系统机械声。
  */
 public class TtsReadActivity extends Activity
         implements ServiceConnection, TtsEngine.Listener {
 
-    private static final float[] SPEEDS = {0.75f, 1.0f, 1.25f, 1.5f};
+    private static final float[] SPEEDS = {0.75f, 1.0f, 1.25f, 1.5f, 2.0f};
     private static final String[] TIMER_ITEMS = {"15 分钟", "30 分钟", "60 分钟", "关闭定时"};
+    private static final String PREFS_TTS = "tts_read";
+    private static final String KEY_ENGINE_MODE = "engine_mode";
+    private static final int ACCENT = 0xFFFF9E57;
+    private static final int FG = 0xFFF2F5F4;
+    private static final int SUB = 0xFF9FB8BC;
 
     private String jobId;
     private TtsJob job;
@@ -90,6 +97,14 @@ public class TtsReadActivity extends Activity
     private TextView tvChapter, tvSeg, tvPos, tvDur, tvSpeed, tvTimer, tvVoice;
     private SeekBar seekBar;
     private TextView btnPlay;
+    // 正文跟读：整章段拼接显示、当前段高亮
+    private android.widget.ScrollView bodyScroll;
+    private TextView tvBody;
+    private TextView tvCardChapter;
+    private int bodyChapter = -1;
+    private java.util.List<String> bodySegs;
+    private int[] bodyStarts;
+    private android.text.style.BackgroundColorSpan curSegSpan;
     /** 迷你条会话（与 AudioBookActivity 共用一套条）。 */
     private ListenSession miniSession;
     private static final String MINI_ID = "tts";
@@ -356,46 +371,103 @@ public class TtsReadActivity extends Activity
         rs.chapters.addAll(job.chapters);
     }
 
-    // ================= UI（最小面，随后换皮） =================
+    // ================= UI（2026-10-28 照红果智能朗读页重做） =================
 
     private void buildUi() {
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(0xFFF5F3EF);
-        root.setPadding(dp(20), dp(48), dp(20), dp(24));
+        FrameLayout root = new FrameLayout(this);
+        android.graphics.drawable.GradientDrawable bg =
+                new android.graphics.drawable.GradientDrawable(
+                        android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
+                        new int[]{0xFF0C2B33, 0xFF11404A});
+        root.setBackground(bg);
 
-        // 顶栏不设叉：走系统返回
-        TextView tvTitle = new TextView(this);
-        tvTitle.setText(job.bookTitle);
-        tvTitle.setTextSize(20);
-        tvTitle.setTextColor(0xFF222222);
-        tvTitle.setPadding(0, dp(24), 0, 0);
-        root.addView(tvTitle);
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        root.addView(col, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
-        TextView tvSrc = new TextView(this);
-        tvSrc.setText("神经朗读 · " + job.sourceName);
-        tvSrc.setTextSize(13);
-        tvSrc.setTextColor(0xFF999999);
-        tvSrc.setPadding(0, dp(4), 0, 0);
-        root.addView(tvSrc);
+        // 顶栏：收起＋标题＋更多
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        top.setPadding(dp(8), dp(40), dp(8), dp(4));
+        TextView collapse = topButton("⌄");
+        collapse.setOnClickListener(v -> finish());
+        TextView title = new TextView(this);
+        title.setText("智能朗读");
+        title.setTextSize(17);
+        title.setTextColor(FG);
+        title.getPaint().setFakeBoldText(true);
+        TextView more = topButton("⋮");
+        more.setOnClickListener(v -> showMore());
+        top.addView(collapse);
+        top.addView(title, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        top.addView(more);
+        col.addView(top);
 
+        // 封面＋章名行
+        LinearLayout head = new LinearLayout(this);
+        head.setOrientation(LinearLayout.HORIZONTAL);
+        head.setGravity(Gravity.CENTER_VERTICAL);
+        head.setPadding(dp(20), dp(10), dp(20), dp(6));
+        FrameLayout coverBox = new FrameLayout(this);
+        coverBox.setLayoutParams(new LinearLayout.LayoutParams(dp(54), dp(72)));
+        android.widget.ImageView cover = new android.widget.ImageView(this);
+        cover.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+        cover.setBackgroundColor(0x26FFFFFF);
+        coverBox.addView(cover, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        if (!TextUtils.isEmpty(job.coverUrl)) {
+            com.fongmi.android.tv.utils.ImgUtil.load(job.bookTitle, job.coverUrl, cover, true);
+        }
+        head.addView(coverBox);
+        LinearLayout headText = new LinearLayout(this);
+        headText.setOrientation(LinearLayout.VERTICAL);
+        headText.setPadding(dp(12), 0, 0, 0);
         tvChapter = new TextView(this);
-        tvChapter.setTextSize(16);
-        tvChapter.setTextColor(0xFFB8860B);
-        tvChapter.setPadding(0, dp(24), 0, 0);
-        root.addView(tvChapter);
+        tvChapter.setTextSize(16.5f);
+        tvChapter.setTextColor(FG);
+        tvChapter.getPaint().setFakeBoldText(true);
+        tvChapter.setMaxLines(2);
+        tvChapter.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        TextView tvBook = new TextView(this);
+        tvBook.setText(job.bookTitle + " · " + job.sourceName);
+        tvBook.setTextSize(12.5f);
+        tvBook.setTextColor(SUB);
+        tvBook.setPadding(0, dp(4), 0, 0);
+        headText.addView(tvChapter);
+        headText.addView(tvBook);
+        head.addView(headText, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        col.addView(head);
 
-        tvSeg = new TextView(this);
-        tvSeg.setTextSize(13);
-        tvSeg.setTextColor(0xFF999999);
-        tvSeg.setPadding(0, dp(4), 0, 0);
-        root.addView(tvSeg);
+        // 正文跟读区
+        bodyScroll = new android.widget.ScrollView(this);
+        bodyScroll.setPadding(dp(20), dp(8), dp(20), dp(12));
+        tvBody = new TextView(this);
+        tvBody.setTextSize(17);
+        tvBody.setTextColor(0xE8F2F5F4);
+        tvBody.setLineSpacing(0, 1.55f);
+        bodyScroll.addView(tvBody);
+        col.addView(bodyScroll, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
 
+        // 底部面板
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setBackgroundColor(0xFF0F3540);
+        panel.setPadding(dp(16), dp(10), dp(16), dp(18));
+        col.addView(panel);
+
+        LinearLayout seekRow = new LinearLayout(this);
+        seekRow.setOrientation(LinearLayout.HORIZONTAL);
+        seekRow.setGravity(Gravity.CENTER_VERTICAL);
+        TextView back15 = seekJumpButton("-15s");
+        back15.setOnClickListener(v -> seekBy(-15000));
+        TextView fwd15 = seekJumpButton("+15s");
+        fwd15.setOnClickListener(v -> seekBy(15000));
         seekBar = new SeekBar(this);
-        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        slp.topMargin = dp(24);
-        root.addView(seekBar, slp);
         seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar s, int p, boolean fromUser) {
                 if (fromUser && mService != null) player().seekTo(p);
@@ -403,78 +475,175 @@ public class TtsReadActivity extends Activity
             @Override public void onStartTrackingTouch(SeekBar s) { seeking = true; }
             @Override public void onStopTrackingTouch(SeekBar s) { seeking = false; }
         });
+        seekRow.addView(back15);
+        seekRow.addView(seekBar, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        seekRow.addView(fwd15);
+        panel.addView(seekRow);
 
         LinearLayout times = new LinearLayout(this);
         times.setOrientation(LinearLayout.HORIZONTAL);
         tvPos = timeLabel();
+        tvSeg = timeLabel();
+        tvSeg.setGravity(Gravity.CENTER);
         tvDur = timeLabel();
         tvDur.setGravity(Gravity.END);
         times.addView(tvPos, new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        times.addView(tvSeg, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         times.addView(tvDur, new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        root.addView(times);
+        panel.addView(times);
 
+        // 功能行：语速/音色/定时/目录
+        LinearLayout opts = new LinearLayout(this);
+        opts.setOrientation(LinearLayout.HORIZONTAL);
+        opts.setPadding(0, dp(8), 0, 0);
+        tvSpeed = optButton("语速 1.0x");
+        tvSpeed.setOnClickListener(v -> cycleSpeed());
+        tvVoice = optButton("音色");
+        tvVoice.setOnClickListener(v -> pickVoice());
+        tvTimer = optButton("定时关");
+        tvTimer.setOnClickListener(v -> pickTimer());
+        TextView list = optButton("目录");
+        list.setOnClickListener(v -> showToc());
+        opts.addView(tvSpeed, optLp());
+        opts.addView(tvVoice, optLp());
+        opts.addView(tvTimer, optLp());
+        opts.addView(list, optLp());
+        panel.addView(opts);
+
+        // 运输行：上一章／大播放钮／下一章
         LinearLayout ctrls = new LinearLayout(this);
         ctrls.setOrientation(LinearLayout.HORIZONTAL);
         ctrls.setGravity(Gravity.CENTER);
-        ctrls.setPadding(0, dp(24), 0, 0);
+        ctrls.setPadding(0, dp(10), 0, 0);
         TextView prev = ctrlButton("⏮");
         prev.setOnClickListener(v -> jumpChapter(-1));
         TextView next = ctrlButton("⏭");
         next.setOnClickListener(v -> jumpChapter(1));
-        btnPlay = ctrlButton("⏸");
+        btnPlay = new TextView(this);
+        btnPlay.setText("⏸");
+        btnPlay.setTextSize(30);
+        btnPlay.setTextColor(0xFF0C2B33);
+        btnPlay.setGravity(Gravity.CENTER);
+        android.graphics.drawable.GradientDrawable disc =
+                new android.graphics.drawable.GradientDrawable();
+        disc.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        disc.setColor(0xFFF2F5F4);
+        btnPlay.setBackground(disc);
+        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(dp(68), dp(68));
+        blp.leftMargin = dp(28);
+        blp.rightMargin = dp(28);
         btnPlay.setOnClickListener(v -> toggle());
         ctrls.addView(prev);
-        ctrls.addView(btnPlay);
+        ctrls.addView(btnPlay, blp);
         ctrls.addView(next);
-        root.addView(ctrls);
+        panel.addView(ctrls);
 
-        LinearLayout opts = new LinearLayout(this);
-        opts.setOrientation(LinearLayout.HORIZONTAL);
-        opts.setGravity(Gravity.CENTER);
-        opts.setPadding(0, dp(20), 0, 0);
-        tvSpeed = optButton("1.0x");
-        tvSpeed.setOnClickListener(v -> cycleSpeed());
-        tvTimer = optButton("定时关");
-        tvTimer.setOnClickListener(v -> pickTimer());
-        tvVoice = optButton("音色");
-        tvVoice.setOnClickListener(v -> pickVoice());
-        TextView list = optButton("目录");
-        list.setOnClickListener(v -> showToc());
-        opts.addView(tvSpeed);
-        opts.addView(tvTimer);
-        opts.addView(tvVoice);
-        opts.addView(list);
-        root.addView(opts);
+        // 底部双卡：音色设置／边听边读
+        LinearLayout cards = new LinearLayout(this);
+        cards.setOrientation(LinearLayout.HORIZONTAL);
+        cards.setPadding(0, dp(14), 0, 0);
+        LinearLayout cardA = cardBox("音色设置");
+        TextView voiceVal = new TextView(this);
+        voiceVal.setTextSize(13);
+        voiceVal.setTextColor(FG);
+        voiceVal.setMaxLines(1);
+        voiceVal.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        cardA.addView(voiceVal);
+        tvVoiceCard = voiceVal;
+        cardA.setOnClickListener(v -> pickVoice());
+        LinearLayout cardB = cardBox("边听边读");
+        tvCardChapter = new TextView(this);
+        tvCardChapter.setTextSize(13);
+        tvCardChapter.setTextColor(FG);
+        tvCardChapter.setMaxLines(1);
+        tvCardChapter.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        cardB.addView(tvCardChapter);
+        cardB.setOnClickListener(v -> openReaderHere());
+        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        LinearLayout.LayoutParams clp2 = new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        clp2.leftMargin = dp(10);
+        cards.addView(cardA, clp);
+        cards.addView(cardB, clp2);
+        panel.addView(cards);
 
         setContentView(root);
         refreshLabels();
     }
 
+    private TextView tvVoiceCard;
+
+    private LinearLayout.LayoutParams optLp() {
+        return new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+    }
+
+    private LinearLayout cardBox(String label) {
+        LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.VERTICAL);
+        c.setPadding(dp(12), dp(10), dp(12), dp(10));
+        android.graphics.drawable.GradientDrawable g =
+                new android.graphics.drawable.GradientDrawable();
+        g.setColor(0x1FFFFFFF);
+        g.setCornerRadius(dp(14));
+        c.setBackground(g);
+        TextView l = new TextView(this);
+        l.setText(label);
+        l.setTextSize(11);
+        l.setTextColor(SUB);
+        l.setPadding(0, 0, 0, dp(3));
+        c.addView(l);
+        return c;
+    }
+
+    private TextView topButton(String s) {
+        TextView t = new TextView(this);
+        t.setText(s);
+        t.setTextSize(22);
+        t.setTextColor(FG);
+        t.setGravity(Gravity.CENTER);
+        t.setLayoutParams(new LinearLayout.LayoutParams(dp(40), dp(40)));
+        return t;
+    }
+
+    private TextView seekJumpButton(String s) {
+        TextView t = new TextView(this);
+        t.setText(s);
+        t.setTextSize(12);
+        t.setTextColor(SUB);
+        t.setGravity(Gravity.CENTER);
+        t.setPadding(dp(6), dp(6), dp(6), dp(6));
+        return t;
+    }
+
     private TextView timeLabel() {
         TextView t = new TextView(this);
         t.setText("00:00");
-        t.setTextSize(12);
-        t.setTextColor(0xFF999999);
+        t.setTextSize(11);
+        t.setTextColor(SUB);
         return t;
     }
 
     private TextView ctrlButton(String s) {
         TextView t = new TextView(this);
         t.setText(s);
-        t.setTextSize(30);
-        t.setTextColor(0xFF333333);
-        t.setPadding(dp(20), dp(8), dp(20), dp(8));
+        t.setTextSize(26);
+        t.setTextColor(FG);
+        t.setPadding(dp(18), dp(8), dp(18), dp(8));
         return t;
     }
 
     private TextView optButton(String s) {
         TextView t = new TextView(this);
         t.setText(s);
-        t.setTextSize(14);
-        t.setTextColor(0xFFB8860B);
-        t.setPadding(dp(14), dp(8), dp(14), dp(8));
+        t.setTextSize(13.5f);
+        t.setTextColor(FG);
+        t.setGravity(Gravity.CENTER);
+        t.setPadding(dp(4), dp(8), dp(4), dp(8));
         return t;
     }
 
@@ -487,12 +656,141 @@ public class TtsReadActivity extends Activity
         ReadingSession.Chapter c = job.chapters.get(Math.min(ci, job.chapters.size() - 1));
         tvChapter.setText(c.name);
         tvSeg.setText("第 " + (si + 1) + " 段" + (segCount > 0 ? " / 共 " + segCount + " 段" : ""));
-        tvVoice.setText(curVoice == null ? "音色" : curVoice.name);
+        boolean sys = engine != null && engine.usingSystem();
+        String voiceName = sys ? "系统语音" : (curVoice == null ? "音色" : curVoice.name);
+        tvVoice.setText("音色 · " + voiceName);
+        if (tvVoiceCard != null) tvVoiceCard.setText(voiceName);
+        if (tvCardChapter != null) tvCardChapter.setText(c.name);
         try {
             ListenMiniBar.get(this).updateMeta(MINI_ID, job.bookTitle,
                     miniSub());
         } catch (Throwable ignored) {
         }
+    }
+
+    // ================= 引擎选择 / 更多 =================
+
+    private int engineModePref() {
+        return getSharedPreferences(PREFS_TTS, MODE_PRIVATE)
+                .getInt(KEY_ENGINE_MODE, TtsEngine.MODE_AUTO);
+    }
+
+    private String engineModeName(int mode) {
+        return mode == TtsEngine.MODE_EDGE ? "Edge 神经音色"
+                : mode == TtsEngine.MODE_SYSTEM ? "系统语音" : "自动（Edge 优先）";
+    }
+
+    private void showMore() {
+        String[] items = {"朗读引擎：" + engineModeName(engineModePref()), "边听边读（回阅读器）"};
+        ReadDialogs.options(this, "更多", items, which -> {
+            if (which == 0) pickEngine();
+            else openReaderHere();
+        });
+    }
+
+    private void pickEngine() {
+        String[] items = {"自动（Edge 优先，失败切系统）", "Edge 神经音色", "系统语音"};
+        ReadDialogs.optionsChecked(this, "朗读引擎", items, engineModePref(), which -> {
+            getSharedPreferences(PREFS_TTS, MODE_PRIVATE).edit()
+                    .putInt(KEY_ENGINE_MODE, which).apply();
+            if (engine != null) {
+                engine.setEngineMode(which);
+                // 模式变了，当前段按新引擎重合成（缓存分家、不会串音色）
+                ttsDead = false;
+                prepareChapter(ci, si, false);
+            }
+            refreshLabels();
+            ToastUtil.show(this, "已切换为" + engineModeName(which), Toast.LENGTH_SHORT);
+        });
+    }
+
+    /** 边听边读：带当前章与段位进度回小说阅读器。 */
+    private void openReaderHere() {
+        try {
+            saveProgress();
+            rs.chapterIndex = ci;
+            rs.startFraction = segCount > 0
+                    ? Math.round(si * 10000f / segCount) : 0;
+            com.fongmi.android.tv.read.ReadingRouter.openReading(this, rs);
+        } catch (Throwable t) {
+            ToastUtil.show(this, "阅读器打开失败", Toast.LENGTH_SHORT);
+        }
+    }
+
+    private void seekBy(long deltaMs) {
+        if (mService == null) return;
+        try {
+            long pos = player().getPosition();
+            long dur = player().getDuration();
+            long target = pos + deltaMs;
+            if (target < 0) target = 0;
+            if (dur > 0 && target > dur) target = dur;
+            player().seekTo(target);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    // ================= 正文跟读 =================
+
+    /** 当前章正文上屏（段拼接）＋当前段高亮；段表在后台线程取（可能触发正文抓取）。 */
+    private void updateBody() {
+        if (tvBody == null || engine == null) return;
+        final int chapter = ci;
+        final int seg = si;
+        if (bodyChapter == chapter && bodySegs != null) {
+            highlightSegment(seg);
+            return;
+        }
+        new Thread(() -> {
+            java.util.List<String> segs;
+            try {
+                segs = engine.segmentsOf(chapter);
+            } catch (Throwable t) {
+                segs = new ArrayList<>();
+            }
+            final java.util.List<String> fs = segs;
+            runOnUiThread(() -> {
+                if (released || chapter != ci) return;
+                bodyChapter = chapter;
+                bodySegs = fs;
+                bodyStarts = new int[fs.size()];
+                StringBuilder sb = new StringBuilder();
+                for (int i = 0; i < fs.size(); i++) {
+                    bodyStarts[i] = sb.length();
+                    sb.append(fs.get(i));
+                }
+                curSegSpan = null;
+                tvBody.setText(sb.toString());
+                bodyScroll.scrollTo(0, 0);
+                highlightSegment(si);
+            });
+        }).start();
+    }
+
+    private void highlightSegment(int seg) {
+        if (tvBody == null || bodySegs == null || bodyStarts == null) return;
+        if (seg < 0 || seg >= bodySegs.size()) return;
+        CharSequence cs = tvBody.getText();
+        if (!(cs instanceof android.text.Spannable)) return;
+        android.text.Spannable sp = (android.text.Spannable) cs;
+        if (curSegSpan != null) sp.removeSpan(curSegSpan);
+        int start = bodyStarts[seg];
+        int end = start + bodySegs.get(seg).length();
+        if (end > sp.length()) end = sp.length();
+        if (end <= start) return;
+        curSegSpan = new android.text.style.BackgroundColorSpan(0x3DFF9E57);
+        sp.setSpan(curSegSpan, start, end, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        // 当前段滚到可见区上部
+        bodyScroll.post(() -> {
+            try {
+                android.text.Layout layout = tvBody.getLayout();
+                if (layout == null) return;
+                int line = layout.getLineForOffset(start);
+                int y = layout.getLineTop(line) - dp(60);
+                bodyScroll.smoothScrollTo(0, Math.max(0, y));
+            } catch (Throwable ignored) {
+            }
+        });
     }
 
     // ================= 服务绑定 =================
@@ -515,6 +813,7 @@ public class TtsReadActivity extends Activity
         mService.setPlaybackForeground(true);
         mService.setNavigationCallback(navCallback, playbackKey());
         engine = new TtsEngine(this, job.bookKey(), this::resolveText, this);
+        engine.setEngineMode(engineModePref());
         engine.setVoice(job.voiceId, job.rate);
         // 起始段：按传入的阅读万分比估算（确定性切分可重算）
         prepareChapter(ci, si, true);
@@ -601,6 +900,7 @@ public class TtsReadActivity extends Activity
         wantSi = seg;
         endedGuardCi = -1;
         refreshLabels();
+        updateBody();
         ReadingSession.Chapter c = job.chapters.get(Math.min(ci, job.chapters.size() - 1));
         MediaMetadata meta = new MediaMetadata.Builder()
                 .setTitle(c.name + " · 第" + (si + 1) + "段")
@@ -670,6 +970,16 @@ public class TtsReadActivity extends Activity
     }
 
     @Override
+    public void onFallbackToSystem() {
+        runOnUiThread(() -> {
+            if (released) return;
+            refreshLabels();
+            ToastUtil.show(this, "Edge 朗读服务连不上，已切换系统语音",
+                    Toast.LENGTH_LONG);
+        });
+    }
+
+    @Override
     public void onTtsError(String humanMsg) {
         runOnUiThread(() -> {
             if (released) return;
@@ -692,6 +1002,7 @@ public class TtsReadActivity extends Activity
             } catch (Throwable ignored) {
             }
             engine = new TtsEngine(this, job.bookKey(), this::resolveText, this);
+            engine.setEngineMode(engineModePref());
             engine.setVoice(curVoice == null ? job.voiceId : curVoice.id, SPEEDS[speedIndex]);
             prepareChapter(ci, si, false);
             ToastUtil.show(this, "正在重连朗读服务…", Toast.LENGTH_SHORT);
@@ -706,7 +1017,7 @@ public class TtsReadActivity extends Activity
         float s = SPEEDS[speedIndex];
         String label = String.format(Locale.US, "%.2f", s)
                 .replaceAll("0+$", "").replaceAll("\\.$", "");
-        tvSpeed.setText(label + "x");
+        tvSpeed.setText("语速 " + label + "x");
         if (engine != null && curVoice != null) {
             engine.setVoice(curVoice.id, s);
             // 语速走服务端合成：从本段起用新语速重听
@@ -741,13 +1052,26 @@ public class TtsReadActivity extends Activity
                     EdgeVoice v = voices.get(which);
                     curVoice = v;
                     EdgeVoiceCatalog.setDefaultVoice(v.id);
-                    tvVoice.setText(v.name);
                     if (engine != null) {
+                        if (engine.usingSystem()
+                                && engine.engineMode() == TtsEngine.MODE_AUTO) {
+                            // 正在系统兜底里：选 Edge 音色＝想回 Edge，
+                            // 重建引擎清兜底旗、用新音色重试
+                            try {
+                                engine.shutdown();
+                            } catch (Throwable ignored) {
+                            }
+                            engine = new TtsEngine(this, job.bookKey(),
+                                    this::resolveText, this);
+                            engine.setEngineMode(engineModePref());
+                        }
                         engine.setVoice(v.id, SPEEDS[speedIndex]);
+                        ttsDead = false;
                         prepareChapter(ci, si, false);
                         ToastUtil.show(this, "已换「" + v.name + "」，本段起生效",
                                 Toast.LENGTH_SHORT);
                     }
+                    refreshLabels();
                 }, "试听当前音色", this::trialVoice);
     }
 

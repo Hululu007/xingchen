@@ -1,6 +1,7 @@
 import com.fongmi.android.tv.hongguo.api.HgApiClient;
 import com.fongmi.android.tv.hongguo.api.HgCommentClient;
 import com.fongmi.android.tv.hongguo.api.HgCommentParser;
+import com.fongmi.android.tv.hongguo.api.HgDouyinAuth;
 import com.fongmi.android.tv.hongguo.api.HgPassportClient;
 import com.fongmi.android.tv.hongguo.api.HgRequests;
 import com.fongmi.android.tv.hongguo.model.HgComment;
@@ -247,6 +248,46 @@ public class HgInteractionTest {
                         "{\"message\":\"success\",\"data\":{\"session_key\":\"sk1\"}}", "sessionid=abc; path=/")), null);
         check("登录 Cookie：失败回包（真形状 1203）为 null",
                 HgPassportClient.loginCookie(w1, null) == null, null);
+
+        // ---------- 抖音一键登录（web 授权路；身份/组参出处 douyin-login-probe-20261028.md，
+        // 授权 URL 组法照官方 SDK authorize/a.java、回跳拦截照 BaseWebAuthorizeActivity） ----------
+        java.util.Map<String, String> dyForm = HgRequests.douyinAuthForm("authcode123");
+        check("抖音兑换表单 platform=aweme_v2/expires_in=0/code 明文/platform_app_id=7828",
+                "aweme_v2".equals(dyForm.get("platform")) && "0".equals(dyForm.get("expires_in"))
+                        && "authcode123".equals(dyForm.get("code"))
+                        && "7828".equals(dyForm.get("platform_app_id")), dyForm.toString());
+        String authUrl = HgDouyinAuth.buildAuthorizeUrl("stateXYZ");
+        check("授权 URL 起点＋client_key＋response_type=code",
+                authUrl.startsWith("https://open.douyin.com/platform/oauth/connect/?response_type=code")
+                        && authUrl.contains("client_key=awhrxjuqewhhyckk"), authUrl);
+        check("授权 URL redirect_uri 编码回跳地址",
+                authUrl.contains("redirect_uri=https%3A%2F%2Fapi.snssdk.com%2Foauth%2Fauthorize%2Fcallback%2F"), null);
+        check("授权 URL signature/app_identity/scope/state/enter_from 全套",
+                authUrl.contains("signature=56a962410c494bbaf0b58dba20cae56f")
+                        && authUrl.contains("app_identity=a31cac73514ff8516d8e56844032054f")
+                        && authUrl.contains("scope=user_info")
+                        && authUrl.contains("state=stateXYZ")
+                        && authUrl.contains("enter_from=account"), null);
+        HgDouyinAuth.Callback cbOk = HgDouyinAuth.parseCallback(
+                "https://api.snssdk.com/oauth/authorize/callback/?code=abc123&state=stateXYZ&scopes=user_info");
+        check("回跳带 code 解析出授权码", cbOk != null && cbOk.hasCode() && "abc123".equals(cbOk.code),
+                cbOk == null ? "null" : cbOk.code);
+        HgDouyinAuth.Callback cbErr = HgDouyinAuth.parseCallback(
+                "https://api.snssdk.com/oauth/authorize/callback/?errCode=2001&state=stateXYZ");
+        check("回跳带 errCode 解析为拒绝", cbErr != null && !cbErr.hasCode() && "2001".equals(cbErr.errCode),
+                cbErr == null ? "null" : cbErr.errCode);
+        check("非回跳地址 parseCallback 为 null",
+                HgDouyinAuth.parseCallback("https://open.douyin.com/platform/oauth/connect/") == null
+                        && HgDouyinAuth.parseCallback(null) == null, null);
+        // 探针 P4 真回包（假码兑换 1902/code_expired）：判码＋人话＋Cookie 为 null
+        String p4 = "{\"data\":{\"captcha\":\"\",\"desc_url\":\"https://zjsms.com/x\",\"description\":\"获取用户信息异常\",\"dialog_tips\":\"aweme_v2_10007:code_expired\",\"error_code\":1902,\"name\":\"profile_error\"},\"message\":\"error\"}";
+        check("抖音兑换真回包 1902 判出错误码", HgPassportClient.passportErrorCode(p4) == 1902,
+                String.valueOf(HgPassportClient.passportErrorCode(p4)));
+        check("1902 人话化（授权过期）",
+                "授权已过期，请重新点抖音一键登录".equals(HgPassportClient.passportError(p4)),
+                HgPassportClient.passportError(p4));
+        check("抖音兑换失败回包 Cookie 为 null",
+                HgPassportClient.loginCookie(p4, null) == null, null);
 
         System.out.println(fail == 0 ? "ALL PASS HgInteractionTest" : "FAILURES=" + fail);
         if (fail > 0) System.exit(1);

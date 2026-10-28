@@ -1023,4 +1023,52 @@ public final class HgParser {
         if (name == null && avatar == null) return null;
         return new HgAccountProfile(name, avatar, uid);
     }
+
+    /**
+     * 用户资料解析（GET /reading/user/profile/get/，模型逐字段见
+     * {@link HgUserProfile} 类注）：data.ugc_user{user_id, base_info
+     * {user_name/user_avatar/description}, user_relation{follow_user_num/
+     * fans_num/recv_digged_count/relation_type}}。计数字段缺失记 -1（整行
+     * 不显的判据在 HgUserProfile.hasRelationCounts）；relation_type 兼容
+     * 数字（UserRelationType 值 1–4）与枚举名字符串两形态。
+     */
+    public static HgUserProfile parseUserProfile(String json) {
+        if (json == null || json.isEmpty()) return null;
+        JsonObject root;
+        try {
+            root = JsonParser.parseString(json).getAsJsonObject();
+        } catch (Exception e) {
+            return null;
+        }
+        JsonObject data = obj(root, "data");
+        if (data == null) data = root;
+        JsonObject ugc = obj(data, "ugc_user");
+        if (ugc == null) return null;
+        JsonObject base = obj(ugc, "base_info");
+        JsonObject rel = obj(ugc, "user_relation");
+        String relationRaw = null;
+        Boolean followed = null;
+        if (rel != null) {
+            JsonElement rt = rel.get("relation_type");
+            if (rt != null && rt.isJsonPrimitive()) {
+                if (rt.getAsJsonPrimitive().isNumber()) {
+                    int v = rt.getAsInt();
+                    relationRaw = String.valueOf(v);
+                    followed = v == 2 || v == 4;
+                } else if (rt.getAsJsonPrimitive().isString()) {
+                    relationRaw = rt.getAsString();
+                    followed = "Follow".equals(relationRaw) || "MutualFollow".equals(relationRaw);
+                }
+            }
+        }
+        return new HgUserProfile(
+                firstStr(ugc, "user_id"),
+                base == null ? null : firstStr(base, "user_name"),
+                base == null ? null : firstStr(base, "user_avatar"),
+                base == null ? null : firstStr(base, "description"),
+                rel == null ? -1 : intOf(rel, "follow_user_num", -1),
+                rel == null ? -1 : intOf(rel, "fans_num", -1),
+                rel == null ? -1 : intOf(rel, "recv_digged_count", -1),
+                relationRaw, followed);
+    }
 }

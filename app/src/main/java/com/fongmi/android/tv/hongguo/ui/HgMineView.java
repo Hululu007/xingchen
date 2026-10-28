@@ -63,6 +63,13 @@ public final class HgMineView extends LinearLayout {
     private TextView nicknameView;
     private android.widget.ImageView avatarView;
     private TextView avatarBadge;
+    private View relationRow;
+    private TextView relFollowNum;
+    private TextView relFollowUnit;
+    private TextView relFansNum;
+    private TextView relFansUnit;
+    private TextView relDiggNum;
+    private TextView relDiggUnit;
     private TextView emptyView;
     private LinearLayout chipsBox;
     private TextView editBtn;
@@ -106,6 +113,13 @@ public final class HgMineView extends LinearLayout {
         nicknameView = findViewById(R.id.hg_mine_nickname);
         avatarView = findViewById(R.id.hg_mine_avatar);
         avatarBadge = findViewById(R.id.hg_mine_avatar_badge);
+        relationRow = findViewById(R.id.hg_mine_relation);
+        relFollowNum = findViewById(R.id.hg_mine_rel_follow);
+        relFollowUnit = findViewById(R.id.hg_mine_rel_follow_unit);
+        relFansNum = findViewById(R.id.hg_mine_rel_fans);
+        relFansUnit = findViewById(R.id.hg_mine_rel_fans_unit);
+        relDiggNum = findViewById(R.id.hg_mine_rel_digg);
+        relDiggUnit = findViewById(R.id.hg_mine_rel_digg_unit);
         emptyView = findViewById(R.id.hg_mine_empty);
         chipsBox = findViewById(R.id.hg_mine_chips);
         editBtn = findViewById(R.id.hg_mine_edit);
@@ -118,6 +132,7 @@ public final class HgMineView extends LinearLayout {
         RecyclerView grid = findViewById(R.id.hg_mine_grid);
         grid.setLayoutManager(new GridLayoutManager(getContext(), 3));
         grid.setAdapter(adapter);
+        grid.addItemDecoration(new MineGridSpacing());
         findViewById(R.id.hg_mine_login_btn).setOnClickListener(v -> onAccountClick());
         userRow.setOnClickListener(v -> onAccountClick());
         findViewById(R.id.hg_mine_search).setOnClickListener(v ->
@@ -216,6 +231,78 @@ public final class HgMineView extends LinearLayout {
                         // 静默：资料口认不认网页会话待首登定论，失败不冲镜像不报错
                     }
                 });
+        refreshRelation();
+    }
+
+    /**
+     * 关系行回源（官方 HongguoMineRelationLayout 同源）：本人资料
+     * profile/get 的 user_relation 三计数（关注/粉丝/获赞）。本人 uid
+     * 未知（资料口还没回过）或回源失败/计数不齐时整行不显——不摆假 0；
+     * 与资料口同命：认不认网页会话待首登定论。
+     */
+    private void refreshRelation() {
+        if (relationRow == null) return;
+        String uid = HgStore.profileUid();
+        if (uid == null || uid.isEmpty()) {
+            relationRow.setVisibility(GONE);
+            return;
+        }
+        HgFeedSession.get().client.fetchUserProfile(uid,
+                new HgCallback<com.fongmi.android.tv.hongguo.model.HgUserProfile>() {
+                    @Override
+                    public void onSuccess(com.fongmi.android.tv.hongguo.model.HgUserProfile p) {
+                        post(() -> {
+                            if (p == null || !p.hasRelationCounts()) {
+                                relationRow.setVisibility(GONE);
+                                return;
+                            }
+                            setRelationCount(relFollowNum, relFollowUnit, p.followUserNum);
+                            setRelationCount(relFansNum, relFansUnit, p.fansNum);
+                            setRelationCount(relDiggNum, relDiggUnit, p.recvDiggedCount);
+                            relationRow.setVisibility(VISIBLE);
+                        });
+                    }
+
+                    @Override
+                    public void onError(int httpCode, String message) {
+                        post(() -> relationRow.setVisibility(GONE));
+                    }
+                });
+    }
+
+    /** 计数拆数＋单位两件（官方 o6 拼法：万以下原数无单位、万起 x.x万）。 */
+    private static void setRelationCount(TextView num, TextView unit, int n) {
+        if (n < 10000) {
+            num.setText(String.valueOf(n));
+            unit.setText("");
+            return;
+        }
+        double wan = n / 10000.0;
+        String s = String.format(java.util.Locale.US, "%.1f", wan);
+        if (s.endsWith(".0")) s = s.substring(0, s.length() - 2);
+        num.setText(s);
+        unit.setText("万");
+    }
+
+    /**
+     * 网格间距（官方 az3/a.java:53-118 逐行定版，VideoCollLayout 新样式以
+     * z=false 构造）：3 列、横向单位 b＝8dp 按 left＝列×b/列数、
+     * right＝b－(列+1)×b/列数 分配（列间合计 8dp、两边 0）、行底 c＝18dp、
+     * 首行顶 d＝11dp、末行底 e＝18dp（与 c 同值）。
+     */
+    private final class MineGridSpacing extends RecyclerView.ItemDecoration {
+        @Override
+        public void getItemOffsets(@NonNull android.graphics.Rect outRect, @NonNull View view,
+                                   @NonNull RecyclerView parent, @NonNull RecyclerView.State state) {
+            int pos = parent.getChildAdapterPosition(view);
+            if (pos < 0) return;
+            int unit = dp(8);
+            int col = pos % 3;
+            outRect.left = col * unit / 3;
+            outRect.right = unit - (col + 1) * unit / 3;
+            outRect.top = pos < 3 ? dp(11) : 0;
+            outRect.bottom = dp(18);
+        }
     }
 
     /** 头部绑定：昵称＝资料镜像（无镜像回落账号态文案）；头像有图显图、无图显字徽。 */

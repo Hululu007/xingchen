@@ -96,14 +96,104 @@
                     android:visibility="gone" />
             </FrameLayout>
 
-            <TextView
-                android:id="@+id/hg_mine_nickname"
+            <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="12dp"
-                android:textColor="#FF000000"
-                android:textSize="20sp"
-                android:textStyle="bold" />
+                android:layout_marginStart="6dp"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/hg_mine_nickname"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="#FF000000"
+                    android:textSize="20sp"
+                    android:textStyle="bold" />
+
+                <!-- 关系行（官方 HongguoMineRelationLayout b98 定版：三组
+                     横排，每组＝计数 14sp＋单位 12sp＋标签 12sp、全 #B2000000
+                     （skin_color_gray_70），组距 16dp，行 marginTop 6dp；
+                     计数＝user_relation 的 follow_user_num/fans_num/
+                     recv_digged_count，经 profile/get 回源；无源整行 gone，
+                     不显假 0）。 -->
+                <LinearLayout
+                    android:id="@+id/hg_mine_relation"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:layout_marginTop="6dp"
+                    android:orientation="horizontal"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:id="@+id/hg_mine_rel_follow"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="2dp"
+                        android:textColor="#B2000000"
+                        android:textSize="14sp" />
+
+                    <TextView
+                        android:id="@+id/hg_mine_rel_follow_unit"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textColor="#B2000000"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="关注"
+                        android:textColor="#B2000000"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/hg_mine_rel_fans"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="16dp"
+                        android:layout_marginEnd="2dp"
+                        android:textColor="#B2000000"
+                        android:textSize="14sp" />
+
+                    <TextView
+                        android:id="@+id/hg_mine_rel_fans_unit"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textColor="#B2000000"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="粉丝"
+                        android:textColor="#B2000000"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/hg_mine_rel_digg"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="16dp"
+                        android:layout_marginEnd="2dp"
+                        android:textColor="#B2000000"
+                        android:textSize="14sp" />
+
+                    <TextView
+                        android:id="@+id/hg_mine_rel_digg_unit"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textColor="#B2000000"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="获赞"
+                        android:textColor="#B2000000"
+                        android:textSize="12sp" />
+                </LinearLayout>
+            </LinearLayout>
         </LinearLayout>
     </FrameLayout>
 
@@ -203,13 +293,14 @@
         android:textSize="14sp"
         android:visibility="gone" />
 
+    <!-- 网格间距照官方 az3/a 定版公式由 HgMineView 的 ItemDecoration 给
+         （横向单位 8dp 按列分配、行底 18dp、首行顶 11dp），容器本身不留距 -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/hg_mine_grid"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:clipToPadding="false"
-        android:padding="8dp" />
+        android:clipToPadding="false" />
 
     <!-- 编辑模式底条（选中计数＋删除动作；非编辑态 gone） -->
     <LinearLayout

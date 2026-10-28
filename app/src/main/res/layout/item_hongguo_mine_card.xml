@@ -2,15 +2,14 @@
 <!-- 「我的」书架格子（官方书架卡定版 dig-mine2 §1.4：封面比新样式
      H,114:159、标题新样式 14sp 单行黑、副行 12sp 灰40 单行）。与剧场卡
      （3:4）是两个面，不共用。 -->
+<!-- 间距不在卡内：官方网格间距由 az3/a 的 ItemDecoration 按列给
+     （横向 8dp 公式分配、行底 18dp、首行顶 11dp，HgMineView 落），
+     卡本体贴满列宽（x33/k 把 itemView 宽设 -1 撑满列，同口径）。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:paddingStart="6dp"
-    android:paddingTop="6dp"
-    android:paddingEnd="6dp"
-    android:paddingBottom="6dp">
+    android:orientation="vertical">
 
     <androidx.constraintlayout.widget.ConstraintLayout
         android:layout_width="match_parent"

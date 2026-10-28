@@ -618,6 +618,42 @@ public class HgOfflineTest {
             }
         }
 
+        // §22 用户资料解析（GET /reading/user/profile/get/，模型字段逐字
+        //     对 GetUserProfileData/UgcUserInfo/UserBaseInfo/UserRelation）：
+        //     三计数、名/头像/简介、relation_type 数字与字符串两形态、
+        //     计数缺失记 -1（整行不显判据）。
+        {
+            String raw = "{\"code\":0,\"data\":{\"ugc_user\":{\"user_id\":\"731637651867048\","
+                    + "\"base_info\":{\"user_name\":\"陈景枫\",\"user_avatar\":\"https://a/av.png\","
+                    + "\"description\":\"拍短剧的\"},"
+                    + "\"user_relation\":{\"follow_user_num\":12,\"fans_num\":34567,"
+                    + "\"recv_digged_count\":890,\"relation_type\":2}}}}";
+            com.fongmi.android.tv.hongguo.model.HgUserProfile p = HgParser.parseUserProfile(raw);
+            check("§22 资料解析非空", p != null, null);
+            if (p != null) {
+                check("§22 名/头像/简介", "陈景枫".equals(p.name) && "https://a/av.png".equals(p.avatar)
+                        && "拍短剧的".equals(p.desc), "实际=" + p.name + "/" + p.avatar + "/" + p.desc);
+                check("§22 三计数", p.followUserNum == 12 && p.fansNum == 34567 && p.recvDiggedCount == 890,
+                        "实际=" + p.followUserNum + "/" + p.fansNum + "/" + p.recvDiggedCount);
+                check("§22 计数齐备", p.hasRelationCounts(), null);
+                check("§22 数字 relation_type=2 判已关注", Boolean.TRUE.equals(p.followedByMe),
+                        "实际=" + p.followedByMe);
+            }
+            String rawStr = "{\"data\":{\"ugc_user\":{\"base_info\":{},\"user_relation\":"
+                    + "{\"follow_user_num\":0,\"fans_num\":0,\"recv_digged_count\":0,"
+                    + "\"relation_type\":\"MutualFollow\"}}}}";
+            com.fongmi.android.tv.hongguo.model.HgUserProfile p2 = HgParser.parseUserProfile(rawStr);
+            check("§22 字符串 relation_type 判已关注", p2 != null && Boolean.TRUE.equals(p2.followedByMe),
+                    "实际=" + (p2 == null ? null : p2.followedByMe));
+            String rawNone = "{\"data\":{\"ugc_user\":{\"base_info\":{},\"user_relation\":"
+                    + "{\"relation_type\":1}}}}";
+            com.fongmi.android.tv.hongguo.model.HgUserProfile p3 = HgParser.parseUserProfile(rawNone);
+            check("§22 计数缺失记 -1 整行不显", p3 != null && !p3.hasRelationCounts()
+                            && Boolean.FALSE.equals(p3.followedByMe),
+                    "实际=" + (p3 == null ? null : p3.followUserNum + "/" + p3.followedByMe));
+            check("§22 无 ugc_user 回 null", HgParser.parseUserProfile("{\"data\":{}}") == null, null);
+        }
+
         System.out.println(fail == 0 ? "ALL PASS" : ("FAILURES=" + fail));
         System.exit(fail == 0 ? 0 : 1);
     }

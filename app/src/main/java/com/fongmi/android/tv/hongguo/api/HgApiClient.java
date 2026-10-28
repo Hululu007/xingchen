@@ -556,6 +556,36 @@ public final class HgApiClient {
 
     // ---------- 追剧架（账号维度，靠登录态注入） ----------
 
+    /**
+     * 用户资料 GET /reading/user/profile/get/（a45/k.java:344 GetUserProfile
+     * 定版，请求体只有 user_id）：「我的」头部关系行与作者主页数据行同源
+     * （模型与拼法见 HgUserProfile 类注）。走本面已签名 get 口，登录态由
+     * headers() 统一附；回包认不认网页会话与资料口同命，失败静默由调用方兜。
+     */
+    public void fetchUserProfile(String userId,
+                                 HgCallback<com.fongmi.android.tv.hongguo.model.HgUserProfile> cb) {
+        if (userId == null || userId.isEmpty()) {
+            cb.onError(-1, "user_id 为空");
+            return;
+        }
+        Map<String, String> q = new HashMap<>();
+        q.put("user_id", userId);
+        get(HOST + "/reading/user/profile/get" + BV, q, new BodyCallback() {
+            @Override
+            void onBody(String text) {
+                com.fongmi.android.tv.hongguo.model.HgUserProfile p =
+                        HgParser.parseUserProfile(text);
+                if (p == null) cb.onError(-2, "用户资料回包解析失败");
+                else cb.onSuccess(p);
+            }
+
+            @Override
+            void onFail(int code, String msg) {
+                cb.onError(code, msg);
+            }
+        });
+    }
+
     public void bookshelfVideoList(HgCallback<HgCellPage> cb) {
         get(HOST + "/reading/bookapi/bookshelf/video/list" + BV, null, cellCallback(cb));
     }

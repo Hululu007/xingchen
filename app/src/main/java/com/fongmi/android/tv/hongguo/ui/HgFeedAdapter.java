@@ -38,7 +38,8 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         /** 进这部剧（短片流）：点系列胶囊条/系列标题行或条目上左滑（账 §4/§5.4）；系列先弹半屏单、单季直进集流。 */
         void onEnterSeries(int position);
 
-        void onDanmakuToggle(int position);
+        /** 点「弹」发弹幕入口：开自家发弹幕编辑层（不是开关）。 */
+        void onDanmakuPublish(int position);
 
         void onFullscreenWatch(int position);
 
@@ -213,11 +214,11 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         b.hgReserve.setAlpha(reserved ? 0.75f : 1f);
     }
 
-    /** 弹幕开关态：关时芯片压暗。弹幕内容本阶段不接（见 Activity 注）。 */
+    /** 「弹」＝发弹幕入口（官方 A25：PublishDanmakuEntranceView，显隐跟
+     * danmakuEnableByUser）：弹幕开着才显，关着整盒不显、字样保持常态。
+     * 它不是开关——开关在抽屉（自家小设置），点击走 onDanmakuPublish 开编辑层。 */
     public void bindDanmakuState(Holder holder) {
-        // 官方态样（他发的官方图 113482 放大亲验）：关＝字右下带斜杠、字不变暗；
-        // 开＝净字。此前用透明度 0.55 表示关，样子不对，已改斜杠口径
-        holder.binding.hgDanmakuSlash.setVisibility(HgStore.isDanmakuOn() ? View.GONE : View.VISIBLE);
+        holder.binding.hgDanmakuBox.setVisibility(HgStore.isDanmakuOn() ? View.VISIBLE : View.GONE);
     }
 
     /** 系列剧款（账 §5.2）：胶囊文案只拼有实证的部分——季数来自 album_serial_count；在追人数无字段（U5）不拼。 */
@@ -299,7 +300,7 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         b.hgAvatarBox.setOnClickListener(v -> host.onAction(holder.getBindingAdapterPosition(), Action.FOLLOW));
         b.hgReserve.setOnClickListener(v -> host.onAction(holder.getBindingAdapterPosition(), Action.RESERVE));
         b.hgSeriesBar.setOnClickListener(v -> host.onSeriesBar(holder.getBindingAdapterPosition()));
-        b.hgDanmakuBox.setOnClickListener(v -> host.onDanmakuToggle(holder.getBindingAdapterPosition()));
+        b.hgDanmakuBox.setOnClickListener(v -> host.onDanmakuPublish(holder.getBindingAdapterPosition()));
         b.hgFullscreenWatch.setOnClickListener(v -> host.onFullscreenWatch(holder.getBindingAdapterPosition()));
         b.hgError.setOnClickListener(v -> host.onRetry(holder.getBindingAdapterPosition()));
         View.OnClickListener descToggle = v -> {

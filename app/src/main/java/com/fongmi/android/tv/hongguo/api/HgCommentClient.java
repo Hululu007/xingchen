@@ -22,7 +22,7 @@ import okhttp3.Response;
 import okhttp3.ResponseBody;
 
 /**
- * 红果 fqnovel 面客户端（hongguo 包自有实现）：评论读三口＋视频点赞 do_action。
+ * 红果 fqnovel 面客户端（hongguo 包自有实现）：评论读三口＋视频点赞 do_action＋发弹幕 comment/add。
  *
  * <p>为什么不直接用 api/HongguoCommentApi：那份是海阔规则年代与 HongguoDanmakuApi
  * 同层共建的壳子抓取器，挂在点播播放链上、类与传输都是包内共用形态；原生刷剧面
@@ -196,6 +196,68 @@ public final class HgCommentClient {
                 com.fongmi.android.tv.hongguo.model.HgDanmaku.Window w = HgCommentParser.parseDanmakuWindow(text);
                 if (w == null) cb.onError(-2, "弹幕回包解析失败");
                 else cb.onSuccess(w);
+            }
+
+            @Override
+            void onFail(int code, String msg) {
+                cb.onError(code, msg);
+            }
+        });
+    }
+
+    /**
+     * 发弹幕请求体（挖掘账 dig-comment-danmaku.md §2.4(a) 定版）：与发评论
+     * 同端点（comment/add）、同模型（AddCommentRequest），只换弹幕档填值——
+     * commit_source＝1500（NovelItemDanmakuAdd）、group_type＝30、
+     * data_type＝20、comment_type 不填；business 带 book_id（剧 id）、
+     * offset（播放位置毫秒）、ignore_urge_rule＝false 与 shark_param
+     * （type＝short_play、aid＝"8662"，aid 在 shark 里是字符串）。
+     */
+    public static JsonObject danmakuPostPayload(String seriesId, String vid, String text, long offsetMs) {
+        JsonObject payload = new JsonObject();
+        payload.addProperty("commit_source", 1500);
+        payload.addProperty("group_id", vid);
+        payload.addProperty("group_type", 30);
+        payload.addProperty("data_type", 20);
+        payload.addProperty("text", text == null ? "" : text);
+        payload.addProperty("aid", 8662);
+        JsonObject business = new JsonObject();
+        business.addProperty("book_id", seriesId);
+        business.addProperty("offset", Math.max(0, offsetMs));
+        business.addProperty("ignore_urge_rule", false);
+        JsonObject shark = new JsonObject();
+        shark.addProperty("type", "short_play");
+        shark.addProperty("aid", "8662");
+        business.add("shark_param", shark);
+        payload.add("business_param", business);
+        return payload;
+    }
+
+    /**
+     * 发一条弹幕 POST /novel/commentapi/comment/add/v1/。回包判定照本文件
+     * 既有写操作（do_action）口径：信封 code=0 才算受理（HgCommentParser
+     * .writeResult）；解析失败与被拒在 onText 侧以 -2 分文案报，网络/HTTP
+     * 失败走 onFail 原样透传 code——两路不混。post 的 source/channel 照
+     * do_action 写操作惯例传 0/0（不带 Comment-Source/Server-Channel 头，
+     * 见 doArticleAction 的 postRaw 调用）。
+     */
+    public void publishDanmaku(String seriesId, String vid, String text, long offsetMs,
+                               HgCallback<Void> cb) {
+        if (!isId(seriesId) || !isId(vid)) {
+            cb.onError(-1, "id 非法");
+            return;
+        }
+        if (text == null || text.trim().isEmpty()) {
+            cb.onError(-1, "弹幕为空");
+            return;
+        }
+        post("comment/add", danmakuPostPayload(seriesId, vid, text, offsetMs), 0, 0, new TextCallback() {
+            @Override
+            void onText(String resp) {
+                int r = HgCommentParser.writeResult(resp);
+                if (r < 0) cb.onError(-2, "发弹幕回包解析失败");
+                else if (r == 0) cb.onError(-2, "发弹幕被服务端拒绝");
+                else cb.onSuccess(null);
             }
 
             @Override

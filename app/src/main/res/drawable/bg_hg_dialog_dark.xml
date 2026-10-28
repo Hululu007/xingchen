@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 自家小 Dialog 深底（发弹幕编辑层用）：全圆角 16dp、深底 #FF1C1C1E
+     （与评论单根底同色，红果面深色口径）。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <corners android:radius="16dp" />
+    <solid android:color="#FF1C1C1E" />
+</shape>

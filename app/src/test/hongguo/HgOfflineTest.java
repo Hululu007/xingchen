@@ -374,6 +374,42 @@ public class HgOfflineTest {
                     "实际=" + (page.getItems() == null ? -1 : page.getItems().size()));
         }
 
+        // 17) 发弹幕请求体（dig-comment-danmaku.md §2.4(a) 定版）：与发评论
+        //     同口（comment/add）换弹幕档——commit_source 1500、group_type 30、
+        //     data_type 20、comment_type 缺省；business 三件（book_id/offset/
+        //     ignore_urge_rule=false）＋shark 两件（type short_play、aid 字符串
+        //     "8662"）。另验写回包三态判定（受理/被拒/解析失败）。
+        {
+            com.google.gson.JsonObject pp = com.fongmi.android.tv.hongguo.api.HgCommentClient
+                    .danmakuPostPayload("7697561772433099800", "7697606592786598936", "前排", 12345);
+            com.google.gson.JsonObject biz = pp.getAsJsonObject("business_param");
+            com.google.gson.JsonObject shark = biz.getAsJsonObject("shark_param");
+            check("发弹幕 payload 档位与归属", pp.get("commit_source").getAsInt() == 1500
+                            && pp.get("group_type").getAsInt() == 30
+                            && pp.get("data_type").getAsInt() == 20
+                            && pp.get("aid").getAsInt() == 8662
+                            && "7697606592786598936".equals(pp.get("group_id").getAsString())
+                            && "前排".equals(pp.get("text").getAsString()),
+                    null);
+            check("发弹幕 payload comment_type 缺省", !pp.has("comment_type"), null);
+            check("发弹幕 payload business 三件", "7697561772433099800".equals(biz.get("book_id").getAsString())
+                            && biz.get("offset").getAsLong() == 12345
+                            && !biz.get("ignore_urge_rule").getAsBoolean(),
+                    null);
+            check("发弹幕 payload shark 两件", "short_play".equals(shark.get("type").getAsString())
+                            && "8662".equals(shark.get("aid").getAsString()),
+                    null);
+            check("写回包三态判定", com.fongmi.android.tv.hongguo.api.HgCommentParser
+                            .writeResult("{\"code\":0,\"message\":\"success\"}") == 1
+                            && com.fongmi.android.tv.hongguo.api.HgCommentParser
+                            .writeResult("{\"code\":1001,\"message\":\"no\"}") == 0
+                            && com.fongmi.android.tv.hongguo.api.HgCommentParser
+                            .writeResult("not json") == -1
+                            && com.fongmi.android.tv.hongguo.api.HgCommentParser
+                            .writeResult("") == -1,
+                    null);
+        }
+
         System.out.println(fail == 0 ? "ALL PASS" : ("FAILURES=" + fail));
         System.exit(fail == 0 ? 0 : 1);
     }

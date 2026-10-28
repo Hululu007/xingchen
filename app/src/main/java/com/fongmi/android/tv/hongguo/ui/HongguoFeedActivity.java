@@ -992,7 +992,10 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             h.binding.hgRightRail.setVisibility(v);
             h.binding.hgInfo.setVisibility(v);
             h.binding.hgSeriesBar.setVisibility(v);
-            h.binding.hgDanmakuBox.setVisibility(v);
+            // 「弹」是发弹幕入口：重显时按弹幕开关恢复（与适配器 bindDanmakuState
+            // 同口径），弹幕关着不许把入口跟着 chrome 一起亮出来
+            h.binding.hgDanmakuBox.setVisibility(hidden ? View.GONE
+                    : (HgStore.isDanmakuOn() ? View.VISIBLE : View.GONE));
             // 全屏观看钮非常驻件：隐藏时一并收；重显口径与适配器绑定一致
             // （真实宽高判横屏或 cell 朝向预判，旧版重显只认真实宽高、与绑定
             // 口径不一致，预判条目会把钮弄丢——审计实证）
@@ -1249,12 +1252,104 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                         picked.getCoverUrl()));
     }
 
+    /**
+     * 点「弹」＝开发弹幕编辑层（官方 A25：入口是 PublishDanmakuEntranceView，
+     * 不是开关）。未登录先拉壳子统一登录（与互动四件同口径），不打开编辑层；
+     * 条目缺 vid/剧 id 时无处可发，不开层。
+     */
     @Override
-    public void onDanmakuToggle(int position) {
-        applyDanmakuSwitch(!HgStore.isDanmakuOn());
+    public void onDanmakuPublish(int position) {
+        if (position != currentPos || position < 0 || position >= session.items.size()) return;
+        if (session.interactions.requiresLogin()) {
+            promptHongguoLogin();
+            return;
+        }
+        HgFeedItem item = session.items.get(position);
+        if (item.videoId == null || item.seriesId == null) return;
+        showDanmakuPublishDialog(item);
     }
 
-    /** 弹幕开关统一落点（「弹」筹与抽屉开关共用）：落状态＋启停渲染层＋开时为当前条起拉。 */
+    /**
+     * 发弹幕编辑层（自家小 Dialog，深底照红果面口径——官方框体是社区
+     * Compose 编辑器、无经典布局可抄，见 dig-comment-danmaku.md §3.3）：
+     * 输入框（hint 照官方串「发条友善的弹幕吧」）＋发表＋取消；空文本发表
+     * 不可点；发送中发表钮禁用防连点；失败不关层、层内提示再试；成功关层
+     * 并把自己这条并入当前弹幕表重喂控制器（滚动、白字、offset＝发表位置）。
+     */
+    private void showDanmakuPublishDialog(HgFeedItem item) {
+        com.fongmi.android.tv.databinding.DialogHongguoDanmakuBinding db =
+                com.fongmi.android.tv.databinding.DialogHongguoDanmakuBinding.inflate(getLayoutInflater());
+        android.app.Dialog dialog = new android.app.Dialog(this);
+        dialog.setContentView(db.getRoot());
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(
+                    android.graphics.Color.TRANSPARENT));
+            int w = (int) (getResources().getDisplayMetrics().widthPixels * 0.85f);
+            dialog.getWindow().setLayout(w, android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+        }
+        final boolean[] sending = {false};
+        android.text.TextWatcher watcher = new android.text.TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+            }
+
+            @Override
+            public void afterTextChanged(android.text.Editable s) {
+                boolean ready = s != null && !s.toString().trim().isEmpty() && !sending[0];
+                db.hgDmPublish.setEnabled(ready);
+                db.hgDmPublish.setAlpha(ready ? 1f : 0.45f);
+            }
+        };
+        db.hgDmInput.addTextChangedListener(watcher);
+        db.hgDmCancel.setOnClickListener(v -> dialog.dismiss());
+        db.hgDmPublish.setOnClickListener(v -> {
+            if (sending[0]) return;
+            String text = db.hgDmInput.getText() == null ? "" : db.hgDmInput.getText().toString().trim();
+            if (text.isEmpty()) return;
+            sending[0] = true;
+            db.hgDmPublish.setEnabled(false);
+            db.hgDmPublish.setAlpha(0.45f);
+            db.hgDmError.setVisibility(View.GONE);
+            final long offsetMs = player == null ? 0 : Math.max(0, player.getCurrentPosition());
+            final String vid = item.videoId;
+            final String sid = item.seriesId;
+            session.fqClient.publishDanmaku(sid, vid, text, offsetMs, new HgCallback<Void>() {
+                @Override
+                public void onSuccess(Void ignored) {
+                    runOnUiThread(() -> {
+                        if (isFinishing() || isDestroyed()) return;
+                        dialog.dismiss();
+                        // 只并入仍是当前条的弹幕表：已滑走/已关弹幕就不喂，
+                        // 防把这条塞进别集的表里
+                        if (vid.equals(danmakuVid) && playerView != null) {
+                            danmakuItems.add(toMedia3Danmaku(
+                                    new com.fongmi.android.tv.hongguo.model.HgDanmaku(
+                                            text, offsetMs, 0, null, 0)));
+                            playerView.getDanmakuController().setItems(
+                                    new java.util.ArrayList<>(danmakuItems));
+                        }
+                    });
+                }
+
+                @Override
+                public void onError(int httpCode, String message) {
+                    runOnUiThread(() -> {
+                        if (isFinishing() || isDestroyed() || !dialog.isShowing()) return;
+                        sending[0] = false;
+                        db.hgDmError.setVisibility(View.VISIBLE);
+                        watcher.afterTextChanged(db.hgDmInput.getText());
+                    });
+                }
+            });
+        });
+        dialog.show();
+    }
+
+    /** 弹幕开关统一落点（抽屉开关，自家小设置）：落状态＋启停渲染层＋连带刷新「弹」入口显隐＋开时为当前条起拉。 */
     private void applyDanmakuSwitch(boolean on) {
         HgStore.setDanmakuOn(on);
         HgFeedAdapter.Holder h = currentHolder();
@@ -1638,8 +1733,8 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     private void openDrawer() {
         if (drawerOpen) return;
         drawerOpen = true;
-        // 开关显示按 HgStore 当前值重刷（sweep 必修3）：弹幕在剧内另有写入口
-        // （onDanmakuToggle），只在 initView 设一次会显示旧值、照着拨会拨反。
+        // 开关显示按 HgStore 当前值重刷（sweep 必修3）：弹幕状态在抽屉外
+        // 没有第二个写入口，只在 initView 设一次会显示旧值、照着拨会拨反。
         // 监听回写的是同值，对 HgStore 无副作用。
         binding.hgDrawer.hgDrawerDirect.setChecked(HgStore.isLaunchDirect());
         binding.hgDrawer.hgDrawerDanmaku.setChecked(HgStore.isDanmakuOn());

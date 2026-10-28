@@ -140,6 +140,32 @@ public final class HgCommentParser {
         return -1L;
     }
 
+    /**
+     * 写操作（comment/add 等）回包三态：1＝受理、0＝被拒、-1＝解析失败。
+     * 受理口径与 parseRoot 一致（信封 code=0，兼容字符串 "0"/"SUCCESS"）；
+     * 与 parseRoot 的区别是把「有信封但 code 非 0」（被拒）和「非 JSON／
+     * 无 code」（解析失败）分开，供发弹幕等写口分别报错。
+     */
+    public static int writeResult(String text) {
+        if (text == null || text.isEmpty()) return -1;
+        try {
+            JsonElement el = JsonParser.parseString(text);
+            if (!el.isJsonObject()) return -1;
+            JsonObject root = el.getAsJsonObject();
+            if (!root.has("code")) return -1;
+            JsonElement code = root.get("code");
+            boolean ok;
+            if (code.isJsonPrimitive() && code.getAsJsonPrimitive().isNumber()) ok = code.getAsInt() == 0;
+            else {
+                String s = code.getAsString();
+                ok = "0".equals(s) || "SUCCESS".equalsIgnoreCase(s) || "Success".equals(s);
+            }
+            return ok ? 1 : 0;
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
     private static JsonObject parseRoot(String text) {
         if (text == null || text.isEmpty()) return null;
         try {

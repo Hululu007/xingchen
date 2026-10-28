@@ -209,16 +209,6 @@
             android:text="弹"
             android:textColor="#FFFFFF"
             android:textSize="14sp" />
-
-        <View
-            android:id="@+id/hg_danmaku_slash"
-            android:layout_width="13dp"
-            android:layout_height="2.5dp"
-            android:layout_gravity="end|bottom"
-            android:layout_marginEnd="4dp"
-            android:layout_marginBottom="7dp"
-            android:background="#FFFFFF"
-            android:rotation="-38" />
     </FrameLayout>
 
     <LinearLayout

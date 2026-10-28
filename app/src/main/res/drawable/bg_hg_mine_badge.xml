@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 「我的」书架卡右上角标底（官方 csi.xml @id/iy1 定版：背景
+     skin_bg_tv_book_progress_light＝solid @color/xg #F2555555＋圆角
+     @dimen/p9 2dp，apktool-phoenix/res/drawable 原文）。 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <corners android:radius="4dp" />
-    <solid android:color="#66000000" />
+    <corners android:radius="2dp" />
+    <solid android:color="#F2555555" />
 </shape>

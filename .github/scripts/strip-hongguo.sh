@@ -96,6 +96,7 @@ app/src/main/res/drawable/bg_hg_refresh_pill.xml
 app/src/main/res/drawable/bg_hg_bottom_scrim.xml
 app/src/main/res/drawable/bg_hg_chip.xml
 app/src/main/res/drawable/bg_hg_cover_r6.xml
+app/src/main/res/drawable/bg_hg_cover_r12.xml
 app/src/main/res/drawable/bg_hg_tag_chip.xml
 app/src/main/res/drawable/bg_hg_dialog_dark.xml
 app/src/main/res/drawable/bg_hg_drawer.xml

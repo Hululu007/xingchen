@@ -61,6 +61,7 @@ grep -qF "<string name=\"nav_duanju\">短剧</string>" "$MSTRINGS" || fail "短�
 for a in HongguoFeedActivity HongguoSearchActivity HongguoAuthorActivity; do
   grep -qF "android:name=\"com.fongmi.android.tv.hongguo.ui.$a\"" "$MANIFEST" || fail "Manifest 的红果登记对不上：$a"
 done
+grep -qF "android:name=\"com.fongmi.android.tv.hongguo.book.HgBookBrowseActivity\"" "$MANIFEST" || fail "Manifest 的红果书城浏览页登记对不上"
 
 # ---- 本体资源清单（main 源集，逐份核在再删） ----
 RES_FILES="
@@ -261,6 +262,14 @@ pattern = r"<activity-alias\s+android:name=\"com\.fongmi\.android\.tv\.hongguo\.
 manifest, n = re.subn(pattern, "", manifest)
 if n != 1:
     sys.exit("python: Manifest 红果横屏别名对不上（命中 %d 处）" % n)
+# 红果书城浏览页（内置小说/听书源的面）：注释与登记整块删（本体在 mobile 的 hongguo/book 目录另行整删）
+manifest = cut_exact(manifest, """        <!-- 红果书城浏览（内置小说/听书源点进去的面） -->
+        <activity
+            android:name="com.fongmi.android.tv.hongguo.book.HgBookBrowseActivity"
+            android:theme="@style/Theme.XingChen.HkPage"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout"
+            android:screenOrientation="fullUser" />
+""", "红果书城浏览页登记")
 save(manifest_path, manifest)
 PYEOF
 
@@ -274,6 +283,7 @@ sed -i "/<string name=\"nav_duanju\">/d" "$MSTRINGS"
 # ---- 本体文件整删 ----
 rm -rf "$HGPKG" "$HGTEST"
 rm "$PROVIDER" "$STREAM"
+rm -rf app/src/mobile/java/com/fongmi/android/tv/hongguo/book
 for f in $RES_FILES; do
   rm "$f"
 done

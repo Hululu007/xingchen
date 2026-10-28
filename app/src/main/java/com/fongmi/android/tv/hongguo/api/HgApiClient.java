@@ -329,6 +329,47 @@ public final class HgApiClient {
         });
     }
 
+    // ---------- 同步口（阅读管线等阻塞调用方用；签名/头组装仍走上面同一套，不许另抄一份） ----------
+
+    /** 已签名 GET 的同步版：回包原文；失败抛异常（消息为人话＋服务端信息）。 */
+    public String getSignedSync(String path, java.util.List<String[]> pairs) throws Exception {
+        return syncCall(cb -> getSigned(path, pairs, cb));
+    }
+
+    /** 已签名 POST（JSON 体）的同步版：回包原文；失败抛异常。 */
+    public String postSignedSync(String path, JsonObject bodyObj) throws Exception {
+        return syncCall(cb -> postSigned(path, bodyObj, cb));
+    }
+
+    private interface SyncStarter {
+        void start(BodyCallback cb);
+    }
+
+    private static String syncCall(SyncStarter starter) throws Exception {
+        final java.util.concurrent.CountDownLatch latch =
+                new java.util.concurrent.CountDownLatch(1);
+        final String[] body = new String[1];
+        final String[] error = new String[1];
+        starter.start(new BodyCallback() {
+            @Override
+            void onBody(String text) {
+                body[0] = text;
+                latch.countDown();
+            }
+
+            @Override
+            void onFail(int code, String msg) {
+                error[0] = msg == null || msg.isEmpty() ? ("请求失败(" + code + ")") : msg;
+                latch.countDown();
+            }
+        });
+        if (!latch.await(30, java.util.concurrent.TimeUnit.SECONDS)) {
+            throw new Exception("红果接口请求超时");
+        }
+        if (error[0] != null) throw new Exception(error[0]);
+        return body[0] == null ? "" : body[0];
+    }
+
     // ---------- bookmall 频道面（feed 三页签，openhongguo 频道口径） ----------
 
     /**

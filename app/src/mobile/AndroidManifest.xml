@@ -411,6 +411,13 @@
             android:configChanges="screenSize|smallestScreenSize|screenLayout"
             android:screenOrientation="fullUser" />
 
+        <!-- 红果书城浏览（内置小说/听书源点进去的面） -->
+        <activity
+            android:name="com.fongmi.android.tv.hongguo.book.HgBookBrowseActivity"
+            android:theme="@style/Theme.XingChen.HkPage"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout"
+            android:screenOrientation="fullUser" />
+
         <!-- 实验室：独立包 ui.lab -->
         <activity
             android:name=".ui.lab.LabHomeActivity"

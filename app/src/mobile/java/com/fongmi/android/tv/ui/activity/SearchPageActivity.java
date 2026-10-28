@@ -98,6 +98,7 @@ public class SearchPageActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        com.fongmi.android.tv.read.HgBookSeeder.ensureSeeded();
         type = getIntent().getIntExtra(EXTRA_TYPE, LegadoSource.TYPE_TEXT);
         ReadingSkin.enableEdgeToEdge(this, true);
         buildUi();

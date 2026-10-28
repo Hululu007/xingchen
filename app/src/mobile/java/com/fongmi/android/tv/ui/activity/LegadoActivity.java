@@ -61,6 +61,8 @@ public class LegadoActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // 红果内置书源（小说/听书）种子：实现不在位（朋友版）时种子层自己会跳过
+        com.fongmi.android.tv.read.HgBookSeeder.ensureSeeded();
         ReadingSkin.enableEdgeToEdge(this, true);
         pageType = getIntent().getIntExtra("book_source_type", LegadoSource.TYPE_TEXT);
         LinearLayout root = new LinearLayout(this);
@@ -479,6 +481,20 @@ public class LegadoActivity extends Activity {
                         })
                         .setNegativeButton("取消", null).show();
             });
+            // 红果内置源：行点击进红果书城浏览页（点进去挑书）；类名拆开拼的理由
+            // 同 HgBookBridge（朋友版剥离终检按整串查，本文件要留下）。
+            if (com.fongmi.android.tv.legado.HgBookBridge.isHgUrl(s.bookSourceUrl)) {
+                h.itemView.setOnClickListener(v -> {
+                    Intent i = new Intent();
+                    i.setClassName(LegadoActivity.this,
+                            "com.fongmi.android.tv." + "hongguo.book.HgBookBrowseActivity");
+                    i.putExtra("hg_book_audio",
+                            com.fongmi.android.tv.legado.HgBookBridge.isAudio(s));
+                    startActivity(i);
+                });
+            } else {
+                h.itemView.setOnClickListener(null);
+            }
             // 搜书入口已搬走：行点击不再进搜索（搜书统一走阅读首页右上角）
         }
 

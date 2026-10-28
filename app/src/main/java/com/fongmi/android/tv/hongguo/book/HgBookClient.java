@@ -1,0 +1,481 @@
+package com.fongmi.android.tv.hongguo.book;
+
+import com.fongmi.android.tv.hongguo.api.HgApiClient;
+import com.fongmi.android.tv.hongguo.api.HgDevice;
+import com.fongmi.android.tv.hongguo.api.HgRequests;
+import com.fongmi.android.tv.hongguo.model.HgContinuation;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * 红果书（小说/听书）同步客户端：与短剧同一域名、同一签名、同一台匿名设备，
+ * 全部走 /reading/bookapi/ 家族（规格 dig-audio-novel-source-20261028，本机实拉定版）。
+ * 签名与设备注册复用 HgApiClient 的同步口，不另抄一套。
+ * 条目解析走递归收集（bookmall cell 结构深处带 book_id 的对象即书条目），
+ * 字段名按实测回包（book_id/title/cover_url/episode_count）＋同族备选名兜底。
+ */
+public final class HgBookClient {
+
+    public static final int CHANNEL_TAB_NOVEL = 2;
+    public static final int CHANNEL_TAB_AUDIO = 5;
+    public static final int SEARCH_TAB_NOVEL = 1;
+    public static final int SEARCH_TAB_AUDIO = 2;
+
+    private static final String PATH_SEARCH = "/reading/bookapi/search/tab/v";
+    private static final String PATH_DETAIL = "/reading/bookapi/detail/v1/";
+    private static final String PATH_TOC = "/reading/bookapi/directory/all_items/v1/";
+    private static final String PATH_FULL = "/reading/reader/full/v1/";
+    private static final String PATH_REGISTER_KEY = "/reading/crypt/registerkey";
+    private static final String PATH_LANDING = "/reading/bookapi/new_category/landing/v1/";
+    private static final String PATH_TONEINFO = "/reading/bookapi/audio/toneinfo/";
+    private static final String PATH_BATCH_PLAY = "/reading/bookapi/audio/batch_play/";
+
+    private final HgApiClient api = new HgApiClient();
+
+    public static final class Entry {
+        public String bookId = "";
+        public String title = "";
+        public String author = "";
+        public String coverUrl = "";
+        public String intro = "";
+        public int episodeCount = -1;
+    }
+
+    public static final class Chapter {
+        public String itemId = "";
+        public String title = "";
+    }
+
+    public static final class Category {
+        public String id = "";
+        public String name = "";
+    }
+
+    public static final class Page {
+        public final List<Entry> entries = new ArrayList<>();
+        public final List<Category> categories = new ArrayList<>();
+        public HgContinuation next;
+        public boolean hasMore;
+    }
+
+    // ---------- 频道/分类/搜索 ----------
+
+    /** 频道开页（cont 为 null）或续页（cont 为上一页凭证）。 */
+    public Page channel(boolean audio, HgContinuation cont) throws Exception {
+        int tab = audio ? CHANNEL_TAB_AUDIO : CHANNEL_TAB_NOVEL;
+        String text;
+        if (cont == null) {
+            text = api.getSignedSync(HgDevice.PATH_BOOKMALL_TAB,
+                    HgRequests.discoverPairs(tab, "0"));
+            JsonObject root = parseRoot(text);
+            Page page = new Page();
+            JsonObject data = obj(root, "data");
+            JsonObject tabObj = data == null ? null : findTab(data, tab);
+            if (tabObj != null) {
+                page.hasMore = boolOf(tabObj, "has_more");
+                collectEntries(tabObj, page.entries);
+                page.next = extractContinuation(tabObj, tab);
+            }
+            collectCategories(root, page.categories);
+            return page;
+        }
+        text = api.getSignedSync(HgDevice.PATH_BOOKMALL_CELL_CHANGE,
+                HgRequests.cellChangePairs(cont));
+        JsonObject root = parseRoot(text);
+        Page page = new Page();
+        JsonObject data = obj(root, "data");
+        if (data != null) {
+            page.hasMore = boolOf(data, "has_more");
+            String nextOffset = firstStr(data, "next_offset");
+            if (nextOffset == null) {
+                JsonElement no = data.get("next_offset");
+                if (no != null && no.isJsonPrimitive() && no.getAsJsonPrimitive().isNumber()) {
+                    nextOffset = String.valueOf(no.getAsLong());
+                }
+            }
+            JsonElement view = data.get("cell_view");
+            if (view != null) collectEntries(view, page.entries);
+            page.next = cont.advanced(nextOffset, str(data, "session_id"));
+        }
+        return page;
+    }
+
+    public List<Entry> search(boolean audio, String keyword, int offset) throws Exception {
+        String text = api.getSignedSync(PATH_SEARCH, HgRequests.searchPairs(
+                keyword, offset, audio ? SEARCH_TAB_AUDIO : SEARCH_TAB_NOVEL));
+        JsonObject root = parseRoot(text);
+        List<Entry> out = new ArrayList<>();
+        collectEntries(root, out);
+        return out;
+    }
+
+    /** 分类落地页：query_gender 8＝全部（页签值 全部8/男生1/女生0，规格 §1.1）。 */
+    public List<Entry> categoryLanding(String categoryId, int offset) throws Exception {
+        List<String[]> pairs = HgDevice.deviceQueryPairs();
+        pairs.add(new String[]{"category_id", categoryId});
+        pairs.add(new String[]{"query_gender", "8"});
+        pairs.add(new String[]{"offset", String.valueOf(offset)});
+        pairs.add(new String[]{"count", "20"});
+        String text = api.getSignedSync(PATH_LANDING, pairs);
+        JsonObject root = parseRoot(text);
+        List<Entry> out = new ArrayList<>();
+        collectEntries(root, out);
+        return out;
+    }
+
+    // ---------- 详情/目录/正文 ----------
+
+    public Entry detail(String bookId) throws Exception {
+        List<String[]> pairs = HgDevice.deviceQueryPairs();
+        pairs.add(new String[]{"book_id", bookId});
+        String text = api.getSignedSync(PATH_DETAIL, pairs);
+        JsonObject root = parseRoot(text);
+        JsonObject data = obj(root, "data");
+        Entry e = new Entry();
+        e.bookId = bookId;
+        if (data != null) fillEntry(data, e);
+        return e;
+    }
+
+    public List<Chapter> toc(String bookId) throws Exception {
+        List<String[]> pairs = HgDevice.deviceQueryPairs();
+        pairs.add(new String[]{"book_id", bookId});
+        String text = api.getSignedSync(PATH_TOC, pairs);
+        JsonObject root = parseRoot(text);
+        JsonObject data = obj(root, "data");
+        List<Chapter> out = new ArrayList<>();
+        JsonArray items = data == null ? null : arr(data, "item_data_list");
+        if (items != null) {
+            for (JsonElement el : items) {
+                if (el == null || !el.isJsonObject()) continue;
+                JsonObject o = el.getAsJsonObject();
+                Chapter c = new Chapter();
+                c.itemId = str(o, "item_id");
+                c.title = str(o, "title");
+                if (c.itemId != null && !c.itemId.isEmpty()) {
+                    if (c.title == null) c.title = "";
+                    out.add(c);
+                }
+            }
+        }
+        return out;
+    }
+
+    /** 目录回包里的 book_info（书名/作者/封面），给详情面回填用；取不到返回 null。 */
+    public Entry tocBookInfo(String bookId) throws Exception {
+        List<String[]> pairs = HgDevice.deviceQueryPairs();
+        pairs.add(new String[]{"book_id", bookId});
+        String text = api.getSignedSync(PATH_TOC, pairs);
+        JsonObject root = parseRoot(text);
+        JsonObject data = obj(root, "data");
+        JsonObject info = data == null ? null : obj(data, "book_info");
+        if (info == null) return null;
+        Entry e = new Entry();
+        e.bookId = bookId;
+        fillEntry(info, e);
+        return e;
+    }
+
+    /**
+     * 小说正文（已解密的纯文本）：未注册内容密钥时服务端只回 Invalid，
+     * 这里自动注册后重试一次（HgNovelCrypto）。
+     * 返回 [章标题, 正文纯文本]。
+     */
+    public String[] chapterText(String bookId, String itemId) throws Exception {
+        JsonObject item = fullOnce(bookId, itemId);
+        int crypt = item.has("crypt_status") ? item.get("crypt_status").getAsInt() : 0;
+        String content = str(item, "content");
+        if (crypt == 2 || "Invalid".equals(content)) {
+            HgNovelCrypto.ensureRegistered(this);
+            item = fullOnce(bookId, itemId);
+            content = str(item, "content");
+        }
+        if (content == null || content.isEmpty() || "Invalid".equals(content)) {
+            throw new Exception("这一章没取到正文");
+        }
+        byte[] plain = HgNovelCrypto.decryptContent(content);
+        int compress = item.has("compress_status") ? item.get("compress_status").getAsInt() : 0;
+        if (compress == 1) plain = HgNovelCrypto.gunzip(plain);
+        String xhtml = new String(plain, StandardCharsets.UTF_8);
+        String title = str(item, "title");
+        return new String[]{title == null ? "" : title, xhtmlToText(xhtml)};
+    }
+
+    private JsonObject fullOnce(String bookId, String itemId) throws Exception {
+        List<String[]> pairs = HgDevice.deviceQueryPairs();
+        pairs.add(new String[]{"book_id", bookId});
+        pairs.add(new String[]{"item_id", itemId});
+        pairs.add(new String[]{"key_register_ts", String.valueOf(HgNovelCrypto.keyVer())});
+        String text = api.getSignedSync(PATH_FULL, pairs);
+        JsonObject root = parseRoot(text);
+        JsonObject data = obj(root, "data");
+        if (data == null) throw new Exception("正文回包为空");
+        // full 的 data 就是 ItemContent 本体；个别形态按 item_id 分键时取内层
+        if (!data.has("content") && data.has(itemId) && data.get(itemId).isJsonObject()) {
+            return data.getAsJsonObject(itemId);
+        }
+        return data;
+    }
+
+    /** 内容密钥注册（HgNovelCrypto 构造 content 后调这里发请求）。 */
+    public JsonObject registerKey(String content) throws Exception {
+        JsonObject body = new JsonObject();
+        body.addProperty("content", content);
+        body.addProperty("keyver", 1);
+        String text = api.postSignedSync(PATH_REGISTER_KEY, body);
+        JsonObject root = parseRoot(text);
+        JsonObject data = obj(root, "data");
+        if (data == null) throw new Exception("内容密钥注册回包为空");
+        return data;
+    }
+
+    // ---------- 听书（浏览/音色/播放信息；音频解密未破，播放面暂不接） ----------
+
+    public JsonObject toneInfo(String bookId) throws Exception {
+        List<String[]> pairs = HgDevice.deviceQueryPairs();
+        pairs.add(new String[]{"book_id", bookId});
+        String text = api.getSignedSync(PATH_TONEINFO, pairs);
+        JsonObject root = parseRoot(text);
+        return obj(root, "data");
+    }
+
+    /** 批量播放信息：回 data[0].play_info_data（含 main_url/encryption_key 等）。 */
+    public JsonObject audioPlayInfo(String bookId, String itemId) throws Exception {
+        JsonObject req = new JsonObject();
+        req.addProperty("book_id", bookId);
+        req.addProperty("item_id", itemId);
+        JsonArray list = new JsonArray();
+        list.add(req);
+        JsonObject body = new JsonObject();
+        body.add("book_play_requests", list);
+        String text = api.postSignedSync(PATH_BATCH_PLAY, body);
+        JsonObject root = parseRoot(text);
+        JsonArray data = arr(root, "data");
+        if (data == null || data.size() == 0) throw new Exception("播放信息回包为空");
+        JsonObject first = data.get(0).getAsJsonObject();
+        JsonObject info = obj(first, "play_info_data");
+        return info == null ? first : info;
+    }
+
+    // ---------- 解析工具 ----------
+
+    private static JsonObject parseRoot(String text) throws Exception {
+        if (text == null || text.isEmpty()) throw new Exception("红果书接口没回数据");
+        JsonObject root = JsonParser.parseString(text).getAsJsonObject();
+        int code = root.has("code") ? root.get("code").getAsInt() : 0;
+        if (code != 0) {
+            String msg = str(root, "message");
+            throw new Exception(msg == null || msg.isEmpty()
+                    ? "红果书接口失败(" + code + ")" : msg);
+        }
+        return root;
+    }
+
+    /** 递归收集带 book_id 的书条目（按 book_id 去重、保序）。 */
+    private static void collectEntries(JsonElement el, List<Entry> out) {
+        Map<String, Boolean> seen = new LinkedHashMap<>();
+        for (Entry e : out) seen.put(e.bookId, Boolean.TRUE);
+        collectEntries(el, out, seen, 0);
+    }
+
+    private static void collectEntries(JsonElement el, List<Entry> out,
+                                       Map<String, Boolean> seen, int depth) {
+        if (el == null || depth > 10) return;
+        if (el.isJsonArray()) {
+            for (JsonElement child : el.getAsJsonArray()) {
+                collectEntries(child, out, seen, depth + 1);
+            }
+            return;
+        }
+        if (!el.isJsonObject()) return;
+        JsonObject o = el.getAsJsonObject();
+        String bookId = str(o, "book_id");
+        if (bookId != null && !bookId.isEmpty() && !seen.containsKey(bookId)) {
+            Entry e = new Entry();
+            e.bookId = bookId;
+            fillEntry(o, e);
+            if (!e.title.isEmpty()) {
+                seen.put(bookId, Boolean.TRUE);
+                out.add(e);
+            }
+        }
+        for (Map.Entry<String, JsonElement> en : o.entrySet()) {
+            collectEntries(en.getValue(), out, seen, depth + 1);
+        }
+    }
+
+    private static void collectCategories(JsonElement el, List<Category> out) {
+        Map<String, Boolean> seen = new LinkedHashMap<>();
+        for (Category c : out) seen.put(c.id, Boolean.TRUE);
+        collectCategories(el, out, seen, 0);
+    }
+
+    private static void collectCategories(JsonElement el, List<Category> out,
+                                          Map<String, Boolean> seen, int depth) {
+        if (el == null || depth > 10) return;
+        if (el.isJsonArray()) {
+            for (JsonElement child : el.getAsJsonArray()) {
+                collectCategories(child, out, seen, depth + 1);
+            }
+            return;
+        }
+        if (!el.isJsonObject()) return;
+        JsonObject o = el.getAsJsonObject();
+        String cid = firstStr(o, "category_id");
+        String name = firstStr(o, "name", "title", "category_name");
+        if (cid != null && !cid.isEmpty() && name != null && !name.isEmpty()
+                && !seen.containsKey(cid)) {
+            Category c = new Category();
+            c.id = cid;
+            c.name = name;
+            seen.put(cid, Boolean.TRUE);
+            out.add(c);
+        }
+        for (Map.Entry<String, JsonElement> en : o.entrySet()) {
+            collectCategories(en.getValue(), out, seen, depth + 1);
+        }
+    }
+
+    private static void fillEntry(JsonObject o, Entry e) {
+        String t = firstStr(o, "title", "book_name", "name");
+        if (t != null) e.title = t;
+        String a = firstStr(o, "author", "author_name");
+        if (a != null) e.author = a;
+        String cover = firstStr(o, "cover_url", "thumb_url", "large_thumb_url", "cover");
+        if (cover != null) e.coverUrl = cover;
+        String intro = firstStr(o, "abstract", "intro", "book_intro", "desc", "description");
+        if (intro != null) e.intro = intro;
+        if (o.has("episode_count")) e.episodeCount = intOf(o, "episode_count", -1);
+        else if (o.has("chapter_count")) e.episodeCount = intOf(o, "chapter_count", -1);
+        else if (o.has("serial_count")) e.episodeCount = intOf(o, "serial_count", -1);
+    }
+
+    /** XHTML 正文 → 纯文本：段落 </p> 断行、去标签、解常见实体。 */
+    public static String xhtmlToText(String xhtml) {
+        if (xhtml == null) return "";
+        String s = xhtml;
+        s = s.replaceAll("(?i)</p\\s*>", "\n\n");
+        s = s.replaceAll("(?i)<br\\s*/?>", "\n");
+        s = s.replaceAll("(?i)</h[1-6]\\s*>", "\n\n");
+        s = s.replaceAll("<[^>]+>", "");
+        s = s.replace("&nbsp;", " ")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&quot;", "\"")
+                .replace("&#39;", "'")
+                .replace("&amp;", "&");
+        StringBuilder sb = new StringBuilder();
+        for (String line : s.split("\n")) {
+            String t = line.trim();
+            if (t.isEmpty()) {
+                if (sb.length() > 0 && !sb.toString().endsWith("\n\n")) sb.append("\n\n");
+            } else {
+                sb.append(t).append('\n');
+            }
+        }
+        String out = sb.toString().replaceAll("\n{3,}", "\n\n").trim();
+        return out;
+    }
+
+    private static JsonObject findTab(JsonObject data, int tabType) {
+        JsonArray tabs = arr(data, "tab_item");
+        if (tabs == null) return null;
+        for (JsonElement el : tabs) {
+            if (el != null && el.isJsonObject()
+                    && intOf(el.getAsJsonObject(), "tab_type", -1) == tabType) {
+                return el.getAsJsonObject();
+            }
+        }
+        return null;
+    }
+
+    /** 续页凭证抽取：与 HgParser.extractContinuation 同口径（session 在 tab 上、cell 取 cell_id_str 非空且 show_type≠0）。 */
+    private static HgContinuation extractContinuation(JsonObject tab, int tabType) {
+        String sessionId = str(tab, "session_id");
+        if (sessionId == null || sessionId.isEmpty()) return null;
+        String template = null;
+        JsonElement ct = tab.get("client_template");
+        if (ct != null && ct.isJsonPrimitive()) {
+            if (ct.getAsJsonPrimitive().isNumber()) {
+                if (ct.getAsLong() > 0) template = String.valueOf(ct.getAsLong());
+            } else {
+                String s = ct.getAsString();
+                if (s != null && !s.isEmpty()) template = s;
+            }
+        }
+        JsonArray cells = arr(tab, "cell_data");
+        if (cells == null) return null;
+        JsonObject first = null;
+        JsonObject nested = null;
+        for (JsonElement el : cells) {
+            if (el == null || !el.isJsonObject()) continue;
+            JsonObject cell = el.getAsJsonObject();
+            String cellId = firstStr(cell, "cell_id_str", "cell_id");
+            if (cellId == null) continue;
+            if (intOf(cell, "show_type", 0) == 0) continue;
+            if (first == null) first = cell;
+            JsonElement inner = cell.get("cell_data");
+            if (inner != null && inner.isJsonArray() && inner.getAsJsonArray().size() > 0) {
+                nested = cell;
+                break;
+            }
+        }
+        JsonObject pick = nested != null ? nested : first;
+        if (pick == null) return null;
+        String pickId = firstStr(pick, "cell_id_str", "cell_id");
+        if (pickId == null) return null;
+        return new HgContinuation(pickId, sessionId, template,
+                String.valueOf(intOf(pick, "show_type", 0)),
+                String.valueOf(tabType), "0");
+    }
+
+    private static JsonObject obj(JsonObject o, String key) {
+        if (o == null) return null;
+        JsonElement e = o.get(key);
+        return e != null && e.isJsonObject() ? e.getAsJsonObject() : null;
+    }
+
+    private static JsonArray arr(JsonObject o, String key) {
+        if (o == null) return null;
+        JsonElement e = o.get(key);
+        return e != null && e.isJsonArray() ? e.getAsJsonArray() : null;
+    }
+
+    private static String str(JsonObject o, String key) {
+        if (o == null) return null;
+        JsonElement e = o.get(key);
+        if (e == null || !e.isJsonPrimitive()) return null;
+        return e.getAsJsonPrimitive().isString() ? e.getAsString()
+                : String.valueOf(e.getAsNumber());
+    }
+
+    private static String firstStr(JsonObject o, String... keys) {
+        for (String k : keys) {
+            String v = str(o, k);
+            if (v != null && !v.isEmpty()) return v;
+        }
+        return null;
+    }
+
+    private static int intOf(JsonObject o, String key, int def) {
+        if (o == null) return def;
+        JsonElement e = o.get(key);
+        if (e == null || !e.isJsonPrimitive() || !e.getAsJsonPrimitive().isNumber()) return def;
+        return e.getAsInt();
+    }
+
+    private static boolean boolOf(JsonObject o, String key) {
+        if (o == null) return false;
+        JsonElement e = o.get(key);
+        return e != null && e.isJsonPrimitive() && e.getAsJsonPrimitive().isBoolean()
+                && e.getAsBoolean();
+    }
+}

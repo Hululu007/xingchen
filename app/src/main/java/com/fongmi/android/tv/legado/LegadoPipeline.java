@@ -354,6 +354,8 @@ public class LegadoPipeline {
     }
 
     public List<Book> search(String key, int page) {
+        // 红果内置书源：哨兵源改道红果桥（搜索走 bookapi 搜索口，不走规则引擎）
+        if (HgBookBridge.isHg(source)) return HgBookBridge.search(source, key, page);
         // 节点归属：整个操作记到本书源名下（含 JS 桥 ajax）。
         try (SourceScope ignored = scope()) {
             if (source.ruleSearch == null || isEmpty(source.ruleSearch.bookList)) {
@@ -402,6 +404,7 @@ public class LegadoPipeline {
     // ================= 详情 =================
 
     public BookInfo bookInfo(String bookUrl) {
+        if (HgBookBridge.isHg(source)) return HgBookBridge.bookInfo(source, bookUrl);
         // 节点归属：整个操作记到本书源名下（含 JS 桥 ajax）。
         try (SourceScope ignored = scope()) {
             if (source.ruleBookInfo == null) throw new LegadoException(source.tag() + " 未配置详情规则");
@@ -430,6 +433,7 @@ public class LegadoPipeline {
     // ================= 目录 =================
 
     public List<TocChapter> toc(String tocUrl) {
+        if (HgBookBridge.isHg(source)) return HgBookBridge.toc(source, tocUrl);
         // 节点归属：整个操作记到本书源名下（含 JS 桥 ajax）。
         try (SourceScope ignored = scope()) {
             if (source.ruleToc == null || isEmpty(source.ruleToc.chapterList)) {
@@ -488,6 +492,7 @@ public class LegadoPipeline {
     // ================= 正文 =================
 
     public Content content(String chapterUrl) {
+        if (HgBookBridge.isHg(source)) return HgBookBridge.content(source, chapterUrl);
         // 节点归属：整个操作记到本书源名下（含 JS 桥 ajax）。
         try (SourceScope ignored = scope()) {
             if (source.ruleContent == null || isEmpty(source.ruleContent.content)) {

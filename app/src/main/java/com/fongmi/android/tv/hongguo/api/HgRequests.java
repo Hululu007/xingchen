@@ -139,11 +139,16 @@ public final class HgRequests {
      * bottom_tab_type ＋ bottom_tab_type_list。ts / _rticket 由签名器末尾追加。
      */
     public static java.util.List<String[]> discoverPairs(int requestTabType) {
+        return discoverPairs(requestTabType, BOTTOM_TAB_SHORT_DRAMA);
+    }
+
+    /** 书频道变体：bottom_tab_type 用书城的 0（短剧是 7，规格 dig-audio-novel-source §3）。 */
+    public static java.util.List<String[]> discoverPairs(int requestTabType, String bottomTabType) {
         java.util.List<String[]> pairs = HgDevice.deviceQueryPairs();
         pairs.add(new String[]{"tab_type", String.valueOf(requestTabType)});
         pairs.add(new String[]{"offset", "0"});
         pairs.add(new String[]{"client_req_type", "3"});
-        pairs.add(new String[]{"bottom_tab_type", BOTTOM_TAB_SHORT_DRAMA});
+        pairs.add(new String[]{"bottom_tab_type", bottomTabType});
         pairs.add(new String[]{"bottom_tab_type_list", BOTTOM_TAB_TYPE_LIST});
         return pairs;
     }

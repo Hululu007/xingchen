@@ -18,8 +18,9 @@ import java.util.Set;
  * 按 (章, 段) 队列逐段合成音频落缓存，当前段优先、后段预取。
  * 回调跑在 worker 线程，调用方自行切回主线程。
  * 供应商两家（他 2026-10-27 令「不许只押一家」）：Edge 神经音色优先，
- * 失败即切系统 TTS 兜底（本会话内保持系统声、不来回跳音色），
- * 两家全败才报人话错误并停工。引擎模式可在设置里选（自动/Edge/系统）。
+ * 失败即切系统 TTS 兜底（兜底的那一章整章系统声、不中途换嗓，
+ * 下一章再试 Edge），两家全败才报人话错误并停工。
+ * 引擎模式可在设置里选（自动/Edge/系统）。
  */
 public class TtsEngine {
 
@@ -65,6 +66,8 @@ public class TtsEngine {
     private SystemTtsSynth systemSynth;
     private volatile boolean edgeDown;
     private volatile long edgeRetryAt;
+    /** 兜底落在哪一章：本章内不中途换嗓（逐段重试会 Edge/系统来回跳），到下一章才再试 Edge。 */
+    private volatile int edgeDownChapter = -1;
     private volatile int engineMode = MODE_AUTO;
     private final Deque<Need> queue = new ArrayDeque<>();
     private final Set<String> queued = new HashSet<>();
@@ -101,6 +104,7 @@ public class TtsEngine {
         this.engineMode = mode;
         if (mode == MODE_EDGE) {
             edgeDown = false;
+            edgeDownChapter = -1;
             edgeRetryAt = 0;
         }
     }
@@ -224,15 +228,23 @@ public class TtsEngine {
 
     /**
      * 合成一段：按引擎模式走 Edge / 系统 / 自动（Edge 先行、败了切系统兜底）。
-     * 兜底不钉死整会话：失败后冷却 60 秒（冷却内直接走系统声，不轮番撞
-     * Edge），冷却到期后下一段重新试 Edge，成了就恢复。Edge 单段只试一次
-     * （12 秒快收），不静默重试同段——干挂重试是 2026-10-28 定根的病象。
-     * 两家全败才 fail()。
+     * 兜底不钉死整会话，也不逐段乱跳音色：落兜底的那一章整章走系统声，
+     * 到下一章且过了 60 秒冷却下限才再试 Edge，成了恢复 Edge、败了新章
+     * 继续整章兜底。Edge 单段只试一次（12 秒快收），不静默重试同段——
+     * 干挂重试是 2026-10-28 定根的病象。两家全败才 fail()。
      */
     private boolean synthesize(Need n, String text) {
         boolean wantSystemOnly = engineMode == MODE_SYSTEM;
-        if (edgeDown && System.currentTimeMillis() >= edgeRetryAt) edgeDown = false;
-        if (!wantSystemOnly && !edgeDown) {
+        boolean tryEdge = !wantSystemOnly;
+        if (tryEdge && edgeDown) {
+            if (n.chapter != edgeDownChapter
+                    && System.currentTimeMillis() >= edgeRetryAt) {
+                edgeDown = false;
+            } else {
+                tryEdge = false;
+            }
+        }
+        if (tryEdge) {
             String edgeErr = null;
             try {
                 byte[] mp3 = new EdgeTtsClient().synthesize(text, voiceId, rate);
@@ -256,8 +268,9 @@ public class TtsEngine {
                 fail(edgeErr);
                 return false;
             }
-            // 自动模式：切系统声兜底并带原因上报；冷却 60 秒后允许重试 Edge
+            // 自动模式：切系统声兜底并带原因上报；本章整章兜底，下一章再试 Edge
             edgeDown = true;
+            edgeDownChapter = n.chapter;
             edgeRetryAt = System.currentTimeMillis() + 60_000L;
             try {
                 listener.onFallbackToSystem(edgeErr);
@@ -288,10 +301,26 @@ public class TtsEngine {
             } catch (Throwable ignored) {
             }
         }
-        fail(engineMode == MODE_SYSTEM
-                ? "系统语音不可用，请检查系统朗读设置后重试"
-                : "朗读服务连不上，系统语音也不可用，请检查网络后重试");
+        fail(bothDownMessage());
         return false;
+    }
+
+    /** 两家全败的人话：系统侧按分型说清（没引擎/没中文嗓/合成失败），不许糊成一句「不可用」。 */
+    private String bothDownMessage() {
+        int prob = systemSynth == null ? SystemTtsSynth.PROBLEM_NO_ENGINE
+                : systemSynth.problem();
+        String sysPart;
+        if (prob == SystemTtsSynth.PROBLEM_NO_CHINESE) {
+            sysPart = "系统语音没有中文声音";
+        } else if (prob == SystemTtsSynth.PROBLEM_NO_ENGINE) {
+            sysPart = "系统语音不可用";
+        } else {
+            sysPart = "系统语音合成失败";
+        }
+        if (engineMode == MODE_SYSTEM) {
+            return sysPart + "，请到系统设置里给语音引擎装好中文语音后再试";
+        }
+        return "朗读服务连不上，" + sysPart + "，请检查网络或系统语音设置后重试";
     }
 
     private void fail(String msg) {

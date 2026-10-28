@@ -250,8 +250,8 @@ public final class HgBookClient {
     /** 批量播放信息：回 data[0].play_info_data（含 main_url/encryption_key 等）。 */
     public JsonObject audioPlayInfo(String bookId, String itemId) throws Exception {
         JsonObject req = new JsonObject();
-        req.addProperty("book_id", bookId);
-        req.addProperty("item_id", itemId);
+        addId(req, "book_id", bookId);
+        addId(req, "item_id", itemId);
         JsonArray list = new JsonArray();
         list.add(req);
         JsonObject body = new JsonObject();
@@ -262,7 +262,30 @@ public final class HgBookClient {
         if (data == null || data.size() == 0) throw new Exception("播放信息回包为空");
         JsonObject first = data.get(0).getAsJsonObject();
         JsonObject info = obj(first, "play_info_data");
-        return info == null ? first : info;
+        JsonObject back = info == null ? first : info;
+        String main = str(back, "main_url");
+        String backup = str(back, "backup_url");
+        if ((main == null || main.isEmpty()) && (backup == null || backup.isEmpty())) {
+            String err = str(first, "err_code");
+            JsonObject state = obj(first, "audio_play_error_state");
+            String stateText = state == null ? null : state.toString();
+            StringBuilder sb = new StringBuilder("服务端没给播放地址");
+            if (err != null && !err.isEmpty() && !"0".equals(err)) sb.append(" err_code=").append(err);
+            if (stateText != null && !"{}".equals(stateText)) sb.append(" state=").append(stateText);
+            throw new Exception(sb.toString());
+        }
+        return back;
+    }
+
+    private static void addId(JsonObject o, String key, String value) {
+        if (value != null) {
+            try {
+                o.addProperty(key, Long.parseLong(value.trim()));
+                return;
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        o.addProperty(key, value);
     }
 
     // ---------- 解析工具 ----------

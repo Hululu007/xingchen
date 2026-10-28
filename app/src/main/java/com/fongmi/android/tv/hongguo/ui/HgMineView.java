@@ -30,8 +30,8 @@ import java.util.Set;
  *
  * <p>构成按他的收敛口径：登录是死规格（未登录显「立即登录」走壳子统一托管的
  * 红果登录、登录后显账号态）；页签序＝历史／收藏／点赞／预约（他亲定预约
- * 放点赞后面）；顶部四口排整排取消不留。历史格子带已看百分比（HgStore
- * 断点＋总集数算得出才带）。收藏/点赞读本地镜像（与旧列表页同源同口径），
+ * 放点赞后面）；顶部四口排整排取消不留。格子走书架卡（封面比 114:159、
+ * 副行官方样式档「X集/Y集／未看过」）。收藏/点赞读本地镜像（与旧列表页同源同口径），
  * 预约页签走预约链真口子（dd184c44）：本地镜像先显、已登录再拉服务端
  * 预约列表刷新（旧 HgListActivity 的 KIND_RESERVED 口径捡回），点格子回
  * 刷剧页续播。</p>
@@ -223,15 +223,13 @@ public final class HgMineView extends LinearLayout {
         if (currentTab == TAB_HISTORY) {
             for (HgStore.HistoryRecord r : HgStore.historyRecords()) {
                 if (r.title == null) continue;
+                // 副行照官方书架样式档（dig-mine2 §1.4 c3()）：看过＝
+                // 「X集/Y集」（fd3，X 为 1 起当前集）、没看过＝「未看过」；
+                // 旧「已看 X% · 共N集」是自拼式，作废
                 String meta;
-                if (r.episodeCount > 0) {
-                    // 集序号是 1 起（HgStore.Progress 类注＋落盘口径）：旧写法按
-                    // 0 起再 +1，百分比与「看到第几集」恒偏一位（审计实证）
-                    int pct = Math.min(100, r.episodeIndex * 100 / r.episodeCount);
-                    meta = "已看 " + pct + "% · 共" + r.episodeCount + "集";
-                } else {
-                    meta = "看到第" + r.episodeIndex + "集";
-                }
+                if (r.episodeIndex <= 0) meta = "未看过";
+                else if (r.episodeCount > 0) meta = r.episodeIndex + "集/" + r.episodeCount + "集";
+                else meta = "看到第" + r.episodeIndex + "集";
                 rows.add(new Row(r.seriesId, r.title, r.cover, r.episodeCount, meta));
             }
         } else {
@@ -244,7 +242,12 @@ public final class HgMineView extends LinearLayout {
                     count = Integer.parseInt(meta[2]);
                 } catch (Exception ignored) {
                 }
-                rows.add(new Row(id, meta[0], meta[1], count, count > 0 ? "共" + count + "集" : ""));
+                // 收藏副行同书架样式档（有断点走「X集/Y集」、没看过走
+                // 「未看过」）；点赞副行官方是「第X集/@作者」口径，自家
+                // 镜像无点赞时集数/作者数据，维持集数式、不编造
+                String metaText = currentTab == TAB_FAV ? shelfMeta(id, count)
+                        : (count > 0 ? "共" + count + "集" : "");
+                rows.add(new Row(id, meta[0], meta[1], count, metaText));
             }
         }
         adapter.setRows(rows);
@@ -332,6 +335,15 @@ public final class HgMineView extends LinearLayout {
         });
     }
 
+    /** 书架副行样式档（官方 c3()）：有断点＝「X集/Y集」，没看过＝「未看过」。 */
+    private static String shelfMeta(String seriesId, int total) {
+        HgStore.Progress p = HgStore.progressOf(seriesId);
+        int idx = p == null ? 0 : p.episodeIndex;
+        if (idx <= 0) return total > 0 ? "未看过" : "";
+        if (total > 0) return idx + "集/" + total + "集";
+        return "看到第" + idx + "集";
+    }
+
     private static final class Row {
         final String seriesId;
         final String title;
@@ -361,7 +373,7 @@ public final class HgMineView extends LinearLayout {
         @Override
         public Holder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
             View v = LayoutInflater.from(parent.getContext())
-                    .inflate(R.layout.item_hongguo_theater, parent, false);
+                    .inflate(R.layout.item_hongguo_mine_card, parent, false);
             return new Holder(v);
         }
 
@@ -371,7 +383,6 @@ public final class HgMineView extends LinearLayout {
             ImgUtil.load(row.title == null ? "" : row.title, row.cover, h.cover);
             h.title.setText(row.title == null ? "" : row.title);
             h.meta.setText(row.meta == null ? "" : row.meta);
-            h.reserve.setVisibility(GONE);
             h.itemView.setOnClickListener(v -> {
                 if (openListener != null) {
                     openListener.onOpenSeries(row.seriesId, row.title, row.cover, row.episodeCount);
@@ -388,14 +399,12 @@ public final class HgMineView extends LinearLayout {
             final ImageView cover;
             final TextView title;
             final TextView meta;
-            final TextView reserve;
 
             Holder(View itemView) {
                 super(itemView);
-                cover = itemView.findViewById(R.id.hg_t_cover);
-                title = itemView.findViewById(R.id.hg_t_title);
-                meta = itemView.findViewById(R.id.hg_t_meta);
-                reserve = itemView.findViewById(R.id.hg_t_reserve);
+                cover = itemView.findViewById(R.id.hg_m_cover);
+                title = itemView.findViewById(R.id.hg_m_title);
+                meta = itemView.findViewById(R.id.hg_m_meta);
             }
         }
     }

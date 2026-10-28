@@ -16,8 +16,6 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.hongguo.api.HgCallback;
-import com.fongmi.android.tv.hongguo.model.HgAuthorWork;
-import com.fongmi.android.tv.hongguo.model.HgHistoryEntry;
 import com.fongmi.android.tv.hongguo.model.HgSeriesItem;
 import com.fongmi.android.tv.login.LoginManager;
 import com.fongmi.android.tv.utils.ImgUtil;
@@ -38,9 +36,7 @@ import java.util.Set;
  * 未看完、收藏＝全部/真人剧/追更（他 2026-10-28 定）、预约＝已上线/待上线。
  * 格子走书架卡（封面比 114:159、新样式圆角 12dp、右上角标原文）；历史
  * 副行＝官方百分比算法（ceil(当前集×100/总集数)），收藏副行＝「X集/Y集」
- * 样式档。收藏读本地镜像＋服务端追剧架刷新；点赞读本地镜像＋本人点赞
- * 列表（mget 本人维度）并集刷新；历史读本地断点＋服务端观看历史
- * （read_history/list）同步补缺（本地断点为准）；点格子回刷剧页续播。</p>
+ * 样式档。收藏读本地镜像＋服务端追剧架刷新；点格子回刷剧页续播。</p>
  */
 public final class HgMineView extends LinearLayout {
 
@@ -90,10 +86,6 @@ public final class HgMineView extends LinearLayout {
     private int favFilter = FAV_ALL;
     private int followFilter = FOLLOW_ALL;
     private boolean followRefreshing;
-    private boolean likeRefreshing;
-    private boolean likeSynced;
-    private boolean historyRefreshing;
-    private boolean historySynced;
     private int reserveFilter = RES_ONLINE;
     private final java.util.Map<String, String> reserveDue = new java.util.HashMap<>();
     private boolean reserveRefreshing;
@@ -174,12 +166,18 @@ public final class HgMineView extends LinearLayout {
 
     /** 每次切到本面时调：账号态与当前页签数据都按最新状态重读。 */
     public void refresh() {
-        // 点赞/历史的服务端同步每轮进面各做一次（renderTab 内以此旗防重入）
-        likeSynced = false;
-        historySynced = false;
         refreshAccount();
         renderTab();
         backfillMissingCovers();
+        refreshFollowDotSource();
+    }
+
+    /** 召回弹窗「去我的-预约查看」的落点：切到预约页签＋已上线档重列。 */
+    public void openReservations() {
+        currentTab = TAB_RESERVE;
+        reserveFilter = RES_ONLINE;
+        if (editing) setEditing(false);
+        renderTab();
     }
 
     /**
@@ -399,7 +397,7 @@ public final class HgMineView extends LinearLayout {
                 favFilter = FAV_REAL;
                 renderTab();
             });
-            addChip("追更", favFilter == FAV_FOLLOW, v -> {
+            addFollowChip(favFilter == FAV_FOLLOW, v -> {
                 favFilter = FAV_FOLLOW;
                 renderTab();
             });
@@ -441,7 +439,66 @@ public final class HgMineView extends LinearLayout {
         addChipTo(chipsBox, text, on, click);
     }
 
+    /**
+     * 追更筹＋红点：官方唯一带红点的面是「我的追更」功能位（服务端
+     * showRedDot、点击消），咱家无金刚位、对应载体是这个追更子筛筹——
+     * 红点压筹右上角内侧，形态照官方 follow 页签红点件（bg_hg_red_dot：
+     * #FFFA6725＋1dp 描边）。亮灭判定走 HgUpdateLogic（最新集数 vs
+     * 已看快照/断点），数据靠本面回源刷新（refreshFollowDotSource）。
+     */
+    private void addFollowChip(boolean on, OnClickListener click) {
+        android.widget.FrameLayout wrap = new android.widget.FrameLayout(getContext());
+        LinearLayout.LayoutParams wlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        wlp.rightMargin = dp(8);
+        wrap.setLayoutParams(wlp);
+        wrap.addView(createChip("追更", on, click));
+        View dot = new View(getContext());
+        dot.setBackgroundResource(R.drawable.bg_hg_red_dot);
+        android.widget.FrameLayout.LayoutParams dlp = new android.widget.FrameLayout.LayoutParams(
+                dp(10), dp(10));
+        dlp.gravity = android.view.Gravity.TOP | android.view.Gravity.END;
+        dlp.topMargin = dp(2);
+        dlp.rightMargin = dp(2);
+        dot.setLayoutParams(dlp);
+        dot.setVisibility(followDotOn() ? VISIBLE : GONE);
+        wrap.addView(dot);
+        chipsBox.addView(wrap);
+    }
+
+    /** 红点亮灭：任一追更剧的最新集数越过已看基线即亮（判定纯逻辑在 HgUpdateLogic）。 */
+    private boolean followDotOn() {
+        for (String id : HgStore.followedIds()) {
+            String[] meta = HgStore.metaOf(id);
+            if (meta == null) continue;
+            HgStore.Progress p = HgStore.progressOf(id);
+            int watched = p == null ? 0 : p.episodeIndex;
+            if (com.fongmi.android.tv.hongguo.model.HgUpdateLogic.followHasUpdate(
+                    parseCount(meta), HgStore.followSeenCount(id), watched)) return true;
+        }
+        return false;
+    }
+
+    /** 进追更面即「看过」：把各剧当前最新集数落成已看快照，红点随之灭（下次真更新再亮）。 */
+    private void markFollowSeenNow() {
+        for (String id : HgStore.followedIds()) {
+            String[] meta = HgStore.metaOf(id);
+            if (meta == null) continue;
+            int count = parseCount(meta);
+            if (count > 0) HgStore.markFollowSeen(id, count);
+        }
+    }
+
     private void addChipTo(LinearLayout box, String text, boolean on, OnClickListener click) {
+        TextView chip = createChip(text, on, click);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.rightMargin = dp(8);
+        chip.setLayoutParams(lp);
+        box.addView(chip);
+    }
+
+    private TextView createChip(String text, boolean on, OnClickListener click) {
         // 二级页签样式照 bb8.xml：14sp、左右 padding 14dp、上下 5dp、带底选择器
         TextView chip = new TextView(getContext());
         chip.setText(text);
@@ -453,12 +510,8 @@ public final class HgMineView extends LinearLayout {
         bg.setColor(on ? 0xFFFFF3E8 : 0xFFF5F5F5);
         chip.setBackground(bg);
         chip.setPadding(dp(14), dp(5), dp(14), dp(5));
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.rightMargin = dp(8);
-        chip.setLayoutParams(lp);
         chip.setOnClickListener(click);
-        box.addView(chip);
+        return chip;
     }
 
     private int dp(int v) {
@@ -570,6 +623,10 @@ public final class HgMineView extends LinearLayout {
                 rows.add(new Row(id, meta[0], meta[1], count, shelfMeta(id, count),
                         meta.length > 3 ? meta[3] : null));
             }
+            // 进了追更面＝看过：落已看快照、红点灭（renderChips 在
+            // renderTab 开头已按旧状态建过筹，这里重建一次把点收掉）
+            markFollowSeenNow();
+            renderChips();
             if (LoginManager.isHongguoLoggedIn()) refreshFollowFromServer();
         } else {
             List<String> ids = currentTab == TAB_FAV ? HgStore.favedIds() : HgStore.likedIds();
@@ -599,115 +656,6 @@ public final class HgMineView extends LinearLayout {
                 && LoginManager.isHongguoLoggedIn()) {
             refreshFavFromServer();
         }
-        if (currentTab == TAB_LIKE && LoginManager.isHongguoLoggedIn()) {
-            refreshLikedFromServer();
-        }
-        if (currentTab == TAB_HISTORY && LoginManager.isHongguoLoggedIn()) {
-            refreshHistoryFromServer();
-        }
-    }
-
-    /**
-     * 点赞页签后台刷新：本人点赞列表（ugc/action/mget 的本人维度，
-     * 官方 VideoLikeDataServer 同口）回来后与本地镜像取并集落盘重列——
-     * 服务端有、本地没有的补进镜像（他端点的赞在这边能看到）；本地有、
-     * 服务端没回的保留不删（会话认账未定版前不拿服务端单方面清本地，
-     * 防把用户已有点赞弄丢）。服务端回空不冲镜像行（防冲空口径同
-     * 收藏/追更/预约）。未登录不回源，格子维持纯本地镜像。
-     */
-    private void refreshLikedFromServer() {
-        if (likeRefreshing || likeSynced) return;
-        likeRefreshing = true;
-        HgFeedSession.get().client.fetchMyLikes(new HgCallback<List<HgAuthorWork>>() {
-            @Override
-            public void onSuccess(List<HgAuthorWork> list) {
-                post(() -> {
-                    likeRefreshing = false;
-                    likeSynced = true;
-                    if (list == null || list.isEmpty()) return;
-                    for (HgAuthorWork w : list) {
-                        String id = w.seriesId;
-                        if (id == null || id.isEmpty()) continue;
-                        HgStore.setLiked(id, true);
-                        String[] local = HgStore.metaOf(id);
-                        String title = !w.title.isEmpty() ? w.title
-                                : local != null ? local[0] : null;
-                        String cover = !w.cover.isEmpty() ? w.cover
-                                : local != null ? local[1] : null;
-                        int count = w.episodeCount > 0 ? w.episodeCount
-                                : local != null ? parseCount(local) : -1;
-                        HgStore.putMeta(id, title, cover, count);
-                    }
-                    if (currentTab == TAB_LIKE) renderTab();
-                });
-            }
-
-            @Override
-            public void onError(int httpCode, String message) {
-                post(() -> {
-                    likeRefreshing = false;
-                    likeSynced = true;
-                });
-                // 镜像已先显，刷新失败不打扰
-            }
-        });
-    }
-
-    /**
-     * 历史页签后台同步：服务端观看历史（read_history/list 的 Watch＋
-     * Album 两路）作同步源——本地没有的剧按服务端断点导入（他端看过
-     * 的在这边续得上）；本地已有断点的剧集数/秒数一律不动（本地为准，
-     * HgStore.importServerHistory 内守），元信息只补本地缺的字段。
-     * 服务端回空/失败不冲本地历史。未登录不回源（历史是设备维度数据，
-     * 未登录时格子就是纯本地，维持现状）。
-     */
-    private void refreshHistoryFromServer() {
-        if (historyRefreshing || historySynced) return;
-        historyRefreshing = true;
-        HgFeedSession.get().client.fetchReadHistory(new HgCallback<List<HgHistoryEntry>>() {
-            @Override
-            public void onSuccess(List<HgHistoryEntry> list) {
-                post(() -> {
-                    historyRefreshing = false;
-                    historySynced = true;
-                    if (list == null || list.isEmpty()) return;
-                    boolean changed = false;
-                    for (HgHistoryEntry e : list) {
-                        String[] local = HgStore.metaOf(e.seriesId);
-                        if (local == null) {
-                            HgStore.putMeta(e.seriesId, e.title, e.cover, e.episodeCount);
-                            changed = true;
-                        } else {
-                            String title = local[0] != null && !local[0].isEmpty()
-                                    ? local[0] : e.title;
-                            String cover = local[1] != null && !local[1].isEmpty()
-                                    ? local[1] : e.cover;
-                            int count = parseCount(local) > 0
-                                    ? parseCount(local) : e.episodeCount;
-                            if (!title.equals(local[0]) || !cover.equals(local[1])
-                                    || count != parseCount(local)) {
-                                HgStore.putMeta(e.seriesId, title, cover, count);
-                                changed = true;
-                            }
-                        }
-                        if (HgStore.importServerHistory(e.seriesId, e.episodeIndex,
-                                e.positionMs, e.readTsMs)) {
-                            changed = true;
-                        }
-                    }
-                    if (changed && currentTab == TAB_HISTORY) renderTab();
-                });
-            }
-
-            @Override
-            public void onError(int httpCode, String message) {
-                post(() -> {
-                    historyRefreshing = false;
-                    historySynced = true;
-                });
-                // 本地历史已先显，同步失败不打扰
-            }
-        });
     }
 
     private static int parseCount(String[] meta) {
@@ -772,21 +720,16 @@ public final class HgMineView extends LinearLayout {
             @Override
             public void onSuccess(com.fongmi.android.tv.hongguo.model.HgCellPage page) {
                 post(() -> {
-                    followRefreshing = false;
                     if (currentTab != TAB_FAV || favFilter != FAV_FOLLOW
-                            || page == null || page.getItems() == null || page.getItems().isEmpty()) return;
-                    for (HgSeriesItem s : page.getItems()) {
-                        if (s.getSeriesId() == null) continue;
-                        HgStore.setShelfMirrored(s.getSeriesId(), true);
-                        String[] local = HgStore.metaOf(s.getSeriesId());
-                        String title = s.getTitle() != null ? s.getTitle()
-                                : local != null ? local[0] : null;
-                        String cover = s.getCoverUrl() != null ? s.getCoverUrl()
-                                : local != null ? local[1] : null;
-                        HgStore.putMeta(s.getSeriesId(), title, cover, s.getEpisodeCount(),
-                                s.getBadge());
+                            || page == null || page.getItems() == null || page.getItems().isEmpty()) {
+                        followRefreshing = false;
+                        return;
                     }
+                    mergeShelfIntoStore(page);
                     renderTab();
+                    // 刷完才放行：renderTab 会再走一遍本方法，放行在前
+                    // 会自咬成无限回源（本批顺手堵，口径仍是进面刷一次）
+                    followRefreshing = false;
                 });
             }
 
@@ -794,6 +737,53 @@ public final class HgMineView extends LinearLayout {
             public void onError(int httpCode, String message) {
                 post(() -> followRefreshing = false);
                 // 镜像已先显，刷新失败不打扰
+            }
+        });
+    }
+
+    /**
+     * 追剧架回源合并（收藏/追更同一服务端本体）：架上条目并入双镜像与
+     * 元信息（标题/封面/集数/角标以服务端为准、缺项回落本地已存）。
+     */
+    private void mergeShelfIntoStore(com.fongmi.android.tv.hongguo.model.HgCellPage page) {
+        for (HgSeriesItem s : page.getItems()) {
+            if (s.getSeriesId() == null) continue;
+            HgStore.setShelfMirrored(s.getSeriesId(), true);
+            String[] local = HgStore.metaOf(s.getSeriesId());
+            String title = s.getTitle() != null ? s.getTitle()
+                    : local != null ? local[0] : null;
+            String cover = s.getCoverUrl() != null ? s.getCoverUrl()
+                    : local != null ? local[1] : null;
+            HgStore.putMeta(s.getSeriesId(), title, cover, s.getEpisodeCount(),
+                    s.getBadge());
+        }
+    }
+
+    private boolean followDotRefreshing;
+
+    /**
+     * 追更红点的数据源刷新：本面每次露面时回源一次追剧架（与官方红点
+     * 随资料口下发同节奏），合并最新集数后重建筹行刷红点。不限于当前
+     * 正看追更子筛——红点要在进「我的」时就亮对，不必先点开追更才知道。
+     * 失败静默（镜像旧值判出的点维持原样，下次露面再刷）。
+     */
+    private void refreshFollowDotSource() {
+        if (followDotRefreshing || !LoginManager.isHongguoLoggedIn()) return;
+        followDotRefreshing = true;
+        HgFeedSession.get().client.bookshelfVideoList(new HgCallback<com.fongmi.android.tv.hongguo.model.HgCellPage>() {
+            @Override
+            public void onSuccess(com.fongmi.android.tv.hongguo.model.HgCellPage page) {
+                post(() -> {
+                    followDotRefreshing = false;
+                    if (page == null || page.getItems() == null || page.getItems().isEmpty()) return;
+                    mergeShelfIntoStore(page);
+                    renderChips();
+                });
+            }
+
+            @Override
+            public void onError(int httpCode, String message) {
+                post(() -> followDotRefreshing = false);
             }
         });
     }

@@ -764,6 +764,113 @@ public final class HgApiClient {
     }
 
     /**
+     * 本人点赞列表全量（GET /reading/ugc/action/mget，不带 target_user_id
+     * ＝本人维度；官方 VideoLikeDataServer.loadRemoteVideoLike 定版：
+     * action_type=3(Like)、object_type_list="6,15,10"、count=50、
+     * offset 续拉至 has_more=false）。本机匿名实拉结构验通（游客回空表，
+     * 真数据靠 authProvider 注入的登录会话）。页数上限 20（1000 条）防
+     * 服务端 has_more 异常时死循环；中途某页失败＝整次失败（消费侧回落
+     * 本地镜像，不许拿半份列表当全量合并）。
+     */
+    public void fetchMyLikes(HgCallback<List<com.fongmi.android.tv.hongguo.model.HgAuthorWork>> cb) {
+        fetchMyLikesPage(0, 0, new ArrayList<>(), cb);
+    }
+
+    private void fetchMyLikesPage(int offset, int depth,
+                                  List<com.fongmi.android.tv.hongguo.model.HgAuthorWork> acc,
+                                  HgCallback<List<com.fongmi.android.tv.hongguo.model.HgAuthorWork>> cb) {
+        Map<String, String> q = new HashMap<>();
+        q.put("action_type", "3");
+        q.put("object_type_list", "6,15,10");
+        q.put("count", "50");
+        q.put("offset", String.valueOf(Math.max(0, offset)));
+        get(HOST + "/reading/ugc/action/mget" + BV, q, new BodyCallback() {
+            @Override
+            void onBody(String text) {
+                com.fongmi.android.tv.hongguo.model.HgAuthorWork.Page page =
+                        HgParser.parseMyLikes(text);
+                if (page == null) {
+                    cb.onError(-2, "点赞列表回包解析失败");
+                    return;
+                }
+                acc.addAll(page.items);
+                int next = -1;
+                try {
+                    next = page.nextCursor.isEmpty() ? -1 : Integer.parseInt(page.nextCursor);
+                } catch (Exception ignored) {
+                }
+                if (page.hasMore && next >= 0 && depth < 20) {
+                    fetchMyLikesPage(next, depth + 1, acc, cb);
+                } else {
+                    cb.onSuccess(acc);
+                }
+            }
+
+            @Override
+            void onFail(int code, String msg) {
+                cb.onError(code, msg);
+            }
+        });
+    }
+
+    /**
+     * 服务端观看历史全量（GET /reading/bookapi/read_history/list，官方
+     * VideoRecordImpl.downloadRemoteRecordAsync 定版：book_type 分
+     * Watch=2/Album=3 两路各自分页拉全、合并按 read_timestamp 倒序；
+     * Pugc 路官方要配置开关才开，咱家不拉）。is_first_load 只在每路
+     * 第一页带 true（官方按账号首拉语义）。本机匿名实拉结构验通
+     * （游客回空表）。某路失败＝整次失败，消费侧回落本地历史。
+     */
+    public void fetchReadHistory(HgCallback<List<com.fongmi.android.tv.hongguo.model.HgHistoryEntry>> cb) {
+        List<com.fongmi.android.tv.hongguo.model.HgHistoryEntry> acc =
+                Collections.synchronizedList(new ArrayList<>());
+        Done finish = () -> {
+            List<com.fongmi.android.tv.hongguo.model.HgHistoryEntry> out =
+                    new ArrayList<>(acc);
+            out.sort((a, b) -> Long.compare(b.readTsMs, a.readTsMs));
+            cb.onSuccess(out);
+        };
+        fetchReadHistoryType(2, 0, 0, acc,
+                () -> fetchReadHistoryType(3, 0, 0, acc, finish, cb), cb);
+    }
+
+    private interface Done {
+        void run();
+    }
+
+    private void fetchReadHistoryType(int bookType, int offset, int depth,
+                                      List<com.fongmi.android.tv.hongguo.model.HgHistoryEntry> acc,
+                                      Done done,
+                                      HgCallback<List<com.fongmi.android.tv.hongguo.model.HgHistoryEntry>> cb) {
+        Map<String, String> q = new HashMap<>();
+        q.put("book_type", String.valueOf(bookType));
+        q.put("offset", String.valueOf(Math.max(0, offset)));
+        q.put("is_first_load", offset == 0 ? "true" : "false");
+        get(HOST + "/reading/bookapi/read_history/list" + BV, q, new BodyCallback() {
+            @Override
+            void onBody(String text) {
+                com.fongmi.android.tv.hongguo.model.HgHistoryEntry.Page page =
+                        HgParser.parseReadHistory(text);
+                if (page == null) {
+                    cb.onError(-2, "历史回包解析失败");
+                    return;
+                }
+                acc.addAll(page.items);
+                if (page.hasMore && page.nextOffset >= 0 && depth < 20) {
+                    fetchReadHistoryType(bookType, page.nextOffset, depth + 1, acc, done, cb);
+                } else {
+                    done.run();
+                }
+            }
+
+            @Override
+            void onFail(int code, String msg) {
+                cb.onError(code, msg);
+            }
+        });
+    }
+
+    /**
      * 追剧架更新 POST /reading/bookapi/bookshelf/video/update（收藏/追更共用此口，
      * 官方 FollowScene 加入收藏与右列追剧钮同走 AddShelf，见 HgRequests
      * bookshelfVideoUpdateBody 注的出处）。add=true 加入、false 移出。

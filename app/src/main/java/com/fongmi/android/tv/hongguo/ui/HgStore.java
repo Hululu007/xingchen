@@ -432,6 +432,35 @@ public final class HgStore {
                 episodeIndex + "|" + Math.max(0, positionMs) + "|" + System.currentTimeMillis());
     }
 
+    /**
+     * 服务端历史导入（「我的」历史格的同步源落点）：本地已有断点的剧
+     * 一律不动——本地断点集数/秒数是续播的准，服务端只补本地没有的剧
+     * （在官方 App/他端看过的），断点按服务端值写、时刻用服务端
+     * read_timestamp，并按时刻序插入历史索引。返回是否真导入了新剧。
+     */
+    public static boolean importServerHistory(String seriesId, int episodeIndex,
+                                              long positionMs, long readTsMs) {
+        if (seriesId == null || seriesId.isEmpty()) return false;
+        if (progressOf(seriesId) != null) return false;
+        long ts = readTsMs > 0 ? readTsMs : System.currentTimeMillis();
+        Prefers.put(K_HIST_PREFIX + seriesId,
+                Math.max(0, episodeIndex) + "|" + Math.max(0, positionMs) + "|" + ts);
+        java.util.List<String> ids = new java.util.ArrayList<>(readSet(K_HIST_INDEX));
+        ids.remove(seriesId);
+        int at = ids.size();
+        for (int i = 0; i < ids.size(); i++) {
+            Progress p = progressOf(ids.get(i));
+            if (p != null && p.updatedMs < ts) {
+                at = i;
+                break;
+            }
+        }
+        ids.add(at, seriesId);
+        if (ids.size() > 200) ids = ids.subList(0, 200);
+        Prefers.put(K_HIST_INDEX, String.join(",", ids));
+        return true;
+    }
+
     // ---------- 发现流位置（进程被杀后重进落位用） ----------
 
     private static final String K_FEED_POS = "hongguo_feed_pos";

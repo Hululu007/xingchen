@@ -1525,6 +1525,108 @@ public final class HgParser {
                 more && next >= 0 ? String.valueOf(next) : "", more, null);
     }
 
+    /**
+     * 本人点赞列表回包（GET ugc/action/mget?action_type=3、不带
+     * target_user_id＝本人维度；官方 VideoLikeDataServer 定版：分页
+     * offset/count=50、object_type_list="6,15"（PUGC 开关开时加 10），
+     * 本机匿名实拉结构验通、游客身份回空表）。与作者点赞签同口同构，
+     * 差别在标题/封面取剧维度：video_data.title 是单集文案、剧名在
+     * video_detail.series_title、剧封面在 video_detail.series_cover，
+     * 系列卡一律以剧维度为准（实拉样本 author_likes.json 逐字）。
+     */
+    public static HgAuthorWork.Page parseMyLikes(String json) {
+        JsonObject root = parseEnvelope(json);
+        if (root == null) return null;
+        JsonObject data = obj(root, "data");
+        if (data == null) return null;
+        List<HgAuthorWork> items = new ArrayList<>();
+        JsonArray rows = arr(data, "mixed_data_list");
+        if (rows != null) {
+            for (JsonElement el : rows) {
+                if (!el.isJsonObject()) continue;
+                JsonObject o = el.getAsJsonObject();
+                JsonObject vd = obj(o, "video_data");
+                if (vd == null) {
+                    JsonObject info = obj(o, "video_detail_info");
+                    if (info != null) vd = obj(info, "video_data");
+                    if (vd == null && info != null) vd = info;
+                }
+                if (vd == null) continue;
+                JsonObject detail = obj(vd, "video_detail");
+                String seriesId = firstStr(vd, "series_id_str", "series_id");
+                if (seriesId == null && detail != null) {
+                    seriesId = firstStr(detail, "series_id_str", "series_id");
+                }
+                if (seriesId == null) continue;
+                String title = detail == null ? null : str(detail, "series_title");
+                if (title == null || title.isEmpty()) title = str(vd, "title");
+                String cover = detail == null ? null : str(detail, "series_cover");
+                if (cover == null || cover.isEmpty()) {
+                    cover = firstStr(vd, "cover", "horiz_cover", "series_cover");
+                }
+                int count = detail == null ? 0 : intOf(detail, "episode_cnt", 0);
+                if (count <= 0) count = intOf(vd, "episode_cnt", 0);
+                items.add(new HgAuthorWork(HgAuthorWork.KIND_VIDEO,
+                        firstStr(vd, "vid", "video_id"),
+                        seriesId,
+                        cover,
+                        title,
+                        str(vd, "video_desc"),
+                        count,
+                        longOf(vd, "digged_count", 0),
+                        0, 0, null, null, null, -1, 0));
+            }
+        }
+        boolean more = boolOf(data, "has_more");
+        int next = intOf(data, "next_offset", -1);
+        return new HgAuthorWork.Page(items,
+                more && next >= 0 ? String.valueOf(next) : "", more, null);
+    }
+
+    /**
+     * 服务端观看历史回包（GET bookapi/read_history/list，官方
+     * GetReadHistoryResponse 定版，本机匿名实拉结构验通）：
+     * data{data_list[], has_more, next_offset, total}，条目字段见
+     * {@link HgHistoryEntry}。is_delete 的条目是服务端删除标记，跳过；
+     * 无剧名条目官方本地侧也判无效（VideoRecordImpl.isRemoteRecordValid），
+     * 同口径跳过。
+     */
+    public static HgHistoryEntry.Page parseReadHistory(String json) {
+        JsonObject root = parseEnvelope(json);
+        if (root == null) return null;
+        JsonObject data = obj(root, "data");
+        if (data == null) return null;
+        List<HgHistoryEntry> items = new ArrayList<>();
+        JsonArray rows = arr(data, "data_list");
+        if (rows != null) {
+            for (JsonElement el : rows) {
+                if (!el.isJsonObject()) continue;
+                JsonObject o = el.getAsJsonObject();
+                if (boolOf(o, "is_delete")) continue;
+                String seriesId = firstStr(o, "book_id_str");
+                if (seriesId == null) {
+                    long bid = longOf(o, "book_id", 0);
+                    if (bid > 0) seriesId = String.valueOf(bid);
+                }
+                String title = str(o, "book_name");
+                if (seriesId == null || title == null || title.isEmpty()) continue;
+                items.add(new HgHistoryEntry(
+                        seriesId,
+                        title,
+                        str(o, "thumb_url"),
+                        intOf(o, "episode_cnt", -1),
+                        intOf(o, "vid_index", 0),
+                        longOf(o, "current_play_position", 0),
+                        longOf(o, "read_timestamp_ms", 0)));
+            }
+        }
+        boolean more = boolOf(data, "has_more");
+        int next = intOf(data, "next_offset", -1);
+        return new HgHistoryEntry.Page(items, more,
+                more && next >= 0 ? next : -1,
+                longOf(data, "total", 0));
+    }
+
     /** 信封解析（code 缺失或 JSON 坏返回 null；code 非 0 也返回根，消费侧按 data 空判失败）。 */
     private static JsonObject parseEnvelope(String json) {
         if (json == null || json.isEmpty()) return null;

@@ -4,7 +4,9 @@ import com.fongmi.android.tv.hongguo.api.HgCommentParser;
 import com.fongmi.android.tv.hongguo.api.HgDouyinAuth;
 import com.fongmi.android.tv.hongguo.api.HgPassportClient;
 import com.fongmi.android.tv.hongguo.api.HgRequests;
+import com.fongmi.android.tv.hongguo.model.HgAuthorWork;
 import com.fongmi.android.tv.hongguo.model.HgComment;
+import com.fongmi.android.tv.hongguo.model.HgHistoryEntry;
 import com.fongmi.android.tv.hongguo.model.HgParser;
 import com.fongmi.android.tv.hongguo.model.HgSeriesDetail;
 import com.fongmi.android.tv.hongguo.model.HgSeriesItem;
@@ -354,6 +356,58 @@ public class HgInteractionTest {
         check("偏好保存体取消项 status=not_set(0)",
                 unsetBody.getAsJsonArray("content").get(0).getAsJsonObject().get("status").getAsInt() == 0,
                 unsetBody.toString());
+
+        // ---------- 本人点赞列表（mget 本人维度；固件＝作者点赞签同口
+        // 实拉真回包裁剪，data_type=30、video_detail 带剧名/剧封面） ----------
+        String myLikes = readResource("hongguo-my-likes.json");
+        HgAuthorWork.Page ml = HgParser.parseMyLikes(myLikes);
+        check("本人点赞解析非空 2 条", ml != null && ml.items.size() == 2,
+                ml == null ? "null" : "items=" + ml.items.size());
+        check("本人点赞剧名取 series_title（非 video_data 单集文案）",
+                ml != null && "一块槽头肉，养出个省状元".equals(ml.items.get(0).title),
+                ml == null ? "null" : ml.items.get(0).title);
+        check("本人点赞 series_id/集数对版",
+                ml != null && "7685980827544456254".equals(ml.items.get(0).seriesId)
+                        && ml.items.get(0).episodeCount == 86
+                        && "7700425313766870040".equals(ml.items.get(1).seriesId)
+                        && ml.items.get(1).episodeCount == 380, null);
+        check("本人点赞封面取 series_cover",
+                ml != null && ml.items.get(0).cover.contains("novel-pic"), null);
+        check("本人点赞续拉 next_offset=18",
+                ml != null && ml.hasMore && "18".equals(ml.nextCursor), null);
+        check("本人点赞坏包回 null", HgParser.parseMyLikes("not json") == null, null);
+        String selfEmpty = "{\"code\":0,\"message\":\"SUCCESS\",\"data\":{\"mixed_data_list\":null,\"count\":0,\"next_offset\":0,\"has_more\":false}}";
+        HgAuthorWork.Page se = HgParser.parseMyLikes(selfEmpty);
+        check("本人点赞匿名空表（实拉原文）解析为空页非 null",
+                se != null && se.items.isEmpty() && !se.hasMore, null);
+
+        // ---------- 服务端观看历史（read_history/list；固件按官方
+        // ReadHistoryData 模型字段＋本机匿名实拉信封形状拼装） ----------
+        String histJson = readResource("hongguo-read-history.json");
+        HgHistoryEntry.Page hp = HgParser.parseReadHistory(histJson);
+        check("历史解析 2 条（is_delete/无 book_name 各跳一条）",
+                hp != null && hp.items.size() == 2,
+                hp == null ? "null" : "items=" + hp.items.size());
+        check("历史条目字段对版（剧id/名/封面/总集数）",
+                hp != null && "7695727473111092286".equals(hp.items.get(0).seriesId)
+                        && "历史剧甲".equals(hp.items.get(0).title)
+                        && hp.items.get(0).cover.startsWith("https://")
+                        && hp.items.get(0).episodeCount == 132, null);
+        check("历史断点字段（vid_index/位置/时刻）",
+                hp != null && hp.items.get(0).episodeIndex == 12
+                        && hp.items.get(0).positionMs == 834000L
+                        && hp.items.get(0).readTsMs == 1793100000000L, null);
+        check("历史只串 id 条目保留（book_id_str 单独成 id）",
+                hp != null && "7623456789012345678".equals(hp.items.get(1).seriesId)
+                        && hp.items.get(1).episodeCount == 48, null);
+        check("历史续拉 next_offset=500/total=37",
+                hp != null && hp.hasMore && hp.nextOffset == 500 && hp.total == 37, null);
+        check("历史坏包回 null", HgParser.parseReadHistory("not json") == null
+                && HgParser.parseReadHistory("{}") == null, null);
+        String histEmpty = "{\"code\":0,\"message\":\"SUCCESS\",\"data\":{\"data_list\":[],\"next_offset\":0,\"has_more\":false,\"total\":0}}";
+        HgHistoryEntry.Page he = HgParser.parseReadHistory(histEmpty);
+        check("历史匿名空表（实拉原文）解析为空页非 null",
+                he != null && he.items.isEmpty() && !he.hasMore && he.total == 0, null);
 
         System.out.println(fail == 0 ? "ALL PASS HgInteractionTest" : "FAILURES=" + fail);
         if (fail > 0) System.exit(1);

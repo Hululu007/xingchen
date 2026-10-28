@@ -43,6 +43,9 @@ public final class HgPanelLogic {
     /** 倍速档表（他实拍定版，升序）。长按快进的 2x 是临时覆盖、不入此表语义。 */
     public static final float[] SPEEDS = {0.75f, 1f, 1.25f, 1.5f, 2f, 3f};
 
+    /** 横屏页倍速面板档表（官方 xr3.f 定版、自上而下）：与竖屏实拍档表是两张表，不混。 */
+    public static final float[] LAND_SPEEDS = {2f, 1.75f, 1.5f, 1.25f, 1f, 0.75f};
+
     /** 长按快进的临时倍速（官方 SpeedTipsView「2倍速快进中」定版）。 */
     public static final float BOOST_SPEED = 2f;
 

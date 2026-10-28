@@ -49,12 +49,15 @@ import java.util.Locale;
  * 自动连播开关切下集）。播放内核一律 Exo、不走 MPV（账 §6.5）。</p>
  *
  * <p>全屏口径：横屏剧信箱式播＋「全屏观看」在本窗内把整页转 90° 铺满
- * （窗内转、窗口不转——官方主界面 screenOrientation="behind"＋configChanges
- * 自管，见四阶段回报横屏节；旧 HongguoLandActivity 单独横屏页真转窗口的路
- * 已废弃删除）。显隐口径（2026-10-28 他真机亲点后改）：刷剧面常显件
+ * （竖屏面窗口不转——官方主界面 screenOrientation="behind"＋configChanges
+ * 自管）。横屏观看已改真横屏页（2026-10-28 重核定案，plan-landpage）：
+ * 进剧/全屏观看走 activity-alias 横屏实例（本类同类、真横屏窗口、代官方
+ * ShortSeriesLandActivity），四阶段「窗内转代横屏页」的旧路作废；窗内转
+ * （landMode）只剩单条横屏短片无剧归属时的原地保底。显隐口径（2026-10-28
+ * 他真机亲点后改）：刷剧面常显件
  * （顶栏页签/右列/剧条/弹幕筹/进度细线）不许自动隐藏——旧「播放中空闲
  * 4 秒自动全隐」把界面播几秒全收走、被他当场点名；自动全隐只保留在
- * 横屏全屏观看态（landMode，他定案全屏全隐藏＋防烧屏），竖屏点屏只切
+ * 横屏观看态（横屏实例与 landMode 保底，他定案全屏全隐藏＋防烧屏），竖屏点屏只切
  * 播放/暂停、全屏控制条只在横屏态点屏唤出、自动再隐。</p>
  *
  * <p>弹幕：数据源已定版（danmaku-dig-20261028.md——评论口同端点换弹幕档，
@@ -75,7 +78,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     private static final String EXTRA_TITLE = "hg_title";
     private static final String EXTRA_COVER = "hg_cover";
     private static final String EXTRA_START_FIRST = "hg_start_first";
-    private static final String EXTRA_LANDSCAPE_FS = "hg_landscape_fs";
+    private static final String EXTRA_LAND_INSTANCE = "hg_land_instance";
     /** 进剧条目的作者 uid 透传：详情面不下发 uid，集流页的作者靠它（见
      * HgFeedSession.applyDetail 的继承注）；没有来源的入口不带、集流里
      * 点作者行就静默不打开（不许按名认人）。 */
@@ -130,14 +133,20 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         startSeriesLandscape(context, seriesId, title, cover, null);
     }
 
+    /**
+     * 横屏剧进剧（他亲授：点击/全屏观看＝全屏直接进剧集）：走横屏实例
+     * （activity-alias HongguoLandEntry，真横屏窗口、本类集流以横屏面落），
+     * 落点走 HgStore 断点（集＋秒）与竖屏进剧同口径。
+     */
     public static void startSeriesLandscape(Context context, String seriesId, String title, String cover,
                                             String authorUid) {
-        Intent intent = new Intent(context, HongguoFeedActivity.class);
+        Intent intent = new Intent();
+        intent.setClassName(context, "com.fongmi.android.tv.hongguo.ui.HongguoLandEntry");
         intent.putExtra(EXTRA_MODE, MODE_SERIES);
         intent.putExtra(EXTRA_SERIES_ID, seriesId);
         intent.putExtra(EXTRA_TITLE, title);
         intent.putExtra(EXTRA_COVER, cover);
-        intent.putExtra(EXTRA_LANDSCAPE_FS, true);
+        intent.putExtra(EXTRA_LAND_INSTANCE, true);
         if (authorUid != null) intent.putExtra(EXTRA_AUTHOR_UID, authorUid);
         context.startActivity(intent);
     }
@@ -172,8 +181,14 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     private int currentPos = -1;
     /** 精彩片段自动进剧：落集不走断点、从第一集起（EXTRA_START_FIRST）。 */
     private boolean startFromFirst;
-    /** 横屏剧进剧：首集起播后转横屏全屏态（EXTRA_LANDSCAPE_FS，play 时消费）。 */
-    private boolean pendingLandFs;
+    /** 横屏独立页实例（经别名 HongguoLandEntry 启动的本类横屏集流）：竖屏件
+     * 全不显、互动走横排控制条，落点走断点与竖屏集流同口径。 */
+    private boolean landInstance;
+    /** 横屏实例锁定态：禁滑、chrome 全收，点屏只唤锁定钮（5 秒自动淡出）。 */
+    private boolean landLocked;
+    private final Runnable landLockFadeRunnable = () -> {
+        if (landLocked) binding.hgLandLock.setVisibility(View.GONE);
+    };
 
     /** 本页模式：MODE_FEED 短片流 / MODE_SERIES 集流（initView 自 intent 定）。 */
     private int mode = MODE_FEED;
@@ -212,8 +227,8 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     private final Runnable timerFireRunnable = this::onTimerFire;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final Runnable hideChromeRunnable = () -> {
-        // 自动全隐只在横屏全屏观看态成立（见类头显隐口径）
-        if (landMode) setChromeHidden(true);
+        // 自动全隐只在横屏观看态成立（横屏实例或窗内转保底，见类头显隐口径）
+        if (landMode || landInstance) setChromeHidden(true);
     };
     private final Runnable hideFsRunnable = () -> binding.hgFsBar.setVisibility(View.GONE);
     private final Runnable ticker = new Runnable() {
@@ -282,13 +297,13 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         public void onVideoSizeChanged(VideoSize size) {
             if (size.width <= 0 || size.height <= 0) return;
             boolean landscape = size.width > size.height;
-            playerView.setResizeMode(landscape
+            playerView.setResizeMode(landInstance || landscape
                     ? AspectRatioFrameLayout.RESIZE_MODE_FIT : AspectRatioFrameLayout.RESIZE_MODE_ZOOM);
             HgFeedAdapter.Holder h = currentHolder();
             if (h != null) {
                 android.view.View btn = h.binding.hgFullscreenWatch;
-                btn.setVisibility(landscape ? View.VISIBLE : View.GONE);
-                if (landscape) anchorFullscreenWatch(h, size.width, size.height);
+                btn.setVisibility(!landInstance && landscape ? View.VISIBLE : View.GONE);
+                if (landscape && !landInstance) anchorFullscreenWatch(h, size.width, size.height);
             }
         }
 
@@ -413,7 +428,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         setupShellFaces();
         mode = getIntent().getIntExtra(EXTRA_MODE, MODE_FEED);
         startFromFirst = getIntent().getBooleanExtra(EXTRA_START_FIRST, false);
-        pendingLandFs = getIntent().getBooleanExtra(EXTRA_LANDSCAPE_FS, false);
+        landInstance = getIntent().getBooleanExtra(EXTRA_LAND_INSTANCE, false);
         if (mode == MODE_SERIES) {
             // 集流页不是刷剧页：刷剧页的页签栏/搜索/抽屉与自家底栏在集流里
             // 全不该在场（此前从没按 mode 分过 chrome，集流里点页签会把
@@ -421,14 +436,21 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             binding.hgTopBar.setVisibility(View.GONE);
             binding.hgBottomBar.setVisibility(View.GONE);
             setPagerBottomMargin(0);
-            // 剧页标题栏（官方构成：返回＋标题＋倍速位＋更多）：返回即退出
-            // 剧页、更多开五项面板（与长按中心带同面板）、倍速位只读显示
-            // 当前持久档（长按临时 2 倍速不写这里，走它自己的提示胶囊）
-            binding.hgSeriesBar.setVisibility(View.VISIBLE);
-            binding.hgSeriesTitle.setText(getIntent().getStringExtra(EXTRA_TITLE));
-            binding.hgSeriesBack.setOnClickListener(v -> finish());
-            binding.hgSeriesMore.setOnClickListener(v -> showMorePanel());
-            refreshSeriesSpeedText();
+            if (landInstance) {
+                // 横屏实例：竖屏剧页标题栏不在场，互动走横排控制条；
+                // 适配器竖屏件（右列配套钮）整套抑制
+                adapter.setLandInstance(true);
+                setupLandChrome();
+            } else {
+                // 剧页标题栏（官方构成：返回＋标题＋倍速位＋更多）：返回即退出
+                // 剧页、更多开五项面板（与长按中心带同面板）、倍速位只读显示
+                // 当前持久档（长按临时 2 倍速不写这里，走它自己的提示胶囊）
+                binding.hgSeriesBar.setVisibility(View.VISIBLE);
+                binding.hgSeriesTitle.setText(getIntent().getStringExtra(EXTRA_TITLE));
+                binding.hgSeriesBack.setOnClickListener(v -> finish());
+                binding.hgSeriesMore.setOnClickListener(v -> showMorePanel());
+                refreshSeriesSpeedText();
+            }
             String seriesId = getIntent().getStringExtra(EXTRA_SERIES_ID);
             session.items.clear();
             adapter.notifyDataSetChanged();
@@ -874,12 +896,9 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         // 此前恒为播放器默认 1x；长按快进的临时覆盖不经此口
         player.setPlaybackSpeed(HgStore.getSpeed());
         refreshSeriesSpeedText();
+        if (landInstance) refreshLandTexts();
         startDanmakuFor(item, startAt);
         armAutoHide();
-        if (pendingLandFs) {
-            pendingLandFs = false;
-            enterLandMode(currentPos);
-        }
     }
 
     /** settle 后的预备工作：同剧预取后 2 集数据、预热后 1–2 条流、回收滑远的流、预展开下一剧头。 */
@@ -1001,13 +1020,14 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         }
         if (currentPos >= 0 && currentPos < session.items.size()) {
-            playerView.setResizeMode(session.items.get(currentPos).isLandscape()
+            playerView.setResizeMode(landInstance || session.items.get(currentPos).isLandscape()
                     ? AspectRatioFrameLayout.RESIZE_MODE_FIT : AspectRatioFrameLayout.RESIZE_MODE_ZOOM);
         }
     }
 
     private void tickProgress() {
         if (player == null || currentPos < 0) return;
+        if (landInstance) tickLandStatus();
         long duration = player.getDuration();
         long position = player.getCurrentPosition();
         HgFeedAdapter.Holder h = currentHolder();
@@ -1067,28 +1087,54 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             binding.hgTopBar.setVisibility(hidden ? View.GONE : View.VISIBLE);
         }
         // 剧页标题栏：竖屏集流常显（与刷剧面常驻件同口径），横屏观看态
-        // （landMode）随全屏全隐藏一起收——进/出横屏都经此函数收口
+        // （landMode 保底）与横屏实例随全屏全隐藏一起收——进/出横屏都经此函数收口
         binding.hgSeriesBar.setVisibility(
-                mode == MODE_SERIES && !landMode ? View.VISIBLE : View.GONE);
+                mode == MODE_SERIES && !landMode && !landInstance ? View.VISIBLE : View.GONE);
         HgFeedAdapter.Holder h = currentHolder();
         if (h != null) {
-            int v = hidden ? View.GONE : View.VISIBLE;
-            h.binding.hgRightRail.setVisibility(v);
-            h.binding.hgInfo.setVisibility(v);
-            h.binding.hgSeriesBar.setVisibility(v);
-            // 「弹」是发弹幕入口：重显时按弹幕开关恢复（与适配器 bindDanmakuState
-            // 同口径），弹幕关着不许把入口跟着 chrome 一起亮出来
-            h.binding.hgDanmakuBox.setVisibility(hidden ? View.GONE
-                    : (HgStore.isDanmakuOn() ? View.VISIBLE : View.GONE));
-            // 全屏观看钮非常驻件：隐藏时一并收；重显口径与适配器绑定一致
-            // （真实宽高判横屏或 cell 朝向预判，旧版重显只认真实宽高、与绑定
-            // 口径不一致，预判条目会把钮弄丢——审计实证）
-            if (hidden) h.binding.hgFullscreenWatch.setVisibility(View.GONE);
-            else if (currentPos >= 0 && currentPos < session.items.size()
-                    && (session.items.get(currentPos).isLandscape()
-                    || session.items.get(currentPos).landscapeHint)) {
-                h.binding.hgFullscreenWatch.setVisibility(View.VISIBLE);
+            if (landInstance) {
+                // 横屏页没有竖屏件：右列/信息层/剧条/发弹幕入口/全屏观看钮恒收
+                h.binding.hgRightRail.setVisibility(View.GONE);
+                h.binding.hgInfo.setVisibility(View.GONE);
+                h.binding.hgSeriesBar.setVisibility(View.GONE);
+                h.binding.hgDanmakuBox.setVisibility(View.GONE);
+                h.binding.hgFullscreenWatch.setVisibility(View.GONE);
+            } else {
+                int v = hidden ? View.GONE : View.VISIBLE;
+                h.binding.hgRightRail.setVisibility(v);
+                h.binding.hgInfo.setVisibility(v);
+                h.binding.hgSeriesBar.setVisibility(v);
+                // 「弹」是发弹幕入口：重显时按弹幕开关恢复（与适配器 bindDanmakuState
+                // 同口径），弹幕关着不许把入口跟着 chrome 一起亮出来
+                h.binding.hgDanmakuBox.setVisibility(hidden ? View.GONE
+                        : (HgStore.isDanmakuOn() ? View.VISIBLE : View.GONE));
+                // 全屏观看钮非常驻件：隐藏时一并收；重显口径与适配器绑定一致
+                // （真实宽高判横屏或 cell 朝向预判，旧版重显只认真实宽高、与绑定
+                // 口径不一致，预判条目会把钮弄丢——审计实证）
+                if (hidden) h.binding.hgFullscreenWatch.setVisibility(View.GONE);
+                else if (currentPos >= 0 && currentPos < session.items.size()
+                        && (session.items.get(currentPos).isLandscape()
+                        || session.items.get(currentPos).landscapeHint)) {
+                    h.binding.hgFullscreenWatch.setVisibility(View.VISIBLE);
+                }
             }
+        }
+        if (landInstance) {
+            // 横屏 chrome（状态条＋横排条）随 hidden 收放；锁定钮在锁定态由
+            // 锁定机单独管（点屏唤出/5 秒淡出），不跟 chrome 一起亮
+            int lv = hidden ? View.GONE : View.VISIBLE;
+            binding.hgLandStatus.setVisibility(lv);
+            binding.hgLandBar.setVisibility(lv);
+            if (!landLocked) binding.hgLandLock.setVisibility(lv);
+            if (hidden) {
+                new WindowInsetsControllerCompat(getWindow(), getWindow().getDecorView())
+                        .hide(WindowInsetsCompat.Type.systemBars());
+            } else {
+                new WindowInsetsControllerCompat(getWindow(), getWindow().getDecorView())
+                        .show(WindowInsetsCompat.Type.systemBars());
+            }
+            if (hidden) binding.hgFsBar.setVisibility(View.GONE);
+            return;
         }
         boolean portrait = currentPos < 0 || currentPos >= session.items.size()
                 || !session.items.get(currentPos).isLandscape();
@@ -1108,8 +1154,8 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     private void armAutoHide() {
         ui.removeCallbacks(hideChromeRunnable);
         // 刷剧面常显件不自动隐（他真机亲点，见类头显隐口径）；
-        // 自动全隐只在横屏全屏观看态（landMode）排期
-        if (!landMode) return;
+        // 自动全隐只在横屏观看态（横屏实例或窗内转保底）排期
+        if (!landMode && !landInstance) return;
         if (player != null && player.isPlaying()) ui.postDelayed(hideChromeRunnable, HIDE_DELAY_MS);
     }
 
@@ -1140,6 +1186,10 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     @Override
     public void onTap(int position) {
         if (position != currentPos) return;
+        if (landInstance) {
+            onLandTap();
+            return;
+        }
         if (binding.hgFsBar.getVisibility() == View.VISIBLE) {
             binding.hgFsBar.setVisibility(View.GONE);
             ui.removeCallbacks(hideFsRunnable);
@@ -1175,13 +1225,15 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
 
     /**
      * 长按分工（他定版＋官方 F6 定版）：竖屏点在横向中间 1/3 带内＝开
-     * 五项面板；带外＝按住 2 倍速快进。横屏全屏态（landMode）不分带、
-     * 任何位置都只有快进。长按触发后本次单击已被适配器抑制（suppressTap）。
+     * 五项面板；带外＝按住 2 倍速快进。横屏观看态（横屏实例与 landMode
+     * 保底）不分带、任何位置都只有快进；锁定态长按不响应。长按触发后
+     * 本次单击已被适配器抑制（suppressTap）。
      */
     @Override
     public void onLongPress(int position, float x, int width) {
         if (position != currentPos || mineShowing || drawerOpen) return;
-        if (!landMode && HgPanelLogic.inCenterBand(x, width)) {
+        if (landLocked) return;
+        if (!landInstance && !landMode && HgPanelLogic.inCenterBand(x, width)) {
             showMorePanel();
             return;
         }
@@ -1214,7 +1266,8 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         if (position < 0 || position >= session.items.size()) return;
         HgFeedItem item = session.items.get(position);
         if (item.seriesId == null) {
-            // 无剧可进时保底：仍给窗内转全屏（不跳页）
+            // 无剧归属的单条横屏短片：保底原地窗内转（不跳页）——横屏实例是
+            // 集流形态、装不下无剧短片，此边角官方形态未证实，维持现状
             if (landMode) exitLandMode();
             else enterLandMode(position);
             return;
@@ -1834,15 +1887,20 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
 
     @Override
     public void onFullscreenWatch(int position) {
-        if (position != currentPos) return;
+        if (position != currentPos || landInstance) return;
         saveProgress();
-        // 首页（流）里点它＝全屏直接进剧集（他亲授）；集流里点它仍是窗内转
+        // 首页（流）里点它＝全屏直接进剧集（他亲授）；竖屏集流里点它同样进
+        // 横屏实例（断点已落盘、横屏实例按断点集/秒落位）；旧窗内转只剩
+        // enterSeriesFullscreen 无剧归属短片的保底，不再是剧的去向
         if (mode == MODE_FEED) {
             enterSeriesFullscreen(position);
             return;
         }
-        if (landMode) exitLandMode();
-        else enterLandMode(position);
+        HgFeedItem item = session.items.get(position);
+        if (item.seriesId != null) {
+            suppressResumeRefresh = true;
+            startSeriesLandscape(this, item.seriesId, item.title, item.coverUrl, item.authorUid);
+        }
     }
 
     /**
@@ -1851,6 +1909,278 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
      * behind＋竖屏锁定、永不旋转，故进出没有任何窗口旋转残影。
      * 旋转方向随握持传感器定（见 orientationListener 字段注），不再写死。
      */
+    // ---------- 横屏独立页（landInstance）：状态条/横排控制条/锁定/抽屉 ----------
+
+    /**
+     * 横屏 chrome 接线（集流 init 的横屏分支调）：三件互动走 onAction 同路
+     * （与右列同一口子）、弹幕走全 App 同源开关、清晰度/倍速/选集开右侧
+     * 抽屉、锁定钮走锁定机。
+     */
+    private void setupLandChrome() {
+        binding.hgLandLike.setOnClickListener(v -> {
+            if (!landLocked) onAction(currentPos, HgFeedAdapter.Action.LIKE);
+        });
+        binding.hgLandComment.setOnClickListener(v -> {
+            if (!landLocked) onAction(currentPos, HgFeedAdapter.Action.COMMENT);
+        });
+        binding.hgLandFav.setOnClickListener(v -> {
+            if (!landLocked) onAction(currentPos, HgFeedAdapter.Action.FAV);
+        });
+        binding.hgLandDanmaku.setOnClickListener(v -> {
+            if (landLocked) return;
+            applyDanmakuSwitch(!HgStore.isDanmakuOn());
+            refreshLandStrip();
+        });
+        binding.hgLandDefinition.setOnClickListener(v -> {
+            if (!landLocked) showLandDefinitionDrawer();
+        });
+        binding.hgLandSpeed.setOnClickListener(v -> {
+            if (!landLocked) showLandSpeedDrawer();
+        });
+        binding.hgLandEpisodes.setOnClickListener(v -> {
+            if (!landLocked) HgEpisodeDrawer.show(this, session, currentPos, this::jumpTo);
+        });
+        binding.hgLandLock.setOnClickListener(v -> toggleLandLock());
+        binding.hgLandPlayHint.setOnClickListener(v -> {
+            if (!landLocked) onLandTap();
+        });
+        updateLandNetIcon();
+        refreshLandStrip();
+        refreshLandTexts();
+    }
+
+    /**
+     * 横屏点屏：锁定中只唤锁定钮；暂停时点屏起播（中央播放提示同步收）；
+     * 播放中 chrome 隐时唤出并排自动隐、chrome 显时点屏暂停（与竖屏点屏
+     * 播停同口径，暂停后 chrome 常驻、播放提示亮）。
+     */
+    private void onLandTap() {
+        if (landLocked) {
+            wakeLockButton();
+            return;
+        }
+        if (player == null) return;
+        if (!player.isPlaying()) {
+            player.play();
+            binding.hgLandPlayHint.setVisibility(View.GONE);
+            setChromeHidden(false);
+            armAutoHide();
+            return;
+        }
+        if (chromeHidden) {
+            setChromeHidden(false);
+            armAutoHide();
+        } else {
+            player.pause();
+            binding.hgLandPlayHint.setVisibility(View.VISIBLE);
+            ui.removeCallbacks(hideChromeRunnable);
+        }
+    }
+
+    /** 横排条三件态（与右列 bindInteractionState 同源）：填充态＋计数（数据有才显）＋弹幕开关态。 */
+    private void refreshLandStrip() {
+        if (!landInstance || currentPos < 0 || currentPos >= session.items.size()) return;
+        HgFeedItem item = session.items.get(currentPos);
+        HgInteractions in = session.interactions;
+        binding.hgLandLikeIcon.setImageResource(in.isLiked(item.seriesId)
+                ? com.fongmi.android.tv.R.drawable.ic_hg_heart_fill
+                : com.fongmi.android.tv.R.drawable.ic_hg_heart);
+        binding.hgLandFavIcon.setImageResource(in.isFavorite(item.seriesId)
+                ? com.fongmi.android.tv.R.drawable.ic_hg_star_fill
+                : com.fongmi.android.tv.R.drawable.ic_hg_star);
+        setLandCount(binding.hgLandLikeCount, item.likeCount);
+        String cc = session.commentCountOf(item.seriesId);
+        setLandCount(binding.hgLandCommentCount, cc != null ? cc : item.commentCount);
+        setLandCount(binding.hgLandFavCount, item.favCount);
+        binding.hgLandDanmaku.setAlpha(HgStore.isDanmakuOn() ? 1f : 0.45f);
+    }
+
+    private void setLandCount(TextView view, String count) {
+        if (count == null || count.isEmpty()) {
+            view.setVisibility(View.GONE);
+        } else {
+            view.setVisibility(View.VISIBLE);
+            view.setText(count);
+        }
+    }
+
+    /** 横排条右段文本：清晰度值（官方 hlk 位＝当前档）＋倍速值（当前持久档）。 */
+    private void refreshLandTexts() {
+        if (!landInstance) return;
+        HgFeedItem item = currentPos >= 0 && currentPos < session.items.size()
+                ? session.items.get(currentPos) : null;
+        String def = null;
+        if (item != null && item.videoId != null) {
+            def = session.resolver.currentDefinition(item.videoId);
+            if (def == null) {
+                com.fongmi.android.tv.hongguo.model.HgVideoModel m =
+                        session.cache.getFresh(item.videoId);
+                com.fongmi.android.tv.hongguo.model.HgVideoEntry first =
+                        m == null ? null : m.firstPlayableEntry();
+                if (first != null) def = first.getDefinition();
+            }
+        }
+        binding.hgLandDefinition.setText(def == null ? "" : HgPanelLogic.definitionLabel(def));
+        binding.hgLandSpeed.setText(HgPanelLogic.speedLabel(HgStore.getSpeed()));
+    }
+
+    /** 状态条（官方 cah 口径）：实时时钟＋电量百分比，随 400ms ticker 刷新；计数顺带保鲜。 */
+    private void tickLandStatus() {
+        binding.hgLandClock.setText(new java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
+                .format(new java.util.Date()));
+        android.content.Intent bi = registerReceiver(null,
+                new android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED));
+        if (bi != null) {
+            int level = bi.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1);
+            int scale = bi.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, 100);
+            if (level >= 0 && scale > 0) {
+                binding.hgLandBatteryText.setText(Math.round(level * 100f / scale) + "%");
+            }
+        }
+        if (!chromeHidden) refreshLandStrip();
+    }
+
+    private void updateLandNetIcon() {
+        boolean wifi = false;
+        try {
+            android.net.ConnectivityManager cm = (android.net.ConnectivityManager)
+                    getSystemService(android.content.Context.CONNECTIVITY_SERVICE);
+            android.net.NetworkCapabilities caps = cm == null ? null
+                    : cm.getNetworkCapabilities(cm.getActiveNetwork());
+            wifi = caps != null && caps.hasTransport(
+                    android.net.NetworkCapabilities.TRANSPORT_WIFI);
+        } catch (Exception ignored) {
+        }
+        binding.hgLandNet.setImageResource(wifi
+                ? com.fongmi.android.tv.R.drawable.ic_hg_wifi
+                : com.fongmi.android.tv.R.drawable.ic_hg_cell);
+    }
+
+    /**
+     * 锁定机（官方 ur3.c 口径）：锁定后禁竖滑切集、控制层全收、点屏只唤
+     * 锁定钮、5 秒自动淡出；解锁恢复控制层。钮图标随态（锁/开锁），官方
+     * 本体是 Lottie、自家静态矢量标近似。
+     */
+    private void toggleLandLock() {
+        if (!landInstance) return;
+        if (landLocked) {
+            landLocked = false;
+            ui.removeCallbacks(landLockFadeRunnable);
+            binding.hgPager.setUserInputEnabled(true);
+            binding.hgLandLock.setImageResource(com.fongmi.android.tv.R.drawable.ic_hg_unlock);
+            setChromeHidden(false);
+            armAutoHide();
+        } else {
+            landLocked = true;
+            binding.hgPager.setUserInputEnabled(false);
+            setChromeHidden(true);
+            binding.hgLandLock.setImageResource(com.fongmi.android.tv.R.drawable.ic_hg_lock);
+            binding.hgLandLock.setVisibility(View.VISIBLE);
+            wakeLockButton();
+        }
+    }
+
+    /** 锁定中唤出锁定钮并重排 5 秒淡出（官方定版时长）。 */
+    private void wakeLockButton() {
+        if (!landLocked) return;
+        binding.hgLandLock.setVisibility(View.VISIBLE);
+        ui.removeCallbacks(landLockFadeRunnable);
+        ui.postDelayed(landLockFadeRunnable, 5000);
+    }
+
+    /** 右侧抽屉通用壳（倍速面板定版宽 232dp，清晰度表共用）：右锚、深底、行由 filler 逐行加。 */
+    private void showLandDrawer(String title,
+            java.util.function.BiConsumer<android.widget.LinearLayout, android.app.Dialog> filler) {
+        com.fongmi.android.tv.databinding.DialogHongguoLandListBinding lb =
+                com.fongmi.android.tv.databinding.DialogHongguoLandListBinding.inflate(getLayoutInflater());
+        android.app.Dialog dialog = new android.app.Dialog(this);
+        dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+        dialog.setContentView(lb.getRoot());
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            window.setGravity(android.view.Gravity.END);
+            int width = (int) (232 * getResources().getDisplayMetrics().density);
+            window.setLayout(width, android.view.WindowManager.LayoutParams.MATCH_PARENT);
+            window.setBackgroundDrawableResource(android.R.color.transparent);
+            window.addFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            android.view.WindowManager.LayoutParams lp = window.getAttributes();
+            lp.dimAmount = 0.45f;
+            window.setAttributes(lp);
+        }
+        lb.hgLlTitle.setText(title);
+        filler.accept(lb.hgLlRows, dialog);
+        dialog.show();
+    }
+
+    private TextView landDrawerRow(String text, boolean on) {
+        TextView row = new TextView(this);
+        row.setText(text);
+        row.setTextSize(15);
+        row.setTextColor(on ? 0xFFFA7705 : 0xFFFFFFFF);
+        row.setTypeface(null, on ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+        int pad = Math.round(11 * getResources().getDisplayMetrics().density);
+        row.setPadding(0, pad, 0, pad);
+        return row;
+    }
+
+    /** 横屏倍速面板（官方 xr3.f 定版）：档表 LAND_SPEEDS 自上而下、行文案「Nx倍速」、1x 带「（默认）」。 */
+    private void showLandSpeedDrawer() {
+        float current = HgStore.getSpeed();
+        showLandDrawer("倍速", (rows, dialog) -> {
+            for (float speed : HgPanelLogic.LAND_SPEEDS) {
+                TextView row = landDrawerRow(HgPanelLogic.speedLabel(speed) + "倍速"
+                        + (speed == 1f ? "（默认）" : ""), speed == current);
+                row.setOnClickListener(v -> {
+                    dialog.dismiss();
+                    HgStore.setSpeed(speed);
+                    // 长按快进中不抢临时覆盖（与竖屏面板同口径）
+                    if (player != null && !speedBoost) player.setPlaybackSpeed(speed);
+                    refreshLandTexts();
+                });
+                rows.addView(row);
+            }
+        });
+    }
+
+    /** 横屏清晰度表（官方 hlk 入口）：与竖屏面板同源——模型档表、高→低、当前档高亮，点选走 switchDefinition 重解续播。 */
+    private void showLandDefinitionDrawer() {
+        if (currentPos < 0 || currentPos >= session.items.size()) return;
+        HgFeedItem item = session.items.get(currentPos);
+        com.fongmi.android.tv.hongguo.model.HgVideoModel model =
+                item.videoId == null ? null : session.cache.getFresh(item.videoId);
+        java.util.List<String> defs = new java.util.ArrayList<>();
+        if (model != null) {
+            java.util.LinkedHashSet<String> raw = new java.util.LinkedHashSet<>();
+            for (com.fongmi.android.tv.hongguo.model.HgVideoEntry e : model.getEntries()) {
+                if (e.isPlayableCodec()) raw.add(e.getDefinition());
+            }
+            defs = HgPanelLogic.orderedDefinitions(raw);
+        }
+        if (defs.size() < 2) {
+            android.widget.Toast.makeText(this, "当前只有一档清晰度",
+                    android.widget.Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String current = session.resolver.currentDefinition(item.videoId);
+        if (current == null || !defs.contains(current)) {
+            com.fongmi.android.tv.hongguo.model.HgVideoEntry first =
+                    model == null ? null : model.firstPlayableEntry();
+            current = first == null ? defs.get(0) : first.getDefinition();
+        }
+        final String currentDef = current;
+        showLandDrawer("清晰度", (rows, dialog) -> {
+            for (String def : defs) {
+                boolean on = def.equals(currentDef);
+                TextView row = landDrawerRow((on ? "✓ " : "") + HgPanelLogic.definitionLabel(def), on);
+                row.setOnClickListener(v -> {
+                    dialog.dismiss();
+                    if (!def.equals(currentDef)) switchDefinition(def, item);
+                });
+                rows.addView(row);
+            }
+        });
+    }
+
     private void enterLandMode(int position) {
         if (landMode) return;
         android.view.View root = binding.getRoot();
@@ -1982,6 +2312,12 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
 
     @Override
     protected void onBackInvoked() {
+        if (landInstance) {
+            // 横屏页屏上无返回钮、系统返回即退回竖屏实例（官方同口径）：
+            // 不被「唤 chrome」等分支截留
+            super.onBackInvoked();
+            return;
+        }
         if (drawerOpen) {
             closeDrawer();
             return;

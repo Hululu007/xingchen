@@ -69,11 +69,21 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
     private final Host host;
     private final Set<String> expandedDescKeys = new HashSet<>();
     private int currentPos = -1;
+    /** 横屏独立页实例：竖屏件（右列配套的全屏观看钮/发弹幕入口）整套不亮，互动走横排控制条。 */
+    private boolean landInstance;
 
     public HgFeedAdapter(List<HgFeedItem> items, HgFeedSession session, Host host) {
         this.items = items;
         this.session = session;
         this.host = host;
+    }
+
+    public void setLandInstance(boolean landInstance) {
+        this.landInstance = landInstance;
+    }
+
+    public boolean isLandInstance() {
+        return landInstance;
     }
 
     public void setCurrentPos(int pos) {
@@ -195,8 +205,9 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
             b.hgStatement.setVisibility(View.GONE);
         }
         b.hgSeriesText.setText(item.seriesBarText());
-        // 横屏短片给全屏观看钮（账 §3.8）：取模型宽高定真朝向，未知先按 cell vertical 预判
-        b.hgFullscreenWatch.setVisibility(item.isLandscape() || item.landscapeHint ? View.VISIBLE : View.GONE);
+        // 横屏短片给全屏观看钮（账 §3.8）：取模型宽高定真朝向，未知先按 cell vertical 预判；
+        // 横屏实例里此钮不存在（已在横屏页里），整套不亮
+        b.hgFullscreenWatch.setVisibility(!landInstance && (item.isLandscape() || item.landscapeHint) ? View.VISIBLE : View.GONE);
         // 钮锚位与 Activity.anchorFullscreenWatch 同公式（贴视频下沿）：有真
         // 尺寸的条目绑定时就锚好（回收复用的钮先归零防串位），没尺寸的等
         // 首帧 onVideoSizeChanged 再锚
@@ -263,7 +274,8 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
      * danmakuEnableByUser）：弹幕开着才显，关着整盒不显、字样保持常态。
      * 它不是开关——开关在抽屉（自家小设置），点击走 onDanmakuPublish 开编辑层。 */
     public void bindDanmakuState(Holder holder) {
-        holder.binding.hgDanmakuBox.setVisibility(HgStore.isDanmakuOn() ? View.VISIBLE : View.GONE);
+        holder.binding.hgDanmakuBox.setVisibility(
+                !landInstance && HgStore.isDanmakuOn() ? View.VISIBLE : View.GONE);
     }
 
     /** 系列剧款（账 §5.2）：胶囊文案只拼有实证的部分——季数来自 album_serial_count；在追人数无字段（U5）不拼。 */

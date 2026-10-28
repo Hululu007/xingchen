@@ -6,7 +6,7 @@
 # 删的只有本功能（2026-10-27 立项的原生红果，一至五阶段）新增的东西：
 #   - 红果本体包 app/src/main/java/com/fongmi/android/tv/hongguo/（api/model/crypto/proxy/ui 全包）
 #     与它的离线单测 app/src/test/hongguo/；
-#   - 本体资源（main 源集）：activity/item/dialog/view_hongguo_* 布局 20 份、bg_hg_*/ic_hg_* 图形 45 份；
+#   - 本体资源（main 源集）：activity/item/dialog/view_hongguo_* 布局 22 份、bg_hg_*/ic_hg_* 图形 50 份；
 #   - 登录提供方 HongguoLoginProvider 与它在 LoginManager 里的注册行／loginHongguo 入口／
 #     三个静态桥／requestLogin 的红果分发支；
 #   - Nano 本地服务器的红果代理解密 process（HongguoStream 本体＋Nano 的 import 与注册行）；
@@ -73,6 +73,8 @@ app/src/main/res/layout/dialog_hongguo_comment_editor.xml
 app/src/main/res/layout/dialog_hongguo_episodes.xml
 app/src/main/res/layout/dialog_hongguo_more_panel.xml
 app/src/main/res/layout/dialog_hongguo_timer.xml
+app/src/main/res/layout/dialog_hongguo_land_episodes.xml
+app/src/main/res/layout/dialog_hongguo_land_list.xml
 app/src/main/res/layout/item_hongguo_comment.xml
 app/src/main/res/layout/item_hongguo_episode.xml
 app/src/main/res/layout/item_hongguo_feed.xml
@@ -119,6 +121,11 @@ app/src/main/res/drawable/ic_hg_detail_arrow.xml
 app/src/main/res/drawable/ic_hg_comment.xml
 app/src/main/res/drawable/ic_hg_fullscreen.xml
 app/src/main/res/drawable/ic_hg_heart.xml
+app/src/main/res/drawable/ic_hg_battery.xml
+app/src/main/res/drawable/ic_hg_cell.xml
+app/src/main/res/drawable/ic_hg_lock.xml
+app/src/main/res/drawable/ic_hg_unlock.xml
+app/src/main/res/drawable/ic_hg_wifi.xml
 app/src/main/res/drawable/ic_hg_heart_fill.xml
 app/src/main/res/drawable/ic_hg_menu.xml
 app/src/main/res/drawable/ic_hg_more.xml
@@ -234,15 +241,26 @@ save(home_path, "\n".join(hlines))
 manifest = load(manifest_path)
 manifest = cut_exact(manifest, """        <!-- 红果刷剧页（三阶段）：点进就是竖屏刷剧流，独立一套界面与控制，
              不借 VideoActivity。底栏接线在五阶段，本阶段只静态入口。 -->
-        <!-- 窗口不转（四阶段订正，照官方主界面口径）：screenOrientation="behind"
-             ＋configChanges 全套自管，横屏观看在本窗内转 90°（HongguoFeedActivity
-             的 landMode），不许再开真转窗口的横屏页（旧 HongguoLandActivity 已删）。 -->
+        <!-- 竖屏面窗口不转（照官方主界面口径）：screenOrientation="behind"
+             ＋configChanges 全套自管。横屏观看走真横屏页（2026-10-28 重核
+             定案）：官方全屏观看去向是独立横屏 Activity
+             （ShortSeriesLandActivity），四阶段「窗内转代横屏页」作废；
+             下方别名 HongguoLandEntry 即横屏实例入口（同类、真横屏窗口），
+             窗内转只剩单条无剧短片的原地保底。 -->
 """, "刷剧页登记注释")
+manifest = cut_exact(manifest, """        <!-- 横屏独立页别名：与本体同类，靠 intent 旗 EXTRA_LAND_INSTANCE
+             切换横屏面（状态条/横排控制条/锁定/右侧抽屉）。 -->
+""", "横屏别名登记注释")
 for name in ("HongguoFeedActivity", "HongguoSearchActivity", "HongguoAuthorActivity"):
     pattern = r"<activity\s+android:name=\"com\.fongmi\.android\.tv\.hongguo\.ui\." + name + r"\"[^>]*/>"
     manifest, n = re.subn(pattern, "", manifest)
     if n != 1:
         sys.exit("python: Manifest 红果登记对不上（%s，命中 %d 处）" % (name, n))
+# 横屏别名（activity-alias，target 指向本体）：本体删后别名成无主入口，一并删
+pattern = r"<activity-alias\s+android:name=\"com\.fongmi\.android\.tv\.hongguo\.ui\.HongguoLandEntry\"[^>]*/>"
+manifest, n = re.subn(pattern, "", manifest)
+if n != 1:
+    sys.exit("python: Manifest 红果横屏别名对不上（命中 %d 处）" % n)
 save(manifest_path, manifest)
 PYEOF
 

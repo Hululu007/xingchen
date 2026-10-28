@@ -723,6 +723,29 @@ public class HgOfflineTest {
                     && com.fongmi.android.tv.hongguo.ui.HgPanelLogic.clampDanmakuIndex(3, 0) == 0, null);
         }
 
+        {
+            // §27 集流页选集条文案（官方实拍 113558 集流页条「选集 · 已完结 ·
+            // 全132集」：前缀＋状态段、不带剧名；与流页条 §18 同拼法，
+            // 只差标题段有无；集数未知不编全0集）
+            com.fongmi.android.tv.hongguo.model.HgSeriesItem fin =
+                    com.fongmi.android.tv.hongguo.model.HgSeriesItem
+                            .of("s9", "某剧", null, null, 132, false, false, null)
+                            .withSeriesStatus(1);
+            String t1 = com.fongmi.android.tv.hongguo.ui.HgFeedItem.fromSeries(fin, "漫剧").seriesCatalogText();
+            check("§27 集流条·已完结", "选集 · 已完结 · 全132集".equals(t1), "实际=" + t1);
+            com.fongmi.android.tv.hongguo.model.HgSeriesItem run =
+                    com.fongmi.android.tv.hongguo.model.HgSeriesItem
+                            .of("s10", "在播", null, null, 24, false, false, null);
+            String t2 = com.fongmi.android.tv.hongguo.ui.HgFeedItem.fromSeries(run, "真人剧").seriesCatalogText();
+            check("§27 集流条·未完结", "选集 · 全24集".equals(t2), "实际=" + t2);
+            com.fongmi.android.tv.hongguo.model.HgSeriesItem unk =
+                    com.fongmi.android.tv.hongguo.model.HgSeriesItem
+                            .of("s11", "未知", null, null, -1, false, false, null)
+                            .withSeriesStatus(1);
+            String t3 = com.fongmi.android.tv.hongguo.ui.HgFeedItem.fromSeries(unk, "漫剧").seriesCatalogText();
+            check("§27 集流条·集数未知不编全0集", "选集 · 已完结".equals(t3), "实际=" + t3);
+        }
+
         System.out.println(fail == 0 ? "ALL PASS" : ("FAILURES=" + fail));
         System.exit(fail == 0 ? 0 : 1);
     }

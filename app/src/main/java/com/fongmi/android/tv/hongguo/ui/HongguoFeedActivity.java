@@ -447,6 +447,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         });
         setupShellFaces();
         mode = getIntent().getIntExtra(EXTRA_MODE, MODE_FEED);
+        adapter.setSeriesMode(mode == MODE_SERIES);
         startFromFirst = getIntent().getBooleanExtra(EXTRA_START_FIRST, false);
         landInstance = getIntent().getBooleanExtra(EXTRA_LAND_INSTANCE, false);
         if (mode == MODE_SERIES) {

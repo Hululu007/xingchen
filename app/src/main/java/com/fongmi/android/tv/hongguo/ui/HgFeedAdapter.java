@@ -5,6 +5,7 @@ import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 
@@ -71,6 +72,9 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
     private int currentPos = -1;
     /** 横屏独立页实例：竖屏件（右列配套的全屏观看钮/发弹幕入口）整套不亮，互动走横排控制条。 */
     private boolean landInstance;
+    /** 集流模式（进剧后的竖屏剧集页）：底部行/作者行/信息摞按官方剧集页
+     * 构成走，与刷剧流是两副面孔（材料与构成在各 bind 处按此旗分工）。 */
+    private boolean seriesMode;
 
     public HgFeedAdapter(List<HgFeedItem> items, HgFeedSession session, Host host) {
         this.items = items;
@@ -80,6 +84,14 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
 
     public void setLandInstance(boolean landInstance) {
         this.landInstance = landInstance;
+    }
+
+    public void setSeriesMode(boolean seriesMode) {
+        this.seriesMode = seriesMode;
+    }
+
+    public boolean isSeriesMode() {
+        return seriesMode;
     }
 
     public boolean isLandInstance() {
@@ -204,7 +216,12 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         } else {
             b.hgStatement.setVisibility(View.GONE);
         }
-        b.hgSeriesText.setText(item.seriesBarText());
+        applyCatalogMode(b);
+        b.hgSeriesText.setText(seriesMode ? item.seriesCatalogText() : item.seriesBarText());
+        // 全屏方钮：只集流竖屏出（用户亲点件：按下进横屏全屏、与全屏观看筹
+        // 同去处）；回收复用先把透明度归位（清屏态的变淡不许串页）
+        b.hgFsBtn.setVisibility(seriesMode && !landInstance ? View.VISIBLE : View.GONE);
+        b.hgFsBtn.setAlpha(1f);
         // 横屏短片给全屏观看钮（账 §3.8）：取模型宽高定真朝向，未知先按 cell vertical 预判；
         // 横屏实例里此钮不存在（已在横屏页里），整套不亮
         b.hgFullscreenWatch.setVisibility(!landInstance && (item.isLandscape() || item.landscapeHint) ? View.VISIBLE : View.GONE);
@@ -276,6 +293,46 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
     public void bindDanmakuState(Holder holder) {
         holder.binding.hgDanmakuBox.setVisibility(
                 !landInstance && HgStore.isDanmakuOn() ? View.VISIBLE : View.GONE);
+    }
+
+    /**
+     * 底部行材料/几何按模式定死（同一布局两副面孔，bind 时切换）：
+     * 集流＝官方 CatalogView 材料（cto/ctp 定版：条高 40dp、底 #1AFFFFFF
+     * 圆角 8dp、无播放图标、文案起点 16dp、尾箭头图 20×10；行侧距 12dp/
+     * 底距 8dp 照实拍 113558、进度线移到条上方）；流页＝全宽深底 strip
+     * （官方流页实拍 113482：全宽、播放图标＋「›」、进度线贴条底沿）。
+     */
+    private void applyCatalogMode(ItemHongguoFeedBinding b) {
+        float density = b.getRoot().getResources().getDisplayMetrics().density;
+        FrameLayout.LayoutParams rowLp = (FrameLayout.LayoutParams) b.hgBottomRow.getLayoutParams();
+        FrameLayout.LayoutParams progressLp = (FrameLayout.LayoutParams) b.hgProgressBox.getLayoutParams();
+        LinearLayout.LayoutParams barLp = (LinearLayout.LayoutParams) b.hgSeriesBar.getLayoutParams();
+        LinearLayout.LayoutParams textLp = (LinearLayout.LayoutParams) b.hgSeriesText.getLayoutParams();
+        if (seriesMode) {
+            rowLp.setMargins(Math.round(12 * density), 0, Math.round(12 * density), Math.round(8 * density));
+            progressLp.bottomMargin = Math.round(52 * density);
+            b.hgSeriesBar.setBackgroundResource(R.drawable.bg_hg_catalog_bar);
+            barLp.height = Math.round(40 * density);
+            b.hgSeriesBar.setMinimumHeight(0);
+            b.hgSeriesPlayIcon.setVisibility(View.GONE);
+            textLp.setMarginStart(Math.round(16 * density));
+            b.hgSeriesArrow.setVisibility(View.VISIBLE);
+            b.hgSeriesArrowTxt.setVisibility(View.GONE);
+        } else {
+            rowLp.setMargins(0, 0, 0, 0);
+            progressLp.bottomMargin = 0;
+            b.hgSeriesBar.setBackgroundResource(R.drawable.bg_hg_series_bar);
+            barLp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+            b.hgSeriesBar.setMinimumHeight(Math.round(44 * density));
+            b.hgSeriesPlayIcon.setVisibility(View.VISIBLE);
+            textLp.setMarginStart(Math.round(8 * density));
+            b.hgSeriesArrow.setVisibility(View.GONE);
+            b.hgSeriesArrowTxt.setVisibility(View.VISIBLE);
+        }
+        b.hgBottomRow.setLayoutParams(rowLp);
+        b.hgProgressBox.setLayoutParams(progressLp);
+        b.hgSeriesBar.setLayoutParams(barLp);
+        b.hgSeriesText.setLayoutParams(textLp);
     }
 
     /** 系列剧款（账 §5.2）：胶囊文案只拼有实证的部分——季数来自 album_serial_count；在追人数无字段（U5）不拼。 */
@@ -368,6 +425,7 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         b.hgSeriesBar.setOnClickListener(v -> host.onSeriesBar(holder.getBindingAdapterPosition()));
         b.hgDanmakuBox.setOnClickListener(v -> host.onDanmakuPublish(holder.getBindingAdapterPosition()));
         b.hgFullscreenWatch.setOnClickListener(v -> host.onFullscreenWatch(holder.getBindingAdapterPosition()));
+        b.hgFsBtn.setOnClickListener(v -> host.onFullscreenWatch(holder.getBindingAdapterPosition()));
         b.hgError.setOnClickListener(v -> host.onRetry(holder.getBindingAdapterPosition()));
         View.OnClickListener descToggle = v -> {
             int p = holder.getBindingAdapterPosition();

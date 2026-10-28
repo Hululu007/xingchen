@@ -304,4 +304,23 @@ public final class HgFeedItem {
         return catalogPrefix(album, false) + " "
                 + catalogTitleText(title, finished, episodeCount, 0);
     }
+
+    /**
+     * 集流页选集条文案：前缀＋状态段、不带剧名（官方实拍 113558 集流页条
+     * 「选集 · 已完结 · 全132集」证；与流页条同一拼法，只差标题段有无——
+     * 集流里当前页就是这部剧，剧名在标题行另有位置）。状态段次序与
+     * catalogTitleText 同口径：完结段在全N集之前；集数未知不编全0集。
+     */
+    public String seriesCatalogText() {
+        boolean album = multiSeason || albumId != null || !siblings.isEmpty();
+        boolean finished = seriesStatus != null && seriesStatus == 1;
+        StringBuilder sb = new StringBuilder(catalogPrefix(album, false));
+        if (episodeCount > 0) {
+            if (finished) sb.append(" · 已完结");
+            sb.append(" · 全").append(episodeCount).append("集");
+        } else if (finished) {
+            sb.append(" · 已完结");
+        }
+        return sb.toString();
+    }
 }

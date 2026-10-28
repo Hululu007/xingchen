@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 集流选集条尾箭头（官方 cto f8e：20×10dp 图位；自绘同形右向箭头） -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="20dp"
+    android:height="10dp"
+    android:viewportWidth="20"
+    android:viewportHeight="10">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M5,1.2 L13.5,5 L5,8.8 L3.6,7.4 L9.8,5 L3.6,2.6 Z" />
+</vector>

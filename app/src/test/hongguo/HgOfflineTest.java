@@ -410,6 +410,147 @@ public class HgOfflineTest {
                     null);
         }
 
+        // 18) 剧条文案（dig-seriessdk-20261028 §2 定版，官方 catalogview
+        //     y/l 拼法）：前缀三档（选集/合集/电影，串 e4_/eeq/eer）；
+        //     标题段——已完结「剧名 · 已完结 · 全N集」、未完结
+        //     「剧名 · 全N集」、电影「剧名 · 共X分钟」（分钟＝秒/60 上取整）。
+        //     旧「类目＋剧名＋全N集＋已完结」序作废：类目不进条、完结段在
+        //     全N集之前。条目级验 fromSeries 产物（类目串不得再漏进条）。
+        {
+            check("剧条前缀三档", "选集".equals(com.fongmi.android.tv.hongguo.ui.HgFeedItem.catalogPrefix(false, false))
+                            && "合集".equals(com.fongmi.android.tv.hongguo.ui.HgFeedItem.catalogPrefix(true, false))
+                            && "电影".equals(com.fongmi.android.tv.hongguo.ui.HgFeedItem.catalogPrefix(false, true)),
+                    null);
+            check("剧条标题段·未完结", "十年恩断 · 全100集".equals(
+                            com.fongmi.android.tv.hongguo.ui.HgFeedItem.catalogTitleText("十年恩断", false, 100, 0)),
+                    null);
+            check("剧条标题段·已完结", "十年恩断 · 已完结 · 全100集".equals(
+                            com.fongmi.android.tv.hongguo.ui.HgFeedItem.catalogTitleText("十年恩断", true, 100, 0)),
+                    null);
+            check("剧条标题段·电影", "某片 · 共128分钟".equals(
+                            com.fongmi.android.tv.hongguo.ui.HgFeedItem.catalogTitleText("某片", false, -1, 128)),
+                    null);
+            check("剧条电影分钟上取整", com.fongmi.android.tv.hongguo.ui.HgFeedItem.movieMinutes(60) == 1
+                            && com.fongmi.android.tv.hongguo.ui.HgFeedItem.movieMinutes(61) == 2
+                            && com.fongmi.android.tv.hongguo.ui.HgFeedItem.movieMinutes(176) == 3
+                            && com.fongmi.android.tv.hongguo.ui.HgFeedItem.movieMinutes(0) == 0,
+                    null);
+            check("剧条标题段·集数未知不编全0集", "某剧 · 已完结".equals(
+                            com.fongmi.android.tv.hongguo.ui.HgFeedItem.catalogTitleText("某剧", true, -1, 0))
+                            && "某剧".equals(com.fongmi.android.tv.hongguo.ui.HgFeedItem
+                            .catalogTitleText("某剧", false, -1, 0)),
+                    null);
+            com.fongmi.android.tv.hongguo.model.HgSeriesItem s =
+                    com.fongmi.android.tv.hongguo.model.HgSeriesItem
+                            .of("s1", "十年恩断", null, null, 100, false, false, null)
+                            .withSeriesStatus(1);
+            String bar = com.fongmi.android.tv.hongguo.ui.HgFeedItem.fromSeries(s, "漫剧").seriesBarText();
+            check("剧条条目级·完结全串", "选集 十年恩断 · 已完结 · 全100集".equals(bar), "实际=" + bar);
+            com.fongmi.android.tv.hongguo.model.HgSeriesItem s2 =
+                    com.fongmi.android.tv.hongguo.model.HgSeriesItem
+                            .of("s2", "在播剧", null, null, 24, false, false, null);
+            String bar2 = com.fongmi.android.tv.hongguo.ui.HgFeedItem.fromSeries(s2, "真人剧").seriesBarText();
+            check("剧条条目级·未完结全串", "选集 在播剧 · 全24集".equals(bar2), "实际=" + bar2);
+        }
+
+        // 19) 长按与五项面板纯逻辑（HgPanelLogic）：中间带判定（官方 F6
+        //     居中带、带宽比 1/3）、倍速档表（他实拍六档＋标签＋回落）、
+        //     清晰度档序（高→低＋纯数字 P 档名）、定时状态文案与延迟。
+        {
+            Class<?> L = com.fongmi.android.tv.hongguo.ui.HgPanelLogic.class;
+            check("面板类可加载", L != null, null);
+            // 中间带：W=900 时带＝[300,600]；界内/界外/横屏分工在 Activity
+            // 侧（横屏不问带），这里只验带函数本身与无效宽回落带外
+            check("中间带·带心在内", com.fongmi.android.tv.hongguo.ui.HgPanelLogic.inCenterBand(450, 900), null);
+            check("中间带·左界在内", com.fongmi.android.tv.hongguo.ui.HgPanelLogic.inCenterBand(300, 900), null);
+            check("中间带·右界在内", com.fongmi.android.tv.hongguo.ui.HgPanelLogic.inCenterBand(600, 900), null);
+            check("中间带·带外左侧", !com.fongmi.android.tv.hongguo.ui.HgPanelLogic.inCenterBand(299, 900), null);
+            check("中间带·带外右侧", !com.fongmi.android.tv.hongguo.ui.HgPanelLogic.inCenterBand(601, 900), null);
+            check("中间带·无效宽判带外", !com.fongmi.android.tv.hongguo.ui.HgPanelLogic.inCenterBand(10, 0), null);
+            // 倍速档表（他实拍 0.75/1/1.25/1.5/2/3，不是 dig 本地缺省表）
+            float[] sp = com.fongmi.android.tv.hongguo.ui.HgPanelLogic.SPEEDS;
+            check("倍速档表六档", sp.length == 6 && sp[0] == 0.75f && sp[1] == 1f && sp[2] == 1.25f
+                    && sp[3] == 1.5f && sp[4] == 2f && sp[5] == 3f, null);
+            check("倍速标签", "0.75x".equals(com.fongmi.android.tv.hongguo.ui.HgPanelLogic.speedLabel(0.75f))
+                    && "1x".equals(com.fongmi.android.tv.hongguo.ui.HgPanelLogic.speedLabel(1f))
+                    && "1.25x".equals(com.fongmi.android.tv.hongguo.ui.HgPanelLogic.speedLabel(1.25f))
+                    && "1.5x".equals(com.fongmi.android.tv.hongguo.ui.HgPanelLogic.speedLabel(1.5f))
+                    && "2x".equals(com.fongmi.android.tv.hongguo.ui.HgPanelLogic.speedLabel(2f))
+                    && "3x".equals(com.fongmi.android.tv.hongguo.ui.HgPanelLogic.speedLabel(3f)), null);
+            check("倍速下标与回落", com.fongmi.android.tv.hongguo.ui.HgPanelLogic.speedIndex(3f) == 5
+                    && com.fongmi.android.tv.hongguo.ui.HgPanelLogic.speedIndex(0.75f) == 0
+                    && com.fongmi.android.tv.hongguo.ui.HgPanelLogic.speedIndex(1.75f) == 1, null);
+            check("长按快进临时档=2", com.fongmi.android.tv.hongguo.ui.HgPanelLogic.BOOST_SPEED == 2f, null);
+            // 清晰度：档序高→低、未知档跟尾、档名纯数字 P
+            java.util.List<String> defs = com.fongmi.android.tv.hongguo.ui.HgPanelLogic.orderedDefinitions(
+                    java.util.Arrays.asList("360p", "1080p", "720p", "720p", "2160p"));
+            check("清晰度档序高到低", defs.equals(java.util.Arrays.asList("1080p", "720p", "360p", "2160p")),
+                    "实际=" + defs);
+            check("清晰度档名", "720P".equals(com.fongmi.android.tv.hongguo.ui.HgPanelLogic.definitionLabel("720p"))
+                    && "1080P".equals(com.fongmi.android.tv.hongguo.ui.HgPanelLogic.definitionLabel("1080p"))
+                    && "".equals(com.fongmi.android.tv.hongguo.ui.HgPanelLogic.definitionLabel(null)), null);
+            // 定时：状态文案四档＋延迟（播完本剧/关闭不计时）
+            check("定时文案", "关闭".equals(com.fongmi.android.tv.hongguo.ui.HgPanelLogic.timerStateText(
+                            com.fongmi.android.tv.hongguo.ui.HgPanelLogic.TIMER_OFF, 0))
+                    && "播完本剧".equals(com.fongmi.android.tv.hongguo.ui.HgPanelLogic.timerStateText(
+                            com.fongmi.android.tv.hongguo.ui.HgPanelLogic.TIMER_SERIES_END, 0))
+                    && "30分钟".equals(com.fongmi.android.tv.hongguo.ui.HgPanelLogic.timerStateText(
+                            com.fongmi.android.tv.hongguo.ui.HgPanelLogic.TIMER_FIXED, 30))
+                    && "45分钟".equals(com.fongmi.android.tv.hongguo.ui.HgPanelLogic.timerStateText(
+                            com.fongmi.android.tv.hongguo.ui.HgPanelLogic.TIMER_CUSTOM, 45)), null);
+            check("定时延迟", com.fongmi.android.tv.hongguo.ui.HgPanelLogic.timerDelayMs(
+                            com.fongmi.android.tv.hongguo.ui.HgPanelLogic.TIMER_FIXED, 30) == 30 * 60_000L
+                    && com.fongmi.android.tv.hongguo.ui.HgPanelLogic.timerDelayMs(
+                            com.fongmi.android.tv.hongguo.ui.HgPanelLogic.TIMER_CUSTOM, 45) == 45 * 60_000L
+                    && com.fongmi.android.tv.hongguo.ui.HgPanelLogic.timerDelayMs(
+                            com.fongmi.android.tv.hongguo.ui.HgPanelLogic.TIMER_SERIES_END, 0) == -1
+                    && com.fongmi.android.tv.hongguo.ui.HgPanelLogic.timerDelayMs(
+                            com.fongmi.android.tv.hongguo.ui.HgPanelLogic.TIMER_OFF, 0) == -1, null);
+        }
+
+        // 19) 关注作者（fix-author-page-20261028 账；dig-mine-profile §2.8／
+        //     dig-mine2 §4 定版）：主路 do_action 体逐字段、备路 FollowRequest
+        //     体逐字段、cell 抬升作者 uid（chan_recommend 真回包：陈景枫条目
+        //     ugc_user_info.user_id＝731637651867048，jadx11 源码侧同值复核）。
+        {
+            com.google.gson.JsonObject fp = com.fongmi.android.tv.hongguo.api.HgCommentClient
+                    .followActionPayload(true, "731637651867048");
+            check("关注主路·关注型", fp.get("action_type").getAsInt() == 25
+                            && fp.get("object_type").getAsInt() == 1
+                            && "731637651867048".equals(fp.get("object_id").getAsString())
+                            && fp.get("aid").getAsInt() == 8662,
+                    fp.toString());
+            com.google.gson.JsonObject fbp = fp.getAsJsonObject("business_param");
+            com.google.gson.JsonObject fshark = fbp == null ? null : fbp.getAsJsonObject("shark_param");
+            check("关注主路·shark两键", fshark != null
+                            && "short_play".equals(fshark.get("type").getAsString())
+                            && "8662".equals(fshark.get("aid").getAsString()),
+                    String.valueOf(fshark));
+            com.google.gson.JsonObject fp2 = com.fongmi.android.tv.hongguo.api.HgCommentClient
+                    .followActionPayload(false, "731637651867048");
+            check("关注主路·取关型", fp2.get("action_type").getAsInt() == 26, fp2.toString());
+            com.google.gson.JsonObject rb = com.fongmi.android.tv.hongguo.api.HgRequests
+                    .followRequestBody(true, "731637651867048");
+            check("关注备路·四字段", rb.get("action_type").getAsInt() == 1
+                            && "731637651867048".equals(rb.get("relative_id").getAsString())
+                            && rb.get("relative_type").getAsInt() == 3
+                            && !rb.has("user_id") && !rb.has("relative_id_list")
+                            && !rb.has("is_cancelled") && !rb.has("follow_source"),
+                    rb.toString());
+            com.google.gson.JsonObject rb2 = com.fongmi.android.tv.hongguo.api.HgRequests
+                    .followRequestBody(false, "731637651867048");
+            check("关注备路·取关型", rb2.get("action_type").getAsInt() == 0, rb2.toString());
+            com.fongmi.android.tv.hongguo.model.HgCellPage chanPage = HgParser.parseCellPage(
+                    Files.readString(Paths.get(dir + "tabprobe-20261028/chan_recommend.json")));
+            com.fongmi.android.tv.hongguo.model.HgSeriesItem chen = null;
+            for (com.fongmi.android.tv.hongguo.model.HgSeriesItem it : chanPage.getItems()) {
+                if ("陈景枫".equals(it.getAuthorName())) chen = it;
+            }
+            check("作者uid抬升·陈景枫", chen != null
+                            && "731637651867048".equals(chen.getAuthorUid()),
+                    chen == null ? "条目没找到" : "uid=" + chen.getAuthorUid());
+        }
+
         System.out.println(fail == 0 ? "ALL PASS" : ("FAILURES=" + fail));
         System.exit(fail == 0 ? 0 : 1);
     }

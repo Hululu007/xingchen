@@ -61,6 +61,12 @@ import java.util.Locale;
  * 匿名可拉）：起播按窗拉取（服务端 30 秒切窗）、播放头跨窗界续拉、seek 后
  * 以新位置重拉，渲染走 PlayerView 自带的 media3 弹幕层（与点播播放器同套），
  * 开关在「弹」筹与抽屉两处同源（HgStore）。</p>
+ *
+ * <p>长按与更多面板（2026-10-28 他定版，dig-morepanel）：竖屏长按中间
+ * 1/3 带内开五项面板（倍速/清晰度/弹幕/投屏/定时关闭，只这五项）、带外
+ * 按住 2 倍速快进（亮「2倍速快进中」提示、松手恢复面板档）；横屏全屏态
+ * 长按只有快进。面板倍速是持久档（HgStore 红果键，起播读它），长按快进
+ * 是临时覆盖、两者不互改（官方同口径）。</p>
  */
 public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.Host {
 
@@ -70,6 +76,10 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     private static final String EXTRA_COVER = "hg_cover";
     private static final String EXTRA_START_FIRST = "hg_start_first";
     private static final String EXTRA_LANDSCAPE_FS = "hg_landscape_fs";
+    /** 进剧条目的作者 uid 透传：详情面不下发 uid，集流页的作者靠它（见
+     * HgFeedSession.applyDetail 的继承注）；没有来源的入口不带、集流里
+     * 点作者行就静默不打开（不许按名认人）。 */
+    private static final String EXTRA_AUTHOR_UID = "hg_author_uid";
     private static final int MODE_FEED = 0;
     private static final int MODE_SERIES = 1;
     private static final long HIDE_DELAY_MS = 4000;
@@ -83,33 +93,52 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
 
     /** 从搜索/详情带一部剧进来：以该剧为流首展开续播。 */
     public static void startSeries(Context context, String seriesId, String title, String cover) {
+        startSeries(context, seriesId, title, cover, null);
+    }
+
+    /** 带作者 uid 的进剧：uid 只从流条目 cell 抬升来，透传给集流页头。 */
+    public static void startSeries(Context context, String seriesId, String title, String cover,
+                                   String authorUid) {
         Intent intent = new Intent(context, HongguoFeedActivity.class);
         intent.putExtra(EXTRA_MODE, MODE_SERIES);
         intent.putExtra(EXTRA_SERIES_ID, seriesId);
         intent.putExtra(EXTRA_TITLE, title);
         intent.putExtra(EXTRA_COVER, cover);
+        if (authorUid != null) intent.putExtra(EXTRA_AUTHOR_UID, authorUid);
         context.startActivity(intent);
     }
 
     /** 精彩片段播完自动进剧（他亲授的官方交互）：不走断点、从第一集起。 */
     public static void startSeriesFirst(Context context, String seriesId, String title, String cover) {
+        startSeriesFirst(context, seriesId, title, cover, null);
+    }
+
+    public static void startSeriesFirst(Context context, String seriesId, String title, String cover,
+                                        String authorUid) {
         Intent intent = new Intent(context, HongguoFeedActivity.class);
         intent.putExtra(EXTRA_MODE, MODE_SERIES);
         intent.putExtra(EXTRA_SERIES_ID, seriesId);
         intent.putExtra(EXTRA_TITLE, title);
         intent.putExtra(EXTRA_COVER, cover);
         intent.putExtra(EXTRA_START_FIRST, true);
+        if (authorUid != null) intent.putExtra(EXTRA_AUTHOR_UID, authorUid);
         context.startActivity(intent);
     }
 
     /** 横屏剧从首页进剧（他亲授：点击/全屏观看＝全屏直接进剧集）：集流以横屏全屏态落。 */
     public static void startSeriesLandscape(Context context, String seriesId, String title, String cover) {
+        startSeriesLandscape(context, seriesId, title, cover, null);
+    }
+
+    public static void startSeriesLandscape(Context context, String seriesId, String title, String cover,
+                                            String authorUid) {
         Intent intent = new Intent(context, HongguoFeedActivity.class);
         intent.putExtra(EXTRA_MODE, MODE_SERIES);
         intent.putExtra(EXTRA_SERIES_ID, seriesId);
         intent.putExtra(EXTRA_TITLE, title);
         intent.putExtra(EXTRA_COVER, cover);
         intent.putExtra(EXTRA_LANDSCAPE_FS, true);
+        if (authorUid != null) intent.putExtra(EXTRA_AUTHOR_UID, authorUid);
         context.startActivity(intent);
     }
 
@@ -137,6 +166,9 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     private boolean stoppedOnce;
     /** 本次离台是自家页内跳转（搜索/进剧新开实例）：回来不刷新、不丢位置。 */
     private boolean suppressResumeRefresh;
+    /** 本次离台是去作者主页：回来只重绑当前页互动态（关注徽标跟主页同源），
+     * 不整表刷新、不停播。 */
+    private boolean authorReturnRefresh;
     private int currentPos = -1;
     /** 精彩片段自动进剧：落集不走断点、从第一集起（EXTRA_START_FIRST）。 */
     private boolean startFromFirst;
@@ -170,6 +202,14 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     private int landPos = -1;
     private boolean seeking;
     private long lastSaveMs;
+    /** 长按快进中（临时 2x 覆盖；松手恢复 HgStore 面板档，两者不互改）。 */
+    private boolean speedBoost;
+    /** 清晰度切换的重播位置（play() 消费一次；-1＝不用、走断点口径）。 */
+    private long pendingSeekMs = -1;
+    /** 定时关闭：档位/自定义分钟（会话内状态，不落盘）；计时档走 timerFireRunnable。 */
+    private int timerMode = HgPanelLogic.TIMER_OFF;
+    private int timerMinutes;
+    private final Runnable timerFireRunnable = this::onTimerFire;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final Runnable hideChromeRunnable = () -> {
         // 自动全隐只在横屏全屏观看态成立（见类头显隐口径）
@@ -195,6 +235,13 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         public void onPlaybackStateChanged(int state) {
             if (state == Player.STATE_ENDED) {
                 if (mode == MODE_FEED) {
+                    // 定时「播完本剧」在流面：当前短片所属剧即本剧，播完
+                    // 不再自动进剧，停播退出（面板定时口径）
+                    if (timerMode == HgPanelLogic.TIMER_SERIES_END) {
+                        stopPlayback();
+                        finish();
+                        return;
+                    }
                     // 首页播的是官方选的精彩片段：播完自动进剧、从第一集起，
                     // 不循环（2026-10-28 他亲授的官方交互；此前「原地循环」
                     // 的 U7 定论作废——那是把别处的代码读成了流页行为）
@@ -203,9 +250,13 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                         if (item.seriesId != null) {
                             suppressResumeRefresh = true;
                             startSeriesFirst(HongguoFeedActivity.this,
-                                    item.seriesId, item.title, item.coverUrl);
+                                    item.seriesId, item.title, item.coverUrl, item.authorUid);
                         }
                     }
+                } else if (timerMode == HgPanelLogic.TIMER_SERIES_END && atSeriesEnd()) {
+                    // 定时「播完本剧」：最后一集播完停播退出，不连播下一部
+                    stopPlayback();
+                    finish();
                 } else if (HgStore.isAutoNext()) {
                     advanceNext();
                 }
@@ -374,9 +425,12 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             session.items.clear();
             adapter.notifyDataSetChanged();
             if (seriesId != null) {
-                session.items.add(HgFeedItem.head(seriesId,
+                HgFeedItem headPage = HgFeedItem.head(seriesId,
                         getIntent().getStringExtra(EXTRA_TITLE), null, null,
-                        getIntent().getStringExtra(EXTRA_COVER), -1));
+                        getIntent().getStringExtra(EXTRA_COVER), -1);
+                // 作者 uid 从进剧条目透传来：展开成集页时由 applyDetail 继承
+                headPage.authorUid = getIntent().getStringExtra(EXTRA_AUTHOR_UID);
+                session.items.add(headPage);
                 adapter.notifyItemInserted(0);
                 onSettle(0);
             }
@@ -793,14 +847,24 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     private void play(String videoId, String localUrl, HgFeedItem item) {
         ensureEngine();
         if (engine == null || player == null) return;
-        HgStore.Progress p = HgStore.progressOf(item.seriesId);
-        long startAt = p != null && p.episodeIndex == item.episodeIndex ? p.positionMs : 0;
+        long startAt;
+        if (pendingSeekMs >= 0) {
+            // 清晰度切换续播：回原位置，不走断点口径
+            startAt = pendingSeekMs;
+            pendingSeekMs = -1;
+        } else {
+            HgStore.Progress p = HgStore.progressOf(item.seriesId);
+            startAt = p != null && p.episodeIndex == item.episodeIndex ? p.positionMs : 0;
+        }
         MediaMetadata metadata = new MediaMetadata.Builder()
                 .setTitle(item.title == null ? "" : item.title).build();
         PlaySpec spec = PlaySpec.from("hongguo:" + videoId, localUrl, new HashMap<>(), metadata);
         playingVideoId = videoId;
         if (startAt > 0) engine.start(spec, startAt, true);
         else engine.start(spec, true);
+        // 起播初始倍速读红果键（面板持久档）：红果链不经 PlayerManager，
+        // 此前恒为播放器默认 1x；长按快进的临时覆盖不经此口
+        player.setPlaybackSpeed(HgStore.getSpeed());
         startDanmakuFor(item, startAt);
         armAutoHide();
         if (pendingLandFs) {
@@ -886,6 +950,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     }
 
     private void stopPlayback() {
+        stopSpeedBoost();
         if (engine != null) {
             try {
                 engine.stop();
@@ -1087,6 +1152,44 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         if (player != null && player.isPlaying()) armAutoHide();
     }
 
+    // ---------- 长按：竖屏中间带出面板／带外与横屏只有快进 ----------
+
+    /**
+     * 长按分工（他定版＋官方 F6 定版）：竖屏点在横向中间 1/3 带内＝开
+     * 五项面板；带外＝按住 2 倍速快进。横屏全屏态（landMode）不分带、
+     * 任何位置都只有快进。长按触发后本次单击已被适配器抑制（suppressTap）。
+     */
+    @Override
+    public void onLongPress(int position, float x, int width) {
+        if (position != currentPos || mineShowing || drawerOpen) return;
+        if (!landMode && HgPanelLogic.inCenterBand(x, width)) {
+            showMorePanel();
+            return;
+        }
+        startSpeedBoost();
+    }
+
+    @Override
+    public void onLongPressRelease(int position) {
+        stopSpeedBoost();
+    }
+
+    /** 长按快进起：只在播放中生效（官方 isPlaying 门）；临时切 2x 并亮提示胶囊。 */
+    private void startSpeedBoost() {
+        if (speedBoost || player == null || !player.isPlaying()) return;
+        speedBoost = true;
+        player.setPlaybackSpeed(HgPanelLogic.BOOST_SPEED);
+        binding.hgSpeedTips.setVisibility(View.VISIBLE);
+    }
+
+    /** 长按快进收：灭提示、恢复面板持久档（HgStore 红果倍速键）。 */
+    private void stopSpeedBoost() {
+        if (!speedBoost) return;
+        speedBoost = false;
+        binding.hgSpeedTips.setVisibility(View.GONE);
+        if (player != null) player.setPlaybackSpeed(HgStore.getSpeed());
+    }
+
     /** 横屏剧进剧（首页点击与「全屏观看」共用）：开集流并以横屏全屏态落。 */
     private void enterSeriesFullscreen(int position) {
         if (position < 0 || position >= session.items.size()) return;
@@ -1098,7 +1201,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             return;
         }
         suppressResumeRefresh = true;
-        startSeriesLandscape(this, item.seriesId, item.title, item.coverUrl);
+        startSeriesLandscape(this, item.seriesId, item.title, item.coverUrl, item.authorUid);
     }
 
     @Override
@@ -1107,7 +1210,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         HgFeedItem item = session.items.get(position);
         HgFeedAdapter.Holder h = currentHolder();
         switch (action) {
-            case LIKE, FAV, FOLLOW, RESERVE -> {
+            case LIKE, FAV, RESERVE -> {
                 // 四阶段：未登录先拉壳子统一登录，不落状态、不假成功
                 if (session.interactions.requiresLogin()) {
                     promptHongguoLogin();
@@ -1116,7 +1219,6 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                 switch (action) {
                     case LIKE -> session.interactions.toggleLike(item);
                     case FAV -> session.interactions.toggleFavorite(item.seriesId);
-                    case FOLLOW -> session.interactions.toggleFollow(item.seriesId);
                     case RESERVE -> {
                         boolean now = session.interactions.toggleReserve(item.seriesId);
                         // 点击时只报本地状态（已预约/已取消）：服务端写失败会
@@ -1163,8 +1265,10 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     }
 
     private void share(HgFeedItem item) {
-        String text = (item.title == null ? "红果短剧" : item.title)
-                + (item.episodeIndex > 0 ? " 第" + item.episodeIndex + "集" : "");
+        // 分享文案：官方分享文案格式未在包内抠到，自定「我在看《剧名》」
+        // （账 fix-rail-catalog-series 标明自定，不冒充官方）
+        String text = item.title == null || item.title.isEmpty()
+                ? "红果短剧" : "我在看《" + item.title + "》";
         Intent intent = new Intent(Intent.ACTION_SEND);
         intent.setType("text/plain");
         intent.putExtra(Intent.EXTRA_TEXT, text);
@@ -1212,13 +1316,14 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                 session.albumOf(item.seriesId);
         if (cached != null) {
             if (cached.size() >= 2) showSeriesSheet(item, cached);
-            else startSeries(this, item.seriesId, item.title, item.coverUrl);
+            else startSeries(this, item.seriesId, item.title, item.coverUrl, item.authorUid);
             return;
         }
         if (item.multiSeason && albumId != null && !albumId.isEmpty()) {
             final String sid = item.seriesId;
             final String title = item.title;
             final String cover = item.coverUrl;
+            final String entryAuthorUid = item.authorUid;
             session.client.fetchAlbum(albumId, new HgCallback<java.util.List<com.fongmi.android.tv.hongguo.model.HgSeriesItem>>() {
                 @Override
                 public void onSuccess(java.util.List<com.fongmi.android.tv.hongguo.model.HgSeriesItem> seasons) {
@@ -1227,7 +1332,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                         // 迟到回调防串面：页签已切/条目已不在当前表就丢弃
                         if (isFinishing() || isDestroyed() || !session.items.contains(item)) return;
                         if (seasons != null && seasons.size() >= 2) showSeriesSheet(item, seasons);
-                        else startSeries(HongguoFeedActivity.this, sid, title, cover);
+                        else startSeries(HongguoFeedActivity.this, sid, title, cover, entryAuthorUid);
                     });
                 }
 
@@ -1236,20 +1341,38 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                     session.putAlbum(sid, java.util.Collections.emptyList());
                     runOnUiThread(() -> {
                         if (!isFinishing() && !isDestroyed() && session.items.contains(item)) {
-                            startSeries(HongguoFeedActivity.this, sid, title, cover);
+                            startSeries(HongguoFeedActivity.this, sid, title, cover, entryAuthorUid);
                         }
                     });
                 }
             });
             return;
         }
-        startSeries(this, item.seriesId, item.title, item.coverUrl);
+        startSeries(this, item.seriesId, item.title, item.coverUrl, item.authorUid);
     }
 
     private void showSeriesSheet(HgFeedItem item, java.util.List<com.fongmi.android.tv.hongguo.model.HgSeriesItem> siblings) {
         HgSeriesSheet.show(this, siblings, item, session.interactions,
                 picked -> startSeries(this, picked.getSeriesId(), picked.getTitle(),
-                        picked.getCoverUrl()));
+                        picked.getCoverUrl(), picked.getAuthorUid()));
+    }
+
+    /**
+     * 点头像/作者名进作者主页（官方 HGOpenProfilePageServiceImpl 门禁口径：
+     * 非本人才能打开）。条目没带作者 uid（详情/搜索来源不下发）时静默
+     * 不打开——不许按名字认人；本人（uid 与本地账号 uid 相同）同样不开。
+     * 本人 uid 未回填（从没登录成功过）时门禁无从比对，按非本人放行。
+     */
+    @Override
+    public void onAuthor(int position) {
+        if (position < 0 || position >= session.items.size()) return;
+        HgFeedItem item = session.items.get(position);
+        String authorUid = item.authorUid;
+        if (authorUid == null || authorUid.isEmpty()) return;
+        if (authorUid.equals(HgStore.profileUid())) return;
+        authorReturnRefresh = true;
+        HongguoAuthorActivity.start(this, authorUid, item.authorName,
+                item.authorAvatar, item.authorDesc);
     }
 
     /**
@@ -1347,6 +1470,248 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             });
         });
         dialog.show();
+    }
+
+    // ---------- 更多面板（他定五项：倍速/清晰度/弹幕/投屏/定时关闭） ----------
+
+    /**
+     * 五项面板（只这五项、多一项不加）：倍速六档筹（他实拍档表，点了立即
+     * 变速并存红果默认倍速）／清晰度（当前集模型现拉档表、高→低、当前档
+     * 对勾，点选以该档重解续播；单档整行隐藏）／弹幕开关（与抽屉同源走
+     * applyDanmakuSwitch）／投屏（星辰现成 CastDialog）／定时关闭（子选
+     * 四档）。白底底部单，形态照官方实拍 113510、与选集单同族口径。
+     */
+    private void showMorePanel() {
+        if (currentPos < 0 || currentPos >= session.items.size()) return;
+        HgFeedItem item = session.items.get(currentPos);
+        com.fongmi.android.tv.databinding.DialogHongguoMorePanelBinding pb =
+                com.fongmi.android.tv.databinding.DialogHongguoMorePanelBinding.inflate(getLayoutInflater());
+        com.google.android.material.bottomsheet.BottomSheetDialog dialog =
+                new com.google.android.material.bottomsheet.BottomSheetDialog(this);
+        dialog.setContentView(pb.getRoot());
+        bindPanelSpeed(pb);
+        bindPanelDefinitions(pb, dialog, item);
+        pb.hgPanelDanmakuSwitch.setChecked(HgStore.isDanmakuOn());
+        pb.hgPanelDanmakuSwitch.setOnCheckedChangeListener((b, on) -> applyDanmakuSwitch(on));
+        pb.hgPanelCast.setOnClickListener(v -> {
+            dialog.dismiss();
+            doCast();
+        });
+        pb.hgPanelTimerValue.setText(HgPanelLogic.timerStateText(timerMode, timerMinutes));
+        pb.hgPanelTimer.setOnClickListener(v -> showTimerDialog(
+                () -> pb.hgPanelTimerValue.setText(
+                        HgPanelLogic.timerStateText(timerMode, timerMinutes))));
+        dialog.show();
+    }
+
+    private void bindPanelSpeed(com.fongmi.android.tv.databinding.DialogHongguoMorePanelBinding pb) {
+        for (float speed : HgPanelLogic.SPEEDS) {
+            TextView chip = new TextView(this);
+            chip.setText(HgPanelLogic.speedLabel(speed));
+            chip.setGravity(android.view.Gravity.CENTER);
+            chip.setTextSize(14);
+            pb.hgPanelSpeedRow.addView(chip, new android.widget.LinearLayout.LayoutParams(
+                    0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
+            chip.setOnClickListener(v -> {
+                HgStore.setSpeed(speed);
+                // 长按快进中不抢临时覆盖（松手按新档恢复）；平时立即变速
+                if (player != null && !speedBoost) player.setPlaybackSpeed(speed);
+                refreshPanelSpeedChips(pb);
+                android.widget.Toast.makeText(this,
+                        "倍速已切换到 " + HgPanelLogic.speedLabel(speed),
+                        android.widget.Toast.LENGTH_SHORT).show();
+            });
+        }
+        refreshPanelSpeedChips(pb);
+    }
+
+    private void refreshPanelSpeedChips(
+            com.fongmi.android.tv.databinding.DialogHongguoMorePanelBinding pb) {
+        int selected = HgPanelLogic.speedIndex(HgStore.getSpeed());
+        for (int i = 0; i < pb.hgPanelSpeedRow.getChildCount(); i++) {
+            TextView chip = (TextView) pb.hgPanelSpeedRow.getChildAt(i);
+            boolean on = i == selected;
+            chip.setBackgroundResource(on ? com.fongmi.android.tv.R.drawable.bg_hg_panel_chip_on : 0);
+            chip.setTextColor(on ? 0xFF111111 : 0xFF999999);
+            chip.setTypeface(null, on ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+        }
+    }
+
+    private void bindPanelDefinitions(
+            com.fongmi.android.tv.databinding.DialogHongguoMorePanelBinding pb,
+            android.app.Dialog dialog, HgFeedItem item) {
+        com.fongmi.android.tv.hongguo.model.HgVideoModel model =
+                item.videoId == null ? null : session.cache.getFresh(item.videoId);
+        java.util.List<String> defs = new java.util.ArrayList<>();
+        if (model != null) {
+            java.util.LinkedHashSet<String> raw = new java.util.LinkedHashSet<>();
+            for (com.fongmi.android.tv.hongguo.model.HgVideoEntry e : model.getEntries()) {
+                if (e.isPlayableCodec()) raw.add(e.getDefinition());
+            }
+            defs = HgPanelLogic.orderedDefinitions(raw);
+        }
+        if (defs.size() < 2) {
+            // 模型没到手/只有一档：整行隐藏（官方非多档源同样不成行），不编档
+            pb.hgPanelDefBlock.setVisibility(View.GONE);
+            return;
+        }
+        String current = session.resolver.currentDefinition(item.videoId);
+        if (current == null || !defs.contains(current)) {
+            com.fongmi.android.tv.hongguo.model.HgVideoEntry first =
+                    model == null ? null : model.firstPlayableEntry();
+            current = first == null ? defs.get(0) : first.getDefinition();
+        }
+        final String currentDef = current;
+        float density = getResources().getDisplayMetrics().density;
+        for (String def : defs) {
+            boolean on = def.equals(currentDef);
+            TextView chip = new TextView(this);
+            chip.setText((on ? "✓ " : "") + HgPanelLogic.definitionLabel(def));
+            chip.setGravity(android.view.Gravity.CENTER);
+            chip.setTextSize(13);
+            chip.setPadding(Math.round(10 * density), 0, Math.round(10 * density), 0);
+            chip.setBackgroundResource(on ? com.fongmi.android.tv.R.drawable.bg_hg_panel_chip_on : 0);
+            chip.setTextColor(on ? 0xFF111111 : 0xFF999999);
+            chip.setTypeface(null, on ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+            android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT);
+            if (pb.hgPanelDefRow.getChildCount() > 0) lp.setMarginStart(Math.round(2 * density));
+            pb.hgPanelDefRow.addView(chip, lp);
+            chip.setOnClickListener(v -> {
+                dialog.dismiss();
+                if (def.equals(currentDef)) return;
+                android.widget.Toast.makeText(this,
+                        "正在切换到 " + HgPanelLogic.definitionLabel(def),
+                        android.widget.Toast.LENGTH_SHORT).show();
+                switchDefinition(def, item);
+            });
+        }
+    }
+
+    /** 清晰度切换：以选档重解当前 vid，解好后 seek 回原位置续播（pendingSeekMs 由 play 消费）。 */
+    private void switchDefinition(String definition, HgFeedItem item) {
+        if (player == null || item.videoId == null) return;
+        final String videoId = item.videoId;
+        final int posAtRequest = currentPos;
+        pendingSeekMs = Math.max(0, player.getCurrentPosition());
+        playingVideoId = null;
+        session.resolver.resolveAs(videoId, definition, new HgPlayResolver.Listener() {
+            @Override
+            public void onReady(String vid, String localUrl, int w, int h) {
+                if (!vid.equals(currentVideoId())) {
+                    pendingSeekMs = -1;
+                    return;
+                }
+                HgFeedItem use = item;
+                if (w > 0 && h > 0 && posAtRequest >= 0 && posAtRequest < session.items.size()
+                        && (item.videoWidth != w || item.videoHeight != h)) {
+                    use = item.withSize(w, h);
+                    session.items.set(posAtRequest, use);
+                    adapter.notifyItemChanged(posAtRequest);
+                }
+                play(videoId, localUrl, use);
+            }
+
+            @Override
+            public void onFailed(String vid, String code, String message) {
+                if (!vid.equals(currentVideoId())) return;
+                pendingSeekMs = -1;
+                showErrorWithCode(currentHolder(), code);
+            }
+        });
+    }
+
+    /**
+     * 投屏：复用星辰播放器现成投屏路——点播页 onCast 同款 CastDialog＋
+     * CastVideo（mobile/leanback 两 flavor 同 API）；地址用解链的本地代理
+     * URL，CastVideo 构造时把 127.0.0.1 改写成局域网 IP 供电视拉流。
+     */
+    private void doCast() {
+        if (currentPos < 0 || currentPos >= session.items.size() || player == null) return;
+        HgFeedItem item = session.items.get(currentPos);
+        String url = item.videoId == null ? null : session.resolver.readyUrl(item.videoId);
+        if (url == null) {
+            android.widget.Toast.makeText(this, "投屏还没准备好，稍后再试",
+                    android.widget.Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String name = (item.title == null ? "红果短剧" : item.title)
+                + (item.episodeIndex > 0 ? " 第" + item.episodeIndex + "集" : "");
+        com.fongmi.android.tv.bean.CastVideo video = new com.fongmi.android.tv.bean.CastVideo(
+                name, url, Math.max(0, player.getCurrentPosition()),
+                java.util.Collections.emptyMap());
+        com.fongmi.android.tv.ui.dialog.CastDialog.create().video(video).fm(true).show(this);
+    }
+
+    /** 定时关闭子选（官方四档）：关闭/播完本剧/30分钟即点即定；自定义输分钟点设定。 */
+    private void showTimerDialog(Runnable onChanged) {
+        com.fongmi.android.tv.databinding.DialogHongguoTimerBinding tb =
+                com.fongmi.android.tv.databinding.DialogHongguoTimerBinding.inflate(getLayoutInflater());
+        com.google.android.material.bottomsheet.BottomSheetDialog dialog =
+                new com.google.android.material.bottomsheet.BottomSheetDialog(this);
+        dialog.setContentView(tb.getRoot());
+        tb.hgTimerOffCheck.setVisibility(timerMode == HgPanelLogic.TIMER_OFF ? View.VISIBLE : View.GONE);
+        tb.hgTimerSeriesCheck.setVisibility(timerMode == HgPanelLogic.TIMER_SERIES_END ? View.VISIBLE : View.GONE);
+        tb.hgTimerFixedCheck.setVisibility(timerMode == HgPanelLogic.TIMER_FIXED ? View.VISIBLE : View.GONE);
+        if (timerMode == HgPanelLogic.TIMER_CUSTOM && timerMinutes > 0) {
+            tb.hgTimerCustomInput.setText(String.valueOf(timerMinutes));
+        }
+        tb.hgTimerOff.setOnClickListener(v -> {
+            armTimer(HgPanelLogic.TIMER_OFF, 0);
+            dialog.dismiss();
+            onChanged.run();
+        });
+        tb.hgTimerSeries.setOnClickListener(v -> {
+            armTimer(HgPanelLogic.TIMER_SERIES_END, 0);
+            dialog.dismiss();
+            onChanged.run();
+        });
+        tb.hgTimerFixed.setOnClickListener(v -> {
+            armTimer(HgPanelLogic.TIMER_FIXED, HgPanelLogic.FIXED_MINUTES);
+            dialog.dismiss();
+            onChanged.run();
+        });
+        tb.hgTimerCustomOk.setOnClickListener(v -> {
+            int minutes = -1;
+            try {
+                minutes = Integer.parseInt(tb.hgTimerCustomInput.getText() == null
+                        ? "" : tb.hgTimerCustomInput.getText().toString().trim());
+            } catch (NumberFormatException ignored) {
+            }
+            if (minutes <= 0) {
+                android.widget.Toast.makeText(this, "请输入分钟数",
+                        android.widget.Toast.LENGTH_SHORT).show();
+                return;
+            }
+            armTimer(HgPanelLogic.TIMER_CUSTOM, minutes);
+            dialog.dismiss();
+            onChanged.run();
+        });
+        dialog.show();
+    }
+
+    private void armTimer(int mode, int minutes) {
+        timerMode = mode;
+        timerMinutes = minutes;
+        ui.removeCallbacks(timerFireRunnable);
+        long delay = HgPanelLogic.timerDelayMs(mode, minutes);
+        if (delay > 0) ui.postDelayed(timerFireRunnable, delay);
+    }
+
+    /** 计时到点：停播并退出本页（官方定时关闭语义）。 */
+    private void onTimerFire() {
+        if (isFinishing() || isDestroyed()) return;
+        stopPlayback();
+        finish();
+    }
+
+    /** 当前条是不是本剧最后一集（定时「播完本剧」的判定点）：无下一条、下一条换剧或下一条是别剧剧头都算到头。 */
+    private boolean atSeriesEnd() {
+        if (currentPos < 0 || currentPos >= session.items.size()) return true;
+        if (currentPos + 1 >= session.items.size()) return true;
+        HgFeedItem cur = session.items.get(currentPos);
+        HgFeedItem next = session.items.get(currentPos + 1);
+        return next.seriesHead || next.seriesId == null || !next.seriesId.equals(cur.seriesId);
     }
 
     /** 弹幕开关统一落点（抽屉开关，自家小设置）：落状态＋启停渲染层＋连带刷新「弹」入口显隐＋开时为当前条起拉。 */
@@ -1558,6 +1923,14 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         // 位置；「我的」面与横屏态在场时也不刷（面状态优先）。
         if (!stoppedOnce) return;
         stoppedOnce = false;
+        if (authorReturnRefresh) {
+            authorReturnRefresh = false;
+            HgFeedAdapter.Holder h = currentHolder();
+            if (h != null && currentPos >= 0 && currentPos < session.items.size()) {
+                adapter.bindInteractionState(h, session.items.get(currentPos));
+            }
+            return;
+        }
         if (suppressResumeRefresh) {
             suppressResumeRefresh = false;
             return;
@@ -1758,6 +2131,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     protected void onDestroy() {
         if (orientationListener != null) orientationListener.disable();
         ui.removeCallbacks(ticker);
+        ui.removeCallbacks(timerFireRunnable);
         ui.removeCallbacks(hideChromeRunnable);
         ui.removeCallbacks(hideFsRunnable);
         ui.removeCallbacks(hideRefreshHintRunnable);

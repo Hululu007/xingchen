@@ -80,6 +80,10 @@ public final class HgPlayResolver {
     private final Handler main = new Handler(Looper.getMainLooper());
     private final Map<String, String> tokenByVideo = new ConcurrentHashMap<>();
     private final Map<String, String> urlByVideo = new ConcurrentHashMap<>();
+    /** 面板清晰度选档（按 vid）：解链选档时优先于默认档序；close 不清，同一集换档/重解沿用。 */
+    private final Map<String, String> preferredDefByVideo = new ConcurrentHashMap<>();
+    /** 实际解出的档（按 vid）：面板高亮当前档读它；close 时清。 */
+    private final Map<String, String> chosenDefByVideo = new ConcurrentHashMap<>();
     private final Set<String> resolving = ConcurrentHashMap.newKeySet();
     /**
      * 在途任务的挂载 listener：某条先被 warm（无 listener）占住时，后来的带
@@ -97,6 +101,35 @@ public final class HgPlayResolver {
 
     public String readyUrl(String videoId) {
         return videoId == null ? null : urlByVideo.get(videoId);
+    }
+
+    /** 当前实际在播的档（definition 原串如 "720p"）；未解出过返回 null。 */
+    public String currentDefinition(String videoId) {
+        return videoId == null ? null : chosenDefByVideo.get(videoId);
+    }
+
+    /**
+     * 以指定档重解一条（面板清晰度切换）：落选档偏好、回收旧流后走常规
+     * 解链；偏好档在模型里不存在/不可解时自动回落默认档序（firstPlayableEntry）。
+     */
+    public void resolveAs(String videoId, String definition, Listener listener) {
+        if (videoId == null) {
+            if (listener != null) fail(listener, videoId, null, "videoId 为空");
+            return;
+        }
+        if (definition != null) preferredDefByVideo.put(videoId, definition);
+        close(videoId);
+        resolve(videoId, listener);
+    }
+
+    /** 选档：偏好档优先（存在且编码可解才用），否则默认档序。 */
+    private HgVideoEntry pickEntry(HgVideoModel model, String videoId) {
+        String want = preferredDefByVideo.get(videoId);
+        if (want != null) {
+            HgVideoEntry e = model.entryByDefinition(want);
+            if (e != null && e.isPlayableCodec()) return e;
+        }
+        return model.firstPlayableEntry();
     }
 
     /** 解链并注册流；已备好直接回。listener 可为 null（只预备不播）。 */
@@ -168,10 +201,11 @@ public final class HgPlayResolver {
         resolve(videoId, null);
     }
 
-    /** 回收一条流（滑远/切剧/退出）。 */
+    /** 回收一条流（滑远/切剧/退出）。选档偏好保留（重解沿用），实际档记录清掉。 */
     public void close(String videoId) {
         if (videoId == null) return;
         urlByVideo.remove(videoId);
+        chosenDefByVideo.remove(videoId);
         String token = tokenByVideo.remove(videoId);
         if (token != null) registry.close(token);
     }
@@ -199,7 +233,7 @@ public final class HgPlayResolver {
         if (model == null) return Outcome.fail("E1");
         cache.put(videoId, model);
         HgVideoModel use = model;
-        HgVideoEntry entry = model.firstPlayableEntry();
+        HgVideoEntry entry = pickEntry(model, videoId);
         if (entry == null) return Outcome.fail("E2");
         String plain = plainUrl(model, entry);
         if (plain == null) {
@@ -207,12 +241,13 @@ public final class HgPlayResolver {
             HgVideoModel fplay = fetchFallback(model);
             if (fplay == null) return Outcome.fail("E3");
             cache.put(videoId, fplay);
-            entry = fplay.firstPlayableEntry();
+            entry = pickEntry(fplay, videoId);
             if (entry == null) return Outcome.fail("E2");
             plain = plainUrl(fplay, entry);
             if (plain == null) return Outcome.fail("E3");
             use = fplay;
         }
+        chosenDefByVideo.put(videoId, entry.getDefinition());
         HgStreamSpec spec = HgStreamSpec.fromEntry(plain, entry, use.deriveDekHex(), videoId);
         if (spec == null) return Outcome.fail("E4"); // 已保护但全模型推不出 DEK
         String token = registry.register(spec);

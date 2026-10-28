@@ -229,6 +229,24 @@
         android:textSize="14sp"
         android:visibility="gone" />
 
+    <!-- 长按快进提示（官方 SpeedTipsView 同位：顶部居中胶囊「2倍速快进中」，
+         长按快进期间亮、松手灭；底复用下拉刷新胶囊的 bg_hg_refresh_pill）。 -->
+    <TextView
+        android:id="@+id/hg_speed_tips"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="84dp"
+        android:background="@drawable/bg_hg_refresh_pill"
+        android:paddingStart="14dp"
+        android:paddingTop="6dp"
+        android:paddingEnd="14dp"
+        android:paddingBottom="6dp"
+        android:text="2倍速快进中"
+        android:textColor="#FFFFFF"
+        android:textSize="13sp"
+        android:visibility="gone" />
+
     <!-- 红果自家底栏（他亲定两格：首页/我的；剧场不要）。首页＝刷剧流本体、
          我的＝壳内「我的」面，两格互切不新开 Activity；进全屏随界面一起全隐藏。 -->
     <LinearLayout

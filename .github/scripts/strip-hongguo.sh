@@ -6,7 +6,7 @@
 # 删的只有本功能（2026-10-27 立项的原生红果，一至五阶段）新增的东西：
 #   - 红果本体包 app/src/main/java/com/fongmi/android/tv/hongguo/（api/model/crypto/proxy/ui 全包）
 #     与它的离线单测 app/src/test/hongguo/；
-#   - 本体资源（main 源集）：activity/item/dialog/view_hongguo_* 布局 15 份、bg_hg_*/ic_hg_* 图形 36 份；
+#   - 本体资源（main 源集）：activity/item/dialog/view_hongguo_* 布局 18 份、bg_hg_*/ic_hg_* 图形 41 份；
 #   - 登录提供方 HongguoLoginProvider 与它在 LoginManager 里的注册行／loginHongguo 入口／
 #     三个静态桥／requestLogin 的红果分发支；
 #   - Nano 本地服务器的红果代理解密 process（HongguoStream 本体＋Nano 的 import 与注册行）；
@@ -58,17 +58,20 @@ grep -qF "tabs.add(new BottomTabs.Spec(R.id.hongguo, R.drawable.ic_nav_duanju_ou
 grep -qF "if (itemId == R.id.hongguo) {" "$HOME" || fail "HomeActivity 的短剧格点击分发对不上"
 grep -qF "红果「启动直达短剧」" "$HOME" || fail "HomeActivity 的启动直达短剧块对不上"
 grep -qF "<string name=\"nav_duanju\">短剧</string>" "$MSTRINGS" || fail "短剧格字符串 nav_duanju 对不上"
-for a in HongguoFeedActivity HongguoSearchActivity; do
+for a in HongguoFeedActivity HongguoSearchActivity HongguoAuthorActivity; do
   grep -qF "android:name=\"com.fongmi.android.tv.hongguo.ui.$a\"" "$MANIFEST" || fail "Manifest 的红果登记对不上：$a"
 done
 
 # ---- 本体资源清单（main 源集，逐份核在再删） ----
 RES_FILES="
+app/src/main/res/layout/activity_hongguo_author.xml
 app/src/main/res/layout/activity_hongguo_feed.xml
 app/src/main/res/layout/activity_hongguo_search.xml
 app/src/main/res/layout/dialog_hongguo_comments.xml
 app/src/main/res/layout/dialog_hongguo_danmaku.xml
 app/src/main/res/layout/dialog_hongguo_episodes.xml
+app/src/main/res/layout/dialog_hongguo_more_panel.xml
+app/src/main/res/layout/dialog_hongguo_timer.xml
 app/src/main/res/layout/item_hongguo_comment.xml
 app/src/main/res/layout/item_hongguo_episode.xml
 app/src/main/res/layout/item_hongguo_feed.xml
@@ -95,8 +98,12 @@ app/src/main/res/drawable/bg_hg_ep_fav_on.xml
 app/src/main/res/drawable/bg_hg_ep_grab.xml
 app/src/main/res/drawable/bg_hg_ep_sheet.xml
 app/src/main/res/drawable/bg_hg_follow_badge.xml
+app/src/main/res/drawable/bg_hg_follow_btn.xml
+app/src/main/res/drawable/bg_hg_followed_btn.xml
 app/src/main/res/drawable/bg_hg_grab.xml
 app/src/main/res/drawable/bg_hg_login_btn.xml
+app/src/main/res/drawable/bg_hg_panel_chip_on.xml
+app/src/main/res/drawable/bg_hg_panel_track.xml
 app/src/main/res/drawable/bg_hg_series_bar.xml
 app/src/main/res/drawable/bg_hg_sheet.xml
 app/src/main/res/drawable/ic_hg_back.xml
@@ -225,7 +232,7 @@ manifest = cut_exact(manifest, """        <!-- 红果刷剧页（三阶段）：
              ＋configChanges 全套自管，横屏观看在本窗内转 90°（HongguoFeedActivity
              的 landMode），不许再开真转窗口的横屏页（旧 HongguoLandActivity 已删）。 -->
 """, "刷剧页登记注释")
-for name in ("HongguoFeedActivity", "HongguoSearchActivity"):
+for name in ("HongguoFeedActivity", "HongguoSearchActivity", "HongguoAuthorActivity"):
     pattern = r"<activity\s+android:name=\"com\.fongmi\.android\.tv\.hongguo\.ui\." + name + r"\"[^>]*/>"
     manifest, n = re.subn(pattern, "", manifest)
     if n != 1:
@@ -248,7 +255,7 @@ for f in $RES_FILES; do
 done
 
 # ---- 复查一：本功能专属标识全树零残留（共用件的泛 Hongguo 字样不在此列，见文件头白名单） ----
-if grep -rn -E "com\.fongmi\.android\.tv\.hongguo|HongguoFeedActivity|HongguoSearchActivity|HgLibraryActivity|HgListActivity|HgTheaterActivity|HongguoLoginProvider|HongguoSmsLoginDialog|loginHongguo|isHongguoLoggedIn|getHongguoCookie|logoutHongguo|HongguoStream|ic_nav_duanju|nav_duanju" app/src/main app/src/mobile app/src/leanback app/src/test --include=*.java --include=*.xml; then
+if grep -rn -E "com\.fongmi\.android\.tv\.hongguo|HongguoFeedActivity|HongguoSearchActivity|HongguoAuthorActivity|HgLibraryActivity|HgListActivity|HgTheaterActivity|HongguoLoginProvider|HongguoSmsLoginDialog|loginHongguo|isHongguoLoggedIn|getHongguoCookie|logoutHongguo|HongguoStream|ic_nav_duanju|nav_duanju" app/src/main app/src/mobile app/src/leanback app/src/test --include=*.java --include=*.xml; then
   fail "删完后仍有红果本功能残留"
 fi
 

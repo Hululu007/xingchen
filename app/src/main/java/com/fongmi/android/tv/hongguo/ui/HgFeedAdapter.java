@@ -31,6 +31,22 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
     public interface Host {
         void onTap(int position);
 
+        /**
+         * 长按触发（手指还按着）：x/width 为页根坐标系（带判定在 Activity，
+         * 官方 F6 中间带口径）；快进/面板分工由 Activity 按朝向与带位定。
+         */
+        void onLongPress(int position, float x, int width);
+
+        /** 长按后的抬手/取消：快进在此收尾（恢复面板倍速档）。 */
+        void onLongPressRelease(int position);
+
+        /**
+         * 点头像/作者名进作者主页（官方 HGOpenProfilePageServiceImpl 口径：
+         * enableClickAvatarOpenSeriesProfilePage＝非本人才能打开）。
+         * 旧占位把点头像做成「关注作者」——语义错位，本方法整段替代。
+         */
+        void onAuthor(int position);
+
         void onAction(int position, Action action);
 
         void onSeriesBar(int position);
@@ -89,8 +105,32 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
                         }
                         return false;
                     }
+
+                    @Override
+                    public void onLongPress(MotionEvent e) {
+                        int pos = holder.getBindingAdapterPosition();
+                        if (pos == RecyclerView.NO_POSITION) return;
+                        holder.longPressFired = true;
+                        host.onLongPress(pos, e.getX(), holder.binding.hgPageRoot.getWidth());
+                    }
                 });
-        binding.hgPageRoot.setOnTouchListener((v, ev) -> detector.onTouchEvent(ev));
+        binding.hgPageRoot.setOnTouchListener((v, ev) -> {
+            boolean handled = detector.onTouchEvent(ev);
+            int action = ev.getActionMasked();
+            if (action == MotionEvent.ACTION_DOWN) {
+                // 新触摸序列：上一回长按留下的抑制旗不许串到这次
+                holder.suppressTap = false;
+            } else if ((action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL)
+                    && holder.longPressFired) {
+                // 长按收尾：先报释放（停快进），再立抑制旗——本次抬手
+                // 随后触发的单击必须被吃掉（长按序列不许再变单击）
+                holder.longPressFired = false;
+                holder.suppressTap = true;
+                int pos = holder.getBindingAdapterPosition();
+                if (pos != RecyclerView.NO_POSITION) host.onLongPressRelease(pos);
+            }
+            return handled;
+        });
         return holder;
     }
 
@@ -187,9 +227,14 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         ImageView favIcon = (ImageView) ((ViewGroup) b.hgActFav).getChildAt(0);
         likeIcon.setImageResource(in.isLiked(item.seriesId) ? R.drawable.ic_hg_heart_fill : R.drawable.ic_hg_heart);
         favIcon.setImageResource(in.isFavorite(item.seriesId) ? R.drawable.ic_hg_star_fill : R.drawable.ic_hg_star);
-        boolean followed = in.isFollowing(item.seriesId);
-        b.hgFollowBadge.setText(followed ? "✓" : "+");
-        b.hgFollowBadge.setAlpha(followed ? 0.55f : 1f);
+        // 头像「+」徽标＝作者关注态（与作者主页关注钮同读 HgStore 作者集，
+        // 按作者 uid 记）：旧实现读的是按剧的追更集（isFollowing(seriesId)）
+        //＋已关注变暗——语义与呈现都错位，本批整段换掉；条目没带 uid
+        // （详情/搜索来源）时徽标整件不亮，不许拿剧 id 冒充作者 id
+        boolean authorFollowed = item.authorUid != null && HgStore.isAuthorFollowed(item.authorUid);
+        b.hgFollowBadge.setVisibility(item.authorUid == null ? View.GONE : View.VISIBLE);
+        b.hgFollowBadge.setText(authorFollowed ? "✓" : "+");
+        b.hgFollowBadge.setAlpha(1f);
         setCount(b.hgLikeCount, item.likeCount);
         // 评论数数据驱动：会话里有真总数（评论面板拉到过）才亮，否则不显示
         String cc = session.commentCountOf(item.seriesId);
@@ -292,12 +337,21 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
 
     private void bindClicks(Holder holder, int position) {
         ItemHongguoFeedBinding b = holder.binding;
-        b.hgPageRoot.setOnClickListener(v -> host.onTap(holder.getBindingAdapterPosition()));
+        b.hgPageRoot.setOnClickListener(v -> {
+            if (holder.suppressTap) {
+                holder.suppressTap = false;
+                return;
+            }
+            host.onTap(holder.getBindingAdapterPosition());
+        });
         b.hgActFav.setOnClickListener(v -> host.onAction(holder.getBindingAdapterPosition(), Action.FAV));
         b.hgActComment.setOnClickListener(v -> host.onAction(holder.getBindingAdapterPosition(), Action.COMMENT));
         b.hgActLike.setOnClickListener(v -> host.onAction(holder.getBindingAdapterPosition(), Action.LIKE));
         b.hgActShare.setOnClickListener(v -> host.onAction(holder.getBindingAdapterPosition(), Action.SHARE));
-        b.hgAvatarBox.setOnClickListener(v -> host.onAction(holder.getBindingAdapterPosition(), Action.FOLLOW));
+        // 头像与作者名同路：进作者主页（官方 enableClickAvatarOpenSeriesProfilePage
+        // 语义）；旧占位把点头像当「关注作者」的 Action.FOLLOW 已整段摘除
+        b.hgAvatarBox.setOnClickListener(v -> host.onAuthor(holder.getBindingAdapterPosition()));
+        b.hgAuthorName.setOnClickListener(v -> host.onAuthor(holder.getBindingAdapterPosition()));
         b.hgReserve.setOnClickListener(v -> host.onAction(holder.getBindingAdapterPosition(), Action.RESERVE));
         b.hgSeriesBar.setOnClickListener(v -> host.onSeriesBar(holder.getBindingAdapterPosition()));
         b.hgDanmakuBox.setOnClickListener(v -> host.onDanmakuPublish(holder.getBindingAdapterPosition()));
@@ -330,6 +384,10 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
 
     public static final class Holder extends RecyclerView.ViewHolder {
         public final ItemHongguoFeedBinding binding;
+        /** 本次触摸序列已触发长按（抬手时报释放并立抑制旗）。 */
+        boolean longPressFired;
+        /** 长按后的单击抑制：置位后吃掉紧随的一次页根单击并自动清。 */
+        boolean suppressTap;
 
         Holder(ItemHongguoFeedBinding binding) {
             super(binding.getRoot());

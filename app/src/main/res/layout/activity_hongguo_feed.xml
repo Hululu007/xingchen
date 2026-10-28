@@ -142,6 +142,59 @@
             android:src="@drawable/ic_hg_search" />
     </LinearLayout>
 
+    <!-- 竖屏剧页标题栏（官方 ShortSeriesActivity 标题栏构成：返回＋标题＋
+         倍速位＋更多；官方是 Compose 件，自家以原生 View 近似，容器高 44dp
+         照官方 ikp）。只在集流模式在场，横屏观看态随 chrome 一起隐。 -->
+    <LinearLayout
+        android:id="@+id/hg_series_bar"
+        android:layout_width="match_parent"
+        android:layout_height="44dp"
+        android:layout_gravity="top"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="6dp"
+        android:paddingEnd="6dp"
+        android:visibility="gone">
+
+        <ImageView
+            android:id="@+id/hg_series_back"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:contentDescription="返回"
+            android:padding="9dp"
+            android:src="@drawable/ic_hg_back" />
+
+        <TextView
+            android:id="@+id/hg_series_title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp" />
+
+        <TextView
+            android:id="@+id/hg_series_speed"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingStart="10dp"
+            android:paddingTop="8dp"
+            android:paddingEnd="10dp"
+            android:paddingBottom="8dp"
+            android:text="倍速"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp" />
+
+        <ImageView
+            android:id="@+id/hg_series_more"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:contentDescription="更多"
+            android:padding="9dp"
+            android:src="@drawable/ic_hg_more" />
+    </LinearLayout>
+
     <LinearLayout
         android:id="@+id/hg_refresh_hint"
         android:layout_width="wrap_content"

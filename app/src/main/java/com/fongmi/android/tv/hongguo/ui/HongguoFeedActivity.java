@@ -421,6 +421,14 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             binding.hgTopBar.setVisibility(View.GONE);
             binding.hgBottomBar.setVisibility(View.GONE);
             setPagerBottomMargin(0);
+            // 剧页标题栏（官方构成：返回＋标题＋倍速位＋更多）：返回即退出
+            // 剧页、更多开五项面板（与长按中心带同面板）、倍速位只读显示
+            // 当前持久档（长按临时 2 倍速不写这里，走它自己的提示胶囊）
+            binding.hgSeriesBar.setVisibility(View.VISIBLE);
+            binding.hgSeriesTitle.setText(getIntent().getStringExtra(EXTRA_TITLE));
+            binding.hgSeriesBack.setOnClickListener(v -> finish());
+            binding.hgSeriesMore.setOnClickListener(v -> showMorePanel());
+            refreshSeriesSpeedText();
             String seriesId = getIntent().getStringExtra(EXTRA_SERIES_ID);
             session.items.clear();
             adapter.notifyDataSetChanged();
@@ -865,6 +873,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         // 起播初始倍速读红果键（面板持久档）：红果链不经 PlayerManager，
         // 此前恒为播放器默认 1x；长按快进的临时覆盖不经此口
         player.setPlaybackSpeed(HgStore.getSpeed());
+        refreshSeriesSpeedText();
         startDanmakuFor(item, startAt);
         armAutoHide();
         if (pendingLandFs) {
@@ -1046,11 +1055,21 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
 
     // ---------- 显隐（刷剧面常显；自动全隐只在横屏全屏观看态，防烧屏） ----------
 
+    /** 剧页标题栏倍速位文案（官方定版：1.0 显「倍速」，其余显原始浮点串如「1.25x」）。 */
+    private void refreshSeriesSpeedText() {
+        float speed = HgStore.getSpeed();
+        binding.hgSeriesSpeed.setText(speed == 1f ? "倍速" : Float.toString(speed) + "x");
+    }
+
     private void setChromeHidden(boolean hidden) {
         chromeHidden = hidden;
         if (mode == MODE_FEED) {
             binding.hgTopBar.setVisibility(hidden ? View.GONE : View.VISIBLE);
         }
+        // 剧页标题栏：竖屏集流常显（与刷剧面常驻件同口径），横屏观看态
+        // （landMode）随全屏全隐藏一起收——进/出横屏都经此函数收口
+        binding.hgSeriesBar.setVisibility(
+                mode == MODE_SERIES && !landMode ? View.VISIBLE : View.GONE);
         HgFeedAdapter.Holder h = currentHolder();
         if (h != null) {
             int v = hidden ? View.GONE : View.VISIBLE;
@@ -1517,6 +1536,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                 // 长按快进中不抢临时覆盖（松手按新档恢复）；平时立即变速
                 if (player != null && !speedBoost) player.setPlaybackSpeed(speed);
                 refreshPanelSpeedChips(pb);
+                refreshSeriesSpeedText();
                 android.widget.Toast.makeText(this,
                         "倍速已切换到 " + HgPanelLogic.speedLabel(speed),
                         android.widget.Toast.LENGTH_SHORT).show();
@@ -2029,6 +2049,12 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             if (lp.topMargin != top) {
                 lp.topMargin = top;
                 binding.hgTopBar.setLayoutParams(lp);
+            }
+            ViewGroup.MarginLayoutParams slp =
+                    (ViewGroup.MarginLayoutParams) binding.hgSeriesBar.getLayoutParams();
+            if (slp.topMargin != top) {
+                slp.topMargin = top;
+                binding.hgSeriesBar.setLayoutParams(slp);
             }
             if (binding.hgMine.getRoot().getPaddingTop() != top) {
                 binding.hgMine.getRoot().setPadding(binding.hgMine.getRoot().getPaddingLeft(), top,

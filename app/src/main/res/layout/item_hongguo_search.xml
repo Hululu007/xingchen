@@ -1,18 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 红果搜索结果行（短剧条目）。官方搜索结果无此横排专用行（结果是
+     视频流/双列卡，dig-search2 §2 定版），本行是自家形态；材料按官方
+     同族值对齐：封面圆角 6dp（系列单行封面 A 级口径）、标题 14sp 粗
+     （双列卡 b7l 标题定版）、行距节奏照官方列表行 d72（左右 16dp、
+     上下 12dp）。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:gravity="center_vertical"
     android:orientation="horizontal"
-    android:paddingStart="14dp"
-    android:paddingTop="8dp"
-    android:paddingEnd="14dp"
-    android:paddingBottom="8dp">
+    android:paddingStart="16dp"
+    android:paddingTop="12dp"
+    android:paddingEnd="16dp"
+    android:paddingBottom="12dp">
 
     <ImageView
         android:id="@+id/hg_s_cover"
         android:layout_width="54dp"
         android:layout_height="72dp"
+        android:background="@drawable/bg_hg_cover_r6"
+        android:clipToOutline="true"
         android:contentDescription="@null"
         android:scaleType="centerCrop" />
 
@@ -30,7 +37,7 @@
             android:ellipsize="end"
             android:maxLines="1"
             android:textColor="#FFFFFF"
-            android:textSize="15sp"
+            android:textSize="14sp"
             android:textStyle="bold" />
 
         <TextView

@@ -77,7 +77,6 @@ public final class HgSeriesSheet {
             lp.dimAmount = 0.45f;
             window.setAttributes(lp);
         }
-        sheet.hgSeriesClose.setOnClickListener(v -> dialog.dismiss());
         sheet.hgSeriesList.setLayoutManager(new LinearLayoutManager(activity));
         sheet.hgSeriesList.setAdapter(new RecyclerView.Adapter<RowHolder>() {
             @NonNull

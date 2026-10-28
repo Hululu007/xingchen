@@ -176,6 +176,20 @@ public final class HgFeedSources {
                 @Override
                 public void onSuccess(HgCellPage page) {
                     loadingMore = false;
+                    boolean rawEmpty = page.getItems() == null || page.getItems().isEmpty();
+                    if (rawEmpty && page.isHasMore()) {
+                        // 瞬时空回（限流形状）：服务端明说还有下一页、本页却零条目。
+                        // 不推进游标、不封口，走 onError 让上层静默待重试——旧逻辑
+                        // 在此把 moreAvailable 打成 false 静默封口，流只剩首窗
+                        cb.onError(-1, "续页瞬时空回");
+                        return;
+                    }
+                    if (rawEmpty) {
+                        // 原始空页且 has_more=false 才是真终点：封口＋成功空回
+                        moreAvailable = false;
+                        cb.onSuccess(Collections.emptyList());
+                        return;
+                    }
                     // 续页游标成立条件照 openhongguo finishDiscover：
                     // has_more 且 next_offset>0 且本页真有条目，三者缺一即封口
                     long next = -1;
@@ -183,8 +197,7 @@ public final class HgFeedSources {
                         next = Long.parseLong(page.getNextOffset());
                     } catch (Exception ignored) {
                     }
-                    moreAvailable = page.isHasMore() && next > 0
-                            && page.getItems() != null && !page.getItems().isEmpty();
+                    moreAvailable = page.isHasMore() && next > 0;
                     if (continuation != null) {
                         continuation = continuation.advanced(page.getNextOffset(), page.getSessionId());
                     }

@@ -91,6 +91,9 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     public static void start(Context context) {
         Intent intent = new Intent(context, HongguoFeedActivity.class);
         intent.putExtra(EXTRA_MODE, MODE_FEED);
+        // 重进红果复用已在栈里的实例（manifest 是 standard、无 launchMode，
+        // 不加旗每次点底栏都新开一个实例从头 loadTab——「重进又重新加载」的一路）
+        intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
         context.startActivity(intent);
     }
 
@@ -182,8 +185,11 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         HgFeedAdapter.Holder h = currentHolder();
         if (h != null) h.binding.hgError.setVisibility(View.GONE);
     };
-    /** 本页曾被完全遮住（onStop）过：回前台时按 Open 语义重拉当前页签。 */
+    /** 本页曾被完全遮住（onStop）过：回前台只原地续播、不重拉（见 onResume）。 */
     private boolean stoppedOnce;
+    /** 进程被杀后重建的首拉：成功后按 HgStore 落盘的流位置落位（仅首拉一次，
+     * 切页签/下拉刷新等显式重拉不落位、回顶部）。 */
+    private boolean feedPosRestorePending = true;
     /** 本次离台是自家页内跳转（搜索/进剧新开实例）：回来不刷新、不丢位置。 */
     private boolean suppressResumeRefresh;
     /** 本次离台是去作者主页：回来只重绑当前页互动态（关注徽标跟主页同源），
@@ -481,7 +487,16 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             }
         } else {
             // 首页短片流（账 §2）：cell 条目逐条成页，不预置「上次的剧」——
-            // 断点记在剧一级，从剧条/左滑进剧时才续（账 §2.4/§6.1）
+            // 断点记在剧一级，从剧条/左滑进剧时才续（账 §2.4/§6.1）。
+            // 进程被杀后重建：先回到上次页签，首拉成功后按落盘位置落位
+            String savedTab = HgStore.feedPosTab();
+            if (savedTab != null) {
+                try {
+                    tab = HgFeedSources.Tab.valueOf(savedTab);
+                    refreshTabStyle();
+                } catch (Exception ignored) {
+                }
+            }
             loadTab(tab);
         }
         ui.post(ticker);
@@ -573,6 +588,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     private void switchTab(HgFeedSources.Tab target) {
         saveProgress();
         stopPlayback();
+        feedPosRestorePending = false;
         tab = target;
         refreshTabStyle();
         loadTab(target);
@@ -667,6 +683,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         if (mineShowing) return;
         saveProgress();
         stopPlayback();
+        feedPosRestorePending = false;
         loadTab(tab);
     }
 
@@ -700,8 +717,17 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                         binding.hgState.setText(source.emptyHint());
                     } else {
                         binding.hgState.setVisibility(View.GONE);
-                        binding.hgPager.setCurrentItem(0, false);
-                        onSettle(0);
+                        int start = 0;
+                        if (feedPosRestorePending) {
+                            // 进程被杀后重建：落回上次流位置（仅首批范围内
+                            // 可直落；更深位置要顺序续拉多页才够得着，与限流
+                            // 对策冲突，本批不做连环续拉，见汇总说明）
+                            feedPosRestorePending = false;
+                            int saved = HgStore.feedPosIndex(target.name());
+                            if (saved > 0 && saved < session.items.size()) start = saved;
+                        }
+                        binding.hgPager.setCurrentItem(start, false);
+                        onSettle(start);
                     }
                 });
             }
@@ -787,6 +813,8 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         if (landMode && position != landPos) exitLandMode(); // 滑离横屏页：窗内转自动退出
         if (position != currentPos) saveProgress();
         currentPos = position;
+        // 发现流位置随 settle 落盘：进程被杀重进时落位用（集流不记，断点在剧一级）
+        if (mode == MODE_FEED) HgStore.saveFeedPos(tab.name(), position);
         adapter.setCurrentPos(position);
         setChromeHidden(false);
         HgFeedItem item = session.items.get(position);
@@ -1107,13 +1135,19 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     }
 
     private void saveProgress() {
-        // 短片流浏览不写剧断点（账 §2.4：短片不是「在看这部剧」），断点只记集流
-        if (mode == MODE_FEED) return;
         if (player == null || currentPos < 0 || currentPos >= session.items.size()) return;
         HgFeedItem item = session.items.get(currentPos);
         if (item.seriesId == null || item.episodeIndex <= 0) return;
         long pos = player.getCurrentPosition();
-        if (pos > 0) HgStore.saveProgress(item.seriesId, item.episodeIndex, pos);
+        if (pos <= 0) return;
+        if (mode == MODE_FEED) {
+            // 短片流也落集内断点（用户口径：进程被杀重进也要落断点续播）；
+            // 只写断点本体不进历史索引——账 §2.4「短片不算在看这部剧」的
+            // 历史面口径保留，断点面按新口径覆盖
+            HgStore.saveProgressQuiet(item.seriesId, item.episodeIndex, pos);
+        } else {
+            HgStore.saveProgress(item.seriesId, item.episodeIndex, pos);
+        }
     }
 
     private static String formatTime(long ms) {
@@ -2318,9 +2352,12 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     @Override
     protected void onResume() {
         super.onResume();
-        // 回前台刷新（定罪账案二次因）：页面没死时也要吃到新一批——按频道
-        // Open 语义重拉当前页签。自家页内跳转（搜索/进剧）回来不刷、不丢
-        // 位置；「我的」面与横屏态在场时也不刷（面状态优先）。
+        // 回前台不重载（用户亲点「切到后台，再进去，短剧又重新加载」）：
+        // onPause 只暂停播放器、onStop 只置标记，会话与播放器都没拆——
+        // 旧实现却在回前台无条件 stopPlayback＋loadTab 回第一页，纯属自找。
+        // 现口径：原地续播（onPause 暂停的原样放回去）；播放器异常不在场
+        // 时才对当前条目走一次起播兜底。想看新一批有下拉刷新/再点页签在。
+        // 此口径覆盖此前「回前台吃新一批」的定罪账修法，冲突见汇总文件。
         if (!stoppedOnce) return;
         stoppedOnce = false;
         if (authorReturnRefresh) {
@@ -2329,15 +2366,13 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             if (h != null && currentPos >= 0 && currentPos < session.items.size()) {
                 adapter.bindInteractionState(h, session.items.get(currentPos));
             }
-            return;
         }
-        if (suppressResumeRefresh) {
-            suppressResumeRefresh = false;
-            return;
-        }
-        if (mode == MODE_FEED && !mineShowing && !landMode) {
-            stopPlayback();
-            loadTab(tab);
+        suppressResumeRefresh = false;
+        if (mineShowing) return;
+        if (player != null && playingVideoId != null) {
+            player.play();
+        } else if (currentPos >= 0 && currentPos < session.items.size()) {
+            startCurrentPlayback();
         }
     }
 
@@ -2453,6 +2488,13 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                             binding.hgBottomBar.getPaddingRight(), nav);
                 }
                 if (binding.hgBottomBar.getVisibility() == View.VISIBLE) setPagerBottomMargin(56);
+                // 全屏极简控制条（竖屏全屏唤出条）同规让位：底内距＝原 6dp＋导航高
+                int fsBottom = Math.round(6 * getResources().getDisplayMetrics().density) + nav;
+                if (binding.hgFsBar.getPaddingBottom() != fsBottom) {
+                    binding.hgFsBar.setPadding(binding.hgFsBar.getPaddingLeft(),
+                            binding.hgFsBar.getPaddingTop(),
+                            binding.hgFsBar.getPaddingRight(), fsBottom);
+                }
             }
             ViewGroup.MarginLayoutParams lp =
                     (ViewGroup.MarginLayoutParams) binding.hgTopBar.getLayoutParams();

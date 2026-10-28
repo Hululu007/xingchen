@@ -6,7 +6,7 @@
 # 删的只有本功能（2026-10-27 立项的原生红果，一至五阶段）新增的东西：
 #   - 红果本体包 app/src/main/java/com/fongmi/android/tv/hongguo/（api/model/crypto/proxy/ui 全包）
 #     与它的离线单测 app/src/test/hongguo/；
-#   - 本体资源（main 源集）：activity/item/dialog/view_hongguo_* 布局 35 份、bg_hg_*/ic_hg_* 图形 85 份；
+#   - 本体资源（main 源集）：activity/item/dialog/view_hongguo_* 布局 35 份、bg_hg_*/ic_hg_* 图形 85 份＋hg_switch_* 开关图形 2 份；
 #   - 登录提供方 HongguoLoginProvider 与它在 LoginManager 里的注册行／loginHongguo 入口／
 #     三个静态桥／requestLogin 的红果分发支；
 #   - Nano 本地服务器的红果代理解密 process（HongguoStream 本体＋Nano 的 import 与注册行）；
@@ -186,6 +186,8 @@ app/src/main/res/drawable/ic_hg_star.xml
 app/src/main/res/drawable/ic_hg_star_fill.xml
 app/src/main/res/drawable/ic_hg_pref.xml
 app/src/main/res/drawable/ic_hg_feedback.xml
+app/src/main/res/drawable/hg_switch_thumb.xml
+app/src/main/res/drawable/hg_switch_track.xml
 app/src/mobile/res/drawable/ic_nav_duanju_outline.xml
 app/src/mobile/res/drawable/ic_nav_duanju_filled.xml
 "

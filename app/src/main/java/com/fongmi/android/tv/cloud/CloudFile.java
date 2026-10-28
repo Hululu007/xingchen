@@ -78,7 +78,13 @@ public class CloudFile {
                 || n.endsWith(".webm") || n.endsWith(".m3u8")
                 || n.endsWith(".mpg") || n.endsWith(".mpeg") || n.endsWith(".rm")
                 || n.endsWith(".3gp") || n.endsWith(".f4v") || n.endsWith(".asf")
-                || n.endsWith(".vob") || n.endsWith(".m4v") || n.endsWith(".mts");
+                || n.endsWith(".vob") || n.endsWith(".m4v") || n.endsWith(".mts")
+                || n.endsWith(".iso") || n.endsWith(".dat") || n.endsWith(".m2v")
+                || n.endsWith(".mpe") || n.endsWith(".m2t") || n.endsWith(".3g2")
+                || n.endsWith(".ogv") || n.endsWith(".ogm") || n.endsWith(".mod")
+                || n.endsWith(".tod") || n.endsWith(".dvr-ms") || n.endsWith(".wtv")
+                || n.endsWith(".tp") || n.endsWith(".trp") || n.endsWith(".divx")
+                || n.endsWith(".qt") || n.endsWith(".amv") || n.endsWith(".vro");
     }
 
     private static boolean isVideoExt(String ext) {
@@ -86,7 +92,10 @@ public class CloudFile {
             case "mp4": case "mkv": case "avi": case "rmvb": case "flv": case "mov":
             case "wmv": case "ts": case "m2ts": case "webm": case "m3u8":
             case "mpg": case "mpeg": case "rm": case "3gp": case "f4v": case "asf":
-            case "vob": case "m4v": case "mts":
+            case "vob": case "m4v": case "mts": case "iso": case "dat": case "m2v":
+            case "mpe": case "m2t": case "3g2": case "ogv": case "ogm": case "mod":
+            case "tod": case "dvr-ms": case "wtv": case "tp": case "trp": case "divx":
+            case "qt": case "amv": case "vro":
                 return true;
             default:
                 return false;

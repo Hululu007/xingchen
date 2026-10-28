@@ -72,7 +72,10 @@ public class TierParser115 {
     private static final String[] PLAY_SUFFIX = {
             ".m3u8", ".mp4", ".mkv", ".flv", ".ts", ".mov", ".avi",
             ".m4v", ".webm", ".f4v", ".wmv", ".rmvb", ".mpg", ".mpeg",
-            ".m2ts", ".mts", ".vob", ".asf", ".3gp", ".rm"};
+            ".m2ts", ".mts", ".vob", ".asf", ".3gp", ".rm", ".iso",
+            ".dat", ".m2v", ".mpe", ".m2t", ".3g2", ".ogv", ".ogm",
+            ".mod", ".tod", ".dvr-ms", ".wtv", ".tp", ".trp", ".divx",
+            ".qt", ".amv", ".vro"};
     // 路径里带这些词的，是字幕 / 音轨 / 封面，不是视频流
     private static final String[] URL_SKIP_WORDS = {
             "subtitle", "sub_url", "subtitles", "/sub/", "audio",

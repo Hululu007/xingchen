@@ -47,7 +47,9 @@
 
     <!-- 右列（官方真值：容器 paddingEnd 4dp/paddingTop 7dp、头像 41.5dp、订阅角标 22dp、
          动作间距 12dp、单件高 40dp/图标 32dp/计数在图标下方居中、点赞槽宽 46dp；
-         序位照 dig-seriessdk §4 的 Series 家族：头像→收藏→评论→点赞→分享；
+         序位照 undecided-dig 的 cv5 动作序（Series 家族）：头像→收藏→评论→点赞→分享；
+         分享件 SeriesShareView 在官方缺省 gone（显隐条件未抠到），与官方实拍/
+         录屏右列四件（头像/星/评论/心）一致——咱家同置 gone 保留组件不常显；
          分享件无计数时图标下显「分享」二字＝官方 SeriesShareView 的
          getShareCountText 缺省文案，图标 ic_hg_share 为自绘同形（已登记 strip 清单）） -->
     <LinearLayout
@@ -177,7 +179,8 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
             android:gravity="center_horizontal"
-            android:orientation="vertical">
+            android:orientation="vertical"
+            android:visibility="gone">
 
             <ImageView
                 android:layout_width="32dp"

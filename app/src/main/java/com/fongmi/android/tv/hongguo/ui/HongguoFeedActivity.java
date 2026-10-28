@@ -1269,9 +1269,10 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
      * 集流竖屏的标题栏/右列/信息摞/选集条/发弹幕入口/全屏观看筹/进度线与
      * 系统栏全隐，唯一留屏的是右下全屏钮、且变淡（防烧屏）。选集条用
      * INVISIBLE 不用 GONE——底部行是横排，条塌掉会把方钮拽到左边。
-     * 官方清屏机理（impl/catalogview/b 两集 400ms 淡变）是同族做法；咱家
-     * 按他口径以显隐＋钮降透明度落，淡值 0.35 为自定（官方同钮在 KMP
-     * 路径、透明度数值未抠到，账里单列）。
+     * 淡值照官方定版 0.4：官方清屏体验件 fq3/a（CleanScreenExperienceBiz）
+     * 与 fq3/b 在 enable_nav_alpha_landscape_btn_opt 开时均以 0.4 设全屏钮
+     * 透明度、恢复 1.0（配置 CleanScreenExperienceOptV725）；该开关关时
+     * 官方在沉浸态干脆不显全屏钮（utils/x1 isSupportShowLandIcon）。
      */
     private void enterCleanMode() {
         cleanMode = true;
@@ -1286,7 +1287,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             h.binding.hgFullscreenWatch.setVisibility(View.GONE);
             h.binding.hgProgressBox.setVisibility(View.GONE);
             h.binding.hgFsBtn.setVisibility(View.VISIBLE);
-            h.binding.hgFsBtn.setAlpha(0.35f);
+            h.binding.hgFsBtn.setAlpha(0.4f);
         }
         new WindowInsetsControllerCompat(getWindow(), getWindow().getDecorView())
                 .hide(WindowInsetsCompat.Type.systemBars());

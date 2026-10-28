@@ -622,6 +622,29 @@ public final class HgApiClient {
     }
 
     /**
+     * 关注/取关作者备路 POST /reading/ugc/general/follow/v:version/
+     * （UgcApiService.A，classes11.dex；版本段照本类 BV 口径拼 /v1/）。
+     * 只在评论口 do_action 主路回包非 0 时由 HgCommentClient 转投过来
+     * （见 HgCommentClient.doFollowAction）；请求体字段与成功判据
+     * （code=0）见 {@link HgRequests#followRequestBody} 注。
+     */
+    public void followAuthor(boolean follow, String authorUid, HgCallback<Void> cb) {
+        JsonObject body = HgRequests.followRequestBody(follow, authorUid);
+        postJson(HOST + "/reading/ugc/general/follow" + BV, body, new BodyCallback() {
+            @Override
+            void onBody(String text) {
+                if (isOkCode(text)) cb.onSuccess(null);
+                else cb.onError(-2, "关注被服务端拒绝（备路）");
+            }
+
+            @Override
+            void onFail(int code, String msg) {
+                cb.onError(code, msg);
+            }
+        });
+    }
+
+    /**
      * 我的预约列表 GET /reading/user/subscribe/list（tab_type=MySubscribed=1）。
      * 出处：classes11.dex rpc 模型 GetUserSubscribeListRequest /
      * UserSubscribeData{subscribe_items, has_more, ...}；端点字符串在国内版

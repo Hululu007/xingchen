@@ -242,7 +242,8 @@ public final class HgParser {
                     null, intOf(r, "episode_cnt", -1), false, false, null,
                     null, null, null, subTitleList(r), null, false,
                     firstStr(album, "album_id_str", "album_id"), intOf(album, "season_cnt", -1),
-                    Collections.emptyList(), -1, -1, intOrNull(r, "series_status"), null, null, null));
+                    Collections.emptyList(), -1, -1, intOrNull(r, "series_status"), null, null, null,
+                    null, null));
         }
         final JsonArray seasonRows = rows;
         seasons.sort((a, b) -> Integer.compare(seasonIndex(seasonRows, a.getSeriesId()),
@@ -555,6 +556,18 @@ public final class HgParser {
             if (own != null && own.size() > 0 && own.get(0).isJsonObject()) {
                 JsonObject first = own.get(0).getAsJsonObject();
                 if (firstStr(first, "vid") != null && firstStr(first, "series_id") != null) {
+                    // 作者信息挂在 detail 本体（ugc_user_info），不在
+                    // video_list[0] 里——本体短片入流时把 ugc 借道塞进
+                    // 合成 video_detail，让 normalize 的作者抬升照常命中；
+                    // 条目自带 video_detail 时以自带为准、不借道。
+                    JsonObject ugc = obj(detail, "ugc_user_info");
+                    if (ugc != null && obj(first, "video_detail") == null) {
+                        JsonObject wrapped = first.deepCopy();
+                        JsonObject carrier = new JsonObject();
+                        carrier.add("ugc_user_info", ugc);
+                        wrapped.add("video_detail", carrier);
+                        first = wrapped;
+                    }
                     addDiscoverItem(first, out);
                 }
             }
@@ -627,6 +640,15 @@ public final class HgParser {
             if (ugcBase != null) {
                 putIfPresent(merged, "author_name", str(ugcBase, "user_name"));
                 putIfPresent(merged, "author_avatar", str(ugcBase, "user_avatar"));
+                putIfPresent(merged, "author_desc", str(ugcBase, "description"));
+            }
+            // 作者 uid 同在 ugc_user_info 里（存档真回包实证：ugc 顶层与
+            // base_info 各一份同值）——作者主页/关注作者的 object_id 来源；
+            // 此前只抬名与头像、uid 被漏掉，头像上的关注只能退化成追剧。
+            if (ugc != null) {
+                String uid = str(ugc, "user_id");
+                if (uid == null && ugcBase != null) uid = str(ugcBase, "user_id");
+                putIfPresent(merged, "author_uid", uid);
             }
         }
         for (Map.Entry<String, JsonElement> e : o.entrySet()) {
@@ -685,7 +707,45 @@ public final class HgParser {
                 else collectSeries(child, out, depth + 1);
             }
         } else if (el.isJsonObject()) {
-            for (Map.Entry<String, JsonElement> e : el.getAsJsonObject().entrySet()) {
+            JsonObject cell = el.getAsJsonObject();
+            // video_detail 本体形：条目在 video_list 里、作者挂本体
+            // ugc_user_info 上，asSeriesItem 只读条目自身字段永远抬不到
+            // 作者——在此把作者四件补进条目副本再收（条目自带同名键
+            // 不覆盖），补过的 video_list 不再走通用递归防重复收条。
+            JsonObject ugc = obj(cell, "ugc_user_info");
+            JsonArray vids = arr(cell, "video_list");
+            boolean lifted = false;
+            if (ugc != null && vids != null) {
+                JsonObject base = obj(ugc, "base_info");
+                String aName = base == null ? null : str(base, "user_name");
+                String aAvatar = base == null ? null : str(base, "user_avatar");
+                String aDesc = base == null ? null : str(base, "description");
+                String aUid = str(ugc, "user_id");
+                if (aUid == null && base != null) aUid = str(base, "user_id");
+                if (aName != null || aUid != null) {
+                    lifted = true;
+                    for (JsonElement ve : vids) {
+                        if (ve == null || !ve.isJsonObject()) continue;
+                        JsonObject copy = ve.getAsJsonObject().deepCopy();
+                        if (str(copy, "author_name") == null && aName != null) {
+                            copy.addProperty("author_name", aName);
+                        }
+                        if (str(copy, "author_avatar") == null && aAvatar != null) {
+                            copy.addProperty("author_avatar", aAvatar);
+                        }
+                        if (str(copy, "author_desc") == null && aDesc != null) {
+                            copy.addProperty("author_desc", aDesc);
+                        }
+                        if (str(copy, "author_uid") == null && aUid != null) {
+                            copy.addProperty("author_uid", aUid);
+                        }
+                        HgSeriesItem item = asSeriesItem(copy);
+                        if (item != null) out.add(item);
+                    }
+                }
+            }
+            for (Map.Entry<String, JsonElement> e : cell.entrySet()) {
+                if (lifted && "video_list".equals(e.getKey())) continue;
                 collectSeries(e.getValue(), out, depth + 1);
             }
         }
@@ -759,7 +819,8 @@ public final class HgParser {
                 intOf(o, "album_serial_count", -1), siblings,
                 longOf(o, "comment_count", -1), longOf(o, "digged_count", -1),
                 intOrNull(o, "series_status"), statementOf(intOrNull(o, "ai_usage_type")),
-                str(o, "author_name"), str(o, "author_avatar"));
+                str(o, "author_name"), str(o, "author_avatar"),
+                str(o, "author_uid"), str(o, "author_desc"));
     }
 
     /**

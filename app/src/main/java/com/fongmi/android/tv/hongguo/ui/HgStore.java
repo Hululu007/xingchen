@@ -15,11 +15,15 @@ import java.util.Set;
 public final class HgStore {
 
     private static final String K_DANMAKU_ON = "hongguo_danmaku_on";
+    private static final String K_SPEED = "hongguo_speed";
     private static final String K_LAUNCH_DIRECT = "hongguo_launch_direct";
     private static final String K_AUTO_NEXT = "hongguo_auto_next";
     private static final String K_LIKED = "hongguo_liked_series";
     private static final String K_FAVED = "hongguo_faved_series";
     private static final String K_FOLLOWED = "hongguo_followed_series";
+    /** 作者关注集（key＝作者 uid，与按剧的追更集 K_FOLLOWED 分家：那套喂
+     * 追更页签的剧列表，混进 uid 会生出无元信息的鬼行）。 */
+    private static final String K_FOLLOWED_AUTHORS = "hongguo_followed_authors";
     private static final String K_RESERVED = "hongguo_reserved_series";
     private static final String K_PROFILE_NAME = "hongguo_profile_name";
     private static final String K_PROFILE_AVATAR = "hongguo_profile_avatar";
@@ -40,6 +44,20 @@ public final class HgStore {
 
     public static void setDanmakuOn(boolean on) {
         Prefers.put(K_DANMAKU_ON, on);
+    }
+
+    // ---------- 红果默认倍速（更多面板选定即落此键，起播初始倍速读它） ----------
+    // 红果链不经 PlayerManager/PlayerSetting（自有 engine 直起），此前起播
+    // 倍速恒为播放器默认 1x；面板倍速是红果自己的持久档（官方按剧缓存
+    // cacheVideoSpeed 的自家等价），与星辰全局倍速互不串。
+
+    public static float getSpeed() {
+        float v = Prefers.getFloat(K_SPEED, 1f);
+        return v > 0 ? v : 1f;
+    }
+
+    public static void setSpeed(float speed) {
+        if (speed > 0) Prefers.put(K_SPEED, speed);
     }
 
     // ---------- 「启动直达短剧」开关（抽屉第一项，他亲定名） ----------
@@ -166,6 +184,20 @@ public final class HgStore {
 
     // ---------- 预约镜像（服务端为准：回包 appointment 态与预约列表回读都往这里对） ----------
 
+    // ---------- 作者关注（key＝作者 uid；主页关注钮与 feed 头像徽标同读） ----------
+
+    public static boolean isAuthorFollowed(String authorUid) {
+        return contains(K_FOLLOWED_AUTHORS, authorUid);
+    }
+
+    public static void setAuthorFollowed(String authorUid, boolean on) {
+        set(K_FOLLOWED_AUTHORS, authorUid, on);
+    }
+
+    public static java.util.List<String> authorFollowedIds() {
+        return new java.util.ArrayList<>(readSet(K_FOLLOWED_AUTHORS));
+    }
+
     public static boolean isReserved(String seriesId) {
         return contains(K_RESERVED, seriesId);
     }
@@ -203,6 +235,7 @@ public final class HgStore {
         Prefers.put(K_LIKED, "");
         Prefers.put(K_FAVED, "");
         Prefers.put(K_FOLLOWED, "");
+        Prefers.put(K_FOLLOWED_AUTHORS, "");
         Prefers.put(K_RESERVED, "");
         Prefers.put(K_PROFILE_NAME, "");
         Prefers.put(K_PROFILE_AVATAR, "");
@@ -223,6 +256,13 @@ public final class HgStore {
 
     public static String profileAvatar() {
         String v = Prefers.getString(K_PROFILE_AVATAR, "");
+        return v == null || v.isEmpty() ? null : v;
+    }
+
+    /** 本人 uid（作者主页门禁用：官方 enableClickAvatarOpenSeriesProfilePage
+     * ＝非本人才能点头像进主页）；资料口没回填过为 null。 */
+    public static String profileUid() {
+        String v = Prefers.getString(K_PROFILE_UID, "");
         return v == null || v.isEmpty() ? null : v;
     }
 

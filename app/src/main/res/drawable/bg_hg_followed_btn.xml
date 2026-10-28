@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 作者主页关注钮·已关注态（官方定版：纯色底 #33FFFFFF、白字「已关注」、
+     圆角 6dp——官方钮压在 390dp 顶图照片上所以用半透明白；自家页是白底，
+     原值在白底上不可见，改等明度感的中性浅灰 #14000000＋深字承接，
+     偏差原因见 fix-author-page-20261028 账）。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="6dp" />
+    <solid android:color="#14000000" />
+</shape>

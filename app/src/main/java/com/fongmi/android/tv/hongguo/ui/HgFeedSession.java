@@ -91,6 +91,9 @@ public final class HgFeedSession {
                 new com.fongmi.android.tv.hongguo.api.HgLoginAuthProvider();
         client.setAuthProvider(auth);
         fqClient.setAuthProvider(auth);
+        // 关注作者备路：主路（fqClient 的 commentapi do_action）回包非 0 时
+        // 转投 bookapi 的 follow/ 端点（client 侧签名传输）
+        fqClient.setFollowFallback((follow, authorUid, cb) -> client.followAuthor(follow, authorUid, cb));
         this.remoteInteractions = new HgRemoteInteractions(client, fqClient);
         this.interactions = this.remoteInteractions;
         this.prefetcher = new HgPrefetcher(client, cache);
@@ -361,6 +364,10 @@ public final class HgFeedSession {
             HgFeedItem page = HgFeedItem.episode(head.seriesId, ep.getVideoId(), idx,
                     count > 0 ? count : sorted.size(), title, head.category, author, avatar, desc, cover);
             if (detail.getStatement() != null) page.statement = detail.getStatement();
+            // 作者 uid 详情面不下发：从进剧条目继承（流条目 cell 抬升来的），
+            // 集流里点头像进作者主页靠这一手；条目本身没有就整路没有。
+            page.authorUid = head.authorUid;
+            page.authorDesc = head.authorDesc;
             pages.add(page);
             i++;
         }

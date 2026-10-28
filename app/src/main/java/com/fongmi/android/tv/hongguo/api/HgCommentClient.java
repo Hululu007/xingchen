@@ -359,6 +359,91 @@ public final class HgCommentClient {
         });
     }
 
+    // ---------- 关注作者 ----------
+
+    /** UgcActionType（saas/ugc/model <clinit> 定版）：Subscribe=25 / CancelSubscribe=26。 */
+    public static final int ACTION_SUBSCRIBE = 25;
+    public static final int ACTION_CANCEL_SUBSCRIBE = 26;
+    /** UgcActionObjectType（同上）：User=1。 */
+    public static final int OBJECT_USER = 1;
+
+    /**
+     * 关注作者主路请求体（官方 PugcFollowButton.n() 逐行实证，dig-mine-profile
+     * §2.8）：CommentApiService.doAction 的 DoActionRequest——action_type＝
+     * Subscribe(25)/CancelSubscribe(26)、object_type＝User(1)、object_id＝
+     * 作者 uid、aid＝8662、business_param 只带 shark_param。端点
+     * POST /novel/commentapi/comment/do_action/v1/（同服务接口类
+     * UgcApiService 旁的 saas CommentApiService 注解逐字，jadx11）。
+     * shark_param 官方传 NsCommunityApi.getRequestSharkParam() 的运行时
+     * 反作弊图，全表在包内抠不到；本批照本文件已定版的写口径（发弹幕
+     * danmakuPostPayload）落 type/aid 两键，待新版首发回包校准。
+     */
+    public static JsonObject followActionPayload(boolean follow, String authorUid) {
+        JsonObject payload = new JsonObject();
+        payload.addProperty("action_type", follow ? ACTION_SUBSCRIBE : ACTION_CANCEL_SUBSCRIBE);
+        payload.addProperty("object_type", OBJECT_USER);
+        payload.addProperty("object_id", authorUid);
+        payload.addProperty("aid", 8662);
+        JsonObject business = new JsonObject();
+        JsonObject shark = new JsonObject();
+        shark.addProperty("type", "short_play");
+        shark.addProperty("aid", "8662");
+        business.add("shark_param", shark);
+        payload.add("business_param", business);
+        return payload;
+    }
+
+    /** 备路承接（follow/ 端点在 bookapi 宿主，走 HgApiClient 的签名传输；
+     * 由会话层装配时注入，避免本客户端反向依赖 HgApiClient）。 */
+    public interface FollowFallback {
+        void follow(boolean follow, String authorUid, HgCallback<Void> cb);
+    }
+
+    private volatile FollowFallback followFallback;
+
+    public void setFollowFallback(FollowFallback fallback) {
+        this.followFallback = fallback;
+    }
+
+    /**
+     * 关注/取关作者：主路 commentapi do_action（与点赞同 plumbing），回包
+     * 信封 code=0 才算受理（writeResult 三态口径，与官方 DoActionResponse
+     * .code==Success 同义）；主路回包非 0（被拒）才转备路 follow/ 端点
+     * （HgApiClient.followAuthor，经 {@link FollowFallback} 注入）；
+     * 解析失败与网络失败不转备路、原样报错（不许拿备路掩盖主路的真实死因）。
+     */
+    public void doFollowAction(boolean follow, String authorUid, HgCallback<Void> cb) {
+        if (!isId(authorUid)) {
+            cb.onError(-1, "作者 id 非法");
+            return;
+        }
+        post("comment/do_action", followActionPayload(follow, authorUid), 0, 0, new TextCallback() {
+            @Override
+            void onText(String resp) {
+                int r = HgCommentParser.writeResult(resp);
+                if (r > 0) {
+                    cb.onSuccess(null);
+                    return;
+                }
+                if (r < 0) {
+                    cb.onError(-2, "关注回包解析失败");
+                    return;
+                }
+                FollowFallback fb = followFallback;
+                if (fb == null) {
+                    cb.onError(-2, "关注被服务端拒绝");
+                    return;
+                }
+                fb.follow(follow, authorUid, cb);
+            }
+
+            @Override
+            void onFail(int code, String msg) {
+                cb.onError(code, msg);
+            }
+        });
+    }
+
     // ---------- 传输（照 HongguoCommentApi.post 的签名/设备口径） ----------
 
     private abstract static class TextCallback {

@@ -318,6 +318,32 @@ public final class HgRequests {
         return body;
     }
 
+    /** FollowActionType（classes11.dex rpc/model <clinit> 定版）：Follow=1 / UnFollow=0。 */
+    public static final int FOLLOW_ACTION_FOLLOW = 1;
+    public static final int FOLLOW_ACTION_UNFOLLOW = 0;
+    /** FollowRelativeType（同上）：Author=3 / User=2；本链的对象是短剧作者，用 3。 */
+    public static final int FOLLOW_RELATIVE_AUTHOR = 3;
+
+    /**
+     * 关注/取关作者备路体 POST /reading/ugc/general/follow/v:version/
+     * （UgcApiService.A，classes11.dex）。请求模型 FollowRequest 七字段
+     * （同 dex 模型类逐字）：action_type / follow_source / is_cancelled /
+     * relative_id / relative_id_list / relative_type / user_id；构造点
+     * social/follow/b0.b 逐行实证只填四件——action_type（Follow=1 /
+     * UnFollow=0）、relative_id＝目标 uid、relative_type（作者=3）、
+     * follow_source＝调用方场景串；user_id / relative_id_list /
+     * is_cancelled 不填。follow_source 的场景串在短剧作者面没有定版值，
+     * 本批不填（宁缺不编）。回包 FollowResponse{code,message}，
+     * b0 以 assertRspDataOk(resp, 0) 判成功＝code 0。
+     */
+    public static JsonObject followRequestBody(boolean follow, String authorUid) {
+        JsonObject body = new JsonObject();
+        body.addProperty("action_type", follow ? FOLLOW_ACTION_FOLLOW : FOLLOW_ACTION_UNFOLLOW);
+        body.addProperty("relative_id", authorUid);
+        body.addProperty("relative_type", FOLLOW_RELATIVE_AUTHOR);
+        return body;
+    }
+
     // ---------- 预约（未上线剧的到货提醒式预约，样本实证） ----------
 
     /** 预约 item_type：短剧=14（见 subscribeBody 注的 P() 出处）；小说书=1。 */

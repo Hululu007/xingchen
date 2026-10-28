@@ -474,10 +474,20 @@ public final class HgRequests {
 
     /** 预约回读分页参数（D1 定性缺陷修：原先写死第一页 50 条，超量误判）。 */
     public static java.util.Map<String, String> subscribeListParams(int offset) {
+        return subscribeListParams(offset, true);
+    }
+
+    /**
+     * 预约分档读参：官方 GetUserSubscribeListRequest 有 is_online 布尔字段，
+     * 我的页预约子页签（已上线/待上线）按档分两次拉（MineReservationViewModel
+     * 的 loadData 把 $isOnlineData 逐路透传进请求）。
+     */
+    public static java.util.Map<String, String> subscribeListParams(int offset, boolean online) {
         java.util.Map<String, String> q = new java.util.HashMap<>();
         q.put("tab_type", String.valueOf(SUBSCRIBE_TAB_MY_SUBSCRIBED));
         q.put("limit", "50");
         q.put("offset", String.valueOf(Math.max(0, offset)));
+        q.put("is_online", String.valueOf(online));
         return q;
     }
 }

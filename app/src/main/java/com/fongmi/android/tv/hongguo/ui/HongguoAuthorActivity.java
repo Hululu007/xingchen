@@ -140,11 +140,7 @@ public class HongguoAuthorActivity extends BaseActivity {
 
     /** 计数拼一串（官方 SeriesProfileSocialRecordLayout 的数＋单位同串口径）。 */
     private static String formatStat(int n) {
-        if (n < 10000) return String.valueOf(n);
-        double wan = n / 10000.0;
-        String s = String.format(java.util.Locale.US, "%.1f", wan);
-        if (s.endsWith(".0")) s = s.substring(0, s.length() - 2);
-        return s + "万";
+        return com.fongmi.android.tv.hongguo.HgFormat.countLine(n);
     }
 
     /** 头像：有址圆图，没址用名首字牌（ImgUtil 的 text 占位，与 feed 作者行同一口径）。 */

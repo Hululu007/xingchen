@@ -724,8 +724,9 @@ public final class HgApiClient {
      * UserSubscribeData{subscribe_items, has_more, ...}；端点字符串在国内版
      * 样本逐字命中。解析走容忍抽取（见 HgParser.parseSubscribeList 注）。
      */
-    public void fetchMyReservations(HgCallback<java.util.List<com.fongmi.android.tv.hongguo.model.HgSeriesItem>> cb) {
-        fetchReservationsPage(0, new java.util.ArrayList<>(), cb);
+    /** 按上线档拉我的预约（官方 is_online 分档，见 HgRequests.subscribeListParams）。 */
+    public void fetchMyReservations(boolean online, HgCallback<java.util.List<com.fongmi.android.tv.hongguo.model.HgSeriesItem>> cb) {
+        fetchReservationsPage(0, online, new java.util.ArrayList<>(), cb);
     }
 
     /**
@@ -733,17 +734,17 @@ public final class HgApiClient {
      * 或空页；上限 10 页防服务端异常时死循环。中途某页失败时已累积的
      * 照常回成功（回读对齐宁可少、不可全丢）。
      */
-    private void fetchReservationsPage(int offset,
+    private void fetchReservationsPage(int offset, boolean online,
                                        java.util.List<com.fongmi.android.tv.hongguo.model.HgSeriesItem> acc,
                                        HgCallback<java.util.List<com.fongmi.android.tv.hongguo.model.HgSeriesItem>> cb) {
-        get(HOST + "/reading/user/subscribe/list" + BV, HgRequests.subscribeListParams(offset), new BodyCallback() {
+        get(HOST + "/reading/user/subscribe/list" + BV, HgRequests.subscribeListParams(offset, online), new BodyCallback() {
             @Override
             void onBody(String text) {
                 java.util.List<com.fongmi.android.tv.hongguo.model.HgSeriesItem> page =
                         HgParser.parseSubscribeList(text);
                 if (page != null) acc.addAll(page);
                 if (page != null && page.size() >= 50 && offset < 450) {
-                    fetchReservationsPage(offset + 50, acc, cb);
+                    fetchReservationsPage(offset + 50, online, acc, cb);
                 } else {
                     cb.onSuccess(acc);
                 }

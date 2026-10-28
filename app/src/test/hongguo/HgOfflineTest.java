@@ -121,6 +121,18 @@ public class HgOfflineTest {
         //    重塑成单集回包形状 {data:{video_model,video_width,video_height}}，
         //    数据是真的、只换外层包法，验新解析器吃得对不对。
         {
+            // §23 预约分档参数（官方 GetUserSubscribeListRequest.is_online）
+            java.util.Map<String, String> on = HgRequests.subscribeListParams(0, true);
+            java.util.Map<String, String> off = HgRequests.subscribeListParams(50, false);
+            java.util.Map<String, String> legacy = HgRequests.subscribeListParams(0);
+            check("§23 is_online 参数形态", "true".equals(on.get("is_online"))
+                    && "false".equals(off.get("is_online"))
+                    && "1".equals(on.get("tab_type")) && "50".equals(on.get("limit"))
+                    && "50".equals(off.get("offset")), "on=" + on + " off=" + off);
+            check("§23 无参旧签名回落已上线档", "true".equals(legacy.get("is_online")), "实际=" + legacy);
+        }
+
+        {
             com.google.gson.JsonObject mroot = com.google.gson.JsonParser.parseString(multi).getAsJsonObject();
             com.google.gson.JsonObject wrap = mroot.getAsJsonObject("data").getAsJsonObject("7694897951721655320");
             com.google.gson.JsonObject single = new com.google.gson.JsonObject();
@@ -652,6 +664,20 @@ public class HgOfflineTest {
                             && Boolean.FALSE.equals(p3.followedByMe),
                     "实际=" + (p3 == null ? null : p3.followUserNum + "/" + p3.followedByMe));
             check("§22 无 ugc_user 回 null", HgParser.parseUserProfile("{\"data\":{}}") == null, null);
+        }
+
+        {
+            // §24 数字格式（官方 o6 的 (计数, 单位) 对拼法：万以下无单位、
+            // 万起 x.x万；亿界未抠到不猜、按万进位）
+            check("§24 数字万以下直显", "9999".equals(HgFormat.countUnit(9999)[0])
+                    && "".equals(HgFormat.countUnit(9999)[1]), null);
+            check("§24 数字万级一位小数", "1.0".equals(HgFormat.countUnit(10000)[0])
+                    && "万".equals(HgFormat.countUnit(10000)[1])
+                    && "12.3".equals(HgFormat.countUnit(123456)[0]), null);
+            check("§24 数字负数与零", "0".equals(HgFormat.countUnit(0)[0])
+                    && "".equals(HgFormat.countUnit(-5)[1]), null);
+            String line = HgFormat.countLine(23456);
+            check("§24 countLine 拼整串", "2.3万".equals(line), "实际=" + line);
         }
 
         System.out.println(fail == 0 ? "ALL PASS" : ("FAILURES=" + fail));

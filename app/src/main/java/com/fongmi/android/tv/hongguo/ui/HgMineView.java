@@ -82,6 +82,7 @@ public final class HgMineView extends LinearLayout {
     private int favFilter = FAV_ALL;
     private int reserveFilter = RES_ONLINE;
     private final java.util.Map<String, String> reserveDue = new java.util.HashMap<>();
+    private boolean reserveRefreshing;
     private boolean editing;
     private final java.util.Set<String> selected = new java.util.HashSet<>();
     private OnOpenSeries openListener;
@@ -270,18 +271,11 @@ public final class HgMineView extends LinearLayout {
                 });
     }
 
-    /** 计数拆数＋单位两件（官方 o6 拼法：万以下原数无单位、万起 x.x万）。 */
+    /** 计数拆数＋单位两件（官方 o6 拼法，统一走 HgFormat：万以下原数无单位、万起 x.x万一位小数不剥尾）。 */
     private static void setRelationCount(TextView num, TextView unit, int n) {
-        if (n < 10000) {
-            num.setText(String.valueOf(n));
-            unit.setText("");
-            return;
-        }
-        double wan = n / 10000.0;
-        String s = String.format(java.util.Locale.US, "%.1f", wan);
-        if (s.endsWith(".0")) s = s.substring(0, s.length() - 2);
-        num.setText(s);
-        unit.setText("万");
+        String[] p = com.fongmi.android.tv.hongguo.HgFormat.countUnit(n);
+        num.setText(p[0]);
+        unit.setText(p[1]);
     }
 
     /**
@@ -461,11 +455,15 @@ public final class HgMineView extends LinearLayout {
         renderChips();
         List<Row> rows = new ArrayList<>();
         if (currentTab == TAB_RESERVE) {
+            // 分档以服务端回源集为准（官方 is_online 分档）；从未回源过
+            // （集为空）才回落旧推断：本地 meta 集数>0 视为已上线。
+            java.util.Set<String> onlineIds = HgStore.reservedOnlineIds();
+            boolean serverKnown = !onlineIds.isEmpty();
             for (String id : HgStore.reservedIds()) {
                 String[] meta = HgStore.metaOf(id);
                 if (meta == null) continue;
                 int count = parseCount(meta);
-                boolean online = count > 0;
+                boolean online = serverKnown ? onlineIds.contains(id) : count > 0;
                 if (reserveFilter == RES_ONLINE && !online) continue;
                 if (reserveFilter == RES_UPCOMING && online) continue;
                 String due = reserveDue.get(id);
@@ -585,13 +583,34 @@ public final class HgMineView extends LinearLayout {
         });
     }
 
-    /** 预约页签后台刷新：服务端预约列表回来后同步镜像与上线时间，以服务端为准重列（回空不冲镜像行）。 */
+    /**
+     * 预约页签后台刷新：按官方 is_online 分两档回源——两档都拉，已上线档
+     * 落盘为分档集（renderTab 分档以它为准）；镜像与上线时间同步后重列。
+     * 防冲空口径不变：某档回空不冲该档镜像行（本地预约动作先落镜像，
+     * 服务端最终一致）。
+     */
     private void refreshReservedFromServer() {
-        HgFeedSession.get().client.fetchMyReservations(new HgCallback<java.util.List<HgSeriesItem>>() {
+        if (reserveRefreshing) return;
+        reserveRefreshing = true;
+        fetchReserveTier(true);
+        fetchReserveTier(false);
+    }
+
+    private void fetchReserveTier(boolean online) {
+        HgFeedSession.get().client.fetchMyReservations(online, new HgCallback<java.util.List<HgSeriesItem>>() {
             @Override
             public void onSuccess(java.util.List<HgSeriesItem> list) {
                 post(() -> {
-                    if (currentTab != TAB_RESERVE || list == null || list.isEmpty()) return;
+                    reserveRefreshing = false;
+                    if (list == null) return;
+                    if (online) {
+                        java.util.Set<String> ids = new java.util.LinkedHashSet<>();
+                        for (HgSeriesItem s : list) {
+                            if (s.getSeriesId() != null) ids.add(s.getSeriesId());
+                        }
+                        if (!ids.isEmpty()) HgStore.setReservedOnlineIds(ids);
+                    }
+                    if (currentTab != TAB_RESERVE || list.isEmpty()) return;
                     for (HgSeriesItem s : list) {
                         if (s.getSeriesId() == null) continue;
                         HgStore.setReserved(s.getSeriesId(), true);
@@ -612,6 +631,7 @@ public final class HgMineView extends LinearLayout {
 
             @Override
             public void onError(int httpCode, String message) {
+                post(() -> reserveRefreshing = false);
                 // 镜像已先显，刷新失败不打扰
             }
         });

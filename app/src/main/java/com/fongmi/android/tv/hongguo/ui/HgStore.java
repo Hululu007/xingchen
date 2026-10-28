@@ -25,6 +25,7 @@ public final class HgStore {
      * 追更页签的剧列表，混进 uid 会生出无元信息的鬼行）。 */
     private static final String K_FOLLOWED_AUTHORS = "hongguo_followed_authors";
     private static final String K_RESERVED = "hongguo_reserved_series";
+    private static final String K_RESERVED_ONLINE = "hongguo_reserved_online_series";
     private static final String K_PROFILE_NAME = "hongguo_profile_name";
     private static final String K_PROFILE_AVATAR = "hongguo_profile_avatar";
     private static final String K_PROFILE_UID = "hongguo_profile_uid";
@@ -214,6 +215,25 @@ public final class HgStore {
         return new java.util.ArrayList<>(readSet(K_RESERVED));
     }
 
+    /**
+     * 预约「已上线」分档集（服务端 is_online=true 回读结果落盘）：子页签
+     * 分档以回源为准（官方分档在服务端）；从未回源过时集为空、页面
+     * 回落集数推断。登出随账号镜像整清。
+     */
+    public static java.util.Set<String> reservedOnlineIds() {
+        return readSet(K_RESERVED_ONLINE);
+    }
+
+    public static void setReservedOnlineIds(java.util.Collection<String> ids) {
+        StringBuilder sb = new StringBuilder();
+        if (ids != null) for (String id : ids) {
+            if (id == null || id.isEmpty()) continue;
+            if (sb.length() > 0) sb.append(',');
+            sb.append(id);
+        }
+        Prefers.put(K_RESERVED_ONLINE, sb.toString());
+    }
+
     public static java.util.List<String> likedIds() {
         return new java.util.ArrayList<>(readSet(K_LIKED));
     }
@@ -237,6 +257,7 @@ public final class HgStore {
         Prefers.put(K_FOLLOWED, "");
         Prefers.put(K_FOLLOWED_AUTHORS, "");
         Prefers.put(K_RESERVED, "");
+        Prefers.put(K_RESERVED_ONLINE, "");
         Prefers.put(K_PROFILE_NAME, "");
         Prefers.put(K_PROFILE_AVATAR, "");
         Prefers.put(K_PROFILE_UID, "");

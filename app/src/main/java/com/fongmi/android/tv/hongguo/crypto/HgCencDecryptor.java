@@ -29,7 +29,9 @@ import javax.crypto.spec.SecretKeySpec;
  *   <li>区间解密：底本 ccDecryptPart 按「块首归属窗口」切分（顺序分窗语义）；
  *       本类是随机 Range 单窗，改为相交块全解＋起始块密钥流推进，见
  *       {@link #decryptWindow} 的口径差注明。</li>
- *   <li>同长改写（补丁表）：encv→hev1（avcC 时 avc1）、enca→mp4a、sinf→free、
+ *   <li>同长改写（补丁表）：encv→hev1（avcC 时 avc1）、enca→sinf 里 frma 记的原始
+ *       格式（短剧 AAC 轨即 mp4a、与旧口径同值；听书 Opus 轨为 Opus；frma 读不到
+ *       或不可信才回落 mp4a）、sinf→free、
  *       顶层 pssh→free，全部 4 字节等长，出流时按偏移透明套用。</li>
  * </ul>
  *
@@ -117,6 +119,16 @@ public final class HgCencDecryptor {
     }
 
     /** 在 buf 的 [start,end) 区间（对应文件绝对偏移 absBase+start）内 walk 盒。 */
+    /** frma 原始格式须是可打印的 4 字节 fourcc 才采信，否则回落旧口径 mp4a。 */
+    private static boolean isFourCc(String s) {
+        if (s == null || s.length() != 4) return false;
+        for (int i = 0; i < 4; i++) {
+            char c = s.charAt(i);
+            if (c < 0x20 || c > 0x7e) return false;
+        }
+        return true;
+    }
+
     private static void walk(byte[] buf, int start, int end, long absBase, BoxVisitor v) {
         int pos = start;
         while (pos + 8 <= end) {
@@ -212,6 +224,7 @@ public final class HgCencDecryptor {
         int entryOff = -1;
         String entryCC = "";
         int sinfOff = -1;
+        String origFmt = "";
         String codecTag = "";
         int stsz = -1, stco = -1, co64 = -1, stsc = -1, senc = -1;
     }
@@ -264,7 +277,18 @@ public final class HgCencDecryptor {
             if (childOff < t.entryOff + entrySize) {
                 walk(b, childOff, t.entryOff + entrySize, absBase, (type, p, s, hdr) -> {
                     int mp = (int) (p - absBase);
-                    if ("sinf".equals(type)) t.sinfOff = mp;
+                    if ("sinf".equals(type)) {
+                        t.sinfOff = mp;
+                        // frma 记着加密前的原始格式（音频书 Opus 轨靠它把 enca 改回去，
+                        // 短剧 AAC 轨 frma 就是 mp4a、改名结果与旧口径逐字节相同）。
+                        int sinfEnd = mp + (int) s;
+                        walk(b, mp + hdr, sinfEnd, absBase, (ty4, p4, s4, hdr4) -> {
+                            if ("frma".equals(ty4)) {
+                                t.origFmt = cc(b, (int) (p4 - absBase) + 8);
+                            }
+                            return false;
+                        });
+                    }
                     else if ("hvcC".equals(type) || "avcC".equals(type) || "bv2C".equals(type)
                             || "vpcC".equals(type) || "av1C".equals(type)) t.codecTag = type;
                     return false;
@@ -276,7 +300,7 @@ public final class HgCencDecryptor {
         // 补丁（绝对偏移）
         long entryAbs = absBase + t.entryOff;
         if ("encv".equals(t.entryCC)) patches.add(new Patch(entryAbs + 4, "avcC".equals(t.codecTag) ? "avc1" : "hev1"));
-        else if ("enca".equals(t.entryCC)) patches.add(new Patch(entryAbs + 4, "mp4a"));
+        else if ("enca".equals(t.entryCC)) patches.add(new Patch(entryAbs + 4, isFourCc(t.origFmt) ? t.origFmt : "mp4a"));
         if (t.sinfOff >= 0) patches.add(new Patch(absBase + t.sinfOff + 4, "free"));
 
         return buildSamples(b, t);

@@ -105,6 +105,19 @@ public class HgBookCryptoTest {
         check("chapterUrl 编解码", "7596021152615517209".equals(HgBookBridge.bookIdOf(cu))
                 && "7596021152615517210".equals(HgBookBridge.itemIdOf(cu)), cu);
 
+        // 6) 听书钥匙向量（dig-audio-cenc-key-20261028 本机真拉实证）：音频
+        //    encryption_key 与短剧 spade_a 同套置乱，树内现成 SpadeKey 必须逐值推出。
+        com.fongmi.android.tv.hongguo.crypto.SpadeKey.Result k1 =
+                com.fongmi.android.tv.hongguo.crypto.SpadeKey.derive(
+                        "krwc+0y0AvpPgjPSeJw05WSvNOFknCzVZ5Ir7memK+hVoB2MjA==");
+        check("听书 TTS 第1章钥匙", "3199775be9374a74978f01204d3035d2".equals(k1.key)
+                && "1".equals(k1.out2), String.valueOf(k1.key) + "/" + k1.out2);
+        com.fongmi.android.tv.hongguo.crypto.SpadeKey.Result k2 =
+                com.fongmi.android.tv.hongguo.crypto.SpadeKey.derive(
+                        "krwc82G7L8JghRv4ULIA/X20Ms15hyn7VrAs+FeDBfxJtQGFhQ==");
+        check("听书真人 第1章钥匙", "39f27b71df3387d38b338df4b0bc9f23".equals(k2.key)
+                && "1".equals(k2.out2), String.valueOf(k2.key) + "/" + k2.out2);
+
         System.out.println(fail == 0 ? "ALL PASS" : ("FAILURES=" + fail));
         if (fail > 0) System.exit(1);
     }

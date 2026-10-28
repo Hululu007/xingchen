@@ -1,18 +1,24 @@
 package com.fongmi.android.tv.hongguo.book;
 
+import com.fongmi.android.tv.hongguo.crypto.SpadeKey;
+import com.fongmi.android.tv.hongguo.proxy.HgStreamRegistry;
+import com.fongmi.android.tv.hongguo.proxy.HgStreamSpec;
 import com.fongmi.android.tv.legado.HgBookBridge;
 import com.fongmi.android.tv.legado.HgBookOps;
 import com.fongmi.android.tv.legado.LegadoException;
 import com.fongmi.android.tv.legado.LegadoPipeline;
+import com.fongmi.android.tv.server.Server;
+import com.google.gson.JsonObject;
 
 import java.util.ArrayList;
 import java.util.List;
 
 /**
  * 红果书源执行实现（红果包内）：把 HgBookClient 的书数据映射成阅读管线四段。
- * 小说正文走加密链（HgNovelCrypto 在客户端内处理）；听书的音频是 CENC 加密、
- * 内容密钥解包还没破（见 dig-audio-novel-source §1.4），所以听书正文段直接给
- * 人话错误——浏览/挑书/目录都能用，点播先明确告诉他播不了，不许假装能播。
+ * 小说正文走加密链（HgNovelCrypto 在客户端内处理）；听书音频是 CENC 加密，
+ * encryption_key 与短剧 spade_a 同一种置乱编码（dig-audio-cenc-key-20261028
+ * 实测推翻「另一套」旧判），SpadeKey 推出内容密钥后登记进短剧同款本地解密
+ * 代理（HgStreamRegistry），正文段回本地代理地址给听书播放器。
  */
 public final class HgBookOpsImpl implements HgBookOps {
 
@@ -86,10 +92,7 @@ public final class HgBookOpsImpl implements HgBookOps {
 
     @Override
     public LegadoPipeline.Content content(boolean audio, String chapterUrl) {
-        if (audio) {
-            throw new LegadoException("红果听书的音频是加密的，内容密钥还没破解，"
-                    + "暂时播不了；挑书和目录可以正常看");
-        }
+        if (audio) return audioContent(chapterUrl);
         try {
             String bookId = HgBookBridge.bookIdOf(chapterUrl);
             String itemId = HgBookBridge.itemIdOf(chapterUrl);
@@ -102,6 +105,61 @@ public final class HgBookOpsImpl implements HgBookOps {
             throw e;
         } catch (Exception e) {
             throw new LegadoException("红果正文失败：" + msg(e));
+        }
+    }
+
+    /**
+     * 听书正文段＝取本章播放信息 → 推出内容密钥 → 登记本地解密代理 → 回代理地址。
+     * 钥匙随章变，每章现取现推；未加密的章（无钥匙材料）代理直喂。
+     */
+    private LegadoPipeline.Content audioContent(String chapterUrl) {
+        try {
+            String bookId = HgBookBridge.bookIdOf(chapterUrl);
+            String itemId = HgBookBridge.itemIdOf(chapterUrl);
+            JsonObject info = client.audioPlayInfo(bookId, itemId);
+            String url = strOf(info, "main_url");
+            if (url.isEmpty()) url = strOf(info, "backup_url");
+            if (url.isEmpty()) throw new LegadoException("红果听书这一章没给播放地址");
+            String encKey = strOf(info, "encryption_key");
+            String dekHex = null;
+            if (!encKey.isEmpty()) {
+                dekHex = SpadeKey.deriveKeyHex(encKey);
+            } else if (truthy(info, "is_encrypt")) {
+                throw new LegadoException("红果听书这一章标了加密却没给钥匙材料");
+            }
+            HgStreamSpec spec = new HgStreamSpec(url, dekHex, 0, null, "audio:" + itemId);
+            String token = HgStreamRegistry.get().register(spec);
+            if (token == null) throw new LegadoException("红果听书播放登记失败");
+            LegadoPipeline.Content c = new LegadoPipeline.Content();
+            c.text = Server.get().getAddress(true)
+                    + HgStreamRegistry.get().playbackPath(token);
+            return c;
+        } catch (LegadoException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new LegadoException("红果听书取播放地址失败：" + msg(e));
+        }
+    }
+
+    private static String strOf(JsonObject o, String key) {
+        try {
+            if (o == null || !o.has(key) || o.get(key).isJsonNull()) return "";
+            return o.get(key).getAsString().trim();
+        } catch (Throwable t) {
+            return "";
+        }
+    }
+
+    private static boolean truthy(JsonObject o, String key) {
+        try {
+            if (o == null || !o.has(key) || o.get(key).isJsonNull()) return false;
+            com.google.gson.JsonPrimitive p = o.get(key).getAsJsonPrimitive();
+            if (p.isBoolean()) return p.getAsBoolean();
+            if (p.isNumber()) return p.getAsInt() != 0;
+            String s = p.getAsString();
+            return "true".equalsIgnoreCase(s) || "1".equals(s);
+        } catch (Throwable t) {
+            return false;
         }
     }
 

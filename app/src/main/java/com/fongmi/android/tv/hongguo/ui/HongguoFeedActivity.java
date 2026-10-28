@@ -2411,7 +2411,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
 
     private void refreshLandTimeText() {
         if (player == null) return;
-        long ms = Math.max(0, player.getPosition());
+        long ms = Math.max(0, player.getCurrentPosition());
         long totalSec = ms / 1000;
         binding.hgLandTime.setText(String.format(java.util.Locale.US, "%02d:%02d:%02d",
                 totalSec / 3600, (totalSec % 3600) / 60, totalSec % 60));

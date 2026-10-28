@@ -1523,6 +1523,16 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         if (mode == MODE_FEED) enterSeries(position);
     }
 
+    /** 剧名行点入剧详情页（用户亲授：与作者页分开的另一个去处）。 */
+    @Override
+    public void onSeriesDetail(int position) {
+        if (position < 0 || position >= session.items.size()) return;
+        HgFeedItem item = session.items.get(position);
+        if (item.seriesId == null || item.seriesId.isEmpty()) return;
+        suppressResumeRefresh = true;
+        HongguoSeriesDetailActivity.start(this, item.seriesId, item.title, item.coverUrl);
+    }
+
     /**
      * 短片流进剧（账 §4/§5.4）：回包带专辑兄弟部时先弹系列半屏单选部，
      * 单季剧（或无专辑数据）直进该剧集流；断点在集流展开链里续。

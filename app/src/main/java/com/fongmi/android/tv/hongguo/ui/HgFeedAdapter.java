@@ -52,6 +52,14 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
 
         void onSeriesBar(int position);
 
+        /**
+         * 点剧名行（带 › 的那行）进剧详情页（用户亲授语义：剧名与 @作者名
+         * 是两个去处，剧名→详情页、作者名/头像→作者页）。只挂集流页的
+         * 剧名行 hgEpTitleRow；底部剧条 hgSeriesBar 维持原口径（流页进剧、
+         * 集流开选集）。
+         */
+        void onSeriesDetail(int position);
+
         /** 进这部剧（短片流）：点系列胶囊条/系列标题行或条目上左滑（账 §4/§5.4）；系列先弹半屏单、单季直进集流。 */
         void onEnterSeries(int position);
 
@@ -496,7 +504,7 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         b.hgAuthor.setOnClickListener(v -> host.onAuthor(holder.getBindingAdapterPosition()));
         b.hgAuthorRow.setOnClickListener(v -> host.onAuthor(holder.getBindingAdapterPosition()));
         b.hgFollowBtn.setOnClickListener(v -> host.onAuthorFollow(holder.getBindingAdapterPosition()));
-        b.hgEpTitleRow.setOnClickListener(v -> host.onSeriesBar(holder.getBindingAdapterPosition()));
+        b.hgEpTitleRow.setOnClickListener(v -> host.onSeriesDetail(holder.getBindingAdapterPosition()));
         b.hgGuideChip.setOnClickListener(v -> host.onStartFromFirst(holder.getBindingAdapterPosition()));
         b.hgReserve.setOnClickListener(v -> host.onAction(holder.getBindingAdapterPosition(), Action.RESERVE));
         b.hgSeriesBar.setOnClickListener(v -> host.onSeriesBar(holder.getBindingAdapterPosition()));
@@ -514,7 +522,12 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         b.hgDesc.setOnClickListener(descToggle);
         b.hgDescMore.setOnClickListener(descToggle);
         b.hgAlbumBar.setOnClickListener(v -> host.onEnterSeries(holder.getBindingAdapterPosition()));
-        b.hgSeriesTitleRow.setOnClickListener(v -> host.onEnterSeries(holder.getBindingAdapterPosition()));
+        // 系列款标题行：流页点＝进剧，集流页点＝进剧详情页（与普通款剧名行同口径）
+        b.hgSeriesTitleRow.setOnClickListener(v -> {
+            int pos = holder.getBindingAdapterPosition();
+            if (seriesMode) host.onSeriesDetail(pos);
+            else host.onEnterSeries(pos);
+        });
         b.hgHotMore.setOnClickListener(v -> {
             int p = holder.getBindingAdapterPosition();
             if (p < 0 || p >= items.size()) return;

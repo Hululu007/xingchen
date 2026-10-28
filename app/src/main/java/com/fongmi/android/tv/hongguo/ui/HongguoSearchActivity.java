@@ -176,12 +176,24 @@ public class HongguoSearchActivity extends BaseActivity {
                     } else {
                         b.hgSOverlay.setVisibility(View.GONE);
                     }
-                    // 作者行（12dp 圆头像＋名字）：搜索 cell 带作者才显（官方 b7l 作者位同构）
+                    // 作者行（12dp 圆头像＋名字）：搜索 cell 带作者才显（官方 b7l 作者位同构）；
+                    // 点头像/名进作者页（与流页同一去处，uid 有才挂——没 uid 不挂假入口）
                     if (item.getAuthorName() != null && !item.getAuthorName().isEmpty()) {
                         b.hgSAuthorAvatar.setVisibility(View.VISIBLE);
                         b.hgSAuthorName.setVisibility(View.VISIBLE);
                         ImgUtil.load(item.getAuthorName(), item.getAuthorAvatar(), b.hgSAuthorAvatar);
                         b.hgSAuthorName.setText(item.getAuthorName());
+                        if (item.getAuthorUid() != null && !item.getAuthorUid().isEmpty()) {
+                            android.view.View.OnClickListener goAuthor = v ->
+                                    HongguoAuthorActivity.start(HongguoSearchActivity.this,
+                                            item.getAuthorUid(), item.getAuthorName(),
+                                            item.getAuthorAvatar(), item.getAuthorDesc());
+                            b.hgSAuthorAvatar.setOnClickListener(goAuthor);
+                            b.hgSAuthorName.setOnClickListener(goAuthor);
+                        } else {
+                            b.hgSAuthorAvatar.setOnClickListener(null);
+                            b.hgSAuthorName.setOnClickListener(null);
+                        }
                     } else {
                         b.hgSAuthorAvatar.setVisibility(View.GONE);
                         b.hgSAuthorName.setVisibility(View.GONE);

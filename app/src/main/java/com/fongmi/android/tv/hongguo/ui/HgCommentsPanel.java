@@ -512,6 +512,16 @@ public final class HgCommentsPanel {
                     b.hgCAvatar.setVisibility(View.GONE);
                 }
                 b.hgCAuthor.setText(c.author == null || c.author.isEmpty() ? "红果用户" : c.author);
+                // 点头像/名进作者页（与流页同一去处；uid 没带不挂假入口）
+                if (c.userId != null && !c.userId.isEmpty()) {
+                    View.OnClickListener goAuthor = v -> HongguoAuthorActivity.start(
+                            holder.itemView.getContext(), c.userId, c.author, c.avatar, null);
+                    b.hgCAvatar.setOnClickListener(goAuthor);
+                    b.hgCAuthor.setOnClickListener(goAuthor);
+                } else {
+                    b.hgCAvatar.setOnClickListener(null);
+                    b.hgCAuthor.setOnClickListener(null);
+                }
                 b.hgCContent.setText(c.content);
                 StringBuilder meta = new StringBuilder();
                 if (c.created > 0) meta.append(formatTime(c.created));

@@ -114,9 +114,28 @@ public class HkAutoCacheUtil {
                 return cache;
             }
             PageCache cache = GSON.fromJson(text, PageCache.class);
+            if (cache != null) retypeData(cache, text);
             return cache != null ? cache : empty;
         } catch (Exception e) {
             return empty;
+        }
+    }
+
+    /**
+     * 定型修复（体检类2）：对象形态整包读 PageCache 时 data 是 List&lt;HkItem&gt;，反射读靠
+     * 类文件 Signature 保型（PageCache 不在任何 keep 名单内），签名失效时元素退化成
+     * LinkedTreeMap、getData() 下游按 HkItem 消费即崩。这里用与数组形态同一份
+     * ITEM_LIST_TYPE 按树重读 data 覆盖；修复自守、读失败保持反射结果不动。
+     */
+    private static void retypeData(PageCache cache, String text) {
+        try {
+            com.google.gson.JsonElement tree = GSON.fromJson(text, com.google.gson.JsonElement.class);
+            if (tree == null || !tree.isJsonObject()) return;
+            com.google.gson.JsonElement data = tree.getAsJsonObject().get("data");
+            if (data == null || !data.isJsonArray()) return;
+            List<HkItem> typed = GSON.fromJson(data, ITEM_LIST_TYPE);
+            if (typed != null) cache.setData(typed);
+        } catch (Exception ignored) {
         }
     }
 

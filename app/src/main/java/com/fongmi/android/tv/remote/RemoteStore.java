@@ -17,7 +17,10 @@ import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.utils.Path;
 import com.github.catvod.utils.Prefers;
 import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import com.google.gson.reflect.TypeToken;
 
 import java.io.File;
 import java.nio.charset.StandardCharsets;
@@ -450,11 +453,70 @@ public final class RemoteStore {
     private static RemoteStoreFile parse(String json, boolean[] migrated) {
         if (TextUtils.isEmpty(json)) return null;
         try {
-            RemoteStoreFile store = ensure(App.gson().fromJson(json, RemoteStoreFile.class));
+            RemoteStoreFile raw = App.gson().fromJson(json, RemoteStoreFile.class);
+            retype(raw, json);
+            RemoteStoreFile store = ensure(raw);
             rehydrateTokens(store, migrated);
             return store;
         } catch (Throwable e) {
             return null;
+        }
+    }
+
+    /**
+     * 定型修复（体检类2）：profiles 及内嵌 pendingBindGrants/groups/devices 三层 List
+     * 整包反射读靠类文件 Signature 保型，签名失效时元素退化成 LinkedTreeMap，
+     * ensure() 的强类型迭代在 parse 的 catch 内被吞成整店判坏回 null、远程信任数据全丢。
+     * 这里用程序化构造的参数化类型（不读类文件签名）按 JSON 树逐层重读覆盖；
+     * 修复自守、读失败保持反射结果不动。persistJson 的深拷贝读同路复用。
+     */
+    private static void retype(RemoteStoreFile store, String json) {
+        if (store == null || json == null) return;
+        try {
+            JsonElement tree = JsonParser.parseString(json);
+            if (tree == null || !tree.isJsonObject()) return;
+            JsonElement profiles = tree.getAsJsonObject().get("profiles");
+            if (profiles == null || !profiles.isJsonArray()) return;
+            List<RemoteProfile> typed = App.gson().fromJson(profiles, TypeToken.getParameterized(List.class, RemoteProfile.class).getType());
+            if (typed == null) return;
+            JsonArray array = profiles.getAsJsonArray();
+            for (int i = 0; i < typed.size() && i < array.size(); i++) retypeProfile(typed.get(i), array.get(i));
+            store.profiles = typed;
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static void retypeProfile(RemoteProfile profile, JsonElement element) {
+        if (profile == null || element == null || !element.isJsonObject()) return;
+        JsonObject object = element.getAsJsonObject();
+        JsonElement grants = object.get("pendingBindGrants");
+        if (grants != null && grants.isJsonArray()) {
+            try {
+                List<RemoteBindGrant> typed = App.gson().fromJson(grants, TypeToken.getParameterized(List.class, RemoteBindGrant.class).getType());
+                if (typed != null) profile.pendingBindGrants = typed;
+            } catch (Throwable ignored) {
+            }
+        }
+        JsonElement groups = object.get("groups");
+        if (groups == null || !groups.isJsonArray()) return;
+        try {
+            List<RemoteGroup> typed = App.gson().fromJson(groups, TypeToken.getParameterized(List.class, RemoteGroup.class).getType());
+            if (typed == null) return;
+            JsonArray array = groups.getAsJsonArray();
+            for (int i = 0; i < typed.size() && i < array.size(); i++) retypeGroup(typed.get(i), array.get(i));
+            profile.groups = typed;
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static void retypeGroup(RemoteGroup group, JsonElement element) {
+        if (group == null || element == null || !element.isJsonObject()) return;
+        JsonElement devices = element.getAsJsonObject().get("devices");
+        if (devices == null || !devices.isJsonArray()) return;
+        try {
+            List<RemoteDevice> typed = App.gson().fromJson(devices, TypeToken.getParameterized(List.class, RemoteDevice.class).getType());
+            if (typed != null) group.devices = typed;
+        } catch (Throwable ignored) {
         }
     }
 
@@ -479,7 +541,10 @@ public final class RemoteStore {
     private static String persistJson(RemoteStoreFile store) {
         RemoteStoreFile copy;
         try {
-            copy = ensure(App.gson().fromJson(App.gson().toJson(store), RemoteStoreFile.class));
+            String copyJson = App.gson().toJson(store);
+            RemoteStoreFile raw = App.gson().fromJson(copyJson, RemoteStoreFile.class);
+            retype(raw, copyJson);
+            copy = ensure(raw);
         } catch (Throwable e) {
             // 拷贝失败绝不能拿活对象剥离（会把内存里的令牌也抹了）：退回整串直写
             return App.gson().toJson(store);

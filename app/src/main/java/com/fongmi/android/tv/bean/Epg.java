@@ -6,7 +6,10 @@ import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.api.parser.EpgParser;
 import com.fongmi.android.tv.utils.Formatters;
 import com.github.catvod.utils.Json;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonParser;
 import com.google.gson.annotations.SerializedName;
+import com.google.gson.reflect.TypeToken;
 
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -30,11 +33,35 @@ public class Epg {
         if (!Json.isObj(str)) return EpgParser.getEpg(str, key, zoneId);
         try {
             Epg item = App.gson().fromJson(str, Epg.class);
+            if (item != null) {
+                try {
+                    retype(item, JsonParser.parseString(str));
+                } catch (Exception ignored) {
+                }
+            }
             item.setTime(zoneId);
             item.setKey(key);
             return item;
         } catch (Exception e) {
             return new Epg();
+        }
+    }
+
+    /**
+     * 定型修复（体检类2）：list 是 List&lt;EpgData&gt;（成员名 epg_data），整包反射读靠
+     * 类文件 Signature 保型，签名失效时元素退化成 LinkedTreeMap，setTime 在同一 try 内
+     * 迭代强转被吞成整份节目单回空。这里用程序化构造的参数化类型（不读类文件签名）
+     * 按 JSON 树重读 epg_data 覆盖（须在 setTime 之前）；读失败保持反射结果不动。
+     * Channel 定型修复复用本方法。
+     */
+    static void retype(Epg item, JsonElement element) {
+        if (item == null || element == null || !element.isJsonObject()) return;
+        JsonElement list = element.getAsJsonObject().get("epg_data");
+        if (list == null || !list.isJsonArray()) return;
+        try {
+            List<EpgData> typed = App.gson().fromJson(list, TypeToken.getParameterized(List.class, EpgData.class).getType());
+            if (typed != null) item.setList(typed);
+        } catch (Exception ignored) {
         }
     }
 

@@ -40,7 +40,25 @@ public class Filter implements Parcelable {
     }
 
     public static Filter objectFrom(JsonElement element) {
-        return App.gson().fromJson(element, Filter.class);
+        Filter item = App.gson().fromJson(element, Filter.class);
+        retype(item, element);
+        return item;
+    }
+
+    /**
+     * 定型修复（体检类2）：value 是 List&lt;Value&gt;，整包反射读靠类文件 Signature 保型，
+     * 签名失效时元素退化成 LinkedTreeMap、下游按 Value 消费即崩。这里用程序化构造的
+     * 参数化类型（不读类文件签名）按 JSON 树重读 value 覆盖；读失败保持反射结果不动。
+     */
+    static void retype(Filter item, JsonElement element) {
+        if (item == null || element == null || !element.isJsonObject()) return;
+        JsonElement value = element.getAsJsonObject().get("value");
+        if (value == null || !value.isJsonArray()) return;
+        try {
+            List<Value> values = App.gson().fromJson(value, TypeToken.getParameterized(List.class, Value.class).getType());
+            if (values != null) item.value = values;
+        } catch (Exception ignored) {
+        }
     }
 
     public static List<Filter> arrayFrom(String result) {

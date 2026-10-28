@@ -21,7 +21,26 @@ public class ClearKey {
     public static ClearKey objectFrom(String str) throws Exception {
         ClearKey item = App.gson().fromJson(str, ClearKey.class);
         if (item.keys == null) throw new Exception();
+        retype(item, str);
         return item;
+    }
+
+    /**
+     * 定型修复（体检类2 回扫补齐）：keys 是 List&lt;Keys&gt;，整包反射读靠类文件 Signature
+     * 保型，签名失效时元素退化成 LinkedTreeMap，DRM 消费点强转必崩。这里用程序化构造的
+     * 参数化类型（不读类文件签名）按 JSON 树重读 keys 覆盖；修复自守，读失败保持反射
+     * 结果不动，解析结果一字不变。
+     */
+    private static void retype(ClearKey item, String str) {
+        try {
+            com.google.gson.JsonElement tree = com.google.gson.JsonParser.parseString(str);
+            if (tree == null || !tree.isJsonObject()) return;
+            com.google.gson.JsonElement keys = tree.getAsJsonObject().get("keys");
+            if (keys == null || !keys.isJsonArray()) return;
+            java.util.List<Keys> typed = App.gson().fromJson(keys, com.google.gson.reflect.TypeToken.getParameterized(java.util.List.class, Keys.class).getType());
+            if (typed != null) item.keys = typed;
+        } catch (Exception ignored) {
+        }
     }
 
     public boolean hasKeys() {

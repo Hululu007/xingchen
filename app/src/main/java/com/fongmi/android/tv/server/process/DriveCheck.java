@@ -9,6 +9,7 @@ import com.fongmi.android.tv.server.Nano;
 import com.fongmi.android.tv.server.impl.Process;
 import com.fongmi.android.tv.service.DriveCheckService;
 import com.github.catvod.crawler.SpiderDebug;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
 import java.util.Map;
@@ -32,7 +33,7 @@ public class DriveCheck implements Process {
         try {
             String body = files.get("postData");
             if (TextUtils.isEmpty(body)) body = session.getParms().get("body");
-            DriveCheckRequest request = App.gson().fromJson(body, DriveCheckRequest.class);
+            DriveCheckRequest request = DriveCheckRequest.objectFrom(App.gson(), App.gson().fromJson(body, JsonElement.class));
             if (request == null || request.getItems().isEmpty()) return cors(error(Response.Status.BAD_REQUEST, 400, "items不能为空"), session);
             SpiderDebug.log("pan-check", "http /pan/check count=%s", request.getItems().size());
             return cors(json(Response.Status.OK, App.gson().toJson(DriveCheckService.get().check(request.getItems()))), session);

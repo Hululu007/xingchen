@@ -16,9 +16,11 @@ import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.github.catvod.utils.Trans;
 import com.google.common.net.HttpHeaders;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.annotations.JsonAdapter;
 import com.google.gson.annotations.SerializedName;
+import com.google.gson.reflect.TypeToken;
 
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -82,10 +84,33 @@ public class Channel {
     public static Channel objectFrom(JsonElement element) {
         try {
             Channel channel = App.gson().fromJson(element, Channel.class);
-            return channel == null ? new Channel() : channel;
+            if (channel == null) return new Channel();
+            retype(channel, element);
+            return channel;
         } catch (Exception e) {
             // 畸形 JSON 不直穿调用方（S5-10，与已守卫一组口径统一）
             return new Channel();
+        }
+    }
+
+    /**
+     * 定型修复（体检类2）：dataList 是 List&lt;Epg&gt;，整包反射读靠类文件 Signature 保型，
+     * 签名失效时元素退化成 LinkedTreeMap、EPG 消费方迭代即崩。这里用程序化构造的
+     * 参数化类型（不读类文件签名）按 JSON 树重读 dataList 覆盖，元素再走 Epg 自身的
+     * 定型修复；读失败保持反射结果不动（urls 是 List&lt;String&gt;，裸读元素仍是字符串、
+     * 不受签名失效影响，不在此列）。Group 定型修复复用本方法。
+     */
+    static void retype(Channel item, JsonElement element) {
+        if (item == null || element == null || !element.isJsonObject()) return;
+        JsonElement list = element.getAsJsonObject().get("dataList");
+        if (list == null || !list.isJsonArray()) return;
+        try {
+            List<Epg> typed = App.gson().fromJson(list, TypeToken.getParameterized(List.class, Epg.class).getType());
+            if (typed == null) return;
+            JsonArray array = list.getAsJsonArray();
+            for (int i = 0; i < typed.size() && i < array.size(); i++) Epg.retype(typed.get(i), array.get(i));
+            item.dataList = typed;
+        } catch (Exception ignored) {
         }
     }
 

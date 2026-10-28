@@ -20,9 +20,13 @@ import com.fongmi.android.tv.web.ext.WebHomeExtensionRegistry;
 import com.github.catvod.utils.Prefers;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.google.gson.ToNumberPolicy;
 import com.google.gson.annotations.SerializedName;
+import com.google.gson.reflect.TypeToken;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -113,9 +117,72 @@ public class Backup {
     public static Backup objectFrom(String json) {
         try {
             Gson gson = new GsonBuilder().setObjectToNumberStrategy(ToNumberPolicy.LAZILY_PARSED_NUMBER).create();
-            return gson.fromJson(json, Backup.class);
+            Backup backup = gson.fromJson(json, Backup.class);
+            if (backup != null) retype(gson, backup, json);
+            return backup;
         } catch (Exception e) {
             Log.w(TAG, "objectFrom parse failed", e);
+            return null;
+        }
+    }
+
+    /**
+     * 定型修复（体检类2，本地往返最危险一档）：12 个 List 字段整包反射读靠类文件
+     * Signature 保型，签名失效时元素退化成 LinkedTreeMap，restore() 在 try 外逐表按
+     * 元素类型回填必崩。这里用程序化构造的参数化类型（不读类文件签名）、且用与主读
+     * 同一个 Gson 实例（保 LAZILY_PARSED_NUMBER 数字口径不变）按 JSON 树逐字段重读
+     * 覆盖，live 元素再走 Live 自身的定型修复；修复自守、读失败保持反射结果不动。
+     * prefers 是 Map&lt;String, ?&gt;，值类型本就是 Object、消费端按 instanceof 分发，
+     * 不受签名失效影响，不在此列。
+     */
+    private static void retype(Gson gson, Backup backup, String json) {
+        if (json == null) return;
+        try {
+            JsonElement tree = JsonParser.parseString(json);
+            if (tree == null || !tree.isJsonObject()) return;
+            JsonObject object = tree.getAsJsonObject();
+            List<Site> site = readList(gson, object, "site", Site.class);
+            if (site != null) backup.site = site;
+            List<Live> live = readList(gson, object, "live", Live.class);
+            if (live != null) {
+                backup.live = live;
+                JsonElement member = object.get("live");
+                if (member != null && member.isJsonArray()) {
+                    JsonArray array = member.getAsJsonArray();
+                    for (int i = 0; i < live.size() && i < array.size(); i++) Live.retype(live.get(i), array.get(i));
+                }
+            }
+            List<Keep> keep = readList(gson, object, "keep", Keep.class);
+            if (keep != null) backup.keep = keep;
+            List<Config> config = readList(gson, object, "config", Config.class);
+            if (config != null) backup.config = config;
+            List<History> history = readList(gson, object, "history", History.class);
+            if (history != null) backup.history = history;
+            List<Track> track = readList(gson, object, "track", Track.class);
+            if (track != null) backup.track = track;
+            List<Device> device = readList(gson, object, "device", Device.class);
+            if (device != null) backup.device = device;
+            List<MusicFavorite> musicFavorite = readList(gson, object, "musicFavorite", MusicFavorite.class);
+            if (musicFavorite != null) backup.musicFavorite = musicFavorite;
+            List<MusicPlaylist> musicPlaylist = readList(gson, object, "musicPlaylist", MusicPlaylist.class);
+            if (musicPlaylist != null) backup.musicPlaylist = musicPlaylist;
+            List<MusicPlaylistItem> musicPlaylistItem = readList(gson, object, "musicPlaylistItem", MusicPlaylistItem.class);
+            if (musicPlaylistItem != null) backup.musicPlaylistItem = musicPlaylistItem;
+            List<MusicDownload> musicDownload = readList(gson, object, "musicDownload", MusicDownload.class);
+            if (musicDownload != null) backup.musicDownload = musicDownload;
+            List<PlaybackDeleteTombstone> tombstone = readList(gson, object, "playbackDeleteTombstone", PlaybackDeleteTombstone.class);
+            if (tombstone != null) backup.playbackDeleteTombstone = tombstone;
+        } catch (Exception ignored) {
+        }
+    }
+
+    /** 逐字段定型重读：成员缺失/非数组/读失败一律返回 null（保持反射结果不动）。 */
+    private static <T> List<T> readList(Gson gson, JsonObject object, String name, java.lang.Class<T> type) {
+        try {
+            JsonElement member = object.get(name);
+            if (member == null || !member.isJsonArray()) return null;
+            return gson.fromJson(member, TypeToken.getParameterized(List.class, type).getType());
+        } catch (Exception e) {
             return null;
         }
     }

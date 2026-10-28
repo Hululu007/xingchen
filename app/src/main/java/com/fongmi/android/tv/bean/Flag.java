@@ -11,7 +11,10 @@ import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.impl.Diffable;
 import com.fongmi.android.tv.utils.Util;
 import com.github.catvod.utils.Trans;
+import com.google.gson.Gson;
+import com.google.gson.JsonElement;
 import com.google.gson.annotations.SerializedName;
+import com.google.gson.reflect.TypeToken;
 
 import org.simpleframework.xml.Attribute;
 import org.simpleframework.xml.Text;
@@ -56,6 +59,24 @@ public class Flag implements Parcelable, Diffable<Flag> {
         this.episodes = in.createTypedArrayList(Episode.CREATOR);
         this.selected = in.readByte() != 0;
         this.position = in.readInt();
+    }
+
+    /**
+     * 定型修复（体检类2）：episodes 是 List&lt;Episode&gt;，随 Vod/Flag[] 反射读时靠类文件
+     * Signature 保型，签名失效时元素退化成 LinkedTreeMap、按 Episode 消费即崩。这里用
+     * 程序化构造的参数化类型（不读类文件签名）按 JSON 树重读 episodes 覆盖；
+     * 读失败保持反射结果不动。Vod 定型修复与 VodApi 的 flags 读法复用本方法
+     * （public 因 VodApi 跨包调用）。
+     */
+    public static void retype(Gson gson, Flag item, JsonElement element) {
+        if (item == null || element == null || !element.isJsonObject()) return;
+        JsonElement episodes = element.getAsJsonObject().get("episodes");
+        if (episodes == null || !episodes.isJsonArray()) return;
+        try {
+            List<Episode> typed = gson.fromJson(episodes, TypeToken.getParameterized(List.class, Episode.class).getType());
+            if (typed != null) item.episodes = typed;
+        } catch (Exception ignored) {
+        }
     }
 
     public static Flag create(String flag) {

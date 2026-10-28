@@ -1,8 +1,11 @@
 package com.fongmi.android.tv.bean;
 
 import com.fongmi.android.tv.App;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonParseException;
+import com.google.gson.JsonParser;
 import com.google.gson.annotations.SerializedName;
+import com.google.gson.reflect.TypeToken;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -24,9 +27,31 @@ public class Web {
     public static Web objectFrom(String json) {
         try {
             Web web = App.gson().fromJson(json, Web.class);
+            if (web != null) retype(web, json);
             return web != null && web.isValid() ? web : null;
         } catch (JsonParseException e) {
             return null;
+        }
+    }
+
+    /**
+     * 定型修复（体检类2）：cookie 是 List&lt;Cookie&gt;，整包反射读靠类文件 Signature 保型，
+     * 签名失效时元素退化成 LinkedTreeMap，isValid() 按 Cookie 流式校验抛的
+     * ClassCastException 不属 JsonParseException、会直穿本方法的捕获。这里用程序化构造的
+     * 参数化类型（不读类文件签名）按 JSON 树重读 cookie 覆盖（须在 isValid 之前）；
+     * 修复自守、读失败保持反射结果不动。Cookie.keys 是 List&lt;String&gt;，裸读元素仍是
+     * 字符串、不受签名失效影响。
+     */
+    private static void retype(Web web, String json) {
+        if (json == null) return;
+        try {
+            JsonElement tree = JsonParser.parseString(json);
+            if (tree == null || !tree.isJsonObject()) return;
+            JsonElement cookie = tree.getAsJsonObject().get("cookie");
+            if (cookie == null || !cookie.isJsonArray()) return;
+            List<Cookie> typed = App.gson().fromJson(cookie, TypeToken.getParameterized(List.class, Cookie.class).getType());
+            if (typed != null) web.cookie = typed;
+        } catch (Exception ignored) {
         }
     }
 

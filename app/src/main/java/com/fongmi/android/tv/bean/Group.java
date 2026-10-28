@@ -9,6 +9,9 @@ import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.github.catvod.utils.Trans;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonParser;
 import com.google.gson.annotations.SerializedName;
 import com.google.gson.reflect.TypeToken;
 
@@ -44,7 +47,36 @@ public class Group {
     public static List<Group> arrayFrom(String str) {
         Type listType = TypeToken.getParameterized(List.class, Group.class).getType();
         List<Group> items = App.gson().fromJson(str, listType);
-        return items == null ? Collections.emptyList() : items;
+        if (items == null) return Collections.emptyList();
+        try {
+            JsonElement tree = JsonParser.parseString(str);
+            if (tree != null && tree.isJsonArray()) {
+                JsonArray array = tree.getAsJsonArray();
+                for (int i = 0; i < items.size() && i < array.size(); i++) retype(items.get(i), array.get(i));
+            }
+        } catch (Exception ignored) {
+        }
+        return items;
+    }
+
+    /**
+     * 定型修复（体检类2）：channel 是 List&lt;Channel&gt;，元素随 Group 反射读时靠类文件
+     * Signature 保型，签名失效时退化成 LinkedTreeMap、按 Channel 消费即崩。这里用
+     * 程序化构造的参数化类型（不读类文件签名）按 JSON 树重读 channel 覆盖，元素再走
+     * Channel 自身的定型修复；读失败保持反射结果不动。Live 定型修复复用本方法。
+     */
+    static void retype(Group item, JsonElement element) {
+        if (item == null || element == null || !element.isJsonObject()) return;
+        JsonElement channel = element.getAsJsonObject().get("channel");
+        if (channel == null || !channel.isJsonArray()) return;
+        try {
+            List<Channel> typed = App.gson().fromJson(channel, TypeToken.getParameterized(List.class, Channel.class).getType());
+            if (typed == null) return;
+            JsonArray array = channel.getAsJsonArray();
+            for (int i = 0; i < typed.size() && i < array.size(); i++) Channel.retype(typed.get(i), array.get(i));
+            item.setChannel(typed);
+        } catch (Exception ignored) {
+        }
     }
 
     public static Group create() {

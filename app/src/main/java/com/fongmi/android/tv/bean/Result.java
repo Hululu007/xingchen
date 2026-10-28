@@ -18,8 +18,13 @@ import com.fongmi.android.tv.setting.DanmakuSetting;
 import com.fongmi.android.tv.utils.AdBlock;
 import com.fongmi.android.tv.utils.Util;
 import com.github.catvod.utils.Trans;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.google.gson.annotations.JsonAdapter;
 import com.google.gson.annotations.SerializedName;
+import com.google.gson.reflect.TypeToken;
 
 import org.json.JSONObject;
 import org.simpleframework.xml.ElementList;
@@ -128,9 +133,52 @@ public class Result implements Parcelable {
 
     public static Result objectFrom(String str) {
         try {
-            return App.gson().fromJson(str, Result.class);
+            Result result = App.gson().fromJson(str, Result.class);
+            if (result != null) retype(result, str);
+            return result;
         } catch (Exception e) {
             return empty();
+        }
+    }
+
+    /**
+     * 定型修复（体检类2，最危险一条）：types/list/subs 三个 List 字段整包反射读靠类文件
+     * Signature 保型，签名失效时元素退化成 LinkedTreeMap，而 fromJson 的 trans() 在
+     * objectFrom 的 try 之外逐元素强转、必崩且穿透全部站源解析入口。这里用程序化构造的
+     * 参数化类型（不读类文件签名）按 JSON 树重读三字段覆盖（直写字段，不走 setList 的
+     * AdBlock 副作用，保持原解析结果一字不变），元素再走 Class/Vod 自身的定型修复；
+     * filters/danmaku/url/header 走 @JsonAdapter、由各自 objectFrom/适配器内的定型修复
+     * 覆盖。修复全程自守，读失败保持反射结果不动。
+     */
+    private static void retype(Result result, String str) {
+        try {
+            JsonElement tree = JsonParser.parseString(str);
+            if (tree == null || !tree.isJsonObject()) return;
+            JsonObject object = tree.getAsJsonObject();
+            JsonElement types = object.get("class");
+            if (types != null && types.isJsonArray()) {
+                List<Class> typed = App.gson().fromJson(types, TypeToken.getParameterized(List.class, Class.class).getType());
+                if (typed != null) {
+                    JsonArray array = types.getAsJsonArray();
+                    for (int i = 0; i < typed.size() && i < array.size(); i++) Class.retype(typed.get(i), array.get(i));
+                    result.types = typed;
+                }
+            }
+            JsonElement list = object.get("list");
+            if (list != null && list.isJsonArray()) {
+                List<Vod> typed = App.gson().fromJson(list, TypeToken.getParameterized(List.class, Vod.class).getType());
+                if (typed != null) {
+                    JsonArray array = list.getAsJsonArray();
+                    for (int i = 0; i < typed.size() && i < array.size(); i++) Vod.retype(App.gson(), typed.get(i), array.get(i));
+                    result.list = typed;
+                }
+            }
+            JsonElement subs = object.get("subs");
+            if (subs != null && subs.isJsonArray()) {
+                List<Sub> typed = App.gson().fromJson(subs, TypeToken.getParameterized(List.class, Sub.class).getType());
+                if (typed != null) result.subs = typed;
+            }
+        } catch (Exception ignored) {
         }
     }
 

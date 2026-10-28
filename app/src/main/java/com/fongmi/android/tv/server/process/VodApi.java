@@ -237,7 +237,19 @@ public class VodApi implements Process {
                 item.remove("site");
                 item.remove("tmdb");
                 Vod vod = GSON.fromJson(item, Vod.class);
-                if (item.has("flags") && item.get("flags").isJsonArray()) vod.setFlags(Arrays.asList(GSON.fromJson(item.get("flags"), Flag[].class)));
+                // 定型修复（体检类2）：Vod 本体整包反射读靠类文件 Signature 保型，
+                // 签名失效时三个 List 字段元素退化成 LinkedTreeMap 在组装迭代点崩；
+                // 走 Vod 自身的定型修复按树重读（gson 用本类实例、口径不变）。
+                Vod.retype(GSON, vod, item);
+                if (item.has("flags") && item.get("flags").isJsonArray()) {
+                    Flag[] flagArray = GSON.fromJson(item.get("flags"), Flag[].class);
+                    // Flag 元素同样定型修复 episodes（同型补齐，口径同上）
+                    if (flagArray != null) {
+                        com.google.gson.JsonArray flagJson = item.get("flags").getAsJsonArray();
+                        for (int i = 0; i < flagArray.length && i < flagJson.size(); i++) Flag.retype(GSON, flagArray[i], flagJson.get(i));
+                    }
+                    vod.setFlags(Arrays.asList(flagArray));
+                }
                 vods.add(vod);
                 originals.add(item);
             }
@@ -246,7 +258,13 @@ public class VodApi implements Process {
         List<Class> types = new ArrayList<>();
         JsonElement rawTypes = raw.get("class");
         if (rawTypes != null && rawTypes.isJsonArray()) {
-            for (JsonElement type : rawTypes.getAsJsonArray()) if (type.isJsonObject()) types.add(GSON.fromJson(type, Class.class));
+            for (JsonElement type : rawTypes.getAsJsonArray()) if (type.isJsonObject()) {
+                Class item = GSON.fromJson(type, Class.class);
+                // 定型修复（体检类2同型补齐）：Class 的 filters 随本读法反射读同样靠
+                // Signature 保型，走 Class 自身的定型修复按树重读，口径同 Vod。
+                Class.retype(item, type);
+                types.add(item);
+            }
         }
         result.setTypes(types);
         JsonObject out = macCms(result, page);

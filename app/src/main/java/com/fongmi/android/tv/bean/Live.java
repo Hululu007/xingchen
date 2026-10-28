@@ -19,9 +19,11 @@ import com.fongmi.android.tv.utils.UrlUtil;
 import com.github.catvod.crawler.Spider;
 import com.github.catvod.utils.Trans;
 import com.google.common.net.HttpHeaders;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.annotations.JsonAdapter;
 import com.google.gson.annotations.SerializedName;
+import com.google.gson.reflect.TypeToken;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -137,12 +139,33 @@ public class Live {
     public static Live objectFrom(JsonElement element, String spider) {
         try {
             Live live = App.gson().fromJson(element, Live.class);
+            retype(live, element);
             if (live.getJar().isEmpty()) live.setJar(spider);
             live.setApi(UrlUtil.convert(live.getApi()));
             live.setExt(UrlUtil.convert(live.getExt()));
             return live.trans();
         } catch (Exception e) {
             return new Live();
+        }
+    }
+
+    /**
+     * 定型修复（体检类2）：groups 是 List&lt;Group&gt;，整包反射读靠类文件 Signature 保型，
+     * 签名失效时元素退化成 LinkedTreeMap，trans()/下游按 Group 消费即崩或整份直播源回空。
+     * 这里用程序化构造的参数化类型（不读类文件签名）按 JSON 树重读 groups 覆盖，元素再走
+     * Group 自身的定型修复；读失败保持反射结果不动。Backup 恢复读到 Live 元素时复用本方法。
+     */
+    static void retype(Live item, JsonElement element) {
+        if (item == null || element == null || !element.isJsonObject()) return;
+        JsonElement groups = element.getAsJsonObject().get("groups");
+        if (groups == null || !groups.isJsonArray()) return;
+        try {
+            List<Group> typed = App.gson().fromJson(groups, TypeToken.getParameterized(List.class, Group.class).getType());
+            if (typed == null) return;
+            JsonArray array = groups.getAsJsonArray();
+            for (int i = 0; i < typed.size() && i < array.size(); i++) Group.retype(typed.get(i), array.get(i));
+            item.groups = typed;
+        } catch (Exception ignored) {
         }
     }
 

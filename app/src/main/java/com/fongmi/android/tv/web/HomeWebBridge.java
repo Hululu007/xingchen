@@ -338,7 +338,7 @@ public class HomeWebBridge {
 
     private String checkLinks(JsonObject payload) {
         if (!Setting.isDriveCheck()) throw new IllegalStateException("网盘检测未开启");
-        DriveCheckRequest request = App.gson().fromJson(payload, DriveCheckRequest.class);
+        DriveCheckRequest request = DriveCheckRequest.objectFrom(App.gson(), payload);
         if (request == null || request.getItems().isEmpty()) throw new IllegalArgumentException("items不能为空");
         SpiderDebug.log("webhome", "pan.check count=%s", request.getItems().size());
         return App.gson().toJson(DriveCheckService.get().check(request.getItems()));

@@ -15,6 +15,10 @@ import com.fongmi.android.tv.utils.AdBlock;
 import com.fongmi.android.tv.utils.Sniffer;
 import com.fongmi.android.tv.utils.Util;
 import com.github.catvod.utils.Trans;
+import com.google.gson.Gson;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonParser;
 import com.google.gson.annotations.SerializedName;
 import com.google.gson.reflect.TypeToken;
 
@@ -142,10 +146,55 @@ public class Vod implements Parcelable, Diffable<Vod> {
     public static Vod objectFrom(String str) {
         try {
             Vod vod = App.gson().fromJson(str, Vod.class);
-            return vod == null ? new Vod() : vod.trans().setFlags();
+            if (vod == null) return new Vod();
+            try {
+                retype(App.gson(), vod, JsonParser.parseString(str));
+            } catch (Exception ignored) {
+            }
+            return vod.trans().setFlags();
         } catch (Exception e) {
             // 畸形 JSON 不直穿调用方（S5-10，与 Result/Site 等已守卫口径统一）
             return new Vod();
+        }
+    }
+
+    /**
+     * 定型修复（体检类2）：vodFlags/embySimilar/embyPeople 三个 List 字段整包反射读靠
+     * 类文件 Signature 保型，签名失效时元素退化成 LinkedTreeMap，setFlags()/详情消费
+     * 按 Flag/Similar/EmbyPerson 取用即崩（且旧路在 try 内被吞成整条 Vod 回空）。这里用
+     * 程序化构造的参数化类型（不读类文件签名）按 JSON 树重读三字段覆盖，Flag 元素再走
+     * Flag 自身的定型修复；读失败保持反射结果不动。Result/VodApi 等容器读到 Vod 元素时
+     * 复用本方法（gson 传容器自己的实例；public 因 VodApi 跨包调用）。
+     */
+    public static void retype(Gson gson, Vod vod, JsonElement element) {
+        if (vod == null || element == null || !element.isJsonObject()) return;
+        JsonElement flags = element.getAsJsonObject().get("vodFlags");
+        if (flags != null && flags.isJsonArray()) {
+            try {
+                List<Flag> typed = gson.fromJson(flags, TypeToken.getParameterized(List.class, Flag.class).getType());
+                if (typed != null) {
+                    JsonArray array = flags.getAsJsonArray();
+                    for (int i = 0; i < typed.size() && i < array.size(); i++) Flag.retype(gson, typed.get(i), array.get(i));
+                    vod.vodFlags = typed;
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        JsonElement similar = element.getAsJsonObject().get("emby_similar");
+        if (similar != null && similar.isJsonArray()) {
+            try {
+                List<Similar> typed = gson.fromJson(similar, TypeToken.getParameterized(List.class, Similar.class).getType());
+                if (typed != null) vod.embySimilar = typed;
+            } catch (Exception ignored) {
+            }
+        }
+        JsonElement people = element.getAsJsonObject().get("emby_people");
+        if (people != null && people.isJsonArray()) {
+            try {
+                List<EmbyPerson> typed = gson.fromJson(people, TypeToken.getParameterized(List.class, EmbyPerson.class).getType());
+                if (typed != null) vod.embyPeople = typed;
+            } catch (Exception ignored) {
+            }
         }
     }
 

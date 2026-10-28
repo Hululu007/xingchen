@@ -14,15 +14,19 @@ import com.fongmi.android.tv.remote.RemoteModels.PollResponse;
 import com.fongmi.android.tv.remote.RemoteModels.RegisterResponse;
 import com.fongmi.android.tv.remote.RemoteModels.RemoteBindGrant;
 import com.fongmi.android.tv.remote.RemoteModels.RemoteCommandResult;
+import com.fongmi.android.tv.remote.RemoteModels.RemoteDevice;
 import com.fongmi.android.tv.remote.RemoteModels.RemoteGroup;
 import com.fongmi.android.tv.remote.RemoteModels.RemoteProfile;
 import com.fongmi.android.tv.remote.RemoteModels.ServerCapabilities;
 import com.github.catvod.net.OkHttp;
 import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.reflect.TypeToken;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import okhttp3.MediaType;
@@ -96,7 +100,26 @@ public final class RemoteClient {
 
     public DevicesResponse listDevices(RemoteGroup group) throws IOException {
         if (group == null || TextUtils.isEmpty(group.groupToken)) throw new IOException("Missing group token");
-        return App.gson().fromJson(requestJson("GET", "/api/devices", null, group.groupToken), DevicesResponse.class);
+        return parseDevices(requestJson("GET", "/api/devices", null, group.groupToken));
+    }
+
+    /**
+     * 定型修复（体检类2）：devices 是 List&lt;RemoteDevice&gt;，整包反射读靠类文件 Signature
+     * 保型，签名失效时元素退化成 LinkedTreeMap、消费方按 RemoteDevice 迭代即崩且本路无 try。
+     * 这里用程序化构造的参数化类型（不读类文件签名）按回包树重读 devices 覆盖；
+     * 修复自守、读失败保持反射结果不动。
+     */
+    static DevicesResponse parseDevices(JsonObject json) {
+        DevicesResponse response = App.gson().fromJson(json, DevicesResponse.class);
+        if (response == null || json == null) return response;
+        JsonElement devices = json.get("devices");
+        if (devices == null || !devices.isJsonArray()) return response;
+        try {
+            List<RemoteDevice> typed = App.gson().fromJson(devices, TypeToken.getParameterized(List.class, RemoteDevice.class).getType());
+            if (typed != null) response.devices = typed;
+        } catch (Exception ignored) {
+        }
+        return response;
     }
 
     public CommandResponse createCommand(RemoteGroup group, String targetDeviceId, String type, JsonObject payload) throws IOException {

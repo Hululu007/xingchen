@@ -9,7 +9,10 @@ import com.fongmi.android.tv.utils.UrlUtil;
 import com.fongmi.hook.Hook;
 import com.github.catvod.net.OkHttp;
 import com.google.gson.Gson;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonParser;
 import com.google.gson.annotations.SerializedName;
+import com.google.gson.reflect.TypeToken;
 
 import java.util.Collections;
 import java.util.List;
@@ -40,7 +43,30 @@ public class Core {
     private List<Option> option;
 
     public static Core objectFrom(String str) {
-        return new Gson().fromJson(str, Core.class);
+        Gson gson = new Gson();
+        Core core = gson.fromJson(str, Core.class);
+        retype(gson, core, str);
+        return core;
+    }
+
+    /**
+     * 定型修复（体检类2）：option 是 List&lt;Option&gt;，整包反射读靠类文件 Signature 保型，
+     * 签名失效时元素退化成 LinkedTreeMap、TVBus/LiveConfig 链按 Option 消费即崩且本方法
+     * 无 try 无兜底。这里用程序化构造的参数化类型（不读类文件签名）按 JSON 树重读
+     * option 覆盖；修复自守、读失败保持反射结果不动（主读的异常口径不变）。
+     * Option.values 是 List&lt;String&gt;，裸读元素仍是字符串、不受签名失效影响。
+     */
+    private static void retype(Gson gson, Core core, String str) {
+        if (core == null || str == null) return;
+        try {
+            JsonElement tree = JsonParser.parseString(str);
+            if (tree == null || !tree.isJsonObject()) return;
+            JsonElement option = tree.getAsJsonObject().get("option");
+            if (option == null || !option.isJsonArray()) return;
+            List<Option> typed = gson.fromJson(option, TypeToken.getParameterized(List.class, Option.class).getType());
+            if (typed != null) core.option = typed;
+        } catch (Exception ignored) {
+        }
     }
 
     public static String getString(String value) {

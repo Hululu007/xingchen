@@ -174,6 +174,13 @@
 # 没装。整类保名。
 -keep class com.fongmi.android.tv.ui.lab.LabNodeProcessHost { *; }
 
+# Node 宿主判据登记（体检类4 正路）：.api.node.NodeService 在 :nodejs
+# 进程里按类名反射调 LabNodeHost.register 补本进程登记（主进程的
+# 登记是进程内静态量、过不了进程界）。类名与 register 方法名被 R8
+# 改名会让反射静默失败、:nodejs 进程永远判 Node 没装（与 LabBoot
+# 1.4.44 同型教训）。整类保名保成员。
+-keep class com.fongmi.android.tv.ui.lab.LabNodeHost { *; }
+
 # 实验室自启触发（同族第 3 步口径）：App 在 main 源集按类名 Class.forName
 # 调 LabBoot.kick（main 不能直引 mobile 源集的实验室类），此前漏了保名——
 # 1.4.44 成品解包实证：ui.lab 非组件类被 R8 全改成单字母名，LabBoot 亦在

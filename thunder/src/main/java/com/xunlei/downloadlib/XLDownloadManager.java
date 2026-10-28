@@ -40,6 +40,12 @@ public class XLDownloadManager {
     }
 
     public void init() {
+        // Init.context() 契约可回 null（未 set／WeakReference 已回收，见
+        // Init 类头注），原先直接 context.getFilesDir() 是 NPE、把真因
+        // 盖掉（体检类4）。按本类既有失败口径（checkErrorCode 抛可见
+        // IllegalStateException）抛错：构造失败则 XLTaskHelper 的
+        // getManager() 不缓存本实例，Init 补 set 后下一次调用自然重试。
+        if (context == null) throw new IllegalStateException("Thunder context is not ready");
         InitParam param = new InitParam(context.getFilesDir().getPath());
         int code = loader.init(param.getSoKey(), "com.android.providers.downloads", param.mAppVersion, "", getPeerId(), getGuid(), param.mStatSavePath, param.mStatCfgSavePath, 0, param.mPermissionLevel, param.mQueryConfOnInit);
         checkErrorCode(code);

@@ -458,6 +458,8 @@ public class TtsReadActivity extends Activity
         panel.setOrientation(LinearLayout.VERTICAL);
         panel.setBackgroundColor(0xFF0F3540);
         panel.setPadding(dp(16), dp(10), dp(16), dp(18));
+        // 底部让位：基础底距 18dp 上再叠系统导航区真实高度（与漫画/小说/听书页同款 ReadingSkin.applyBottomInset），防手势横杠压住面板底行、三键导航下底行点击被吃
+        ReadingSkin.applyBottomInset(panel, this, 18);
         col.addView(panel);
 
         LinearLayout seekRow = new LinearLayout(this);

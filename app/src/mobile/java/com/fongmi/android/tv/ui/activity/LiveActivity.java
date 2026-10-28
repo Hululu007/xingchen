@@ -147,6 +147,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     private int groupBasePaddingBottom;
     private int channelBasePaddingBottom;
     private int epgBasePaddingBottom;
+    private int controlBottomBasePadding;
 
     public static void start(Context context) {
         context.startActivity(new Intent(context, LiveActivity.class).putExtra("empty", LiveConfig.isEmpty()));
@@ -354,11 +355,13 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
         groupBasePaddingBottom = mBinding.group.getPaddingBottom();
         channelBasePaddingBottom = mBinding.channel.getPaddingBottom();
         epgBasePaddingBottom = mBinding.epgData.getPaddingBottom();
+        controlBottomBasePadding = mBinding.control.bottom.getPaddingBottom();
     }
 
     private void setupWindowInsets() {
         ViewCompat.setOnApplyWindowInsetsListener(mBinding.getRoot(), (view, insets) -> {
             updateLiveListBottomInset(insets);
+            updateControlBottomInset(insets);
             return insets;
         });
         ViewCompat.requestApplyInsets(mBinding.getRoot());
@@ -1777,6 +1780,7 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
         if (rotate) {
             noPadding(mBinding.recycler);
             noPadding(mBinding.control.getRoot());
+            updateControlBottomInset(ViewCompat.getRootWindowInsets(mBinding.getRoot()));
         } else {
             updateLiveMenuInsets();
             updateControlInsets();
@@ -2158,6 +2162,16 @@ public class LiveActivity extends PlaybackActivity implements CustomKeyDown.List
     private void updateControlInsets() {
         if (isEmbeddedLiveUi()) noPadding(mBinding.control.getRoot());
         else setPadding(mBinding.control.getRoot());
+        updateControlBottomInset(ViewCompat.getRootWindowInsets(mBinding.getRoot()));
+    }
+
+    /** 全屏控制条底部让位：嵌入形态控制条只盖视频区、不贴屏底，不加；全屏（含转屏）时底行（进度+动作行）垫高导航区真实高度，防手势横杠压住、底部点击被系统手势吃掉。与 updateLiveListBottomInset 同款：基础底距＋insets，手势与三键都按真实高度走。 */
+    private void updateControlBottomInset(@Nullable WindowInsetsCompat insets) {
+        int bottom = !isEmbeddedLiveUi() && insets != null ? insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom : 0;
+        int target = controlBottomBasePadding + bottom;
+        View view = mBinding.control.bottom;
+        if (view.getPaddingBottom() == target) return;
+        view.setPaddingRelative(view.getPaddingStart(), view.getPaddingTop(), view.getPaddingEnd(), target);
     }
 
     private void updateLiveListBottomInset(@Nullable WindowInsetsCompat insets) {

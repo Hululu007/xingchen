@@ -82,7 +82,7 @@ public class UaDialog extends BaseAlertDialog {
     }
 
     private void onPositive(DialogInterface dialog, int which) {
-        ((UaListener) requireParentFragment()).setUa(binding.text.getText().toString().trim());
+        if (requireParentFragment() instanceof UaListener listener) listener.setUa(binding.text.getText().toString().trim());
         dismiss();
     }
 }

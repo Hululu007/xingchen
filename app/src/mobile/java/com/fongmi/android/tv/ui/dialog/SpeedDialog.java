@@ -54,10 +54,10 @@ public class SpeedDialog extends BaseAlertDialog {
     }
 
     private void onPositive(DialogInterface dialog, int which) {
-        ((SpeedListener) requireParentFragment()).setSpeed(binding.slider.getValue());
+        if (requireParentFragment() instanceof SpeedListener listener) listener.setSpeed(binding.slider.getValue());
     }
 
     private void onNegative(DialogInterface dialog, int which) {
-        ((SpeedListener) requireParentFragment()).setSpeed(value);
+        if (requireParentFragment() instanceof SpeedListener listener) listener.setSpeed(value);
     }
 }

@@ -54,10 +54,10 @@ public class BufferDialog extends BaseAlertDialog {
     }
 
     private void onPositive(DialogInterface dialog, int which) {
-        ((BufferListener) requireParentFragment()).setBuffer((int) binding.slider.getValue());
+        if (requireParentFragment() instanceof BufferListener listener) listener.setBuffer((int) binding.slider.getValue());
     }
 
     private void onNegative(DialogInterface dialog, int which) {
-        ((BufferListener) requireParentFragment()).setBuffer(value);
+        if (requireParentFragment() instanceof BufferListener listener) listener.setBuffer(value);
     }
 }

@@ -50,7 +50,7 @@ public class TypeDialog extends BaseBottomSheetDialog implements TypeAdapter.OnC
 
     public void show(Fragment fragment) {
         for (Fragment child : fragment.getChildFragmentManager().getFragments()) if (child instanceof TypeDialog) return;
-        this.listener = (TypeAdapter.OnClickListener) fragment;
+        this.listener = fragment instanceof TypeAdapter.OnClickListener clickListener ? clickListener : null;
         show(fragment.getChildFragmentManager(), null);
     }
 

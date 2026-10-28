@@ -649,6 +649,62 @@ public final class HgApiClient {
     }
 
     /**
+     * 作者收藏签一页（官方 GetBookShelfVideoInfoRequest 的 target_user_id
+     * 维度，tu3/f.java 定版；本机以同一路径实拉验通：data.video_shelf_info
+     * ＋next_offset/has_more）。offset 从 0 起，续拉用回包 next_offset。
+     */
+    public void authorShelf(String uid, int offset,
+                            HgCallback<com.fongmi.android.tv.hongguo.model.HgAuthorWork.Page> cb) {
+        Map<String, String> q = new HashMap<>();
+        q.put("target_user_id", uid);
+        q.put("count", "18");
+        q.put("offset", String.valueOf(Math.max(0, offset)));
+        get(HOST + "/reading/bookapi/bookshelf/video/info" + BV, q, new BodyCallback() {
+            @Override
+            void onBody(String text) {
+                com.fongmi.android.tv.hongguo.model.HgAuthorWork.Page page =
+                        com.fongmi.android.tv.hongguo.model.HgParser.parseAuthorShelf(text);
+                if (page == null) cb.onError(-2, "收藏回包解析失败");
+                else cb.onSuccess(page);
+            }
+
+            @Override
+            void onFail(int code, String msg) {
+                cb.onError(code, msg);
+            }
+        });
+    }
+
+    /**
+     * 作者点赞签一页（官方 UgcApiService.mGetUserActionList 的 Like 维度，
+     * bv3/f.java 定版：action_type=3、object_type_list="6,15,10"；本机
+     * 实拉验通：data.mixed_data_list＋next_offset/has_more）。
+     */
+    public void authorLikes(String uid, int offset,
+                            HgCallback<com.fongmi.android.tv.hongguo.model.HgAuthorWork.Page> cb) {
+        Map<String, String> q = new HashMap<>();
+        q.put("action_type", "3");
+        q.put("object_type_list", "6,15,10");
+        q.put("target_user_id", uid);
+        q.put("count", "18");
+        q.put("offset", String.valueOf(Math.max(0, offset)));
+        get(HOST + "/reading/ugc/action/mget" + BV, q, new BodyCallback() {
+            @Override
+            void onBody(String text) {
+                com.fongmi.android.tv.hongguo.model.HgAuthorWork.Page page =
+                        com.fongmi.android.tv.hongguo.model.HgParser.parseAuthorLikes(text);
+                if (page == null) cb.onError(-2, "点赞回包解析失败");
+                else cb.onSuccess(page);
+            }
+
+            @Override
+            void onFail(int code, String msg) {
+                cb.onError(code, msg);
+            }
+        });
+    }
+
+    /**
      * 追剧架更新 POST /reading/bookapi/bookshelf/video/update（收藏/追更共用此口，
      * 官方 FollowScene 加入收藏与右列追剧钮同走 AddShelf，见 HgRequests
      * bookshelfVideoUpdateBody 注的出处）。add=true 加入、false 移出。

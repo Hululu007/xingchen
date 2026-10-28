@@ -327,6 +327,85 @@ public final class HgCommentClient {
         });
     }
 
+    /** 整剧剧评一页＋评分卡（详情页用：同一回包的 extra 段带红果分/收藏数）。 */
+    public static final class SeriesReviews {
+        public final HgComment.Page page;
+        public final com.fongmi.android.tv.hongguo.model.HgSeriesRating rating;
+
+        public SeriesReviews(HgComment.Page page,
+                             com.fongmi.android.tv.hongguo.model.HgSeriesRating rating) {
+            this.page = page;
+            this.rating = rating;
+        }
+    }
+
+    public void seriesReviews(String seriesId, HgCallback<SeriesReviews> cb) {
+        if (!isId(seriesId)) {
+            cb.onError(-1, "id 非法");
+            return;
+        }
+        post("comment/list/" + seriesId, seriesListPayload(seriesId, ""), 1, 34, new TextCallback() {
+            @Override
+            void onText(String text) {
+                HgComment.Page page = HgCommentParser.parseList(text, seriesId, seriesId, "", true);
+                if (page == null) cb.onError(-2, "剧评回包解析失败");
+                else cb.onSuccess(new SeriesReviews(page, HgCommentParser.parseSeriesRating(text)));
+            }
+
+            @Override
+            void onFail(int code, String msg) {
+                cb.onError(code, msg);
+            }
+        });
+    }
+
+    /**
+     * 作者主页作品口一页（官方 CommentApiService.getUserProfileRxJava 定版，
+     * 本机实拉三位作者验通——见 probe-author-20261029 存档）：POST
+     * /novel/commentapi/user/profile/:target_user_id/v1/，体照官方
+     * GetUserProfileRequest 序列化名逐字（comment_source=1506
+     * VideoProfilePage、count=18、tab_type 由页签定：5 动态/11 剧作、
+     * sub_tab_type 由子档定：全部不带/合集 13/剧评 121、sort 最新
+     * time_desc/最热 smart_hot_desc、cursor 整串回传、tab_type=5 时带
+     * extra_param{"is_video_tab_comment":"1"}）。此口官方不挂
+     * Comment-Source/Server-Channel 头（hv3/v 组参无此二头），故走
+     * source=0/channel=0 的 postRaw 同路。
+     */
+    public void authorProfileList(String uid, int tabType, int subTabType, String sort,
+                                  String cursor, HgCallback<com.fongmi.android.tv.hongguo.model.HgAuthorWork.Page> cb) {
+        if (!isId(uid)) {
+            cb.onError(-1, "uid 非法");
+            return;
+        }
+        JsonObject payload = new JsonObject();
+        payload.addProperty("comment_source", 1506);
+        payload.addProperty("count", 18);
+        if (cursor != null && !cursor.isEmpty()) payload.addProperty("cursor", cursor);
+        if (tabType == 5) {
+            JsonObject extra = new JsonObject();
+            extra.addProperty("is_video_tab_comment", "1");
+            payload.add("extra_param", extra);
+        }
+        payload.addProperty("sort", sort == null || sort.isEmpty() ? "time_desc" : sort);
+        if (subTabType > 0) payload.addProperty("sub_tab_type", subTabType);
+        payload.addProperty("tab_type", tabType);
+        payload.addProperty("target_user_id", uid);
+        post("user/profile/" + uid, payload, 0, 0, new TextCallback() {
+            @Override
+            void onText(String text) {
+                com.fongmi.android.tv.hongguo.model.HgAuthorWork.Page page =
+                        com.fongmi.android.tv.hongguo.model.HgParser.parseAuthorWorks(text);
+                if (page == null) cb.onError(-2, "作品回包解析失败");
+                else cb.onSuccess(page);
+            }
+
+            @Override
+            void onFail(int code, String msg) {
+                cb.onError(code, msg);
+            }
+        });
+    }
+
     /** 整剧剧评一页。 */
     public void seriesComments(String seriesId, String cursor, HgCallback<HgComment.Page> cb) {
         if (!isId(seriesId)) {

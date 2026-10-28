@@ -96,6 +96,8 @@ public final class PanNetworkDiagnosticDialog extends DialogFragment implements 
 
     public static void show(FragmentActivity activity, PlayerManager player) {
         if (activity == null || player == null || player.isReleased()) return;
+        if (activity.isFinishing() || activity.isDestroyed()
+                || activity.getSupportFragmentManager().isStateSaved()) return;
         for (androidx.fragment.app.Fragment fragment : activity.getSupportFragmentManager().getFragments()) {
             if (fragment instanceof PanNetworkDiagnosticDialog) return;
         }

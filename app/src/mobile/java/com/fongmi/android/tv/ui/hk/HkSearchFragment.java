@@ -679,6 +679,8 @@ public class HkSearchFragment extends Fragment implements HkSearchModel.Callback
         Activity activity = getActivity();
         if (activity == null || activity.isFinishing()) return;
         activity.runOnUiThread(() -> {
+            Activity current = getActivity();
+            if (current == null || current.isFinishing() || current.isDestroyed()) return;
             dismissLoadingDialog();
             android.widget.TextView text = new android.widget.TextView(activity);
             text.setText("动态解析规则中，请稍候");

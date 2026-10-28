@@ -46,11 +46,15 @@ public class HistoryDialog extends BaseAlertDialog implements ConfigAdapter.OnCl
     }
 
     public void show(FragmentActivity activity) {
+        if (activity == null || activity.isFinishing() || activity.isDestroyed()
+                || activity.getSupportFragmentManager().isStateSaved()) return;
         show(activity.getSupportFragmentManager(), null);
         if (activity instanceof ConfigListener) listener = (ConfigListener) activity;
     }
 
     public void show(FragmentActivity activity, ConfigListener listener) {
+        if (activity == null || activity.isFinishing() || activity.isDestroyed()
+                || activity.getSupportFragmentManager().isStateSaved()) return;
         show(activity.getSupportFragmentManager(), null);
         this.listener = listener;
     }

@@ -57,6 +57,9 @@ public final class HgMineView extends LinearLayout {
     private static final int FAV_FOLLOW = 2;
     private static final int RES_ONLINE = 0;
     private static final int RES_UPCOMING = 1;
+    private static final int FOLLOW_ALL = 0;
+    private static final int FOLLOW_DONE = 1;
+    private static final int FOLLOW_UNDONE = 2;
 
     private View guestRow;
     private View userRow;
@@ -72,6 +75,7 @@ public final class HgMineView extends LinearLayout {
     private TextView relDiggUnit;
     private TextView emptyView;
     private LinearLayout chipsBox;
+    private LinearLayout followChipsBox;
     private TextView editBtn;
     private View editBar;
     private TextView editCount;
@@ -80,6 +84,8 @@ public final class HgMineView extends LinearLayout {
     private int currentTab = TAB_HISTORY;
     private int histFilter = HIST_ALL;
     private int favFilter = FAV_ALL;
+    private int followFilter = FOLLOW_ALL;
+    private boolean followRefreshing;
     private int reserveFilter = RES_ONLINE;
     private final java.util.Map<String, String> reserveDue = new java.util.HashMap<>();
     private boolean reserveRefreshing;
@@ -123,6 +129,7 @@ public final class HgMineView extends LinearLayout {
         relDiggUnit = findViewById(R.id.hg_mine_rel_digg_unit);
         emptyView = findViewById(R.id.hg_mine_empty);
         chipsBox = findViewById(R.id.hg_mine_chips);
+        followChipsBox = findViewById(R.id.hg_mine_follow_chips);
         editBtn = findViewById(R.id.hg_mine_edit);
         editBar = findViewById(R.id.hg_mine_edit_bar);
         editCount = findViewById(R.id.hg_mine_edit_count);
@@ -389,9 +396,35 @@ public final class HgMineView extends LinearLayout {
                 renderTab();
             });
         }
+        renderFollowChips();
+    }
+
+    /** 追更自带筛选行（官方 MineFollowUpdateFilter：全部/已看完/未看完）：仅追更子筛选中时显。 */
+    private void renderFollowChips() {
+        if (followChipsBox == null) return;
+        boolean show = currentTab == TAB_FAV && favFilter == FAV_FOLLOW;
+        followChipsBox.setVisibility(show ? VISIBLE : GONE);
+        if (!show) return;
+        followChipsBox.removeAllViews();
+        addChipTo(followChipsBox, "全部", followFilter == FOLLOW_ALL, v -> {
+            followFilter = FOLLOW_ALL;
+            renderTab();
+        });
+        addChipTo(followChipsBox, "已看完", followFilter == FOLLOW_DONE, v -> {
+            followFilter = FOLLOW_DONE;
+            renderTab();
+        });
+        addChipTo(followChipsBox, "未看完", followFilter == FOLLOW_UNDONE, v -> {
+            followFilter = FOLLOW_UNDONE;
+            renderTab();
+        });
     }
 
     private void addChip(String text, boolean on, OnClickListener click) {
+        addChipTo(chipsBox, text, on, click);
+    }
+
+    private void addChipTo(LinearLayout box, String text, boolean on, OnClickListener click) {
         // 二级页签样式照 bb8.xml：14sp、左右 padding 14dp、上下 5dp、带底选择器
         TextView chip = new TextView(getContext());
         chip.setText(text);
@@ -408,7 +441,7 @@ public final class HgMineView extends LinearLayout {
         lp.rightMargin = dp(8);
         chip.setLayoutParams(lp);
         chip.setOnClickListener(click);
-        chipsBox.addView(chip);
+        box.addView(chip);
     }
 
     private int dp(int v) {
@@ -438,8 +471,18 @@ public final class HgMineView extends LinearLayout {
                 if (HgStore.isReserved(id)) {
                     HgFeedSession.get().remoteInteractions.toggleReserve(id);
                 }
-            } else if (currentTab == TAB_FAV && favFilter == FAV_FOLLOW) HgStore.setFollowed(id, false);
-            else if (currentTab == TAB_FAV) HgStore.setFaved(id, false);
+            } else if (currentTab == TAB_FAV && favFilter == FAV_FOLLOW) {
+                // 取消追更走追剧架开关（本地镜像＋服务端同步，失败回滚在
+                // 开关内）；只改本地会被下一次回源拉回（删除复活）
+                if (HgStore.isFollowed(id)) {
+                    HgFeedSession.get().remoteInteractions.toggleFollow(id);
+                } else HgStore.setFollowed(id, false);
+            } else if (currentTab == TAB_FAV) {
+                // 取消收藏同走追剧架开关（与收藏面同一服务端本体）
+                if (HgStore.isFaved(id)) {
+                    HgFeedSession.get().remoteInteractions.toggleFavorite(id);
+                } else HgStore.setFaved(id, false);
+            }
         }
         selected.clear();
         updateEditBar();
@@ -501,9 +544,16 @@ public final class HgMineView extends LinearLayout {
                 String[] meta = HgStore.metaOf(id);
                 if (meta == null) continue;
                 int count = parseCount(meta);
+                // 追更面内筛选（官方 MineFollowUpdateFilter）：已看完＝断点
+                // 到总集数，未看完＝其余（含没看过）
+                HgStore.Progress p = HgStore.progressOf(id);
+                boolean done = count > 0 && p != null && p.episodeIndex >= count;
+                if (followFilter == FOLLOW_DONE && !done) continue;
+                if (followFilter == FOLLOW_UNDONE && done) continue;
                 rows.add(new Row(id, meta[0], meta[1], count, shelfMeta(id, count),
                         meta.length > 3 ? meta[3] : null));
             }
+            if (LoginManager.isHongguoLoggedIn()) refreshFollowFromServer();
         } else {
             List<String> ids = currentTab == TAB_FAV ? HgStore.favedIds() : HgStore.likedIds();
             for (String id : ids) {
@@ -578,6 +628,45 @@ public final class HgMineView extends LinearLayout {
 
             @Override
             public void onError(int httpCode, String message) {
+                // 镜像已先显，刷新失败不打扰
+            }
+        });
+    }
+
+    /**
+     * 追更子筛后台刷新：追更与收藏同在追剧架（服务端同一列表、同一开关），
+     * 回源把架上条目并入双镜像与元信息后重列。此前追更只读本地
+     * followedIds()、从不回源——他端追的更在本面永远看不到。
+     * 服务端回空不冲已显镜像行（防冲空口径同收藏/预约）。
+     */
+    private void refreshFollowFromServer() {
+        if (followRefreshing) return;
+        followRefreshing = true;
+        HgFeedSession.get().client.bookshelfVideoList(new HgCallback<com.fongmi.android.tv.hongguo.model.HgCellPage>() {
+            @Override
+            public void onSuccess(com.fongmi.android.tv.hongguo.model.HgCellPage page) {
+                post(() -> {
+                    followRefreshing = false;
+                    if (currentTab != TAB_FAV || favFilter != FAV_FOLLOW
+                            || page == null || page.getItems() == null || page.getItems().isEmpty()) return;
+                    for (HgSeriesItem s : page.getItems()) {
+                        if (s.getSeriesId() == null) continue;
+                        HgStore.setShelfMirrored(s.getSeriesId(), true);
+                        String[] local = HgStore.metaOf(s.getSeriesId());
+                        String title = s.getTitle() != null ? s.getTitle()
+                                : local != null ? local[0] : null;
+                        String cover = s.getCoverUrl() != null ? s.getCoverUrl()
+                                : local != null ? local[1] : null;
+                        HgStore.putMeta(s.getSeriesId(), title, cover, s.getEpisodeCount(),
+                                s.getBadge());
+                    }
+                    renderTab();
+                });
+            }
+
+            @Override
+            public void onError(int httpCode, String message) {
+                post(() -> followRefreshing = false);
                 // 镜像已先显，刷新失败不打扰
             }
         });

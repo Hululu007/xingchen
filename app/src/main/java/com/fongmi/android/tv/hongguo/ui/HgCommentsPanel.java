@@ -53,6 +53,89 @@ public final class HgCommentsPanel {
     private HgCommentsPanel() {
     }
 
+    // ---------- 第一页进程内缓存（评论打开慢对策，定根 comment-open-slow-dig） ----------
+    // 接口首包固有约 1.4–1.9s 且宿主是独占冷域名，零缓存时每次打开全价重付。
+    // 按 seriesId+vid 缓存第一页 45 秒（报告建议区间 30–60 秒取中值）：
+    // 重开先显缓存、后台静默刷新替换；当前播放条目空闲期预拉一页填缓存
+    // （该接口已实证同档案连发无恙，预拉每条目只发一次、失败不重试）。
+
+    private static final long FIRST_PAGE_TTL_MS = 45_000;
+
+    private static final class FirstPage {
+        final List<HgComment> items;
+        final long total;
+        final String nextCursor;
+        final boolean hasMore;
+        final long savedMs;
+
+        FirstPage(HgComment.Page page) {
+            this.items = new ArrayList<>(page.items);
+            this.total = page.total;
+            this.nextCursor = page.nextCursor;
+            this.hasMore = page.hasMore;
+            this.savedMs = System.currentTimeMillis();
+        }
+    }
+
+    private static final Map<String, FirstPage> FIRST_PAGE_CACHE = new HashMap<>();
+    private static final Set<String> PREFETCHING = new HashSet<>();
+
+    private static String cacheKey(HgFeedItem item) {
+        boolean ep = item.videoId != null && !item.videoId.isEmpty();
+        return item.seriesId + "|" + (ep ? item.videoId : "series");
+    }
+
+    private static FirstPage cacheGet(String key) {
+        synchronized (FIRST_PAGE_CACHE) {
+            FirstPage hit = FIRST_PAGE_CACHE.get(key);
+            if (hit == null) return null;
+            if (System.currentTimeMillis() - hit.savedMs > FIRST_PAGE_TTL_MS) {
+                FIRST_PAGE_CACHE.remove(key);
+                return null;
+            }
+            return hit;
+        }
+    }
+
+    private static void cachePut(String key, HgComment.Page page) {
+        if (page == null || page.items == null) return;
+        synchronized (FIRST_PAGE_CACHE) {
+            FIRST_PAGE_CACHE.put(key, new FirstPage(page));
+        }
+    }
+
+    /** 当前播放条目空闲期预拉评论第一页（只一页、每条目一次、在飞/有新鲜缓存不发）。 */
+    public static void prefetchFirstPage(HgFeedItem item) {
+        if (item == null || item.seriesId == null) return;
+        boolean ep = item.videoId != null && !item.videoId.isEmpty();
+        if (ep && (item.commentCount == null || item.commentCount.trim().isEmpty()
+                || "0".equals(item.commentCount.trim()))) return;
+        String key = cacheKey(item);
+        if (cacheGet(key) != null) return;
+        synchronized (FIRST_PAGE_CACHE) {
+            if (!PREFETCHING.add(key)) return;
+        }
+        HgCallback<HgComment.Page> cb = new HgCallback<HgComment.Page>() {
+            @Override
+            public void onSuccess(HgComment.Page page) {
+                cachePut(key, page);
+                synchronized (FIRST_PAGE_CACHE) {
+                    PREFETCHING.remove(key);
+                }
+            }
+
+            @Override
+            public void onError(int httpCode, String message) {
+                synchronized (FIRST_PAGE_CACHE) {
+                    PREFETCHING.remove(key);
+                }
+            }
+        };
+        HgFeedSession session = HgFeedSession.get();
+        if (ep) session.fqClient.episodeComments(item.seriesId, item.videoId, "", cb);
+        else session.fqClient.seriesComments(item.seriesId, "", cb);
+    }
+
     public static void show(Activity activity, HgFeedItem item) {
         show(activity, item, null, null);
     }
@@ -197,6 +280,9 @@ public final class HgCommentsPanel {
         private boolean hasMore;
         private boolean loading;
         private boolean firstLoaded;
+        /** 已种缓存、正在后台静默刷新第一页：回包整表替换、失败保留缓存不报错。 */
+        private boolean refreshing;
+        private android.view.View skeleton;
 
         Loader(Activity activity, DialogHongguoCommentsBinding binding, HgFeedItem item, LongConsumer onTotal) {
             this.activity = activity;
@@ -218,8 +304,75 @@ public final class HgCommentsPanel {
                     if (last >= comments.size() - 3) loadNext();
                 }
             });
-            binding.hgCmEmpty.setText("加载中…");
-            loadNext();
+            FirstPage hit = cacheGet(cacheKey(item));
+            if (hit != null) {
+                // 先显缓存（45 秒内），再后台静默刷新替换——重开不再全价等首包
+                comments.addAll(hit.items);
+                cursor = hit.nextCursor;
+                hasMore = hit.hasMore;
+                firstLoaded = true;
+                if (onTotal != null) onTotal.accept(hit.total);
+                binding.hgCmTitle.setText(hit.total > 0 ? "评论 " + hit.total : "评论");
+                binding.hgCmEmpty.setVisibility(View.GONE);
+                binding.hgCmList.setVisibility(View.VISIBLE);
+                adapter.notifyDataSetChanged();
+                refreshing = true;
+                loadNext();
+            } else {
+                showSkeleton();
+                loadNext();
+            }
+        }
+
+        /** 空白期骨架行（头像块＋两行灰条 ×3）：替代纯文字「加载中…」，感知空白更短。 */
+        private void showSkeleton() {
+            binding.hgCmEmpty.setVisibility(View.GONE);
+            android.widget.LinearLayout box = new android.widget.LinearLayout(activity);
+            box.setOrientation(android.widget.LinearLayout.VERTICAL);
+            float d = activity.getResources().getDisplayMetrics().density;
+            for (int i = 0; i < 3; i++) {
+                android.widget.LinearLayout row = new android.widget.LinearLayout(activity);
+                row.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+                android.view.View avatar = new android.view.View(activity);
+                android.graphics.drawable.GradientDrawable avBg = new android.graphics.drawable.GradientDrawable();
+                avBg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+                avBg.setColor(0x33FFFFFF);
+                avatar.setBackground(avBg);
+                row.addView(avatar, new android.widget.LinearLayout.LayoutParams(
+                        Math.round(36 * d), Math.round(36 * d)));
+                android.widget.LinearLayout lines = new android.widget.LinearLayout(activity);
+                lines.setOrientation(android.widget.LinearLayout.VERTICAL);
+                android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(
+                        0, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+                lp.setMarginStart(Math.round(10 * d));
+                lines.setLayoutParams(lp);
+                android.view.View line1 = new android.view.View(activity);
+                line1.setBackgroundColor(0x2EFFFFFF);
+                lines.addView(line1, new android.widget.LinearLayout.LayoutParams(
+                        Math.round(90 * d), Math.round(10 * d)));
+                android.view.View line2 = new android.view.View(activity);
+                line2.setBackgroundColor(0x24FFFFFF);
+                android.widget.LinearLayout.LayoutParams l2 = new android.widget.LinearLayout.LayoutParams(
+                        Math.round(200 * d), Math.round(10 * d));
+                l2.topMargin = Math.round(8 * d);
+                lines.addView(line2, l2);
+                row.addView(lines);
+                android.widget.LinearLayout.LayoutParams rp = new android.widget.LinearLayout.LayoutParams(
+                        android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                        android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+                if (i > 0) rp.topMargin = Math.round(18 * d);
+                box.addView(row, rp);
+            }
+            binding.hgCmContainer.addView(box, new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT));
+            skeleton = box;
+        }
+
+        private void hideSkeleton() {
+            if (skeleton != null) {
+                binding.hgCmContainer.removeView(skeleton);
+                skeleton = null;
+            }
         }
 
         private boolean episodeMode() {
@@ -229,15 +382,24 @@ public final class HgCommentsPanel {
         private void loadNext() {
             if (loading) return;
             loading = true;
+            // 静默刷新走第一页口径（cursor 空串），与续页分开记账
+            final boolean isRefresh = refreshing;
+            final String reqCursor = isRefresh ? "" : cursor;
             HgCallback<HgComment.Page> cb = new HgCallback<HgComment.Page>() {
                 @Override
                 public void onSuccess(HgComment.Page page) {
                     activity.runOnUiThread(() -> {
                         loading = false;
+                        hideSkeleton();
+                        if (reqCursor.isEmpty()) cachePut(cacheKey(item), page);
+                        if (isRefresh) {
+                            refreshing = false;
+                            comments.clear();
+                        }
                         comments.addAll(page.items);
                         cursor = page.nextCursor;
                         hasMore = page.hasMore;
-                        if (!firstLoaded) {
+                        if (!firstLoaded || isRefresh) {
                             firstLoaded = true;
                             if (onTotal != null) onTotal.accept(page.total);
                             binding.hgCmTitle.setText(page.total > 0 ? "评论 " + page.total : "评论");
@@ -258,6 +420,12 @@ public final class HgCommentsPanel {
                 public void onError(int httpCode, String message) {
                     activity.runOnUiThread(() -> {
                         loading = false;
+                        if (isRefresh) {
+                            // 静默刷新失败：保留已种的缓存内容，不报错、不清表
+                            refreshing = false;
+                            return;
+                        }
+                        hideSkeleton();
                         if (comments.isEmpty()) {
                             binding.hgCmEmpty.setVisibility(View.VISIBLE);
                             binding.hgCmEmpty.setText("评论加载失败，稍后再试");
@@ -265,8 +433,8 @@ public final class HgCommentsPanel {
                     });
                 }
             };
-            if (episodeMode()) session.fqClient.episodeComments(item.seriesId, item.videoId, cursor, cb);
-            else session.fqClient.seriesComments(item.seriesId, cursor, cb);
+            if (episodeMode()) session.fqClient.episodeComments(item.seriesId, item.videoId, reqCursor, cb);
+            else session.fqClient.seriesComments(item.seriesId, reqCursor, cb);
         }
 
         /** 发表成功后整表从头刷新：新评论与新总数都以服务端回带为准。 */

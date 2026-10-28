@@ -996,6 +996,9 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         if (landInstance) refreshLandTexts();
         startDanmakuFor(item, startAt);
         armAutoHide();
+        // 评论预拉：当前条目起播后空闲期拉第一页填进程内缓存（只一页、
+        // 每条目一次，接口已实证连发无恙），点开评论时不再全价等首包
+        HgCommentsPanel.prefetchFirstPage(item);
     }
 
     /**

@@ -142,22 +142,14 @@ public final class HgRemoteInteractions implements HgInteractions {
         client.subscribeSeries(seriesId, now, new HgCallback<Boolean>() {
             @Override
             public void onSuccess(Boolean ok) {
-                // 服务端回读对齐：在不在「我的预约」列表里为准
-                client.fetchMyReservations(new HgCallback<java.util.List<com.fongmi.android.tv.hongguo.model.HgSeriesItem>>() {
+                // 服务端回读对齐：在不在「我的预约」列表里为准（预约已按
+                // is_online 分档，两档任一命中即在列）
+                fetchReservedContains(seriesId, true, new HgCallback<Boolean>() {
                     @Override
-                    public void onSuccess(java.util.List<com.fongmi.android.tv.hongguo.model.HgSeriesItem> list) {
-                        boolean serverState = false;
-                        if (list != null) {
-                            for (com.fongmi.android.tv.hongguo.model.HgSeriesItem s : list) {
-                                if (s != null && seriesId.equals(s.getSeriesId())) {
-                                    serverState = true;
-                                    break;
-                                }
-                            }
-                        }
-                        HgStore.setReserved(seriesId, serverState);
+                    public void onSuccess(Boolean hit) {
+                        HgStore.setReserved(seriesId, Boolean.TRUE.equals(hit));
                         Listener l = listener;
-                        if (l != null) l.onSynced(KIND_RESERVE, seriesId, serverState);
+                        if (l != null) l.onSynced(KIND_RESERVE, seriesId, Boolean.TRUE.equals(hit));
                     }
 
                     @Override
@@ -177,6 +169,32 @@ public final class HgRemoteInteractions implements HgInteractions {
             }
         });
         return now;
+    }
+
+    /** 预约回读对齐：先查已上线档、未命中再查待上线档，任一命中即在预约列。 */
+    private void fetchReservedContains(String seriesId, boolean onlineTier, HgCallback<Boolean> cb) {
+        client.fetchMyReservations(onlineTier, new HgCallback<java.util.List<com.fongmi.android.tv.hongguo.model.HgSeriesItem>>() {
+            @Override
+            public void onSuccess(java.util.List<com.fongmi.android.tv.hongguo.model.HgSeriesItem> list) {
+                boolean hit = false;
+                if (list != null) {
+                    for (com.fongmi.android.tv.hongguo.model.HgSeriesItem s : list) {
+                        if (s != null && seriesId.equals(s.getSeriesId())) {
+                            hit = true;
+                            break;
+                        }
+                    }
+                }
+                if (hit || !onlineTier) cb.onSuccess(hit);
+                else fetchReservedContains(seriesId, false, cb);
+            }
+
+            @Override
+            public void onError(int httpCode, String message) {
+                if (onlineTier) fetchReservedContains(seriesId, false, cb);
+                else cb.onError(httpCode, message);
+            }
+        });
     }
 
     private boolean toggleShelf(String kind, String seriesId, boolean before) {

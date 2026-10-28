@@ -402,6 +402,37 @@ public final class HgRequests {
         return body;
     }
 
+    /** UgcActionType.Dislike=1（classes11.dex saas 模型 UgcActionType）。 */
+    public static final int ACTION_DISLIKE = 1;
+    /** UgcActionObjectType.Book=10（同上 UgcActionObjectType）。 */
+    public static final int OBJECT_BOOK = 10;
+    /** UgcActionReasonType.Server=1（同上 UgcActionReasonType）。 */
+    public static final int REASON_SERVER = 1;
+
+    /**
+     * 不感兴趣体 POST /novel/articleapi/do_action/v1/（与点赞同端点同模型）。
+     * 出处：classes20.dex st3/r.java（DisLikeAction 组参，逐行）：非 UGC 内容
+     * objectID＝剧 id（seriesId）、objectType＝Book(10)、actionType＝Dislike(1)、
+     * actionCategory＝Default(1)、reasonType＝Server(1)、actionReason＝""，
+     * businessParam.videoID＝当前集 vid（UGC 内容才是 vid 进 objectID、
+     * videoID 置空；短剧详情页恒走非 UGC 形）。2026-10-29 本机实拉：匿名
+     * 即回 code=0「请求成功」受理（回包存 probe-score-20261029）。
+     * 官方成功 toast＝「感谢反馈」（strings d1p）。
+     */
+    public static JsonObject dislikeSeriesBody(String seriesId, String vid) {
+        JsonObject body = new JsonObject();
+        body.addProperty("action_type", ACTION_DISLIKE);
+        body.addProperty("object_id", seriesId);
+        body.addProperty("object_type", OBJECT_BOOK);
+        body.addProperty("action_category", ACTION_CATEGORY_DEFAULT);
+        body.addProperty("reason_type", REASON_SERVER);
+        body.addProperty("action_reason", "");
+        JsonObject business = new JsonObject();
+        business.addProperty("video_id", vid == null ? "" : vid);
+        body.add("business_param", business);
+        return body;
+    }
+
     /** FollowActionType（classes11.dex rpc/model <clinit> 定版）：Follow=1 / UnFollow=0。 */
     public static final int FOLLOW_ACTION_FOLLOW = 1;
     public static final int FOLLOW_ACTION_UNFOLLOW = 0;

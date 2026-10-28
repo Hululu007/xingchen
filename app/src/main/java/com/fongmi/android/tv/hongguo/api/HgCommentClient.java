@@ -327,6 +327,173 @@ public final class HgCommentClient {
         });
     }
 
+    // ---------- 参与评分（详情页评分卡） ----------
+
+    /** UgcCommentCommitSourceEnum.NovelPlayletCommentAdd=12（classes11.dex saas 枚举）。 */
+    public static final int COMMIT_SOURCE_PLAYLET = 12;
+    /** UgcCommentGroupTypeOutter.FakeBook=3（同上）。 */
+    public static final int DATA_TYPE_FAKE_BOOK = 3;
+    /** UgcNovelCommentType.UserActualComment=0（同上）。 */
+    public static final int COMMENT_TYPE_USER_ACTUAL = 0;
+    /** 信封 code：用户未登录（2026-10-29 实拉 add/update 两口同码同文案）。 */
+    public static final int CODE_NOT_LOGIN = 103006;
+
+    /**
+     * 纯打分提交体（不带文字的剧评）：POST /novel/commentapi/comment/add/v1/。
+     * 出处：classes2.dex p12/w.java 的 e() 逐字（官方评分卡确认钮链
+     * VideoCommentListViewModel.U1 → 此法）——commit_source＝12
+     * （NovelPlayletCommentAdd）、group_id＝剧 id、group_type＝1（Book）、
+     * data_type＝3（FakeBook）、text 不填、comment_type＝0
+     * （UserActualComment）、business{score＝十分制 0..10（半星步进，星数×2）、
+     * book_id＝剧 id、shark_param、trans_param{watch_duration＝已看秒数}}。
+     * shark_param 官方是运行时反作弊图＋comment_type 键，包内抠不到全表，
+     * 照本文件已实证写口径落 type/aid 两键（与发弹幕/发评论同口径，真回包
+     * 校准点）。门槛校验在端上（官方 CSSPlayletCommentListView 按
+     * can_comment_threshold 与累计观看算剩余分钟），watch_duration 随体
+     * 上送服务端。2026-10-29 本机实拉（匿名）：HTTP 200、code=103006
+     * 「用户未登录」——形状被受理到业务层、只差登录（回包存
+     * probe-score-20261029）。
+     */
+    public static JsonObject scorePayload(String seriesId, int score, long watchSec) {
+        JsonObject payload = new JsonObject();
+        payload.addProperty("commit_source", COMMIT_SOURCE_PLAYLET);
+        payload.addProperty("group_id", seriesId);
+        payload.addProperty("group_type", 1);
+        payload.addProperty("data_type", DATA_TYPE_FAKE_BOOK);
+        payload.addProperty("comment_type", COMMENT_TYPE_USER_ACTUAL);
+        payload.addProperty("aid", 8662);
+        JsonObject business = new JsonObject();
+        business.addProperty("score", Math.max(0, Math.min(10, score)));
+        business.addProperty("book_id", seriesId);
+        JsonObject shark = new JsonObject();
+        shark.addProperty("type", "short_play");
+        shark.addProperty("aid", "8662");
+        business.add("shark_param", shark);
+        JsonObject trans = new JsonObject();
+        trans.addProperty("watch_duration", String.valueOf(Math.max(0, watchSec)));
+        business.add("trans_param", trans);
+        payload.add("business_param", business);
+        return payload;
+    }
+
+    /** 提交评分（首次）。成功＝信封 code=0；未登录回 103006 透传给页面拉登录。 */
+    public void submitScore(String seriesId, int score, long watchSec, HgCallback<Void> cb) {
+        if (!isId(seriesId)) {
+            cb.onError(-1, "id 非法");
+            return;
+        }
+        if (score < 1 || score > 10) {
+            cb.onError(-1, "请先选择打分等级");
+            return;
+        }
+        postWrite("comment/add", scorePayload(seriesId, score, watchSec), "评分", cb);
+    }
+
+    /**
+     * 改分体：POST /novel/commentapi/comment/update/v1/。出处：classes2.dex
+     * impl/comment/playlet/editor/q1.java 的 c() 逐行（编辑已发评论链）——
+     * comment_id＝本人那条带分评论 id（从整剧评论回包 extra.user_comment
+     * 取）、commit_source 沿原评论（纯打分评论即 12）、comment_type＝0、
+     * group_id/book_id＝剧 id、group_type＝1、data_type 沿原评论（纯打分
+     * 即 3 FakeBook）、business{score、book_id、shark_param、trans_param
+     * {watch_duration}}。2026-10-29 本机实拉（匿名）：同 add 口径回
+     * 103006「用户未登录」，形状受理、只差登录。
+     */
+    public static JsonObject scoreUpdatePayload(String commentId, String seriesId, int score, long watchSec) {
+        JsonObject payload = new JsonObject();
+        payload.addProperty("comment_id", commentId);
+        payload.addProperty("commit_source", COMMIT_SOURCE_PLAYLET);
+        payload.addProperty("comment_type", COMMENT_TYPE_USER_ACTUAL);
+        payload.addProperty("group_id", seriesId);
+        payload.addProperty("group_type", 1);
+        payload.addProperty("data_type", DATA_TYPE_FAKE_BOOK);
+        payload.addProperty("aid", 8662);
+        JsonObject business = new JsonObject();
+        business.addProperty("book_id", seriesId);
+        business.addProperty("score", Math.max(0, Math.min(10, score)));
+        JsonObject shark = new JsonObject();
+        shark.addProperty("type", "short_play");
+        shark.addProperty("aid", "8662");
+        business.add("shark_param", shark);
+        JsonObject trans = new JsonObject();
+        trans.addProperty("watch_duration", String.valueOf(Math.max(0, watchSec)));
+        business.add("trans_param", trans);
+        payload.add("business_param", business);
+        return payload;
+    }
+
+    /** 改分（已有本人带分评论时）。成功/失败口径同 submitScore。 */
+    public void updateScore(String commentId, String seriesId, int score, long watchSec,
+                            HgCallback<Void> cb) {
+        if (!isId(seriesId) || commentId == null || commentId.isEmpty()) {
+            cb.onError(-1, "id 非法");
+            return;
+        }
+        if (score < 1 || score > 10) {
+            cb.onError(-1, "请先选择打分等级");
+            return;
+        }
+        postWrite("comment/update", scoreUpdatePayload(commentId, seriesId, score, watchSec), "改分", cb);
+    }
+
+    /** 写口共用判定：信封 code=0 受理；被拒把真实 code 透传（103006 页面拉登录）。 */
+    private void postWrite(String path, JsonObject payload, String what, HgCallback<Void> cb) {
+        post(path, payload, 0, 0, new TextCallback() {
+            @Override
+            void onText(String resp) {
+                int r = HgCommentParser.writeResult(resp);
+                if (r > 0) {
+                    cb.onSuccess(null);
+                    return;
+                }
+                if (r < 0) {
+                    cb.onError(-2, what + "回包解析失败");
+                    return;
+                }
+                int code = HgCommentParser.envelopeCode(resp);
+                cb.onError(code != Integer.MIN_VALUE ? code : -2, what + "被服务端拒绝");
+            }
+
+            @Override
+            void onFail(int code, String msg) {
+                cb.onError(code, msg);
+            }
+        });
+    }
+
+    /**
+     * 不感兴趣 POST /novel/articleapi/do_action/v1/（体见
+     * HgRequests.dislikeSeriesBody 出处注）。2026-10-29 本机实拉：匿名即
+     * code=0 受理——此口不设登录门。被拒时透传信封 code。
+     */
+    public void dislikeSeries(String seriesId, String vid, HgCallback<Void> cb) {
+        if (!isId(seriesId)) {
+            cb.onError(-1, "id 非法");
+            return;
+        }
+        postRaw("/novel/articleapi/do_action/v1/", HgRequests.dislikeSeriesBody(seriesId, vid), 0, 0, new TextCallback() {
+            @Override
+            void onText(String resp) {
+                int r = HgCommentParser.writeResult(resp);
+                if (r > 0) {
+                    cb.onSuccess(null);
+                    return;
+                }
+                if (r < 0) {
+                    cb.onError(-2, "反馈回包解析失败");
+                    return;
+                }
+                int code = HgCommentParser.envelopeCode(resp);
+                cb.onError(code != Integer.MIN_VALUE ? code : -2, "反馈被服务端拒绝");
+            }
+
+            @Override
+            void onFail(int code, String msg) {
+                cb.onError(code, msg);
+            }
+        });
+    }
+
     /** 整剧剧评一页＋评分卡（详情页用：同一回包的 extra 段带红果分/收藏数）。 */
     public static final class SeriesReviews {
         public final HgComment.Page page;

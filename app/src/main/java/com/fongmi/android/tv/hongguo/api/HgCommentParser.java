@@ -42,12 +42,52 @@ public final class HgCommentParser {
             }
         } catch (Exception ignored) {
         }
+        // 本人那条带分评论（extra.user_comment，与 data_list 条目同 UgcComment
+        // 形状——saas 模型 CommentListExtra.userComment 定版）：官方客户端把它
+        // 单独抠出来置顶回显（CSSPlayletCommentListView 消费点实证），分在
+        // expand.score（字符串型十分制，与条目同口径 num 容忍）。纯打分评论
+        // 正文可空，不套列表侧的正文/状态校验；匿名回包无此键 → -1/""。
+        int myScore = -1;
+        String myCommentId = "";
+        JsonObject mine = obj(extra, "user_comment");
+        if (mine != null) {
+            JsonObject mExpand = obj(mine, "expand");
+            long s = mExpand == null ? -1 : num(mExpand, "score", -1);
+            if (s >= 0 && s <= 10) {
+                myScore = (int) s;
+                myCommentId = str(mine, "comment_id");
+            }
+        }
         return new com.fongmi.android.tv.hongguo.model.HgSeriesRating(
                 score,
                 num(extra, "credibility_score_count", -1),
                 num(extra, "collectors_count", -1),
                 (int) num(extra, "can_comment_threshold", -1),
-                num(extra, "score_cnt", -1));
+                num(extra, "score_cnt", -1),
+                myScore, myCommentId);
+    }
+
+    /**
+     * 写口回包信封 code 原值（评分提交/改分/不感兴趣的失败分型用）：103006＝
+     * 用户未登录（2026-10-29 本机实拉三口全同此码此文案「用户未登录」）；
+     * 解析不出返回 Integer.MIN_VALUE。受理判定仍走 writeResult 三态，本法
+     * 只负责把被拒的真实码透出来给页面分文案。
+     */
+    public static int envelopeCode(String text) {
+        if (text == null || text.isEmpty()) return Integer.MIN_VALUE;
+        try {
+            JsonElement el = JsonParser.parseString(text);
+            if (!el.isJsonObject()) return Integer.MIN_VALUE;
+            JsonObject root = el.getAsJsonObject();
+            if (!root.has("code") || !root.get("code").isJsonPrimitive()) return Integer.MIN_VALUE;
+            JsonElement code = root.get("code");
+            if (code.getAsJsonPrimitive().isNumber()) return code.getAsInt();
+            String s = code.getAsString();
+            if ("0".equals(s) || "SUCCESS".equalsIgnoreCase(s)) return 0;
+            return Integer.parseInt(s.trim());
+        } catch (Exception e) {
+            return Integer.MIN_VALUE;
+        }
     }
 
     public static HgComment.Page parseList(String text, String series, String group, String cursor, boolean seriesDim) {

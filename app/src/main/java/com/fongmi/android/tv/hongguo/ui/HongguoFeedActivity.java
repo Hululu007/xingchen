@@ -2168,8 +2168,9 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             current = first == null ? defs.get(0) : first.getDefinition();
         }
         final String currentDef = current;
+        final java.util.List<String> defsF = defs;
         showLandDrawer("清晰度", (rows, dialog) -> {
-            for (String def : defs) {
+            for (String def : defsF) {
                 boolean on = def.equals(currentDef);
                 TextView row = landDrawerRow((on ? "✓ " : "") + HgPanelLogic.definitionLabel(def), on);
                 row.setOnClickListener(v -> {

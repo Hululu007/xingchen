@@ -8,6 +8,7 @@ import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.whl.quickjs.wrapper.JSObject;
 import com.whl.quickjs.wrapper.QuickJSContext;
 
 import org.jsoup.Jsoup;
@@ -55,16 +56,24 @@ public class WvHost {
     }
 
     public void bind(QuickJSContext ctx) {
-        ctx.getGlobalObject().setProperty("__wvHttp", args -> http(arg(args, 0)));
-        ctx.getGlobalObject().setProperty("__wvCacheGet", args -> cacheGet(arg(args, 0)));
-        ctx.getGlobalObject().setProperty("__wvCacheSet", args -> {
-            cacheSet(arg(args, 0), arg(args, 1));
-            return null;
-        });
-        ctx.getGlobalObject().setProperty("__wvCookies", args -> cookies(arg(args, 0)));
-        ctx.getGlobalObject().setProperty("__wvDomParse", args -> domParse(arg(args, 0), arg(args, 1)));
-        ctx.getGlobalObject().setProperty("__wvDomQuery", args -> domQuery(arg(args, 0), arg(args, 1)));
-        ctx.getGlobalObject().setProperty("__wvDomQueryIn", args -> domQueryIn(arg(args, 0), arg(args, 1), arg(args, 2)));
+        // 全局包装只取一份、注册完 release 本地这一份（属性由全局对象自持），
+        // 与 Global.setProperty 的收口口径一致；bind 由 WvSpider 在其 ctx
+        // 属主线程上调用，release 线程合规。
+        JSObject globalObj = ctx.getGlobalObject();
+        try {
+            globalObj.setProperty("__wvHttp", args -> http(arg(args, 0)));
+            globalObj.setProperty("__wvCacheGet", args -> cacheGet(arg(args, 0)));
+            globalObj.setProperty("__wvCacheSet", args -> {
+                cacheSet(arg(args, 0), arg(args, 1));
+                return null;
+            });
+            globalObj.setProperty("__wvCookies", args -> cookies(arg(args, 0)));
+            globalObj.setProperty("__wvDomParse", args -> domParse(arg(args, 0), arg(args, 1)));
+            globalObj.setProperty("__wvDomQuery", args -> domQuery(arg(args, 0), arg(args, 1)));
+            globalObj.setProperty("__wvDomQueryIn", args -> domQueryIn(arg(args, 0), arg(args, 1), arg(args, 2)));
+        } finally {
+            globalObj.release();
+        }
     }
 
     public void destroy() {

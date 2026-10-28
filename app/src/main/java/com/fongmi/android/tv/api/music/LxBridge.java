@@ -193,72 +193,80 @@ public class LxBridge {
         // QuickJSException（console.stdout 未设置），整脚本求值失败、导入被拒
         // （全豆要 9.3 顶层就有 console.log，1.3.59 真机实证）。与点播 Spider 同口径。
         ctx.setConsole(new Console());
-        ctx.getGlobalObject().setProperty("__lxSend", (JSCallFunction) args -> {
-            try {
-                String event = args.length > 0 ? String.valueOf(args[0]) : "";
-                String json = args.length > 1 ? String.valueOf(args[1]) : "null";
-                onSend(event, json);
-            } catch (Throwable ignored) {
-            }
-            return null;
-        });
-        ctx.getGlobalObject().setProperty("__lxRequest", (JSCallFunction) args -> {
-            try {
-                String url = args.length > 0 ? String.valueOf(args[0]) : "";
-                String opts = args.length > 1 ? String.valueOf(args[1]) : "{}";
-                JSONObject out = new JSONObject();
+        // 全局包装只取一份：逐个各取一份用完不放，建桥一次漏八个。
+        // 注册全走这一份，完事 release 本地包装（属性由全局对象自持）；
+        // createCtx 跑在桥自己的执行线程上，release 线程口径合规。
+        JSObject globalObj = ctx.getGlobalObject();
+        try {
+            globalObj.setProperty("__lxSend", (JSCallFunction) args -> {
                 try {
-                    out.put("resp", nativeRequest(url, opts));
-                } catch (Throwable t) {
-                    JSONObject err = new JSONObject();
-                    err.put("msg", String.valueOf(t.getMessage()));
-                    out.put("err", err);
+                    String event = args.length > 0 ? String.valueOf(args[0]) : "";
+                    String json = args.length > 1 ? String.valueOf(args[1]) : "null";
+                    onSend(event, json);
+                } catch (Throwable ignored) {
                 }
-                return out.toString();
-            } catch (Throwable t) {
-                return "{\"err\":{\"msg\":" + JSONObject.quote(String.valueOf(t.getMessage())) + "}}";
-            }
-        });
-        // 统一登录通路（与 FreeJsBridge 同型）：只认本桥脚本头部声明的 loginProvider
-        // （闭包绑定，脚本传不了参、选不了提供方）；未声明时恒空转。
-        ctx.getGlobalObject().setProperty("__lxLoginCookie", (JSCallFunction) args -> {
-            try {
-                if (loginProvider.isEmpty()) return "";
-                String cookie = LoginManager.getCookie(loginProvider);
-                return cookie == null ? "" : cookie;
-            } catch (Throwable t) {
-                return "";
-            }
-        });
-        ctx.getGlobalObject().setProperty("__lxLoginRequest", (JSCallFunction) args -> {
-            try {
-                if (loginProvider.isEmpty()) return false;
-                if (LoginManager.isLoggedIn(loginProvider)) return true;
-                return LoginManager.requestLogin(loginProvider);
-            } catch (Throwable t) {
-                return false;
-            }
-        });
-        ctx.getGlobalObject().setProperty("__lxMd5", (JSCallFunction) args ->
-                md5Hex(args.length > 0 ? String.valueOf(args[0]) : ""));
-        ctx.getGlobalObject().setProperty("__lxAes", (JSCallFunction) args -> {
-            String data = args.length > 0 ? String.valueOf(args[0]) : "";
-            String mode = args.length > 1 ? String.valueOf(args[1]) : "aes-128-cbc";
-            String key = args.length > 2 ? String.valueOf(args[2]) : "";
-            String iv = args.length > 3 ? String.valueOf(args[3]) : "";
-            return aesEncrypt(data, mode, key, iv);
-        });
-        ctx.getGlobalObject().setProperty("__lxRsa", (JSCallFunction) args -> {
-            String data = args.length > 0 ? String.valueOf(args[0]) : "";
-            String pem = args.length > 1 ? String.valueOf(args[1]) : "";
-            return rsaEncrypt(data, pem);
-        });
-        ctx.getGlobalObject().setProperty("__lxRandom", (JSCallFunction) args -> {
-            int n = args.length > 0 && args[0] instanceof Number ? ((Number) args[0]).intValue() : 0;
-            byte[] buf = new byte[Math.max(0, Math.min(4096, n))];
-            new SecureRandom().nextBytes(buf);
-            return Base64.encodeToString(buf, Base64.NO_WRAP);
-        });
+                return null;
+            });
+            globalObj.setProperty("__lxRequest", (JSCallFunction) args -> {
+                try {
+                    String url = args.length > 0 ? String.valueOf(args[0]) : "";
+                    String opts = args.length > 1 ? String.valueOf(args[1]) : "{}";
+                    JSONObject out = new JSONObject();
+                    try {
+                        out.put("resp", nativeRequest(url, opts));
+                    } catch (Throwable t) {
+                        JSONObject err = new JSONObject();
+                        err.put("msg", String.valueOf(t.getMessage()));
+                        out.put("err", err);
+                    }
+                    return out.toString();
+                } catch (Throwable t) {
+                    return "{\"err\":{\"msg\":" + JSONObject.quote(String.valueOf(t.getMessage())) + "}}";
+                }
+            });
+            // 统一登录通路（与 FreeJsBridge 同型）：只认本桥脚本头部声明的 loginProvider
+            // （闭包绑定，脚本传不了参、选不了提供方）；未声明时恒空转。
+            globalObj.setProperty("__lxLoginCookie", (JSCallFunction) args -> {
+                try {
+                    if (loginProvider.isEmpty()) return "";
+                    String cookie = LoginManager.getCookie(loginProvider);
+                    return cookie == null ? "" : cookie;
+                } catch (Throwable t) {
+                    return "";
+                }
+            });
+            globalObj.setProperty("__lxLoginRequest", (JSCallFunction) args -> {
+                try {
+                    if (loginProvider.isEmpty()) return false;
+                    if (LoginManager.isLoggedIn(loginProvider)) return true;
+                    return LoginManager.requestLogin(loginProvider);
+                } catch (Throwable t) {
+                    return false;
+                }
+            });
+            globalObj.setProperty("__lxMd5", (JSCallFunction) args ->
+                    md5Hex(args.length > 0 ? String.valueOf(args[0]) : ""));
+            globalObj.setProperty("__lxAes", (JSCallFunction) args -> {
+                String data = args.length > 0 ? String.valueOf(args[0]) : "";
+                String mode = args.length > 1 ? String.valueOf(args[1]) : "aes-128-cbc";
+                String key = args.length > 2 ? String.valueOf(args[2]) : "";
+                String iv = args.length > 3 ? String.valueOf(args[3]) : "";
+                return aesEncrypt(data, mode, key, iv);
+            });
+            globalObj.setProperty("__lxRsa", (JSCallFunction) args -> {
+                String data = args.length > 0 ? String.valueOf(args[0]) : "";
+                String pem = args.length > 1 ? String.valueOf(args[1]) : "";
+                return rsaEncrypt(data, pem);
+            });
+            globalObj.setProperty("__lxRandom", (JSCallFunction) args -> {
+                int n = args.length > 0 && args[0] instanceof Number ? ((Number) args[0]).intValue() : 0;
+                byte[] buf = new byte[Math.max(0, Math.min(4096, n))];
+                new SecureRandom().nextBytes(buf);
+                return Base64.encodeToString(buf, Base64.NO_WRAP);
+            });
+        } finally {
+            globalObj.release();
+        }
         // 元信息（垫片据此组 currentScriptInfo）
         JsonObject meta = new JsonObject();
         meta.addProperty("version", LX_VERSION);
@@ -275,9 +283,23 @@ public class LxBridge {
     private void loadScript() {
         ctx.evaluate(scriptJs);
         try {
-            Object raw = ctx.getProperty(ctx.getGlobalObject(), "__lxHandlers");
-            JSObject handlers = raw instanceof JSObject ? (JSObject) raw : null;
-            if (handlers != null) requestHandler = handlers.getJSFunction("request");
+            // 两份临时包装都当场收口：全局包装取完属性即 release；handlers
+            // 只用来提取 request 函数本体（本体由 requestHandler 持有、
+            // destroy 收口），提取完 handlers 包装这一份即 release。
+            JSObject globalObj = ctx.getGlobalObject();
+            try {
+                Object raw = ctx.getProperty(globalObj, "__lxHandlers");
+                JSObject handlers = raw instanceof JSObject ? (JSObject) raw : null;
+                if (handlers != null) {
+                    try {
+                        requestHandler = handlers.getJSFunction("request");
+                    } finally {
+                        handlers.release();
+                    }
+                }
+            } finally {
+                globalObj.release();
+            }
         } catch (Throwable ignored) {
         }
     }

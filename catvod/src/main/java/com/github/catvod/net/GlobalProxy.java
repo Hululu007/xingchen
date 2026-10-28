@@ -176,6 +176,7 @@ public class GlobalProxy {
             java.lang.reflect.Method callAttr = pyObjectClass.getMethod("callAttr", String.class, Object[].class);
             Object os = getModule.invoke(python, "os");
             Object environ = getAttr.invoke(os, "environ");
+            java.lang.reflect.Method toBoolean = pyObjectClass.getMethod("toBoolean");
             // 这里拿到的三个 PyObject 一个都不许关：os 是模块对象、environ 是
             // 进程级映射、__setitem__ 返回的是 None 单例——Chaquopy 按对象身份
             // 缓存 Java 包装，关掉的是全进程共享的那一份（与 chaquo Spider 的
@@ -183,15 +184,43 @@ public class GlobalProxy {
             // 第二次起 getModule("os") 拿到已关闭对象、异常被外层吞掉，改代理
             // 后 Python 流量静默不跟随。这几处都是低频调用（改代理设置时），
             // 包装留给进程级持有，不走 finalize 批量释放的危险路径。
+            // 删除是唯一的例外：pop 的返回值另有收口，走 clearEnv（见其注）。
             for (int i = 0; i < names.length; i++) {
                 if (values[i] == null || values[i].isEmpty()) {
-                    callAttr.invoke(environ, new Object[]{"pop", new Object[]{names[i], null}});
+                    clearEnv(environ, callAttr, toBoolean, names[i]);
                 } else {
                     callAttr.invoke(environ, new Object[]{"__setitem__", new Object[]{names[i], values[i]}});
                 }
             }
         } catch (Throwable t) {
             t.printStackTrace();
+        }
+    }
+
+    /**
+     * 从 os.environ 删一个变量并收口 pop 的返回值：pop 命中键时返回的是
+     * 被删值的新造字符串包装，不关就只能靠 finalize 释放（体检类6 命中）；
+     * 不命中时返回的是 None 单例的共享包装，按上面的纪律不许关。故先用
+     * __contains__ 确认命中才 pop；__contains__ 回的布尔单例包装只读真值、
+     * 不持有不关（单例属既定核销口径）。
+     */
+    private static void clearEnv(Object environ, java.lang.reflect.Method callAttr, java.lang.reflect.Method toBoolean, String name) throws Exception {
+        Object has = callAttr.invoke(environ, new Object[]{"__contains__", new Object[]{name}});
+        if (!Boolean.TRUE.equals(toBoolean.invoke(has))) return;
+        Object popped = null;
+        try {
+            popped = callAttr.invoke(environ, new Object[]{"pop", new Object[]{name, null}});
+        } finally {
+            closePyObject(popped);
+        }
+    }
+
+    /** 反射取得的 PyObject 包装用完即关（本类不直接依赖 Chaquopy，走反射 close）。 */
+    private static void closePyObject(Object o) {
+        if (o == null) return;
+        try {
+            o.getClass().getMethod("close").invoke(o);
+        } catch (Throwable ignored) {
         }
     }
 }

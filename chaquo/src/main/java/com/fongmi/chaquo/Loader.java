@@ -95,6 +95,10 @@ public class Loader {
         try {
             obj = create.get(60, TimeUnit.SECONDS);
         } catch (TimeoutException e) {
+            // 与下面 InterruptedException 分支同口径：等待方不等了，创建任务
+            // 一并掐掉——不 cancel 的话任务跑完产出的 PyObject 无人接收、
+            // 无人 close，只能靠 GC finalize 释放（1.4.1 同机理崩点）。
+            create.cancel(true);
             throw new IllegalStateException("python spider create timeout: " + name, e);
         } catch (ExecutionException e) {
             Throwable cause = e.getCause();

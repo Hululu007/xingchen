@@ -249,7 +249,14 @@ public class Spider extends com.github.catvod.crawler.Spider {
         ctx = QuickJSContext.create();
         ctx.setConsole(new Console());
         ctx.evaluate(Asset.read("js/lib/http.js"));
-        ctx.getGlobalObject().setProperty("local", Local.class);
+        // getGlobalObject 的包装取完即弃：设完属性就 release 本地这一份，
+        // 不靠 ctx.destroy 兜底（与 releaseJS 的释放纪律对齐）。
+        JSObject globalObj = ctx.getGlobalObject();
+        try {
+            globalObj.setProperty("local", Local.class);
+        } finally {
+            globalObj.release();
+        }
         ctx.setModuleLoader(new QuickJSContext.BytecodeModuleLoader() {
             @Override
             public String moduleNormalizeName(String baseModuleName, String moduleName) {
@@ -279,7 +286,15 @@ public class Spider extends com.github.catvod.crawler.Spider {
         cat = content.contains("__jsEvalReturn");
         ctx.evaluateModule(content.replace(spider, global), api);
         ctx.evaluateModule(String.format(Asset.read("js/lib/spider.js"), api, JSONObject.quote(siteKey)));
-        Object created = ctx.getProperty(ctx.getGlobalObject(), spider);
+        // 临时全局包装用完即 release；取到的 created 本体由 jsObject 持有、
+        // releaseJS 收口，两份包装分开管。
+        JSObject globalObj = ctx.getGlobalObject();
+        Object created;
+        try {
+            created = ctx.getProperty(globalObj, spider);
+        } finally {
+            globalObj.release();
+        }
         jsObject = created instanceof JSObject ? (JSObject) created : null;
     }
 
@@ -293,8 +308,15 @@ public class Spider extends com.github.catvod.crawler.Spider {
         obj.setProperty("stype", 3);
         obj.setProperty("skey", siteKey);
         Object parsed = structured ? ctx.parse(ext) : null;
-        if (parsed instanceof JSObject) obj.setProperty("ext", (JSObject) parsed);
-        else obj.setProperty("ext", ext);
+        if (parsed instanceof JSObject) {
+            // parsed 被 obj 的 ext 属性持有后，本地包装这一份即 release，
+            // 与非 cat 分支「返回本体由调用方 release」的口径对齐。
+            try {
+                obj.setProperty("ext", (JSObject) parsed);
+            } finally {
+                ((JSObject) parsed).release();
+            }
+        } else obj.setProperty("ext", ext);
         return obj;
     }
 

@@ -210,46 +210,54 @@ public class FreeJsBridge {
         // QuickJSException 让整插件求值失败，先把出口设上（垫片自己的
         // console 定义有 !global.console 守卫，wrapper console 已存在时不会覆盖）。
         ctx.setConsole(new Console());
-        ctx.getGlobalObject().setProperty("__freejsRequest", (JSCallFunction) args -> {
-            try {
-                String method = args.length > 0 ? String.valueOf(args[0]) : "GET";
-                String url = args.length > 1 ? String.valueOf(args[1]) : "";
-                String opts = args.length > 2 ? String.valueOf(args[2]) : "{}";
-                return nativeRequest(method, url, opts);
-            } catch (Throwable t) {
-                return "{\"error\":" + JSONObject.quote(String.valueOf(t.getMessage())) + "}";
-            }
-        });
-        // 统一登录通路：只认本桥插件声明的 loginProvider（闭包绑定，脚本传不了参、
-        // 选不了提供方）——A 插件声明谷歌只能拿到谷歌的托管 Cookie，读不到别家的，
-        // 更拿不到没声明登录的插件手里。未声明时两个函数都是空转，老插件零影响。
-        ctx.getGlobalObject().setProperty("__freejsLoginCookie", (JSCallFunction) args -> {
-            try {
-                if (loginProvider.isEmpty()) return "";
-                String cookie = LoginManager.getCookie(loginProvider);
-                return cookie == null ? "" : cookie;
-            } catch (Throwable t) {
-                return "";
-            }
-        });
-        ctx.getGlobalObject().setProperty("__freejsLoginRequest", (JSCallFunction) args -> {
-            try {
-                if (loginProvider.isEmpty()) return false;
-                if (LoginManager.isLoggedIn(loginProvider)) return true;
-                return LoginManager.requestLogin(loginProvider);
-            } catch (Throwable t) {
-                return false;
-            }
-        });
-        ctx.getGlobalObject().setProperty("__freejsLog", (JSCallFunction) args -> {
-            try {
-                String lv = args.length > 0 ? String.valueOf(args[0]) : "I";
-                String msg = args.length > 1 ? String.valueOf(args[1]) : "";
-                SpiderDebug.log("freejs-" + lv, "%s", msg);
-            } catch (Throwable ignored) {
-            }
-            return null;
-        });
+        // 全局包装只取一份：逐个各取一份用完不放，建桥一次漏四个。
+        // 注册全走这一份，完事 release 本地包装（属性由全局对象自持）；
+        // createCtx 跑在桥自己的执行线程上，release 线程口径合规。
+        JSObject globalObj = ctx.getGlobalObject();
+        try {
+            globalObj.setProperty("__freejsRequest", (JSCallFunction) args -> {
+                try {
+                    String method = args.length > 0 ? String.valueOf(args[0]) : "GET";
+                    String url = args.length > 1 ? String.valueOf(args[1]) : "";
+                    String opts = args.length > 2 ? String.valueOf(args[2]) : "{}";
+                    return nativeRequest(method, url, opts);
+                } catch (Throwable t) {
+                    return "{\"error\":" + JSONObject.quote(String.valueOf(t.getMessage())) + "}";
+                }
+            });
+            // 统一登录通路：只认本桥插件声明的 loginProvider（闭包绑定，脚本传不了参、
+            // 选不了提供方）——A 插件声明谷歌只能拿到谷歌的托管 Cookie，读不到别家的，
+            // 更拿不到没声明登录的插件手里。未声明时两个函数都是空转，老插件零影响。
+            globalObj.setProperty("__freejsLoginCookie", (JSCallFunction) args -> {
+                try {
+                    if (loginProvider.isEmpty()) return "";
+                    String cookie = LoginManager.getCookie(loginProvider);
+                    return cookie == null ? "" : cookie;
+                } catch (Throwable t) {
+                    return "";
+                }
+            });
+            globalObj.setProperty("__freejsLoginRequest", (JSCallFunction) args -> {
+                try {
+                    if (loginProvider.isEmpty()) return false;
+                    if (LoginManager.isLoggedIn(loginProvider)) return true;
+                    return LoginManager.requestLogin(loginProvider);
+                } catch (Throwable t) {
+                    return false;
+                }
+            });
+            globalObj.setProperty("__freejsLog", (JSCallFunction) args -> {
+                try {
+                    String lv = args.length > 0 ? String.valueOf(args[0]) : "I";
+                    String msg = args.length > 1 ? String.valueOf(args[1]) : "";
+                    SpiderDebug.log("freejs-" + lv, "%s", msg);
+                } catch (Throwable ignored) {
+                }
+                return null;
+            });
+        } finally {
+            globalObj.release();
+        }
         ctx.evaluate(Asset.read("js/lib/freejs.js"));
         injectLib("crypto-js", Asset.read("js/lib/crypto-js.js"));
         // cheerio 按需（提速⑨，判据与兜底见 cheerioWanted 字段注）
@@ -270,19 +278,43 @@ public class FreeJsBridge {
         // module/exports 的形态完全由插件 JS 决定：先 instanceof 再转，畸形插件
         // （把 module/exports 赋成字符串/函数等）走「没有导出」的失败路，
         // 不许在建桥时直接 ClassCastException 崩掉（大扫查防崩同型命中）。
-        Object module = ctx.getProperty(ctx.getGlobalObject(), "module");
+        // 两份临时包装都当场收口：全局包装取完 module 即 release；module
+        // 只用来取 exports（exports 本体由字段持有、另有存续期 release 安排），
+        // 取完 module 包装这一份即 release，两条失败路也走 finally 不漏。
+        JSObject globalObj = ctx.getGlobalObject();
+        Object module;
+        try {
+            module = ctx.getProperty(globalObj, "module");
+        } finally {
+            globalObj.release();
+        }
         if (!(module instanceof JSObject)) throw new IllegalStateException("插件没有导出 module.exports");
-        Object exportsObj = ctx.getProperty((JSObject) module, "exports");
-        if (!(exportsObj instanceof JSObject)) throw new IllegalStateException("插件没有导出 module.exports");
-        exports = (JSObject) exportsObj;
+        try {
+            Object exportsObj = ctx.getProperty((JSObject) module, "exports");
+            if (!(exportsObj instanceof JSObject)) throw new IllegalStateException("插件没有导出 module.exports");
+            exports = (JSObject) exportsObj;
+        } finally {
+            ((JSObject) module).release();
+        }
     }
 
     private String prop(String name) {
+        Object v = null;
         try {
-            Object v = ctx.getProperty(exports, name);
+            v = ctx.getProperty(exports, name);
             return v == null ? "" : String.valueOf(v);
         } catch (Exception e) {
             return "";
+        } finally {
+            // getProperty 回对象/数组时是 JSObject 包装：用完即 release，
+            // 与本文件 supportsMusicSearch 的 finally release 纪律对齐；
+            // 回字符串/数字等原始值时不是包装，不放。
+            if (v instanceof JSObject) {
+                try {
+                    ((JSObject) v).release();
+                } catch (Throwable ignored) {
+                }
+            }
         }
     }
 

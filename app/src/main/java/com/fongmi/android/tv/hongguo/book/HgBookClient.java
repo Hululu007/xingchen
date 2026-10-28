@@ -247,6 +247,31 @@ public final class HgBookClient {
         return obj(root, "data");
     }
 
+    /**
+     * audioPlayInfo 的失败是不是「这一章双地址皆空/没给数据」：
+     * 只认本类自己抛的两句（服务端没给播放地址…／播放信息回包为空），
+     * 网络失败、回包空体、接口报错都不算——听书朗读兜底的触发判据之一。
+     */
+    public static boolean isNoUrlFailure(String message) {
+        return message != null && (message.startsWith("服务端没给播放地址")
+                || message.startsWith("播放信息回包为空"));
+    }
+
+    /**
+     * 书的 book_type（detail 原始字段，2026-10-28 双样本实拉定版）：
+     * 0＝小说本体——听书靠合成音出声，即 TTS 书；1＝真人有声书（独立制作）。
+     * 字段缺失返回 -1（判定不了，调用方按「不是 TTS 书」保守处理）。
+     */
+    public int bookType(String bookId) throws Exception {
+        List<String[]> pairs = HgDevice.deviceQueryPairs();
+        pairs.add(new String[]{"book_id", bookId});
+        String text = api.getSignedSync(PATH_DETAIL, pairs);
+        JsonObject root = parseRoot(text);
+        JsonObject data = obj(root, "data");
+        if (data == null) return -1;
+        return intOf(data, "book_type", -1);
+    }
+
     /** 批量播放信息：回 data[0].play_info_data（含 main_url/encryption_key 等）。 */
     public JsonObject audioPlayInfo(String bookId, String itemId) throws Exception {
         JsonObject req = new JsonObject();

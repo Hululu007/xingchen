@@ -109,6 +109,44 @@ public final class HgBookOpsImpl implements HgBookOps {
     }
 
     /**
+     * 听书朗读兜底：三道判据全过才给正文（2026-10-28 本机实拉定版，样本
+     * TTS 书 7596021152615517209／真人书 7632179112899005465）——
+     * ① 本章 batch_play 确认双地址皆空（HgBookClient.isNoUrlFailure；
+     *    取得到播放信息＝有地址，不走这路）；
+     * ② 本书是 TTS 书：detail 的 book_type=0（小说本体、听书靠合成音；
+     *    真人书 book_type=1，且真人书同样有正文，所以绝不能拿「正文取得到」
+     *    当触发——必须先认书型）；字段缺失/判定不了按不是 TTS 书处理；
+     * ③ 小说正文链（reader/full＋registerkey）取本章正文，样本第 1/2 章
+     *    实拉 2230/2391 字、81/89 段，形状与小说章无异。
+     * 是 TTS 书＋确认没地址、但正文也取不到 → 抛错让页面把话说清。
+     */
+    @Override
+    public LegadoPipeline.Content ttsFallbackText(String chapterUrl) {
+        String bookId = HgBookBridge.bookIdOf(chapterUrl);
+        String itemId = HgBookBridge.itemIdOf(chapterUrl);
+        try {
+            client.audioPlayInfo(bookId, itemId);
+            return null;
+        } catch (Exception e) {
+            if (!HgBookClient.isNoUrlFailure(e.getMessage())) return null;
+        }
+        try {
+            if (client.bookType(bookId) != 0) return null;
+        } catch (Exception e) {
+            return null;
+        }
+        try {
+            String[] r = client.chapterText(bookId, itemId);
+            LegadoPipeline.Content c = new LegadoPipeline.Content();
+            c.title = r[0];
+            c.text = r[1];
+            return c;
+        } catch (Exception e) {
+            throw new LegadoException("这一章正文也没取到：" + msg(e));
+        }
+    }
+
+    /**
      * 听书正文段＝取本章播放信息 → 推出内容密钥 → 登记本地解密代理 → 回代理地址。
      * 钥匙随章变，每章现取现推；未加密的章（无钥匙材料）代理直喂。
      */

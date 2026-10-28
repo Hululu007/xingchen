@@ -85,6 +85,13 @@ public final class HgBookBridge {
         return requireOps().content(isAudio(source), chapterUrl);
     }
 
+    /** 听书朗读兜底取文（见 HgBookOps.ttsFallbackText）；实现不在位回 null。 */
+    public static LegadoPipeline.Content ttsFallbackText(String chapterUrl) {
+        HgBookOps o = ops();
+        if (o == null) return null;
+        return o.ttsFallbackText(chapterUrl);
+    }
+
     // ---------- bookUrl 编解码 ----------
 
     public static String bookUrl(String bookId) {

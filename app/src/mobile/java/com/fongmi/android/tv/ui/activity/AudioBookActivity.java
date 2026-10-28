@@ -837,6 +837,7 @@ public class AudioBookActivity extends Activity implements ServiceConnection {
                     url = LegadoAudio.fetchAudioUrl(src, c.url, null);
                 }
             } catch (Throwable t) {
+                if (tryTtsFallback(index)) return;
                 runOnUiThread(() -> {
                     String m = t instanceof LegadoException ? t.getMessage() : "音频地址解析失败";
                     ToastUtil.show(AudioBookActivity.this, "源级错误：" + m,
@@ -862,6 +863,68 @@ public class AudioBookActivity extends Activity implements ServiceConnection {
                 if (resume > 0) player().seekTo(resume);
             });
         }).start();
+    }
+
+    /**
+     * 红果听书朗读兜底（worker 线程调）：本章地址解析失败时问桥——
+     * 是 TTS 书且双地址皆空才回正文（判定在桥/实现内，见 HgBookOps.ttsFallbackText），
+     * 拿到正文就整本转朗读页续读（后续章走小说正文链懒取，同一条兜底链）。
+     * 返回 true＝已接管，不再弹「源级错误」。只认红果听书专辑＋hgbook 章节地址，
+     * 海阔电台/其它书源一律不碰；是 TTS 书但正文也没取到时把话说清，不哑着。
+     */
+    private boolean tryTtsFallback(int index) {
+        try {
+            if (album == null || !album.hkRule.isEmpty()) return false;
+            if (!com.fongmi.android.tv.legado.HgBookBridge.URL_AUDIO.equals(album.legadoKey)) {
+                return false;
+            }
+            LegadoAudio.Chapter c = album.current();
+            if (c == null || !c.url.startsWith("hgbook://")) return false;
+            com.fongmi.android.tv.legado.LegadoPipeline.Content content;
+            try {
+                content = com.fongmi.android.tv.legado.HgBookBridge.ttsFallbackText(c.url);
+            } catch (LegadoException e) {
+                runOnUiThread(() -> ToastUtil.show(AudioBookActivity.this,
+                        "这一章没有播放地址，正文也没取到，暂时听不了",
+                        Toast.LENGTH_LONG));
+                return true;
+            }
+            if (content == null || content.text == null
+                    || content.text.trim().isEmpty()) return false;
+            final String text = content.text;
+            runOnUiThread(() -> switchToTtsRead(index, text));
+            return true;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    /** 转朗读页：整本章节表＋本章正文递给 TtsJob，音色用全局默认（与本页音色卡同口径）。 */
+    private void switchToTtsRead(int index, String text) {
+        if (released) return;
+        try {
+            com.fongmi.android.tv.read.HgBookSeeder.ensureSeeded();
+            com.fongmi.android.tv.tts.TtsJob job = new com.fongmi.android.tv.tts.TtsJob();
+            job.bookTitle = album.title;
+            job.coverUrl = album.coverUrl;
+            job.sourceName = album.sourceName;
+            job.legadoKey = com.fongmi.android.tv.legado.HgBookBridge.URL_NOVEL;
+            job.inlineText = text;
+            for (LegadoAudio.Chapter ch : album.chapters) {
+                job.chapters.add(new com.fongmi.android.tv.read.ReadingSession.Chapter(
+                        ch.name, ch.url));
+            }
+            job.startChapter = Math.max(0, Math.min(index, job.chapters.size() - 1));
+            job.startFraction = 0;
+            job.voiceId = EdgeVoiceCatalog.defaultVoice();
+            job.rate = 1.0f;
+            String id = com.fongmi.android.tv.tts.TtsJob.put(job);
+            ToastUtil.show(this, "这一章没有音频，已切换为朗读", Toast.LENGTH_LONG);
+            TtsReadActivity.start(this, id);
+            finish();
+        } catch (Throwable t) {
+            ToastUtil.show(this, "朗读切换失败", Toast.LENGTH_SHORT);
+        }
     }
 
     private void toggle() {

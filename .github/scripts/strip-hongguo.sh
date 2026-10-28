@@ -59,7 +59,7 @@ grep -qF "tabs.add(new BottomTabs.Spec(R.id.hongguo, R.drawable.ic_nav_duanju_ou
 grep -qF "if (itemId == R.id.hongguo) {" "$HOME" || fail "HomeActivity 的短剧格点击分发对不上"
 grep -qF "红果「启动直达短剧」" "$HOME" || fail "HomeActivity 的启动直达短剧块对不上"
 grep -qF "<string name=\"nav_duanju\">短剧</string>" "$MSTRINGS" || fail "短剧格字符串 nav_duanju 对不上"
-for a in HongguoFeedActivity HongguoSearchActivity HongguoAuthorActivity; do
+for a in HongguoFeedActivity HongguoSearchActivity HongguoAuthorActivity HongguoSeriesDetailActivity; do
   grep -qF "android:name=\"com.fongmi.android.tv.hongguo.ui.$a\"" "$MANIFEST" || fail "Manifest 的红果登记对不上：$a"
 done
 grep -qF "android:name=\"com.fongmi.android.tv.hongguo.book.HgBookBrowseActivity\"" "$MANIFEST" || fail "Manifest 的红果书城浏览页登记对不上"
@@ -67,6 +67,10 @@ grep -qF "android:name=\"com.fongmi.android.tv.hongguo.book.HgBookBrowseActivity
 # ---- 本体资源清单（main 源集，逐份核在再删） ----
 RES_FILES="
 app/src/main/res/layout/activity_hongguo_author.xml
+app/src/main/res/layout/activity_hongguo_series_detail.xml
+app/src/main/res/layout/item_hongguo_author_work.xml
+app/src/main/res/layout/item_hongguo_author_review.xml
+app/src/main/res/layout/item_hongguo_series_review.xml
 app/src/main/res/layout/activity_hongguo_feed.xml
 app/src/main/res/layout/activity_hongguo_search.xml
 app/src/main/res/layout/dialog_hongguo_comments.xml
@@ -100,6 +104,13 @@ app/src/main/res/drawable/bg_hg_bottom_scrim.xml
 app/src/main/res/drawable/bg_hg_chip.xml
 app/src/main/res/drawable/bg_hg_cover_r6.xml
 app/src/main/res/drawable/bg_hg_cover_r12.xml
+app/src/main/res/drawable/bg_hg_sub_chip.xml
+app/src/main/res/drawable/bg_hg_sub_chip_on.xml
+app/src/main/res/drawable/bg_hg_title_badge.xml
+app/src/main/res/drawable/bg_hg_float_card.xml
+app/src/main/res/drawable/bg_hg_ep_cell_dark.xml
+app/src/main/res/drawable/bg_hg_ep_current.xml
+app/src/main/res/drawable/bg_hg_glass_card_dark.xml
 app/src/main/res/drawable/bg_hg_catalog_bar.xml
 app/src/main/res/drawable/bg_hg_follow_mini.xml
 app/src/main/res/drawable/bg_hg_guide_chip.xml
@@ -277,7 +288,7 @@ manifest = cut_exact(manifest, """        <!-- 红果刷剧页（三阶段）：
 manifest = cut_exact(manifest, """        <!-- 横屏独立页别名：与本体同类，靠 intent 旗 EXTRA_LAND_INSTANCE
              切换横屏面（状态条/横排控制条/锁定/右侧抽屉）。 -->
 """, "横屏别名登记注释")
-for name in ("HongguoFeedActivity", "HongguoSearchActivity", "HongguoAuthorActivity"):
+for name in ("HongguoFeedActivity", "HongguoSearchActivity", "HongguoAuthorActivity", "HongguoSeriesDetailActivity"):
     pattern = r"<activity\s+android:name=\"com\.fongmi\.android\.tv\.hongguo\.ui\." + name + r"\"[^>]*/>"
     manifest, n = re.subn(pattern, "", manifest)
     if n != 1:
@@ -314,7 +325,7 @@ for f in $RES_FILES; do
 done
 
 # ---- 复查一：本功能专属标识全树零残留（共用件的泛 Hongguo 字样不在此列，见文件头白名单） ----
-if grep -rn -E "com\.fongmi\.android\.tv\.hongguo|HongguoFeedActivity|HongguoSearchActivity|HongguoAuthorActivity|HgLibraryActivity|HgListActivity|HgTheaterActivity|HongguoLoginProvider|HongguoLoginPage|HongguoSmsLoginDialog|loginHongguo|isHongguoLoggedIn|getHongguoCookie|logoutHongguo|HongguoStream|ic_nav_duanju|nav_duanju" app/src/main app/src/mobile app/src/leanback app/src/test --include=*.java --include=*.xml; then
+if grep -rn -E "com\.fongmi\.android\.tv\.hongguo|HongguoFeedActivity|HongguoSearchActivity|HongguoAuthorActivity|HongguoSeriesDetailActivity|HgLibraryActivity|HgListActivity|HgTheaterActivity|HongguoLoginProvider|HongguoLoginPage|HongguoSmsLoginDialog|loginHongguo|isHongguoLoggedIn|getHongguoCookie|logoutHongguo|HongguoStream|ic_nav_duanju|nav_duanju" app/src/main app/src/mobile app/src/leanback app/src/test --include=*.java --include=*.xml; then
   fail "删完后仍有红果本功能残留"
 fi
 

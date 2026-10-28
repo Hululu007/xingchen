@@ -250,6 +250,22 @@ public class LegadoRuleEvaluator {
                 i = end + 2;
                 continue;
             }
+            // @get:{k} 是原子引用（由 pureGet 取值）：{k} 不是模板，不许展开——
+            // 展开会把规则打成 "@get:" 半截串、后续按 CSS 解析直接抛错
+            // （目录 chapterUrl 的 @put/@get 组合实证，harness A14）
+            if (c == '@' && rule.startsWith("@get:{", i)) {
+                int depth = 1, j = i + 6;
+                while (j < rule.length() && depth > 0) {
+                    char d = rule.charAt(j);
+                    if (d == '{') depth++;
+                    else if (d == '}') depth--;
+                    j++;
+                }
+                if (depth != 0) { sb.append(rule.substring(i)); break; }
+                sb.append(rule, i, j);
+                i = j;
+                continue;
+            }
             if (c == '{') {
                 int depth = 1, j = i + 1;
                 while (j < rule.length() && depth > 0) {

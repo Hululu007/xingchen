@@ -71,6 +71,8 @@ public class LegadoSource {
         public String title = "";
         public String nextContentUrl = "";
         public String sourceRegex = "";
+        /** 正文清洗规则（Legado 生态字段，此前模型层没这个字段、引擎也从没执行——正文里的「第（1/3）页」分页标记就是这么漏进来的）。 */
+        public String replaceRegex = "";
     }
 
     /** 源标识（展示用，脱敏：不记 URL 全串）。 */

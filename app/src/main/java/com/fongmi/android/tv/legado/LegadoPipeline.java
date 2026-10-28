@@ -525,7 +525,7 @@ public class LegadoPipeline {
                     }
                     next = LegadoRuleEvaluator.str(ctx.root, ctx, r.nextContentUrl, true);
                 }
-                c.text = sb.toString().trim();
+                c.text = applyReplaceRegex(sb.toString().trim());
                 return c;
             } catch (LegadoException e) {
                 throw e;
@@ -533,6 +533,32 @@ public class LegadoPipeline {
                 throw new LegadoException(source.tag() + " 正文失败: " + t.getMessage());
             }
             }
+    }
+
+    /**
+     * 正文清洗（源 ruleContent.replaceRegex，Legado 口径）：逐行一条
+     * 「正则##替换」，没有 ## 就是删掉匹配段；按序全篇执行。单条规则坏
+     * （正则编译不过/替换串非法）只跳过该条，不杀整章——源规则生态野。
+     * 漫画（图片 URL 列表）不走清洗，防正则误伤地址。
+     */
+    private String applyReplaceRegex(String text) {
+        if (source.bookSourceType == LegadoSource.TYPE_IMAGE) return text;
+        String rules = source.ruleContent == null ? null : source.ruleContent.replaceRegex;
+        if (rules == null || rules.trim().isEmpty()) return text;
+        String out = text;
+        for (String line : rules.split("\n")) {
+            String rule = line.trim();
+            if (rule.isEmpty()) continue;
+            int sep = rule.indexOf("##");
+            String regex = sep >= 0 ? rule.substring(0, sep) : rule;
+            String replacement = sep >= 0 ? rule.substring(sep + 2) : "";
+            if (regex.isEmpty()) continue;
+            try {
+                out = java.util.regex.Pattern.compile(regex).matcher(out).replaceAll(replacement);
+            } catch (Throwable ignored) {
+            }
+        }
+        return out.trim();
     }
 
     // ================= 杂项 =================

@@ -11,7 +11,9 @@ import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -21,6 +23,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import com.fongmi.android.tv.legado.LegadoPipeline;
 import com.fongmi.android.tv.legado.LegadoSource;
 import com.fongmi.android.tv.read.LegadoSearchFlow;
+import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.read.ReadDialogs;
 import com.fongmi.android.tv.read.SearchOrchestrator;
 import com.github.catvod.utils.Prefers;
@@ -40,7 +43,7 @@ import com.fongmi.android.tv.R;
  * 搜框下一排源片（照音乐搜索的分源）：「全部」＋一源一片、按本页类型各列各的，
  * 选择按类型记住；「全部」是原混搜（多源并行、谁先回来谁先添、不翻页），
  * 定住单个源则只搜它一个、滑到底自动翻页（空页/整页重复/失败即止）；
- * 结果就在本页列表里，一行一本「书名 · 作者（源名）」；
+ * 结果就在本页列表里，一行一本（左封面＋右书名/作者（源名））；
  * 搜索中状态只在列表顶上一行字，不转圈弹窗、不 Toast；
  * 全部回来或 25 秒总时限到点收尾，失败的源在列表末尾点名一行，一条没有就一行「没有搜到」。
  * 点一本进目录页（SearchTocActivity）。返回走系统返回。
@@ -505,15 +508,76 @@ public class SearchPageActivity extends AppCompatActivity {
         if (distance <= dp(160)) loadNextPage(searchGen);
     }
 
-    /** 一行一本：书名 · 作者（源名）。 */
+    /**
+     * 一行一本：左封面＋右书名/作者（源名）。封面照书架装图口径：有封面
+     * 装图（ImgUtil），没封面走素垫（深暖灰底＋书名暖白排字，与书架
+     * plainCover 同口径）；此前只摆纯文字行、把 pipeline 已解析的
+     * coverUrl 扔了（他 2026-10-28 点名：搜书/搜听书/搜漫画都该带封面，
+     * 三种搜共用本页、一处修齐）。搜索结果模型没有简介字段，不编。
+     */
     private void addBookRow(LegadoSearchFlow.Src src, LegadoPipeline.Book b) {
         String name = b.name == null ? "" : b.name;
-        String author = (b.author == null || b.author.isEmpty()) ? "" : " · " + b.author;
-        TextView row = new TextView(this);
-        row.setText(name + author + "（" + src.source.tag() + "）");
-        row.setTextSize(16);
-        row.setTextColor(ReadingSkin.TEXT);
-        row.setPadding(dp(4), dp(13), dp(4), dp(13));
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(4), dp(10), dp(4), dp(10));
+
+        FrameLayout coverWrap = new FrameLayout(this);
+        coverWrap.setLayoutParams(new LinearLayout.LayoutParams(dp(46), dp(62)));
+        ImageView cover = new ImageView(this);
+        cover.setLayoutParams(new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        android.graphics.drawable.GradientDrawable bg =
+                new android.graphics.drawable.GradientDrawable();
+        bg.setColor(0xFF2E2822);
+        bg.setCornerRadius(dp(6));
+        cover.setBackground(bg);
+        ReadingSkin.roundClip(cover, this, 6);
+        TextView coverTitle = new TextView(this);
+        coverTitle.setTextSize(11);
+        coverTitle.setTextColor(0xFFE9DFD0);
+        coverTitle.setGravity(Gravity.CENTER);
+        coverTitle.setPadding(dp(4), dp(4), dp(4), dp(4));
+        coverTitle.setMaxLines(4);
+        coverTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        coverTitle.setText(name);
+        coverWrap.addView(cover);
+        coverWrap.addView(coverTitle, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        if (b.coverUrl != null && !b.coverUrl.isEmpty()) {
+            coverTitle.setVisibility(View.GONE);
+            ImgUtil.load(name, b.coverUrl, cover, true);
+        }
+        row.addView(coverWrap);
+
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        tlp.setMarginStart(dp(12));
+        texts.setLayoutParams(tlp);
+        TextView title = new TextView(this);
+        title.setText(name);
+        title.setTextSize(16);
+        title.setTextColor(ReadingSkin.TEXT);
+        title.setMaxLines(2);
+        title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        texts.addView(title);
+        TextView sub = new TextView(this);
+        String author = b.author == null ? "" : b.author;
+        sub.setText((author.isEmpty() ? "" : author + " ") + "（" + src.source.tag() + "）");
+        sub.setTextSize(13);
+        sub.setTextColor(ReadingSkin.SUB);
+        sub.setSingleLine(true);
+        sub.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        slp.topMargin = dp(4);
+        sub.setLayoutParams(slp);
+        texts.addView(sub);
+        row.addView(texts);
+
         row.setOnClickListener(v -> {
             if (destroyed) return;
             SearchTocActivity.start(this, type, src.json, new Gson().toJson(b));

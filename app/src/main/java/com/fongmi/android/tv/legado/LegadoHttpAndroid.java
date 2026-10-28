@@ -24,12 +24,10 @@ public class LegadoHttpAndroid implements LegadoHttp {
 
     /** 响应体上限 16MB（低-17）。 */
     private static final int MAX_BODY_BYTES = 16 * 1024 * 1024;
-    /** 非 2xx 只读判定前缀的上限：够认出验证页，不整包吞错误体。 */
+    /** 非 2xx 只读前缀上限：不整包吞错误体。 */
     private static final int ERROR_PREFIX_BYTES = 256 * 1024;
-    /** 请求与验证页必须用同一个 UA，否则 Cloudflare 的通行证不认（过盾同口径）。 */
+    /** 书源请求 UA（移动 Chrome 口径，生态源按此适配）。 */
     static final String USER_AGENT = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36";
-    /** 并行请求刚有人验完的免弹窗口：窗口内直接带证重试，不连环弹。 */
-    private static final long VERIFY_FRESH_MS = 90_000L;
 
     private static volatile LegadoHttp instance;
 
@@ -73,7 +71,7 @@ public class LegadoHttpAndroid implements LegadoHttp {
         else SOURCE_KEY.set(prev);
     }
 
-    /** 一次原始请求的结果：状态码/终点 URL/响应体（非 2xx 只留判定前缀）/回带 Cookie。 */
+    /** 一次原始请求的结果：状态码/终点 URL/响应体（非 2xx 只留前缀）/回带 Cookie。 */
     private static class Raw {
         int code;
         String finalUrl = "";
@@ -92,14 +90,10 @@ public class LegadoHttpAndroid implements LegadoHttp {
         String key = SOURCE_KEY.get();
         SourceGate.Mark prev = SourceGate.push(SourceProxyPolicy.KIND_BOOK, key == null ? "" : key);
         try {
-            String host = LegadoCookies.hostOf(url);
-            Raw raw = doFetch(url, method, withCookies(headers, host), body);
-            if (LegadoVerify.isBlockedPage(raw.code, raw.finalUrl, raw.contentType, raw.body)) {
-                raw = verifyAndRetry(url, method, headers, body, host);
-            }
+            // 人机验证整套已删（他 2026-10-28 令「没啥用」）：撞墙的站就按
+            // 普通失败走（HTTP 错误/解析不出），不再弹验证页、不存通行证
+            Raw raw = doFetch(url, method, headers, body);
             if (raw.code < 200 || raw.code >= 300) throw new IOException("HTTP " + raw.code + " " + url);
-            // 已存通行证的站：把这次回带的 Cookie 并回去保鲜（站点会轮换）
-            if (LegadoCookies.has(host)) LegadoCookies.merge(host, raw.cookies);
             LegadoHttp.Result r = new LegadoHttp.Result();
             r.body = raw.body;
             r.contentType = raw.contentType;
@@ -108,39 +102,6 @@ public class LegadoHttpAndroid implements LegadoHttp {
         } finally {
             SourceGate.pop(prev);
         }
-    }
-
-    /**
-     * 撞上人机验证的续跑：同一次 fetch 最多弹一次验证页。
-     * 并行请求里刚有人验完（窗口内）先免弹带证重试一次，没顶住再弹；
-     * 弹完带新证重试一次，还被挡就如实报「验证没过去」，不循环弹。
-     */
-    private Raw verifyAndRetry(String url, String method, Map<String, String> headers, byte[] body, String host) throws IOException {
-        if (LegadoCookies.recentlySaved(host, VERIFY_FRESH_MS)) {
-            Raw fresh = doFetch(url, method, withCookies(headers, host), body);
-            if (!LegadoVerify.isBlockedPage(fresh.code, fresh.finalUrl, fresh.contentType, fresh.body)) return fresh;
-        }
-        int res = LegadoVerify.awaitVerification(url, USER_AGENT);
-        if (res == LegadoVerify.RESULT_CANCELLED) throw new LegadoException("验证已取消");
-        if (res != LegadoVerify.RESULT_OK) throw new LegadoException("这个站需要人机验证，但验证页打不开");
-        Raw retry = doFetch(url, method, withCookies(headers, host), body);
-        if (LegadoVerify.isBlockedPage(retry.code, retry.finalUrl, retry.contentType, retry.body)) {
-            throw new LegadoException("这个站的验证没过去");
-        }
-        return retry;
-    }
-
-    /** 已存通行证时给请求头补 Cookie（调用方自带 Cookie 头时不覆盖）；不改调用方的 map。 */
-    private Map<String, String> withCookies(Map<String, String> headers, String host) {
-        String cookie = LegadoCookies.cookieHeader(host);
-        if (cookie.isEmpty()) return headers;
-        Map<String, String> copy = new java.util.HashMap<>();
-        if (headers != null) copy.putAll(headers);
-        for (String k : copy.keySet()) {
-            if (k != null && k.equalsIgnoreCase("Cookie")) return copy;
-        }
-        copy.put("Cookie", cookie);
-        return copy;
     }
 
     private Raw doFetch(String url, String method, Map<String, String> headers, byte[] body) throws IOException {
@@ -199,7 +160,7 @@ public class LegadoHttpAndroid implements LegadoHttp {
                 }
                 raw.body = baos.toByteArray();
             } else {
-                // 错误响应只读判定前缀：够认出验证页即可，不整包吞
+                // 错误响应只读前缀：不整包吞错误体
                 java.io.InputStream in = rb2.byteStream();
                 java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
                 byte[] buf = new byte[8192];

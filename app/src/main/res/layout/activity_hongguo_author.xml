@@ -1,11 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 红果·作者主页（官方原生轨 SeriesGuestProfileFragment/ax8 定版构成，
-     dig-mine-profile §2.8：置顶 chip 行 22dp 头像＋名、头像姓名行、关注钮、
-     「关注 X · 粉丝 Y」数据行、作品页签）。与「我的」面同口径：白底、
+<!-- 红果·作者主页（官方原生轨 SeriesGuestProfileFragment/ax8＋头部
+     csp 定版构成：置顶 chip 行 22dp 头像＋名、头像姓名行、简介、
+     数据行＋关注钮同带、作品页签）。与「我的」面同口径：白底、
      不放页面自带返回箭头（走系统返回；官方 ax8 的返回图标是官方壳的，
      按自家站规矩不抄，偏差见 fix-author-page 账）。
-     数据行与作品列表的数据源未在包内抠到（计数嵌在未定名的资料 RPC 里、
-     作者维度作品口未证实）——两处先 GONE/空态，不摆假数。 -->
+     数据行数据源已抠实（ui-align-batch2）：GET /reading/user/profile/get/
+     的 ugc_user.user_relation 三计数，形态照 SeriesProfileSocialRecord
+     Layout 的 ct0（数值 14sp 黑在上、标签 12sp 灰70 在下、组距 24dp）；
+     无源整行 GONE、不摆假数。作品列表数据源仍只定位到
+     GuestProfileSeriesDataCenter（SaasVideoDetailModel 列表），端点
+     未抠死——只留空态，不摆假行。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -52,57 +56,133 @@
             android:layout_height="58dp"
             android:contentDescription="@null" />
 
-        <LinearLayout
+        <TextView
+            android:id="@+id/hg_author_name"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_marginStart="12dp"
             android:layout_weight="1"
-            android:orientation="vertical">
-
-            <TextView
-                android:id="@+id/hg_author_name"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:textColor="#FF1D2129"
-                android:textSize="20sp"
-                android:textStyle="bold" />
-
-            <!-- 数据行「关注 X · 粉丝 Y」：UserRelation{fans_num,
-                 follow_user_num} 字段在包内实证，但承载它的资料 RPC
-                 未抠到——本行无数据源时整行 GONE，不显 0 数 -->
-            <TextView
-                android:id="@+id/hg_author_stats"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:textColor="#FF86909C"
-                android:textSize="13sp"
-                android:visibility="gone" />
-
-            <TextView
-                android:id="@+id/hg_author_desc"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:textColor="#FF4E5969"
-                android:textSize="12sp"
-                android:visibility="gone" />
-        </LinearLayout>
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="#FF1D2129"
+            android:textSize="20sp"
+            android:textStyle="bold" />
     </LinearLayout>
 
-    <!-- 关注钮（官方 PugcFollowButton：66dp 宽；未关注＝橙渐变「关注」，
-         已关注＝浅底「已关注」，本人隐藏；状态读 HgStore 作者关注集） -->
+    <!-- 简介（csp 的 iyq：12sp 灰70、行距 +4dp、marginTop 16dp、整宽；
+         有才显） -->
     <TextView
-        android:id="@+id/hg_author_follow"
-        android:layout_width="66dp"
-        android:layout_height="30dp"
+        android:id="@+id/hg_author_desc"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
-        android:background="@drawable/bg_hg_follow_btn"
-        android:gravity="center"
-        android:text="关注"
-        android:textColor="#FFFFFF"
-        android:textSize="13sp"
-        android:textStyle="bold" />
+        android:lineSpacingExtra="4dp"
+        android:textColor="#B2000000"
+        android:textSize="12sp"
+        android:visibility="gone" />
+
+    <!-- 数据行＋关注钮同带（csp：fb_ 数据行在左、fox 关注钮 66dp 在右、
+         与数据行同高对齐，marginTop 16dp）。数据行照 ct0：三组竖排，
+         数值 14sp 黑在上、标签 12sp 灰70 在下（marginTop 4dp）、
+         组距 24dp；数值＝数＋单位拼一串（官方 setText(str+str2)）。 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <LinearLayout
+            android:id="@+id/hg_author_stats"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="horizontal"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="24dp"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/hg_author_stat_follow"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="#FF000000"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="关注"
+                    android:textColor="#B2000000"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="24dp"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/hg_author_stat_fans"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="#FF000000"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="粉丝"
+                    android:textColor="#B2000000"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/hg_author_stat_digg"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="#FF000000"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="获赞"
+                    android:textColor="#B2000000"
+                    android:textSize="12sp" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- 关注钮（官方 PugcFollowButton：66dp 宽、14sp 粗、上下
+             padding 7dp；未关注＝橙渐变「关注」，已关注＝浅底「已关注」，
+             本人隐藏；状态读 HgStore 作者关注集，进页以 profile/get
+             的 relation_type 回源校准） -->
+        <TextView
+            android:id="@+id/hg_author_follow"
+            android:layout_width="66dp"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_hg_follow_btn"
+            android:gravity="center"
+            android:paddingTop="7dp"
+            android:paddingBottom="7dp"
+            android:text="关注"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+    </LinearLayout>
 
     <!-- 作品页签（官方定版只有「作品」一签）：列表数据源未证实
          （见类头注），先只留标题＋空态文案，不摆假行 -->

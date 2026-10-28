@@ -22,11 +22,13 @@ import com.fongmi.android.tv.utils.ImgUtil;
  * §2.8／dig-mine2 §3：KMP 轨本地缺省关、缺省走原生轨——本页照原生轨）。
  *
  * <p>构成：置顶 chip 行（22dp 头像＋名）＋头像姓名行（58dp／20sp 粗）＋
- * 关注钮（PugcFollowButton 定版：未关注橙渐变「关注」、已关注浅底
- * 「已关注」、本人隐藏）＋数据行＋「作品」页签。数据行（UserRelation
- * fans_num/follow_user_num）的承载 RPC 与作者维度作品口都未在包内抠到
- * 定版——两处宁缺不编：数据行无源时整行 GONE、作品区只留空态文案
- * （详见 fix-author-page-20261028 账）。</p>
+ * 简介＋数据行与关注钮同带（PugcFollowButton 定版：未关注橙渐变
+ * 「关注」、已关注浅底「已关注」、本人隐藏）＋「作品」页签。数据行
+ * 数据源已抠实（ui-align-batch2）：GET /reading/user/profile/get/ 的
+ * user_relation 三计数（关注/粉丝/获赞），进页回源填充、名/头像/简介
+ * 同步以服务端为准、关注钮初态以 relation_type 校准；无源整行 GONE。
+ * 作品口只定位到 GuestProfileSeriesDataCenter、端点未抠死，作品区
+ * 只留空态文案（详见 fix-author-page-20261028 账与 batch2 汇总）。</p>
  *
  * <p>关注走真接口双路（HgCommentClient.doFollowAction：主路 commentapi
  * do_action Subscribe/CancelSubscribe，备路 follow/ 端点主路非 0 才试）；
@@ -87,6 +89,62 @@ public class HongguoAuthorActivity extends BaseActivity {
         if (uid.equals(HgStore.profileUid())) binding.hgAuthorFollow.setVisibility(View.GONE);
         binding.hgAuthorFollow.setOnClickListener(v -> onFollowClicked());
         refreshFollowButton();
+        refreshProfile();
+    }
+
+    /**
+     * 资料回源（profile/get 定版口，a45/k.java:344）：数据行三计数照
+     * ct0 填充；名/头像/简介以服务端为准（入口 extras 只作回源前占位）；
+     * 关注钮初态以 relation_type 校准本地镜像（服务端为准、镜像跟随）。
+     * 回源失败静默，保留入口数据与镜像态，不摆假数。
+     */
+    private void refreshProfile() {
+        HgFeedSession.get().client.fetchUserProfile(uid,
+                new HgCallback<com.fongmi.android.tv.hongguo.model.HgUserProfile>() {
+                    @Override
+                    public void onSuccess(com.fongmi.android.tv.hongguo.model.HgUserProfile p) {
+                        mainHandler.post(() -> {
+                            if (isFinishing() || p == null) return;
+                            if (p.name != null && !p.name.isEmpty()) {
+                                binding.hgAuthorChipName.setText(p.name);
+                                binding.hgAuthorName.setText(p.name);
+                            }
+                            String displayName = binding.hgAuthorName.getText().toString();
+                            if (p.avatar != null && !p.avatar.isEmpty()) {
+                                bindAvatar(binding.hgAuthorChipAvatar, p.avatar, displayName);
+                                bindAvatar(binding.hgAuthorAvatar, p.avatar, displayName);
+                            }
+                            if (p.desc != null && !p.desc.isEmpty()) {
+                                binding.hgAuthorDesc.setText(p.desc);
+                                binding.hgAuthorDesc.setVisibility(View.VISIBLE);
+                            }
+                            if (p.hasRelationCounts()) {
+                                binding.hgAuthorStatFollow.setText(formatStat(p.followUserNum));
+                                binding.hgAuthorStatFans.setText(formatStat(p.fansNum));
+                                binding.hgAuthorStatDigg.setText(formatStat(p.recvDiggedCount));
+                                binding.hgAuthorStats.setVisibility(View.VISIBLE);
+                            }
+                            if (p.followedByMe != null) {
+                                HgStore.setAuthorFollowed(uid, p.followedByMe);
+                                refreshFollowButton();
+                            }
+                        });
+                    }
+
+                    @Override
+                    public void onError(int code, String msg) {
+                        // 静默：保留入口数据，数据行维持 GONE
+                    }
+                });
+    }
+
+    /** 计数拼一串（官方 SeriesProfileSocialRecordLayout 的数＋单位同串口径）。 */
+    private static String formatStat(int n) {
+        if (n < 10000) return String.valueOf(n);
+        double wan = n / 10000.0;
+        String s = String.format(java.util.Locale.US, "%.1f", wan);
+        if (s.endsWith(".0")) s = s.substring(0, s.length() - 2);
+        return s + "万";
     }
 
     /** 头像：有址圆图，没址用名首字牌（ImgUtil 的 text 占位，与 feed 作者行同一口径）。 */

@@ -68,6 +68,8 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     private static final String EXTRA_SERIES_ID = "hg_series_id";
     private static final String EXTRA_TITLE = "hg_title";
     private static final String EXTRA_COVER = "hg_cover";
+    private static final String EXTRA_START_FIRST = "hg_start_first";
+    private static final String EXTRA_LANDSCAPE_FS = "hg_landscape_fs";
     private static final int MODE_FEED = 0;
     private static final int MODE_SERIES = 1;
     private static final long HIDE_DELAY_MS = 4000;
@@ -86,6 +88,28 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         intent.putExtra(EXTRA_SERIES_ID, seriesId);
         intent.putExtra(EXTRA_TITLE, title);
         intent.putExtra(EXTRA_COVER, cover);
+        context.startActivity(intent);
+    }
+
+    /** 精彩片段播完自动进剧（他亲授的官方交互）：不走断点、从第一集起。 */
+    public static void startSeriesFirst(Context context, String seriesId, String title, String cover) {
+        Intent intent = new Intent(context, HongguoFeedActivity.class);
+        intent.putExtra(EXTRA_MODE, MODE_SERIES);
+        intent.putExtra(EXTRA_SERIES_ID, seriesId);
+        intent.putExtra(EXTRA_TITLE, title);
+        intent.putExtra(EXTRA_COVER, cover);
+        intent.putExtra(EXTRA_START_FIRST, true);
+        context.startActivity(intent);
+    }
+
+    /** 横屏剧从首页进剧（他亲授：点击/全屏观看＝全屏直接进剧集）：集流以横屏全屏态落。 */
+    public static void startSeriesLandscape(Context context, String seriesId, String title, String cover) {
+        Intent intent = new Intent(context, HongguoFeedActivity.class);
+        intent.putExtra(EXTRA_MODE, MODE_SERIES);
+        intent.putExtra(EXTRA_SERIES_ID, seriesId);
+        intent.putExtra(EXTRA_TITLE, title);
+        intent.putExtra(EXTRA_COVER, cover);
+        intent.putExtra(EXTRA_LANDSCAPE_FS, true);
         context.startActivity(intent);
     }
 
@@ -114,6 +138,11 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     /** 本次离台是自家页内跳转（搜索/进剧新开实例）：回来不刷新、不丢位置。 */
     private boolean suppressResumeRefresh;
     private int currentPos = -1;
+    /** 精彩片段自动进剧：落集不走断点、从第一集起（EXTRA_START_FIRST）。 */
+    private boolean startFromFirst;
+    /** 横屏剧进剧：首集起播后转横屏全屏态（EXTRA_LANDSCAPE_FS，play 时消费）。 */
+    private boolean pendingLandFs;
+
     /** 本页模式：MODE_FEED 短片流 / MODE_SERIES 集流（initView 自 intent 定）。 */
     private int mode = MODE_FEED;
     private String playingVideoId;
@@ -166,11 +195,16 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         public void onPlaybackStateChanged(int state) {
             if (state == Player.STATE_ENDED) {
                 if (mode == MODE_FEED) {
-                    // 短片播完循环当前条（账 §4.2；U7 已定论——官方同为原地
-                    // 循环重播、不自动滑下一条，u7-u5-dig-20261028.md 实证）
-                    if (player != null) {
-                        player.seekTo(0);
-                        player.play();
+                    // 首页播的是官方选的精彩片段：播完自动进剧、从第一集起，
+                    // 不循环（2026-10-28 他亲授的官方交互；此前「原地循环」
+                    // 的 U7 定论作废——那是把别处的代码读成了流页行为）
+                    if (currentPos >= 0 && currentPos < session.items.size()) {
+                        HgFeedItem item = session.items.get(currentPos);
+                        if (item.seriesId != null) {
+                            suppressResumeRefresh = true;
+                            startSeriesFirst(HongguoFeedActivity.this,
+                                    item.seriesId, item.title, item.coverUrl);
+                        }
                     }
                 } else if (HgStore.isAutoNext()) {
                     advanceNext();
@@ -327,6 +361,8 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         });
         setupShellFaces();
         mode = getIntent().getIntExtra(EXTRA_MODE, MODE_FEED);
+        startFromFirst = getIntent().getBooleanExtra(EXTRA_START_FIRST, false);
+        pendingLandFs = getIntent().getBooleanExtra(EXTRA_LANDSCAPE_FS, false);
         if (mode == MODE_SERIES) {
             // 集流页不是刷剧页：刷剧页的页签栏/搜索/抽屉与自家底栏在集流里
             // 全不该在场（此前从没按 mode 分过 chrome，集流里点页签会把
@@ -685,7 +721,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                 if (!now.seriesHead) {
                     // 续播定位：有断点集时跳过去（只跳一次，靠 expandTried 防重复）
                     HgStore.Progress p = HgStore.progressOf(now.seriesId);
-                    if (p != null && p.episodeIndex > 1) {
+                    if (!startFromFirst && p != null && p.episodeIndex > 1) {
                         int target = findEpisodePosition(now.seriesId, p.episodeIndex);
                         if (target > position) {
                             binding.hgPager.setCurrentItem(target, false);
@@ -767,6 +803,10 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         else engine.start(spec, true);
         startDanmakuFor(item, startAt);
         armAutoHide();
+        if (pendingLandFs) {
+            pendingLandFs = false;
+            enterLandMode(currentPos);
+        }
     }
 
     /** settle 后的预备工作：同剧预取后 2 集数据、预热后 1–2 条流、回收滑远的流、预展开下一剧头。 */
@@ -1032,8 +1072,30 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             }
             return;
         }
+        if (mode == MODE_FEED && currentPos >= 0 && currentPos < session.items.size()) {
+            HgFeedItem it = session.items.get(currentPos);
+            // 横屏剧在首页点击＝全屏直接进剧集（他亲授）；竖屏剧点击仍是播停
+            if (it.isLandscape() || it.landscapeHint) {
+                enterSeriesFullscreen(currentPos);
+                return;
+            }
+        }
         togglePlayPause();
         if (player != null && player.isPlaying()) armAutoHide();
+    }
+
+    /** 横屏剧进剧（首页点击与「全屏观看」共用）：开集流并以横屏全屏态落。 */
+    private void enterSeriesFullscreen(int position) {
+        if (position < 0 || position >= session.items.size()) return;
+        HgFeedItem item = session.items.get(position);
+        if (item.seriesId == null) {
+            // 无剧可进时保底：仍给窗内转全屏（不跳页）
+            if (landMode) exitLandMode();
+            else enterLandMode(position);
+            return;
+        }
+        suppressResumeRefresh = true;
+        startSeriesLandscape(this, item.seriesId, item.title, item.coverUrl);
     }
 
     @Override
@@ -1294,7 +1356,11 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     public void onFullscreenWatch(int position) {
         if (position != currentPos) return;
         saveProgress();
-        // 横屏全屏＝窗内转（不跳页、不转窗口）：再点一次退出
+        // 首页（流）里点它＝全屏直接进剧集（他亲授）；集流里点它仍是窗内转
+        if (mode == MODE_FEED) {
+            enterSeriesFullscreen(position);
+            return;
+        }
         if (landMode) exitLandMode();
         else enterLandMode(position);
     }

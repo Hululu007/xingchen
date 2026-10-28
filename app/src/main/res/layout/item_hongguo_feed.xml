@@ -53,7 +53,7 @@
         android:layout_height="wrap_content"
         android:layout_gravity="end|bottom"
         android:layout_marginEnd="4dp"
-        android:layout_marginBottom="110dp"
+        android:layout_marginBottom="58dp"
         android:gravity="center_horizontal"
         android:orientation="vertical"
         android:paddingTop="7dp">
@@ -93,16 +93,17 @@
                 android:textSize="13sp" />
         </FrameLayout>
 
-        <FrameLayout
+        <LinearLayout
             android:id="@+id/hg_act_fav"
             android:layout_width="46dp"
-            android:layout_height="40dp"
-            android:layout_marginTop="12dp">
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:gravity="center_horizontal"
+            android:orientation="vertical">
 
             <ImageView
                 android:layout_width="32dp"
                 android:layout_height="32dp"
-                android:layout_gravity="top|center_horizontal"
                 android:contentDescription="收藏"
                 android:src="@drawable/ic_hg_star" />
 
@@ -110,23 +111,23 @@
                 android:id="@+id/hg_fav_count"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_gravity="bottom|end"
-                android:layout_marginBottom="2dp"
+                android:layout_marginTop="2dp"
                 android:textColor="#FFFFFF"
                 android:textSize="10sp"
                 android:visibility="gone" />
-        </FrameLayout>
+        </LinearLayout>
 
-        <FrameLayout
+        <LinearLayout
             android:id="@+id/hg_act_comment"
             android:layout_width="46dp"
-            android:layout_height="40dp"
-            android:layout_marginTop="12dp">
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:gravity="center_horizontal"
+            android:orientation="vertical">
 
             <ImageView
                 android:layout_width="32dp"
                 android:layout_height="32dp"
-                android:layout_gravity="top|center_horizontal"
                 android:contentDescription="评论"
                 android:src="@drawable/ic_hg_comment" />
 
@@ -134,23 +135,23 @@
                 android:id="@+id/hg_comment_count"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_gravity="bottom|end"
-                android:layout_marginBottom="2dp"
+                android:layout_marginTop="2dp"
                 android:textColor="#FFFFFF"
                 android:textSize="10sp"
                 android:visibility="gone" />
-        </FrameLayout>
+        </LinearLayout>
 
-        <FrameLayout
+        <LinearLayout
             android:id="@+id/hg_act_like"
             android:layout_width="46dp"
-            android:layout_height="40dp"
-            android:layout_marginTop="12dp">
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:gravity="center_horizontal"
+            android:orientation="vertical">
 
             <ImageView
                 android:layout_width="32dp"
                 android:layout_height="32dp"
-                android:layout_gravity="top|center_horizontal"
                 android:contentDescription="点赞"
                 android:src="@drawable/ic_hg_heart" />
 
@@ -158,12 +159,11 @@
                 android:id="@+id/hg_like_count"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_gravity="bottom|end"
-                android:layout_marginBottom="2dp"
+                android:layout_marginTop="2dp"
                 android:textColor="#FFFFFF"
                 android:textSize="10sp"
                 android:visibility="gone" />
-        </FrameLayout>
+        </LinearLayout>
 
         <LinearLayout
             android:id="@+id/hg_act_share"

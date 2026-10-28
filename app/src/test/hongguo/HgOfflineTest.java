@@ -909,6 +909,40 @@ public class HgOfflineTest {
             }
         }
 
+        {
+            // §29) 更新提示纯判定（HgUpdateLogic）：追更红点＝最新集数越过
+            // 已看基线（已看快照与观看断点取大者）；预约新到＝已上线档与
+            // 已知集的差集（保序、去重、剔空 id）
+            Class<?> U = com.fongmi.android.tv.hongguo.model.HgUpdateLogic.class;
+            check("§29 追更·新集越过快照亮", U != null
+                    && com.fongmi.android.tv.hongguo.model.HgUpdateLogic.followHasUpdate(12, 10, 10), null);
+            check("§29 追更·与快照齐平不亮",
+                    !com.fongmi.android.tv.hongguo.model.HgUpdateLogic.followHasUpdate(10, 10, 3), null);
+            check("§29 追更·没落快照走断点基线",
+                    com.fongmi.android.tv.hongguo.model.HgUpdateLogic.followHasUpdate(8, -1, 5)
+                            && !com.fongmi.android.tv.hongguo.model.HgUpdateLogic.followHasUpdate(5, -1, 5), null);
+            check("§29 追更·看过的新集不算更新",
+                    !com.fongmi.android.tv.hongguo.model.HgUpdateLogic.followHasUpdate(12, 10, 12), null);
+            check("§29 追更·集数未知不亮",
+                    !com.fongmi.android.tv.hongguo.model.HgUpdateLogic.followHasUpdate(0, -1, 0)
+                            && !com.fongmi.android.tv.hongguo.model.HgUpdateLogic.followHasUpdate(-1, -1, 0), null);
+            java.util.List<String> arrivals = com.fongmi.android.tv.hongguo.model.HgUpdateLogic
+                    .newOnlineArrivals(java.util.Arrays.asList("a", "b", "c", "b", "", null),
+                            new java.util.HashSet<>(java.util.Arrays.asList("a")));
+            check("§29 预约·差集保序去重剔空", arrivals.equals(java.util.Arrays.asList("b", "c")),
+                    "实际=" + arrivals);
+            check("§29 预约·已知集为空全算新到",
+                    com.fongmi.android.tv.hongguo.model.HgUpdateLogic.newOnlineArrivals(
+                            java.util.Arrays.asList("x"), null).equals(java.util.Arrays.asList("x")), null);
+            check("§29 预约·全已知无新到",
+                    com.fongmi.android.tv.hongguo.model.HgUpdateLogic.newOnlineArrivals(
+                            java.util.Arrays.asList("x"),
+                            new java.util.HashSet<>(java.util.Arrays.asList("x"))).isEmpty(), null);
+            check("§29 预约·空回包无新到",
+                    com.fongmi.android.tv.hongguo.model.HgUpdateLogic.newOnlineArrivals(
+                            null, null).isEmpty(), null);
+        }
+
         System.out.println(fail == 0 ? "ALL PASS" : ("FAILURES=" + fail));
         System.exit(fail == 0 ? 0 : 1);
     }

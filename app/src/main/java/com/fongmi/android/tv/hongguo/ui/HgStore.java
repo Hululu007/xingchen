@@ -295,6 +295,55 @@ public final class HgStore {
         Prefers.put(K_RESERVED_ONLINE, sb.toString());
     }
 
+    // ---------- 追更「已看快照」（红点判定基线，HgUpdateLogic.followHasUpdate 用） ----------
+
+    private static final String K_FOLLOW_SEEN_PREFIX = "hongguo_follow_seen_";
+
+    /** 上次进追更面时该剧的最新集数快照；没落过返回 -1。 */
+    public static int followSeenCount(String seriesId) {
+        if (seriesId == null || seriesId.isEmpty()) return -1;
+        return Prefers.getInt(K_FOLLOW_SEEN_PREFIX + seriesId, -1);
+    }
+
+    public static void markFollowSeen(String seriesId, int latestCount) {
+        if (seriesId == null || seriesId.isEmpty() || latestCount < 0) return;
+        Prefers.put(K_FOLLOW_SEEN_PREFIX + seriesId, latestCount);
+    }
+
+    // ---------- 预约上线召回弹窗「已提示」集 ----------
+
+    private static final String K_RECALL_PROMPTED = "hongguo_recall_prompted_series";
+    private static final String K_RECALL_SEEDED = "hongguo_recall_seeded";
+
+    /** 已弹过（或首轮播种时已在已上线档里）的预约剧集：不再重复弹。 */
+    public static java.util.Set<String> recallPromptedIds() {
+        return readSet(K_RECALL_PROMPTED);
+    }
+
+    public static void addRecallPrompted(java.util.Collection<String> ids) {
+        if (ids == null || ids.isEmpty()) return;
+        Set<String> set = readSet(K_RECALL_PROMPTED);
+        boolean changed = false;
+        for (String id : ids) {
+            if (id != null && !id.isEmpty()) changed |= set.add(id);
+        }
+        if (changed) Prefers.put(K_RECALL_PROMPTED, String.join(",", set));
+    }
+
+    /**
+     * 首轮播种旗：功能上线后第一次拉已上线档时，只把存量记进已提示集
+     * 不弹窗——存量已上线不是「新上线」，全弹出来是假提示。此后新进
+     * 已上线档的才弹（官方召回弹窗的数据是服务端按新上线下发的，
+     * 咱家无此下发，用播种＋差集等价）。
+     */
+    public static boolean recallSeeded() {
+        return Prefers.getBoolean(K_RECALL_SEEDED, false);
+    }
+
+    public static void markRecallSeeded() {
+        Prefers.put(K_RECALL_SEEDED, true);
+    }
+
     public static java.util.List<String> likedIds() {
         return new java.util.ArrayList<>(readSet(K_LIKED));
     }
@@ -313,6 +362,13 @@ public final class HgStore {
      * 实证）。观看历史/断点是设备维度数据、剧目元信息是公开数据，都不在此列。
      */
     public static void clearAccountMirrors() {
+        // 追更已看快照随关注集走：先按现行关注集逐个清，再清集本体
+        for (String id : readSet(K_FOLLOWED)) {
+            Prefers.put(K_FOLLOW_SEEN_PREFIX + id, -1);
+        }
+        // 预约已提示集是账号维度的（A 号弹过的不能压掉 B 号的新上线）
+        Prefers.put(K_RECALL_PROMPTED, "");
+        Prefers.put(K_RECALL_SEEDED, false);
         Prefers.put(K_LIKED, "");
         Prefers.put(K_FAVED, "");
         Prefers.put(K_FOLLOWED, "");
@@ -430,35 +486,6 @@ public final class HgStore {
         if (seriesId == null || seriesId.isEmpty()) return;
         Prefers.put(K_HIST_PREFIX + seriesId,
                 episodeIndex + "|" + Math.max(0, positionMs) + "|" + System.currentTimeMillis());
-    }
-
-    /**
-     * 服务端历史导入（「我的」历史格的同步源落点）：本地已有断点的剧
-     * 一律不动——本地断点集数/秒数是续播的准，服务端只补本地没有的剧
-     * （在官方 App/他端看过的），断点按服务端值写、时刻用服务端
-     * read_timestamp，并按时刻序插入历史索引。返回是否真导入了新剧。
-     */
-    public static boolean importServerHistory(String seriesId, int episodeIndex,
-                                              long positionMs, long readTsMs) {
-        if (seriesId == null || seriesId.isEmpty()) return false;
-        if (progressOf(seriesId) != null) return false;
-        long ts = readTsMs > 0 ? readTsMs : System.currentTimeMillis();
-        Prefers.put(K_HIST_PREFIX + seriesId,
-                Math.max(0, episodeIndex) + "|" + Math.max(0, positionMs) + "|" + ts);
-        java.util.List<String> ids = new java.util.ArrayList<>(readSet(K_HIST_INDEX));
-        ids.remove(seriesId);
-        int at = ids.size();
-        for (int i = 0; i < ids.size(); i++) {
-            Progress p = progressOf(ids.get(i));
-            if (p != null && p.updatedMs < ts) {
-                at = i;
-                break;
-            }
-        }
-        ids.add(at, seriesId);
-        if (ids.size() > 200) ids = ids.subList(0, 200);
-        Prefers.put(K_HIST_INDEX, String.join(",", ids));
-        return true;
     }
 
     // ---------- 发现流位置（进程被杀后重进落位用） ----------

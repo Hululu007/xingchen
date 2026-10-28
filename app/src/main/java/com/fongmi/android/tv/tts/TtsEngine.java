@@ -39,8 +39,8 @@ public class TtsEngine {
 
         void onTtsError(String humanMsg);
 
-        /** Edge 失败、已切系统语音兜底（每次会话至多报一次，供页面提示）。 */
-        default void onFallbackToSystem() {
+        /** Edge 失败、已切系统语音兜底；reason 是 Edge 的人话错误，供页面明示卡点。 */
+        default void onFallbackToSystem(String reason) {
         }
     }
 
@@ -64,6 +64,7 @@ public class TtsEngine {
     private final Listener listener;
     private SystemTtsSynth systemSynth;
     private volatile boolean edgeDown;
+    private volatile long edgeRetryAt;
     private volatile int engineMode = MODE_AUTO;
     private final Deque<Need> queue = new ArrayDeque<>();
     private final Set<String> queued = new HashSet<>();
@@ -98,7 +99,10 @@ public class TtsEngine {
     /** 引擎模式（自动/Edge/系统）：页面设置项调；切模式后由页面重备当前段。 */
     public void setEngineMode(int mode) {
         this.engineMode = mode;
-        if (mode == MODE_EDGE) edgeDown = false;
+        if (mode == MODE_EDGE) {
+            edgeDown = false;
+            edgeRetryAt = 0;
+        }
     }
 
     public int engineMode() {
@@ -219,12 +223,15 @@ public class TtsEngine {
     }
 
     /**
-     * 合成一段：按引擎模式走 Edge / 系统 / 自动（Edge 先行、败了切系统并
-     * 在本会话内钉住系统声）。Edge 只试一次（12 秒快收），不静默重试——
-     * 干挂重试正是 2026-10-28 定根的病象。两家全败才 fail()。
+     * 合成一段：按引擎模式走 Edge / 系统 / 自动（Edge 先行、败了切系统兜底）。
+     * 兜底不钉死整会话：失败后冷却 60 秒（冷却内直接走系统声，不轮番撞
+     * Edge），冷却到期后下一段重新试 Edge，成了就恢复。Edge 单段只试一次
+     * （12 秒快收），不静默重试同段——干挂重试是 2026-10-28 定根的病象。
+     * 两家全败才 fail()。
      */
     private boolean synthesize(Need n, String text) {
         boolean wantSystemOnly = engineMode == MODE_SYSTEM;
+        if (edgeDown && System.currentTimeMillis() >= edgeRetryAt) edgeDown = false;
         if (!wantSystemOnly && !edgeDown) {
             String edgeErr = null;
             try {
@@ -249,10 +256,11 @@ public class TtsEngine {
                 fail(edgeErr);
                 return false;
             }
-            // 自动模式：钉住系统声并报一次，剩下段不再轮番试 Edge
+            // 自动模式：切系统声兜底并带原因上报；冷却 60 秒后允许重试 Edge
             edgeDown = true;
+            edgeRetryAt = System.currentTimeMillis() + 60_000L;
             try {
-                listener.onFallbackToSystem();
+                listener.onFallbackToSystem(edgeErr);
             } catch (Throwable ignored) {
             }
         }

@@ -968,12 +968,21 @@ public class TtsReadActivity extends Activity
         // 预取命中空章：推进时由 skipEmptyChapter 处理，这里忽略
     }
 
+    private long lastFallbackToastAt;
+    private String lastFallbackReason;
+
     @Override
-    public void onFallbackToSystem() {
+    public void onFallbackToSystem(String reason) {
         runOnUiThread(() -> {
             if (released) return;
             refreshLabels();
-            ToastUtil.show(this, "Edge 朗读服务连不上，已切换系统语音",
+            long now = System.currentTimeMillis();
+            boolean sameReason = reason != null && reason.equals(lastFallbackReason);
+            if (sameReason && now - lastFallbackToastAt < 5 * 60_000L) return;
+            lastFallbackToastAt = now;
+            lastFallbackReason = reason;
+            ToastUtil.show(this, "已切换系统语音（"
+                            + (reason == null ? "Edge 朗读服务连不上" : reason) + "）",
                     Toast.LENGTH_LONG);
         });
     }

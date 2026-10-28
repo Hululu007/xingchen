@@ -1008,6 +1008,71 @@ public class HgOfflineTest {
                     .envelopeCode("not json") == Integer.MIN_VALUE, null);
         }
 
+        // §31 作者页动态：UGC 视频取链形状＋帖子正文包（2026-10-29 定版：
+        //     UGC 详情 video_data=UgcVideoDetail 形、自带 video_model，
+        //     seriessdk 模型逐字＋ohg 详情口实证 vid 可当 1 集查；帖子料
+        //     在作品列表回包 content/materials 里全量自带，真回包裁剪）。
+        {
+            // UGC 批量详情请求体（官方 UGC 数据源口径）
+            com.google.gson.JsonObject ub = com.fongmi.android.tv.hongguo.api.HgRequests
+                    .ugcBatchBody("7701671040992168984");
+            check("§31 UGC 批详情体·series_id/dr_scene", "7701671040992168984".equals(
+                            ub.get("series_id").getAsString())
+                            && "player".equals(ub.get("dr_scene").getAsString()),
+                    ub.toString());
+            com.google.gson.JsonObject ubiz = ub.getAsJsonObject("biz_param");
+            check("§31 UGC 批详情体·source=17/type=1", ubiz.get("source").getAsInt() == 17
+                    && ubiz.get("video_id_type").getAsInt() == 1, ubiz.toString());
+
+            // UGC 详情解析：模型挂 detail＋集表成唯一一集
+            String ugc = Files.readString(Paths.get(dir + "author_ugc_detail.json"));
+            java.util.Map<String, com.fongmi.android.tv.hongguo.model.HgSeriesDetail> um =
+                    HgParser.parseSeriesBatch(ugc);
+            com.fongmi.android.tv.hongguo.model.HgSeriesDetail ud =
+                    um.get("7701671040992168984");
+            check("§31 UGC 详情解析命中", ud != null, "实际 keys=" + um.keySet());
+            if (ud != null) {
+                check("§31 UGC 模型随详情下发", ud.getUgcVideoModel() != null
+                        && ud.getUgcVideoModel().contains("video_list"), null);
+                check("§31 UGC 宽高在详情层", ud.getUgcVideoWidth() == 720
+                        && ud.getUgcVideoHeight() == 1280,
+                        "实际=" + ud.getUgcVideoWidth() + "x" + ud.getUgcVideoHeight());
+                check("§31 UGC 集表成唯一一集", ud.getEpisodes().size() == 1
+                                && "7701671040992168984".equals(ud.getEpisodes().get(0).getVideoId()),
+                        "实际=" + ud.getEpisodes().size());
+                com.fongmi.android.tv.hongguo.model.HgVideoModel umd =
+                        HgParser.parseUgcVideoModel(ud.getUgcVideoModel(), "7701671040992168984",
+                                ud.getUgcVideoWidth(), ud.getUgcVideoHeight());
+                check("§31 UGC 模型可解出档", umd != null && !umd.getEntries().isEmpty()
+                                && umd.getVideoWidth() == 720 && umd.getVideoHeight() == 1280,
+                        null);
+                check("§31 UGC 坏模型串回 null", HgParser.parseUgcVideoModel(
+                        "not-json", "7701671040992168984", 0, 0) == null, null);
+            }
+
+            // 帖子正文包（§28 同份真回包动态固件，帖子行逐字）
+            String dyn = Files.readString(Paths.get(dir + "author_works_dynamic.json"));
+            com.fongmi.android.tv.hongguo.model.HgAuthorWork.Page wp =
+                    HgParser.parseAuthorWorks(dyn);
+            check("§31 动态固件复解非空", wp != null && wp.items.size() == 2, null);
+            if (wp != null && wp.items.size() == 2) {
+                com.fongmi.android.tv.hongguo.model.HgAuthorWork post = wp.items.get(1);
+                check("§31 帖子正文包在", post.postBody != null
+                                && post.postBody.text.startsWith("逆江湖之苍生为局"),
+                        null);
+                if (post.postBody != null) {
+                    check("§31 帖子图集 3 张", post.postBody.imageUrls.size() == 3,
+                            "实际=" + post.postBody.imageUrls.size());
+                    check("§31 帖子关联剧 1 部", post.postBody.seriesIds.size() == 1
+                                    && "7699327513520000062".equals(post.postBody.seriesIds.get(0)),
+                            "实际=" + post.postBody.seriesIds);
+                    check("§31 帖子计数（收藏 5/评论 0）", post.postBody.collectCount == 5
+                            && post.postBody.commentCount == 0, null);
+                }
+                check("§31 视频条目无正文包", wp.items.get(0).postBody == null, null);
+            }
+        }
+
         System.out.println(fail == 0 ? "ALL PASS" : ("FAILURES=" + fail));
         System.exit(fail == 0 ? 0 : 1);
     }

@@ -49,11 +49,51 @@ public final class HgAuthorWork {
     public final int score;
     /** 发布时间（秒）。 */
     public final long createTime;
+    /** 帖子正文包（仅 KIND_POST 且回包带 content 时非空；其余条目为 null）。 */
+    public final PostBody postBody;
+
+    /**
+     * 帖子正文包（动态帖子实拉回包逐字：common.content.pure_text 全文、
+     * content.text 的 materials 图集 img-list 与关联剧 series_card_id、
+     * stat.reply_count 评论数／collect_count 收藏数）——帖子详情页的
+     * 全部料都在列表回包里自带，进页不再另拉正文。
+     */
+    public static final class PostBody {
+        /** 正文全文（pure_text，含 #话题 原文）。 */
+        public final String text;
+        /** 图集地址（materials img-list 的 datas[].web_url，按序）。 */
+        public final List<String> imageUrls;
+        /** 关联剧 id（materials series_card_id，按序去重）。 */
+        public final List<String> seriesIds;
+        /** 评论数（stat.reply_count）。 */
+        public final long commentCount;
+        /** 收藏数（stat.collect_count）。 */
+        public final long collectCount;
+
+        public PostBody(String text, List<String> imageUrls, List<String> seriesIds,
+                        long commentCount, long collectCount) {
+            this.text = text == null ? "" : text;
+            this.imageUrls = imageUrls == null ? Collections.emptyList()
+                    : Collections.unmodifiableList(imageUrls);
+            this.seriesIds = seriesIds == null ? Collections.emptyList()
+                    : Collections.unmodifiableList(seriesIds);
+            this.commentCount = commentCount;
+            this.collectCount = collectCount;
+        }
+    }
 
     public HgAuthorWork(int kind, String id, String seriesId, String cover, String title,
                         String intro, int episodeCount, long diggCount, long playCount, long hot,
                         List<String> subTitles, String authorName, String authorAvatar,
                         int score, long createTime) {
+        this(kind, id, seriesId, cover, title, intro, episodeCount, diggCount, playCount, hot,
+                subTitles, authorName, authorAvatar, score, createTime, null);
+    }
+
+    public HgAuthorWork(int kind, String id, String seriesId, String cover, String title,
+                        String intro, int episodeCount, long diggCount, long playCount, long hot,
+                        List<String> subTitles, String authorName, String authorAvatar,
+                        int score, long createTime, PostBody postBody) {
         this.kind = kind;
         this.id = id == null ? "" : id;
         this.seriesId = seriesId == null ? "" : seriesId;
@@ -70,6 +110,7 @@ public final class HgAuthorWork {
         this.authorAvatar = authorAvatar == null ? "" : authorAvatar;
         this.score = score;
         this.createTime = createTime;
+        this.postBody = postBody;
     }
 
     /** 点进播放的剧 id：有 seriesId 用 seriesId，否则用条目 id 本身（剧作条目 id 即剧 id）。 */

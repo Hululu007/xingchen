@@ -88,6 +88,30 @@ public final class HgSeriesDetail {
     /** 分类标签名（category_schema 的 name 列）；没带为空表。 */
     private final List<String> tags;
 
+    /**
+     * UGC 单条视频的随详情下发播放模型（官方 UgcVideoDetail.video_model
+     * 原串，seriessdk 模型定版）：动态视频的详情回包把 model 直接装在
+     * video_data 里、没有独立取模型口（单集 video_model 口对 UGC vid
+     * 实拉回 101000）。解析期由 HgParser 一次性回填（attachUgcModel），
+     * 之后只读；普通剧详情恒 null。
+     */
+    private String ugcVideoModel;
+    /** UGC 视频宽/高（UgcVideoDetail.video_width/video_height）；未知为 0。 */
+    private int ugcVideoWidth;
+    private int ugcVideoHeight;
+
+    /** 解析期回填 UGC 播放模型（仅 HgParser 调用，构造后一次性）。 */
+    void attachUgcModel(String model, int width, int height) {
+        this.ugcVideoModel = model;
+        this.ugcVideoWidth = width;
+        this.ugcVideoHeight = height;
+    }
+
+    /** UGC 随详情下发的播放模型原串；非 UGC 详情为 null。 */
+    public String getUgcVideoModel() { return ugcVideoModel; }
+    public int getUgcVideoWidth() { return ugcVideoWidth; }
+    public int getUgcVideoHeight() { return ugcVideoHeight; }
+
     HgSeriesDetail(String seriesId, String title, String coverUrl, String desc,
                    String authorName, int episodeCount, List<Episode> episodes, JsonObject raw) {
         this(seriesId, title, coverUrl, desc, authorName, episodeCount, episodes, raw,

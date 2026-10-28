@@ -79,6 +79,25 @@ public final class HgParser {
         return buildModel(requestedId, vm, 0, 0);
     }
 
+    /**
+     * UGC 随详情下发的 video_model 原串（字符串化 JSON）＋详情层宽高
+     * → 播放模型；串坏/无档返回 null（调用方回落常规取链）。
+     */
+    public static HgVideoModel parseUgcVideoModel(String modelJson, String requestedId,
+                                                  int videoWidth, int videoHeight) {
+        if (modelJson == null || modelJson.isEmpty()) return null;
+        JsonElement el;
+        try {
+            el = JsonParser.parseString(modelJson);
+        } catch (Exception e) {
+            return null;
+        }
+        JsonObject vm = asObject(el);
+        if (vm == null) return null;
+        HgVideoModel m = buildModel(requestedId, vm, videoWidth, videoHeight);
+        return m.getEntries().isEmpty() ? null : m;
+    }
+
     private static HgVideoModel buildModel(String requestedId, JsonObject vm, int vw, int vh) {
         List<HgVideoEntry> entries = new ArrayList<>();
         JsonElement listEl = vm.get("video_list");
@@ -237,8 +256,25 @@ public final class HgParser {
                 if (!tags.isEmpty()) break;
             }
         }
+        // UGC 单条视频（动态 tab 的 video 条目）：详情的 video_data 是
+        // UgcVideoDetail 形——没有 video_list，视频本体由 video_id＋
+        // video_model 随详情下发（seriessdk UgcVideoDetail 定版；ohg 详情
+        // 口实证该 vid 可当 1 集详情查、playable）。集表按其 video_id 成
+        // 唯一一集，模型原串挂到 detail 上，会话层展开时灌进模型缓存，
+        // 不走单集取模型口（那口对 UGC vid 实拉回 101000）。
+        String ugcModel = str(d, "video_model");
+        boolean ugcShape = ugcModel != null && !ugcModel.isEmpty();
+        if (ugcShape && episodes.isEmpty()) {
+            String ugcVid = firstStr(d, "video_id", "vid");
+            if (ugcVid != null) {
+                episodes.add(new HgSeriesDetail.Episode(ugcVid, 1, title));
+                if (count < 0) count = 1;
+            } else {
+                ugcShape = false;
+            }
+        }
         String colorHex = str(d, "series_color_hex");
-        return new HgSeriesDetail(seriesId, title, cover, desc, author, count, episodes, root,
+        HgSeriesDetail detail = new HgSeriesDetail(seriesId, title, cover, desc, author, count, episodes, root,
                 appt != null, appt != null && boolOf(appt, "is_subscribed"),
                 appt == null ? null : str(appt, "due_start_text"),
                 celebrities, intOrNull(d, "series_status"),
@@ -248,6 +284,10 @@ public final class HgParser {
                 longOf(d, "followed_cnt", -1),
                 colorHex == null || colorHex.isEmpty() ? null : colorHex,
                 subTitleList(d), tags);
+        if (ugcShape) {
+            detail.attachUgcModel(ugcModel, intOf(d, "video_width", 0), intOf(d, "video_height", 0));
+        }
+        return detail;
     }
 
     /**
@@ -1389,8 +1429,8 @@ public final class HgParser {
             JsonObject coverObj = common == null ? null : obj(common, "cover");
             if (coverObj != null) cover = str(coverObj, "web_url");
             String title = common == null ? null : str(common, "title");
+            JsonObject content = common == null ? null : obj(common, "content");
             if (title == null || title.isEmpty()) {
-                JsonObject content = common == null ? null : obj(common, "content");
                 title = content == null ? null : str(content, "pure_text");
             }
             return new HgAuthorWork(HgAuthorWork.KIND_POST,
@@ -1401,7 +1441,8 @@ public final class HgParser {
                     base == null ? null : str(base, "user_name"),
                     base == null ? null : str(base, "user_avatar"),
                     -1,
-                    common == null ? 0 : longOf(common, "create_timestamp", 0));
+                    common == null ? 0 : longOf(common, "create_timestamp", 0),
+                    postBodyOf(content, stat));
         }
         if (type == HgAuthorWork.KIND_COMMENT) {
             JsonObject c = obj(row, "comment");
@@ -1424,6 +1465,55 @@ public final class HgParser {
                     common == null ? 0 : longOf(common, "create_timestamp", 0));
         }
         return null;
+    }
+
+    /**
+     * 帖子正文包抽取（实拉回包逐字）：正文＝content.pure_text；图集与
+     * 关联剧在 content.text（字符串化 JSON）的 materials 里——
+     * type=img-list 的 data.datas[].web_url 是图，type=series_card_id 的
+     * data.series_card_id 是关联剧 id。content 缺失返回 null（卡面照旧）。
+     */
+    private static HgAuthorWork.PostBody postBodyOf(JsonObject content, JsonObject stat) {
+        if (content == null) return null;
+        String text = str(content, "pure_text");
+        List<String> images = new ArrayList<>();
+        List<String> seriesIds = new ArrayList<>();
+        String raw = str(content, "text");
+        if (raw != null && !raw.isEmpty()) {
+            try {
+                JsonObject textObj = JsonParser.parseString(raw).getAsJsonObject();
+                JsonArray mats = arr(textObj, "materials");
+                if (mats != null) {
+                    for (JsonElement el : mats) {
+                        if (!el.isJsonObject()) continue;
+                        JsonObject m = el.getAsJsonObject();
+                        JsonObject data = obj(m, "data");
+                        if (data == null) continue;
+                        String mt = str(m, "type");
+                        if ("img-list".equals(mt)) {
+                            JsonArray datas = arr(data, "datas");
+                            if (datas != null) {
+                                for (JsonElement dEl : datas) {
+                                    if (!dEl.isJsonObject()) continue;
+                                    String u = str(dEl.getAsJsonObject(), "web_url");
+                                    if (u != null && !u.isEmpty()) images.add(u);
+                                }
+                            }
+                        } else if ("series_card_id".equals(mt)) {
+                            String sid = str(data, "series_card_id");
+                            if (sid != null && !sid.isEmpty() && !seriesIds.contains(sid)) {
+                                seriesIds.add(sid);
+                            }
+                        }
+                    }
+                }
+            } catch (Exception ignored) {
+                // materials 串坏只丢图集/关联剧，正文与卡面不受影响
+            }
+        }
+        return new HgAuthorWork.PostBody(text, images, seriesIds,
+                stat == null ? 0 : longOf(stat, "reply_count", 0),
+                stat == null ? 0 : longOf(stat, "collect_count", 0));
     }
 
     /** 剧评分（expand.score 真回包是字符串型 "10"，数字型也容忍）；没带为 -1。 */

@@ -179,9 +179,13 @@ public class HkHttpHelper {
         return o instanceof String ? (String) o : null;
     }
 
-    /** 8.83 HttpHelper.tryGetBool 原样移植（smali:3295-3308）。 */
+    /** 8.83 HttpHelper.tryGetBool 移植（smali:3295-3308）。
+     * 与原版的差异（体检批六）：原版对 tryGet 结果裸 check-cast Boolean，
+     * 规则 JS 给字符串/数字等非 Boolean 值时 CCE 直接打死整条请求（调用点不在 try 内）；
+     * 这里加判型，非 Boolean 一律按 def 回落，Boolean 正常路径与原版一字不变。 */
     private static boolean tryGetBool(Map<String, Object> map, String key, Boolean def) {
-        Boolean v = (Boolean) tryGet(map, key, def);
+        Object raw = tryGet(map, key, def);
+        Boolean v = raw instanceof Boolean ? (Boolean) raw : def;
         if (v == null) v = def;
         return v;
     }

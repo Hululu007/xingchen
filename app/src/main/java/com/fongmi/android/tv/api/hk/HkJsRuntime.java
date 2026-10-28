@@ -3443,6 +3443,10 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                     latch.countDown();
                 }
                 latch.await(30, java.util.concurrent.TimeUnit.SECONDS);
+                // 体检批六：getServerUrl 只按绑定端口拼串、未启动也非空，全端口启动
+                // 失败时不许把假地址回给 JS（原版启动异常直接抛、函数不回地址）；
+                // 未真跑起一律按本函数既有失败口径回 ""。
+                if (!server.isRunning()) return "";
                 String url = server.getServerUrl();
                 if (url == null || url.isEmpty()) return "";
                 return url + "/proxy";
@@ -3655,7 +3659,10 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                     Map<?, ?> json = null;
                     if (task != null) {
                         Object adj = argsNativeObjectAdjust(task, true);
-                        json = (Map<?, ?>) adj;
+                        // 体检批六判型：原版此处裸 check-cast JSONObject，数组/字符串任务
+                        // 抛 CCE 经 catchall 重抛；星辰按本函数既有「无可调用函数回 null」
+                        // 口径（下方 func 判型同型），非 Map 即当无任务，正常路径不变。
+                        json = adj instanceof Map ? (Map<?, ?>) adj : null;
                     }
                     BaseFunction func = null;
                     if (json != null && json.containsKey("func")) {
@@ -7620,7 +7627,14 @@ private String wrapTryScript(String script) {
                 ruleObj = HkRuleManager.get().getInstalledRule(ruleTitle);
             }
             // :cond_1
-            String code = (String) fetchByHiker(url, ruleObj, false, false);  // v2
+            // 体检批六判型：原版裸 check-cast String；非文本结果（哨兵/流）按原版
+            // 收口故意抛 ClassCastException，不静默当代码用。null 仍按原版过转。
+            Object rawCode = fetchByHiker(url, ruleObj, false, false);  // v2
+            if (rawCode != null && !(rawCode instanceof String)) {
+                throw new ClassCastException("require fetchByHiker non-text result: "
+                        + rawCode.getClass().getName());
+            }
+            String code = (String) rawCode;
             if (!useCallback) {
                 return code;                         // :cond_4
             }
@@ -7635,6 +7649,13 @@ private String wrapTryScript(String script) {
                 }
             }
             // :goto_0 — Function.call(cx, parentScope, parentScope, new Object[]{code})
+            // 体检批六判型：原版裸 check-cast Scriptable/Function；回调模式下 callback
+            // 非 Function 按原版收口故意抛 ClassCastException（Function 必是 Scriptable，
+            // 一道判型覆盖两转）。
+            if (!(callback instanceof Function)) {
+                throw new ClassCastException("require callback is not a Function: "
+                        + (callback == null ? "null" : callback.getClass().getName()));
+            }
             Context cx = Context.getCurrentContext();
             Scriptable parentScope = ((Scriptable) callback).getParentScope();
             return ((Function) callback).call(cx, parentScope, parentScope, new Object[]{code});
@@ -7648,7 +7669,11 @@ private String wrapTryScript(String script) {
 
         // http(s) 分支：本地缓存 libs/<md5(url)>.js + 版本文件 <md5(url)>.json
         Context cx = Context.getCurrentContext();                          // v6
-        Scriptable parentScope = ((Scriptable) callback).getParentScope(); // v9
+        // 体检批六判型：parentScope 只在回调模式的 finishRequire 里消费；原版无条件
+        // 裸转，非 Scriptable 的 callback 在非回调模式也会 CCE。非 Scriptable 时置
+        // null（该模式不消费），回调模式的判型在 finishRequire 处故意抛错收口。
+        Scriptable parentScope = callback instanceof Scriptable
+                ? ((Scriptable) callback).getParentScope() : null;          // v9
         String md5 = Util.md5(url);                                        // v10, 8.83: StringUtil.md5
         String libsDir = hkRootDir() + File.separator + "libs";  // v12
         String jsPath = libsDir + File.separator + md5 + ".js";            // v11
@@ -7736,6 +7761,12 @@ private String wrapTryScript(String script) {
                                  Context cx, Scriptable parentScope, Object callback, boolean useCallback) {
         generateRequireMap(ruleTitle, desc, url, jsPath);
         if (useCallback) {
+            // 体检批六判型：原版裸 check-cast Function；非 Function 按原版收口故意抛
+            // ClassCastException（与 require0 文件分支同口径）。
+            if (!(callback instanceof Function)) {
+                throw new ClassCastException("require callback is not a Function: "
+                        + (callback == null ? "null" : callback.getClass().getName()));
+            }
             return ((Function) callback).call(cx, parentScope, parentScope, new Object[]{code});
         }
         return code;
@@ -8114,7 +8145,12 @@ private Object fetch0(String url, Object options, Object ruleKey, HkHttpHelper.H
         url = proxyRequire(ruleKey, url);
         java.util.Map<String, Object> opts = null;
         if (options != null && !isUndefined(options)) {
-            opts = (java.util.Map<String, Object>) argsNativeObjectAdjust(options);
+            Object adj = argsNativeObjectAdjust(options);
+            // 体检批六判型：原版裸 check-cast Map、CCE 被本函数 catchall 吞成回 ""；
+            // 非 Map（数组/字符串 options）照原口径直接回 ""，不发无选项请求；
+            // adj 为 null 时原版过转得 null opts，照旧。
+            if (adj != null && !(adj instanceof java.util.Map)) return "";
+            opts = (java.util.Map<String, Object>) adj;
         }
         final Object ruleKey0 = ruleKey;
         return HkHttpHelper.fetch0(url, opts, interceptor, new HkHttpHelper.RuleFetchDelegate() {
@@ -8208,6 +8244,12 @@ private Object post0(String url, Object options, Object ruleKey, boolean flag) {
         postOps = null;
     }
     if (postOps != null) {
+        // 体检批六判型：原版裸 check-cast Map 且本方法无 try，CCE 直穿桥面；
+        // 非 Map 按原版收口故意抛 ClassCastException，不把畸形 options 当无选项发请求。
+        if (!(postOps instanceof java.util.Map)) {
+            throw new ClassCastException("post0 options is not a Map: "
+                    + postOps.getClass().getName());
+        }
         postOps = HkHttpHelper.generatePostOps((java.util.Map<String, Object>) postOps);
     }
     Object requestOptions = generateRequestOptions(postOps, !flag);
@@ -8224,6 +8266,12 @@ public String fetchWithHeadersInterceptor(String url, Object options, Object rul
                                           HkHttpHelper.HeadersInterceptor interceptor) {
     Object headerOpts = generateHeadersOptions(options);
     Object result = fetch0(url, headerOpts, ruleKey, interceptor);
+    // 体检批六判型：原版裸 check-cast String；非文本结果（流/字节）按原版收口
+    // 故意抛 ClassCastException，不把流对象 toString 当正文回。null 照原版过转。
+    if (result != null && !(result instanceof String)) {
+        throw new ClassCastException("fetchWithHeadersInterceptor non-text result: "
+                + result.getClass().getName());
+    }
     return (String) result;
 }
 
@@ -8551,8 +8599,22 @@ public static String proxyUrl(String url, String proxyConfig) {
 private String requestForCode(String url, Object options) {
     try {
         Object headersOptions = generateHeadersOptions(options);
-        String result = (String) fetch0(url, generateRequestOptions(headersOptions, false), null, null); // MISSING: JSEngine.request(String,Object,Object)
-        Scriptable json = (Scriptable) parseJson(result);
+        Object rawResult = fetch0(url, generateRequestOptions(headersOptions, false), null, null); // MISSING: JSEngine.request(String,Object,Object)
+        // 体检批六判型＋补诊断：原版两转都在 try 内、类型不符 CCE 被吞成回 null
+        // 无日志；这里判型后同口径回 null，但记一行日志留诊断。正常路径不变。
+        if (!(rawResult instanceof String)) {
+            Logger.t(TAG).d("requestForCode non-text result: %s",
+                    rawResult == null ? "null" : rawResult.getClass().getName());
+            return null;
+        }
+        String result = (String) rawResult;
+        Object parsed = parseJson(result);
+        if (!(parsed instanceof Scriptable)) {
+            Logger.t(TAG).d("requestForCode non-object json: %s",
+                    parsed == null ? "null" : parsed.getClass().getName());
+            return null;
+        }
+        Scriptable json = (Scriptable) parsed;
         if (json != null) {
             String error = getString(ScriptableObject.getProperty(json, "error"));
             if (!TextUtils.isEmpty(error) && !"null".equals(error)) return null;

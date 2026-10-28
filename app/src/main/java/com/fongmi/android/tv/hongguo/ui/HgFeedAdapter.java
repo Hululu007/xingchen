@@ -327,7 +327,9 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         bindReserveState(holder, item);
     }
 
-    /** 预约片：只在未上线剧（reservable）亮；文案照官方串族（点击预约/已预约＋上线文案）。 */
+    /** 预约卡：只在未上线剧（reservable）亮；官方 cu6 形态——封面＋标题＋
+     * 上线文案副行＋48dp 品牌钮，钮文案/状态色对照 ks3.i（预约＝橘底白字、
+     * 已预约＝透明白底灰字）。 */
     public void bindReserveState(Holder holder, HgFeedItem item) {
         ItemHongguoFeedBinding b = holder.binding;
         if (!item.reservable) {
@@ -335,12 +337,15 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
             return;
         }
         boolean reserved = session.interactions.isReserved(item.seriesId);
-        String due = item.dueStartText;
         b.hgReserve.setVisibility(View.VISIBLE);
-        b.hgReserve.setText(reserved
-                ? "已预约" + (due != null && !due.isEmpty() ? " · " + due : " · 即将上线")
-                : "点击预约" + (due != null && !due.isEmpty() ? " · " + due : " · 即将上线"));
-        b.hgReserve.setAlpha(reserved ? 0.75f : 1f);
+        ImgUtil.load(item.title == null ? "" : item.title, item.coverUrl, b.hgReserveCover, true);
+        b.hgReserveTitle.setText(item.title == null ? "" : item.title);
+        String due = item.dueStartText;
+        b.hgReserveDue.setText(due != null && !due.isEmpty() ? due : "即将上线");
+        b.hgReserveBtn.setText(reserved ? "已预约" : "预约");
+        b.hgReserveBtn.setBackgroundResource(reserved
+                ? R.drawable.bg_hg_reserve_btn_on : R.drawable.bg_hg_reserve_btn);
+        b.hgReserveBtn.setTextColor(reserved ? 0x66FFFFFF : 0xFFFFFFFF);
     }
 
     /** 「弹」＝发弹幕入口（官方 A25：PublishDanmakuEntranceView）：它不是

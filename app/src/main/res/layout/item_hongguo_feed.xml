@@ -582,20 +582,69 @@
             android:textSize="12sp"
             android:visibility="gone" />
 
-        <!-- 未上线剧的预约片：回包带 appointment 才亮（适配器控制），文案照官方串（点击预约/已预约＋上线文案） -->
-        <TextView
+        <!-- 未上线剧预约卡（官方 SubscribeViewController 的 cu6 定版形态：
+             封面 32×44 圆角 6dp＋标题 14sp 白粗＋副行（上线文案）＋右侧
+             48dp 品牌钮；状态色对——未预约底 #FFFA7705 字白、已预约底
+             #1AFFFFFF 字 #66FFFFFF。回包带 appointment 才亮，整卡点击
+             走预约开关。此前只有一行文字筹、是形态缺件） -->
+        <LinearLayout
             android:id="@+id/hg_reserve"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
-            android:background="@drawable/bg_hg_chip"
-            android:paddingStart="12dp"
-            android:paddingTop="7dp"
-            android:paddingEnd="12dp"
-            android:paddingBottom="7dp"
-            android:textColor="#FFFFFF"
-            android:textSize="13sp"
-            android:visibility="gone" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:visibility="gone">
+
+            <ImageView
+                android:id="@+id/hg_reserve_cover"
+                android:layout_width="32dp"
+                android:layout_height="44dp"
+                android:background="@drawable/bg_hg_cover_r6"
+                android:clipToOutline="true"
+                android:contentDescription="@null" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/hg_reserve_title"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textColor="#FFFFFF"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/hg_reserve_due"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="3dp"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textColor="#CCFFFFFF"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/hg_reserve_btn"
+                android:layout_width="48dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:background="@drawable/bg_hg_reserve_btn"
+                android:gravity="center"
+                android:paddingTop="5dp"
+                android:paddingBottom="5dp"
+                android:text="预约"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp" />
+        </LinearLayout>
     </LinearLayout>
 
     <!-- 底部行：选集条＋全屏方钮。材料/几何按模式分工（适配器 bind 时切换，

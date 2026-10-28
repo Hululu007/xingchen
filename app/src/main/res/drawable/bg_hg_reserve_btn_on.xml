@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 预约卡品牌钮·已预约态（官方 ks3.i 状态色对：底 #1AFFFFFF、字 #66FFFFFF、圆角 6dp） -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="6dp" />
+    <solid android:color="#1AFFFFFF" />
+</shape>

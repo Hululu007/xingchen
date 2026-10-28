@@ -10,10 +10,14 @@ import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import com.fongmi.android.tv.databinding.DialogHongguoCommentEditorBinding;
 import com.fongmi.android.tv.databinding.DialogHongguoCommentsBinding;
 import com.fongmi.android.tv.databinding.ItemHongguoCommentBinding;
 import com.fongmi.android.tv.hongguo.api.HgCallback;
+import com.fongmi.android.tv.hongguo.api.HgLoginAuthProvider;
 import com.fongmi.android.tv.hongguo.model.HgComment;
+import com.fongmi.android.tv.login.LoginManager;
+import com.fongmi.android.tv.utils.ImgUtil;
 import com.fongmi.android.tv.utils.ImgUtil;
 import com.google.android.material.bottomsheet.BottomSheetBehavior;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
@@ -28,16 +32,17 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.LongConsumer;
+import java.util.function.LongSupplier;
 
 /**
  * 评论面板（四阶段灌实）：单集评论列表＋上滑翻页＋回复展开，全走 hongguo 包
  * 自有 {@link com.fongmi.android.tv.hongguo.api.HgCommentClient}（协议出处见
  * 该类类头；不直连规则年代的 api/HongguoCommentApi，理由同在该类类头）。
  *
- * <p>只读说明（如实）：发评论/回复的请求模型在样本里只抠到模型类
- * （classes11 saas AddCommentRequest/AddReplyRequest），短剧评论的枚举取值
- * （comment_type/group_type/commit_source 的具体组合）没在已反编译的构造点
- * 定版，按纪律不落发送，面板只读；定版后在此加输入行即可。</p>
+ * <p>发评论（单集）：请求档位已由续挖定版（dig-search2-20261028.md §7：
+ * commit_source 3/group_type 30/data_type 4/comment_type 不填），面板底部
+ * 假输入条点开编辑层发送，成功后整表刷新；整剧剧评（评分帖）是另一条链，
+ * 不在此面发送，剧评面不显输入条。回复发送（commit_source 9）未接。</p>
  *
  * <p>线程口径：翻页与回复都在 OkHttp 分发线程拉取，回调里只把结果贴回主线程
  * 更新适配器，主线程不做网络与解析。评论总数经 onTotal 回报页面——右列评论
@@ -49,10 +54,19 @@ public final class HgCommentsPanel {
     }
 
     public static void show(Activity activity, HgFeedItem item) {
-        show(activity, item, null);
+        show(activity, item, null, null);
     }
 
     public static void show(Activity activity, HgFeedItem item, LongConsumer onTotal) {
+        show(activity, item, onTotal, null);
+    }
+
+    /**
+     * @param positionSupplier 发表时取当前播放进度（毫秒）喂 business.offset；
+     *                         不给时按 0。评论面板自身不持有播放器，由宿主喂。
+     */
+    public static void show(Activity activity, HgFeedItem item, LongConsumer onTotal,
+                            LongSupplier positionSupplier) {
         DialogHongguoCommentsBinding binding = DialogHongguoCommentsBinding.inflate(
                 LayoutInflater.from(activity));
         BottomSheetDialog dialog = new BottomSheetDialog(activity);
@@ -69,8 +83,100 @@ public final class HgCommentsPanel {
             } catch (IllegalArgumentException ignored) {
             }
         });
+        Loader loader = new Loader(activity, binding, item, onTotal);
+        boolean episode = item.videoId != null && !item.videoId.isEmpty();
+        binding.hgCmInputBar.setVisibility(episode ? View.VISIBLE : View.GONE);
+        if (episode) {
+            binding.hgCmInputBar.setOnClickListener(v -> {
+                // 未登录先拉壳子统一登录（与互动四件同口径），不开编辑层
+                if (!HgLoginAuthProvider.isLoggedIn()) {
+                    if (!LoginManager.loginHongguoDelivered()) {
+                        android.widget.Toast.makeText(activity,
+                                "登录界面暂时打不开，稍后再试",
+                                android.widget.Toast.LENGTH_SHORT).show();
+                    }
+                    return;
+                }
+                showCommentEditor(activity, loader, item, positionSupplier);
+            });
+        }
         dialog.show();
-        new Loader(activity, binding, item, onTotal).start();
+        loader.start();
+    }
+
+    /**
+     * 发评论编辑层（自家小 Dialog，深底照红果面口径；官方框体是社区
+     * Compose 编辑器、无经典布局可抄）：构成照发弹幕编辑层——空文本发表
+     * 不可点、发送中禁用防连点、失败不关层提示再试；成功关层、提示已发表
+     * 并整表刷新（新评论由服务端列表回带，不在本地编造一条）。
+     */
+    private static void showCommentEditor(Activity activity, Loader loader, HgFeedItem item,
+                                          LongSupplier positionSupplier) {
+        DialogHongguoCommentEditorBinding eb = DialogHongguoCommentEditorBinding.inflate(
+                LayoutInflater.from(activity));
+        android.app.Dialog dialog = new android.app.Dialog(activity);
+        dialog.setContentView(eb.getRoot());
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(
+                    android.graphics.Color.TRANSPARENT));
+            int w = (int) (activity.getResources().getDisplayMetrics().widthPixels * 0.85f);
+            dialog.getWindow().setLayout(w, ViewGroup.LayoutParams.WRAP_CONTENT);
+        }
+        final boolean[] sending = {false};
+        android.text.TextWatcher watcher = new android.text.TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+            }
+
+            @Override
+            public void afterTextChanged(android.text.Editable s) {
+                boolean ready = s != null && !s.toString().trim().isEmpty() && !sending[0];
+                eb.hgCePublish.setEnabled(ready);
+                eb.hgCePublish.setAlpha(ready ? 1f : 0.45f);
+            }
+        };
+        eb.hgCeInput.addTextChangedListener(watcher);
+        eb.hgCeCancel.setOnClickListener(v -> dialog.dismiss());
+        eb.hgCePublish.setOnClickListener(v -> {
+            if (sending[0]) return;
+            String text = eb.hgCeInput.getText() == null ? "" : eb.hgCeInput.getText().toString().trim();
+            if (text.isEmpty()) return;
+            sending[0] = true;
+            eb.hgCePublish.setEnabled(false);
+            eb.hgCePublish.setAlpha(0.45f);
+            eb.hgCeError.setVisibility(View.GONE);
+            final long offsetMs = positionSupplier == null ? 0
+                    : Math.max(0, positionSupplier.getAsLong());
+            loader.session.fqClient.publishComment(item.seriesId, item.videoId, text, offsetMs,
+                    new HgCallback<Void>() {
+                        @Override
+                        public void onSuccess(Void ignored) {
+                            activity.runOnUiThread(() -> {
+                                if (activity.isFinishing() || activity.isDestroyed()) return;
+                                dialog.dismiss();
+                                android.widget.Toast.makeText(activity, "已发表",
+                                        android.widget.Toast.LENGTH_SHORT).show();
+                                loader.refreshAfterPost();
+                            });
+                        }
+
+                        @Override
+                        public void onError(int httpCode, String message) {
+                            activity.runOnUiThread(() -> {
+                                if (activity.isFinishing() || activity.isDestroyed()
+                                        || !dialog.isShowing()) return;
+                                sending[0] = false;
+                                eb.hgCeError.setVisibility(View.VISIBLE);
+                                watcher.afterTextChanged(eb.hgCeInput.getText());
+                            });
+                        }
+                    });
+        });
+        dialog.show();
     }
 
     /** 面板一份数据的加载与列表状态（随面板生灭，不进会话）。 */
@@ -161,6 +267,17 @@ public final class HgCommentsPanel {
             };
             if (episodeMode()) session.fqClient.episodeComments(item.seriesId, item.videoId, cursor, cb);
             else session.fqClient.seriesComments(item.seriesId, cursor, cb);
+        }
+
+        /** 发表成功后整表从头刷新：新评论与新总数都以服务端回带为准。 */
+        void refreshAfterPost() {
+            if (loading) return;
+            comments.clear();
+            cursor = "";
+            hasMore = false;
+            firstLoaded = false;
+            adapter.notifyDataSetChanged();
+            loadNext();
         }
 
         private void toggleReplies(HgComment comment) {

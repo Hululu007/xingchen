@@ -57,4 +57,21 @@
             android:layout_height="match_parent"
             android:visibility="gone" />
     </FrameLayout>
+
+    <!-- 底部假输入条（官方 FakePublishLayout 口径：点开独立编辑层）：只在
+         单集评论面显示，整剧剧评是另一条链（全页＋评分），不在此发。 -->
+    <TextView
+        android:id="@+id/hg_cm_input_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:background="@drawable/bg_hg_chip"
+        android:paddingStart="14dp"
+        android:paddingTop="11dp"
+        android:paddingEnd="14dp"
+        android:paddingBottom="11dp"
+        android:text="发条友善的评论吧"
+        android:textColor="#99FFFFFF"
+        android:textSize="14sp"
+        android:visibility="gone" />
 </LinearLayout>

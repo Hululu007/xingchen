@@ -1236,7 +1236,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                 if (item.seriesId != null) session.commentCounts.put(item.seriesId, total);
                 HgFeedAdapter.Holder ch = currentHolder();
                 if (ch != null && position == currentPos) adapter.bindInteractionState(ch, item);
-            });
+            }, () -> player == null ? 0L : Math.max(0L, player.getCurrentPosition()));
             case SHARE -> share(item);
         }
         armAutoHide();

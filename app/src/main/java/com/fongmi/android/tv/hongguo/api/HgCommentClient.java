@@ -22,7 +22,7 @@ import okhttp3.Response;
 import okhttp3.ResponseBody;
 
 /**
- * 红果 fqnovel 面客户端（hongguo 包自有实现）：评论读三口＋视频点赞 do_action＋发弹幕 comment/add。
+ * 红果 fqnovel 面客户端（hongguo 包自有实现）：评论读三口＋视频点赞 do_action＋发弹幕/发单集评论 comment/add。
  *
  * <p>为什么不直接用 api/HongguoCommentApi：那份是海阔规则年代与 HongguoDanmakuApi
  * 同层共建的壳子抓取器，挂在点播播放链上、类与传输都是包内共用形态；原生刷剧面
@@ -257,6 +257,66 @@ public final class HgCommentClient {
                 int r = HgCommentParser.writeResult(resp);
                 if (r < 0) cb.onError(-2, "发弹幕回包解析失败");
                 else if (r == 0) cb.onError(-2, "发弹幕被服务端拒绝");
+                else cb.onSuccess(null);
+            }
+
+            @Override
+            void onFail(int code, String msg) {
+                cb.onError(code, msg);
+            }
+        });
+    }
+
+    /**
+     * 发单集评论请求体（续挖定版 dig-search2-20261028.md §7，构造链逐环
+     * 实证）：与发弹幕同端点（comment/add）同模型，换评论档填值——
+     * commit_source＝3（NovelItemCommentAdd）、group_id＝vid、group_type
+     * ＝30（SeriesVideo）、data_type＝4（NewItem）、comment_type 不填
+     * （构造链全程无人赋值、映射器原样透传 null）；business 带 book_id
+     * （剧 id）、offset（发表时播放进度毫秒）与 shark_param（与弹幕档
+     * 同口径两键）。回复评论（commit_source 9）与剧评（12）是另两条链，
+     * 不在此。
+     */
+    public static JsonObject commentPostPayload(String seriesId, String vid, String text, long offsetMs) {
+        JsonObject payload = new JsonObject();
+        payload.addProperty("commit_source", 3);
+        payload.addProperty("group_id", vid);
+        payload.addProperty("group_type", 30);
+        payload.addProperty("data_type", 4);
+        payload.addProperty("text", text == null ? "" : text);
+        payload.addProperty("aid", 8662);
+        JsonObject business = new JsonObject();
+        business.addProperty("book_id", seriesId);
+        business.addProperty("offset", Math.max(0, offsetMs));
+        JsonObject shark = new JsonObject();
+        shark.addProperty("type", "short_play");
+        shark.addProperty("aid", "8662");
+        business.add("shark_param", shark);
+        payload.add("business_param", business);
+        return payload;
+    }
+
+    /**
+     * 发一条单集评论 POST /novel/commentapi/comment/add/v1/。回包判定与
+     * 发弹幕同口径：信封 code=0 才算受理（writeResult 三态），解析失败与
+     * 被拒以 -2 分文案报，网络/HTTP 失败走 onFail 原样透传。
+     */
+    public void publishComment(String seriesId, String vid, String text, long offsetMs,
+                               HgCallback<Void> cb) {
+        if (!isId(seriesId) || !isId(vid)) {
+            cb.onError(-1, "id 非法");
+            return;
+        }
+        if (text == null || text.trim().isEmpty()) {
+            cb.onError(-1, "评论为空");
+            return;
+        }
+        post("comment/add", commentPostPayload(seriesId, vid, text, offsetMs), 0, 0, new TextCallback() {
+            @Override
+            void onText(String resp) {
+                int r = HgCommentParser.writeResult(resp);
+                if (r < 0) cb.onError(-2, "发评论回包解析失败");
+                else if (r == 0) cb.onError(-2, "发评论被服务端拒绝");
                 else cb.onSuccess(null);
             }
 

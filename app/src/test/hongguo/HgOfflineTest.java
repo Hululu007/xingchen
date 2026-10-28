@@ -551,6 +551,31 @@ public class HgOfflineTest {
                     chen == null ? "条目没找到" : "uid=" + chen.getAuthorUid());
         }
 
+        // §20 发单集评论 payload（dig-search2-20261028.md §7 逐环定版）：
+        //     同口 comment/add 换评论档——commit_source 3、group_type 30、
+        //     data_type 4、comment_type 缺省；business 两件（book_id/offset）
+        //     ＋shark 两件（type short_play、aid 字符串 "8662"）。
+        {
+            com.google.gson.JsonObject cp = com.fongmi.android.tv.hongguo.api.HgCommentClient
+                    .commentPostPayload("7697561772433099800", "7697606592786598936", "好看", 54321);
+            com.google.gson.JsonObject cbiz = cp.getAsJsonObject("business_param");
+            com.google.gson.JsonObject cshark = cbiz.getAsJsonObject("shark_param");
+            check("发评论 payload 档位与归属", cp.get("commit_source").getAsInt() == 3
+                            && cp.get("group_type").getAsInt() == 30
+                            && cp.get("data_type").getAsInt() == 4
+                            && cp.get("aid").getAsInt() == 8662
+                            && "7697606592786598936".equals(cp.get("group_id").getAsString())
+                            && "好看".equals(cp.get("text").getAsString()),
+                    null);
+            check("发评论 payload comment_type 缺省", !cp.has("comment_type"), null);
+            check("发评论 payload business 两件", "7697561772433099800".equals(cbiz.get("book_id").getAsString())
+                            && cbiz.get("offset").getAsLong() == 54321,
+                    null);
+            check("发评论 payload shark 两件", "short_play".equals(cshark.get("type").getAsString())
+                            && "8662".equals(cshark.get("aid").getAsString()),
+                    null);
+        }
+
         System.out.println(fail == 0 ? "ALL PASS" : ("FAILURES=" + fail));
         System.exit(fail == 0 ? 0 : 1);
     }

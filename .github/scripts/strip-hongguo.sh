@@ -84,10 +84,12 @@ app/src/main/res/layout/dialog_hongguo_more_panel.xml
 app/src/main/res/layout/dialog_hongguo_timer.xml
 app/src/main/res/layout/dialog_hongguo_land_episodes.xml
 app/src/main/res/layout/dialog_hongguo_land_list.xml
+app/src/main/res/layout/dialog_hongguo_subscribe_recall.xml
 app/src/main/res/layout/item_hongguo_comment.xml
 app/src/main/res/layout/item_hongguo_episode.xml
 app/src/main/res/layout/item_hongguo_feed.xml
 app/src/main/res/layout/item_hongguo_mine_card.xml
+app/src/main/res/layout/item_hongguo_recall.xml
 app/src/main/res/layout/item_hongguo_search.xml
 app/src/main/res/layout/item_hongguo_search_header.xml
 app/src/main/res/layout/item_hongguo_search_sug.xml
@@ -106,6 +108,7 @@ app/src/main/res/drawable/bg_hg_bottom_scrim.xml
 app/src/main/res/drawable/bg_hg_chip.xml
 app/src/main/res/drawable/bg_hg_cover_r6.xml
 app/src/main/res/drawable/bg_hg_cover_r12.xml
+app/src/main/res/drawable/bg_hg_red_dot.xml
 app/src/main/res/drawable/bg_hg_sub_chip.xml
 app/src/main/res/drawable/bg_hg_sub_chip_on.xml
 app/src/main/res/drawable/bg_hg_title_badge.xml

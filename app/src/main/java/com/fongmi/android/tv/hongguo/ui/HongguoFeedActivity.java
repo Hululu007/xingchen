@@ -25,6 +25,8 @@ import androidx.viewpager2.widget.ViewPager2;
 import com.fongmi.android.tv.databinding.ActivityHongguoFeedBinding;
 import com.fongmi.android.tv.hongguo.api.HgCallback;
 import com.fongmi.android.tv.hongguo.model.HgSeriesItem;
+import com.fongmi.android.tv.hongguo.model.HgUpdateLogic;
+import com.fongmi.android.tv.login.LoginManager;
 import com.fongmi.android.tv.player.engine.ExoPlayerEngine;
 import com.fongmi.android.tv.player.engine.PlaySpec;
 import com.fongmi.android.tv.player.engine.PlayerEngine;
@@ -503,6 +505,8 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                 }
             }
             loadTab(tab);
+            // 预约上线召回：首帧与首播先行，提示检查延后一拍（见 maybeCheckSubscribeRecall）
+            ui.postDelayed(this::maybeCheckSubscribeRecall, 1500);
         }
         ui.post(ticker);
     }
@@ -1112,11 +1116,49 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         }
     }
 
+    // 累计观看（详情页评分门槛的 watch_duration 数据源）：按播放位置推进量
+    // 累加到当前剧——暂停不计、单拍跳变 >2 秒（拖动/快进/切集残值）不计；
+    // 待冲量随 saveProgress 的 4 秒节律与各落盘点一起入 HgStore。
+    private String watchSeriesId;
+    private long watchLastPos = -1;
+    private long watchAccumMs;
+
+    private void accumulateWatch(long position) {
+        if (player == null || !player.isPlaying()
+                || currentPos < 0 || currentPos >= session.items.size()) {
+            watchLastPos = -1;
+            return;
+        }
+        String sid = session.items.get(currentPos).seriesId;
+        if (sid == null || sid.isEmpty()) {
+            watchLastPos = -1;
+            return;
+        }
+        if (!sid.equals(watchSeriesId)) {
+            flushWatch();
+            watchSeriesId = sid;
+            watchLastPos = -1;
+        }
+        if (watchLastPos >= 0) {
+            long d = position - watchLastPos;
+            if (d >= 0 && d <= 2000) watchAccumMs += d;
+        }
+        watchLastPos = position;
+    }
+
+    private void flushWatch() {
+        if (watchSeriesId != null && watchAccumMs > 0) {
+            HgStore.addWatchMs(watchSeriesId, watchAccumMs);
+        }
+        watchAccumMs = 0;
+    }
+
     private void tickProgress() {
         if (player == null || currentPos < 0) return;
         if (landInstance) tickLandStatus();
         long duration = player.getDuration();
         long position = player.getCurrentPosition();
+        accumulateWatch(position);
         HgFeedAdapter.Holder h = currentHolder();
         if (h != null && duration > 0) {
             float frac = Math.max(0f, Math.min(1f, (float) position / duration));
@@ -1146,6 +1188,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     }
 
     private void saveProgress() {
+        flushWatch();
         if (player == null || currentPos < 0 || currentPos >= session.items.size()) return;
         HgFeedItem item = session.items.get(currentPos);
         if (item.seriesId == null || item.episodeIndex <= 0) return;
@@ -2691,6 +2734,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         }
         suppressResumeRefresh = false;
         if (mineShowing) return;
+        maybeCheckSubscribeRecall();
         if (player != null && playingVideoId != null) {
             player.play();
         } else if (currentPos >= 0 && currentPos < session.items.size()) {
@@ -2749,6 +2793,71 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         super.onBackInvoked();
     }
 
+
+    // ---------- 预约上线召回弹窗（官方 SubscribeRecallDialog 的自家链） ----------
+    // 官方由浮层任务（show_subscribe_recall_dialog）在刷剧面弹，数据是
+    // 服务端按新上线下发的；咱家无浮层任务链，进刷剧面时自拉预约已上
+    // 线档差集等价：首轮只播种不弹（存量已上线不是新上线），此后新进
+    // 已上线档的才弹，弹过记名不再重复（判定 HgUpdateLogic、记名
+    // HgStore）。触发点＝首进延后一拍＋每次回前台（onResume）；集流
+    // 实例与「我的」面在场时不查不弹。失败静默，不打扰刷剧。
+
+    private boolean recallChecking;
+
+    private void maybeCheckSubscribeRecall() {
+        if (mode != MODE_FEED || mineShowing || recallChecking || isFinishing()) return;
+        if (!LoginManager.isHongguoLoggedIn()) return;
+        recallChecking = true;
+        session.client.fetchMyReservations(true, new HgCallback<List<HgSeriesItem>>() {
+            @Override
+            public void onSuccess(List<HgSeriesItem> list) {
+                runOnUiThread(() -> {
+                    recallChecking = false;
+                    if (list == null || isFinishing()) return;
+                    java.util.List<String> onlineIds = new java.util.ArrayList<>();
+                    java.util.Map<String, HgSeriesItem> byId = new HashMap<>();
+                    for (HgSeriesItem s : list) {
+                        if (s.getSeriesId() == null) continue;
+                        onlineIds.add(s.getSeriesId());
+                        byId.put(s.getSeriesId(), s);
+                    }
+                    if (!HgStore.recallSeeded()) {
+                        HgStore.addRecallPrompted(onlineIds);
+                        HgStore.markRecallSeeded();
+                        return;
+                    }
+                    List<String> freshIds = HgUpdateLogic.newOnlineArrivals(
+                            onlineIds, HgStore.recallPromptedIds());
+                    if (freshIds.isEmpty()) return;
+                    // 先记名再弹：弹的过程被杀也不会下次重弹同一批
+                    HgStore.addRecallPrompted(freshIds);
+                    List<HgSeriesItem> fresh = new java.util.ArrayList<>();
+                    for (String id : freshIds) fresh.add(byId.get(id));
+                    if (mode != MODE_FEED || mineShowing || isFinishing()) return;
+                    HgSubscribeRecallDialog.show(HongguoFeedActivity.this, fresh,
+                            new HgSubscribeRecallDialog.Listener() {
+                                @Override
+                                public void onOpenSeries(HgSeriesItem item) {
+                                    suppressResumeRefresh = true;
+                                    HongguoFeedActivity.startSeries(HongguoFeedActivity.this,
+                                            item.getSeriesId(), item.getTitle(), item.getCoverUrl());
+                                }
+
+                                @Override
+                                public void onOpenReservations() {
+                                    binding.hgMine.getRoot().openReservations();
+                                    showMineFace();
+                                }
+                            });
+                });
+            }
+
+            @Override
+            public void onError(int httpCode, String message) {
+                runOnUiThread(() -> recallChecking = false);
+            }
+        });
+    }
 
     // ---------- 红果自家底栏两格＋「我的」面＋三杠小抽屉 ----------
     // 定案口径（他亲点）：底栏就「首页/我的」两格（剧场不要、找剧走搜索页）；

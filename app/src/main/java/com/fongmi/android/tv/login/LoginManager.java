@@ -182,22 +182,25 @@ public class LoginManager {
     }
 
     /**
-     * 弹红果原生短信登录页（{@link HongguoSmsLoginDialog}，壳子统一登录
-     * 托管的红果入口）：照定案构成——手机号＋验证码＋协议勾选，全链
-     * 原生（原生弹窗＋原生 passport 请求链），无 WebView 登录/兜底路径
-     * （他 2026-10-28 亲令）。链路两道门（设备注册＋HgSign 签名）已由
-     * 探针实证全过（证据账 hongguo/login-route-dig-20261028.md）；
-     * 此前的网页登录路（hongguoduanju.com/番茄）已整撤，不留兜底。
-     * 异步，登录成功落托管走 callback，并顺带跑登录后第一验
-     * （HgLoginSessionCheck，只记回包形状进日志）；用户直接关页视为
-     * 取消，不回调。
+     * 弹红果官方形态登录页（{@link HongguoLoginPage}，壳子统一登录
+     * 托管的红果入口）：照官方登录页实拍构成——整页、抖音一键登录
+     * 大钮为主入口、底部手机图标圆钮点开切换手机号验证码登录、协议
+     * 勾选两路共享。抖音路是 web 授权＋原生兑换：受控 WebView 只装
+     * 抖音授权页本体、回跳加载前拦截取 code、再走原生 passport
+     * auth/login 兑换（证据账 hongguo/douyin-login-probe-20261028.md）；
+     * 登录表单不 WebView 化（他 2026-10-28 亲令），手机号路是原生
+     * passport 短信链（设备注册＋HgSign 签名两道门探针实证全过，
+     * login-route-dig-20261028.md）。此前的网页登录路
+     * （hongguoduanju.com/番茄）已整撤，不留兜底。异步，登录成功落
+     * 托管走 callback，并顺带跑登录后第一验（HgLoginSessionCheck，
+     * 只记回包形状进日志）；用户直接关页视为取消，不回调。
      */
     public void loginHongguo(FragmentActivity activity, LoginCallback callback) {
         if (activity == null || activity.isFinishing()) {
             if (callback != null) callback.onError("界面不可用");
             return;
         }
-        HongguoSmsLoginDialog.create()
+        HongguoLoginPage.create()
                 .callback(new LoginCallback() {
                     @Override
                     public void onSuccess(String providerId, String cookie) {
@@ -356,7 +359,7 @@ public class LoginManager {
         return true;
     }
 
-    /** 弹红果原生短信登录页（异步）。 */
+    /** 弹红果官方形态登录页（异步）。 */
     public static void loginHongguo() {
         FragmentActivity activity = currentActivity();
         if (activity == null) return;

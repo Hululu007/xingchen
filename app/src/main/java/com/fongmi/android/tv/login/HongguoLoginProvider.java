@@ -12,9 +12,10 @@ import com.fongmi.android.tv.cloud.CloudAccountStore;
  * 凭证由 {@link com.fongmi.android.tv.hongguo.api.HgLoginAuthProvider} 回填给
  * 红果接口客户端（HgApiClient 的 HgAuthProvider 注入点）。
  * <p>
- * 登录本体（2026-10-28 复活原生短信链）：全链原生——原生弹窗
- * （HongguoSmsLoginDialog，手机号＋验证码＋协议勾选）＋原生 passport
- * 请求链（HgPassportClient：HgDevice 注册档案＋HgSign 签名）。
+ * 登录本体（2026-10-28 换官方形态整页）：HongguoLoginPage——抖音
+ * 一键登录（web 授权页＋回跳拦截取 code＋原生 auth/login 兑换）与
+ * 手机号验证码（原生 passport 短信链）两路，协议勾选共享；兑换与
+ * 短信链同走 HgPassportClient（HgDevice 注册档案＋HgSign 签名）。
  * 当年判死的 403 已由探针定根为两道门（随机假设备号未注册＋无签名头），
  * 现行栈两道全过（证据账 ~/workspace/hongguo/login-route-dig-20261028.md）。
  * 网页登录路（hongguoduanju.com、番茄 fanqienovel.com）已按他亲令整撤：

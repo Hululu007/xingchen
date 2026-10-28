@@ -286,6 +286,11 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         // 同去处）；回收复用先把透明度归位（清屏态的变淡不许串页）
         b.hgFsBtn.setVisibility(seriesMode && !landInstance ? View.VISIBLE : View.GONE);
         b.hgFsBtn.setAlpha(1f);
+        // 分享件：官方集流页右列（ShortSeriesRightView 布局 cv5/cv6/cv7）
+        // 里 SeriesShareView 在点赞下方、最底位，实拍 113560 在列；流页
+        // 右列无分享（实拍 113482）。点击链与系统分享早已接好，此前只
+        // 差显隐没开、布局里恒 gone
+        b.hgActShare.setVisibility(seriesMode ? View.VISIBLE : View.GONE);
         // 横屏短片给全屏观看钮（账 §3.8）：取模型宽高定真朝向，未知先按 cell vertical 预判；
         // 横屏实例里此钮不存在（已在横屏页里），整套不亮
         b.hgFullscreenWatch.setVisibility(!landInstance && (item.isLandscape() || item.landscapeHint) ? View.VISIBLE : View.GONE);

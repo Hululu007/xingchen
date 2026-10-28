@@ -1389,13 +1389,18 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             return;
         }
         if (mode == MODE_SERIES && !landMode && !landInstance) {
-            // 清屏口径（用户亲点）：播中点画面进清屏、清屏中点画面恢复；
-            // 暂停态点画面仍是续播（落到下面 togglePlayPause），清屏只在播中进
+            // 清屏口径（用户亲点）：集流竖屏点画面即进清屏、清屏中点画面恢复。
+            // 准入不以 isPlaying() 为门：缓冲态 isPlaying() 同样为 false，旧门
+            // 会让点按落空到 togglePlayPause 的空转 play()、屏幕零变化（定根
+            // 见 hongguo/clean-screen-triage-20261029.md）；改以「有播放意愿
+            // 或已起播」准入，播中/缓冲/暂停都进（暂停态清屏优先于旧的点画
+            // 面续播口径），只有没起播也没意愿（无源未就绪）才落到下面续播。
             if (cleanMode) {
                 exitCleanMode();
                 return;
             }
-            if (player != null && player.isPlaying()) {
+            if (player != null && (player.getPlayWhenReady()
+                    || player.getPlaybackState() != Player.STATE_IDLE)) {
                 enterCleanMode();
                 return;
             }

@@ -135,7 +135,9 @@ public final class HgApiClient {
             @Override
             void onBody(String text) {
                 HgVideoModel m = HgParser.parseSingleVideoModel(text, videoId);
-                if (m == null) cb.onError(-1, "回包无 video_model");
+                // 错误码 -2 专表「回包无 video_model」：网关限流回 200 空体与
+                // 结构化无模型回包在解链层同形，HgPlayResolver 靠它判定进冷却
+                if (m == null) cb.onError(-2, "回包无 video_model");
                 else cb.onSuccess(m);
             }
 

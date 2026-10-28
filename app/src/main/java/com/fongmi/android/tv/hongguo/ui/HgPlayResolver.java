@@ -277,7 +277,24 @@ public final class HgPlayResolver {
     private static final Object FETCH_GATE = new Object();
     private static long lastFetchStartMs = 0;
 
+    /** HgApiClient 对「回包无 video_model」的错误码（限流空体与结构化无模型同口）。 */
+    private static final int ERR_NO_MODEL = -2;
+    /**
+     * 取模型冷却时长（保守值）：定根报告（feed-all-placeholder §E）只实证
+     * 限流至少持续数分钟、换档案即愈，未给自然恢复时长证据；取 60 秒先
+     * 止住请求加压，不长锁用户重试。
+     */
+    private static final long MODEL_COOLDOWN_MS = 60_000;
+    /** 冷却截止时刻（档案级语义，跨 resolver 实例一致，用静态）。 */
+    private static volatile long modelCooldownUntilMs = 0;
+
     private HgVideoModel fetchModel(String videoId) {
+        if (System.currentTimeMillis() < modelCooldownUntilMs) {
+            // 冷却中不再重试该接口：限流期里连滑/点重试只会继续加压
+            Log.w(TAG, "fetchModel " + videoId + " 取模型冷却中，本次不发请求");
+            return null;
+        }
+        boolean allNoModel = true;
         for (int attempt = 0; attempt < 3; attempt++) {
             // 网关对同一设备短时密集取模型会回空体（2026-10-28 本机实证：
             // 连续取数次后 video_model 回空、换新设备档案立刻恢复）——
@@ -285,8 +302,15 @@ public final class HgPlayResolver {
             if (attempt == 1) sleepQuiet(1200);
             else if (attempt == 2) sleepQuiet(3000);
             gateFetchStart();
-            HgVideoModel m = fetchSigned(videoId);
+            int[] errCode = {0};
+            HgVideoModel m = fetchSigned(videoId, errCode);
             if (m != null) return m;
+            if (errCode[0] != ERR_NO_MODEL) allNoModel = false;
+        }
+        if (allNoModel) {
+            // 整轮 3 试全是空体/无模型回包＝限流形状定型，进冷却
+            modelCooldownUntilMs = System.currentTimeMillis() + MODEL_COOLDOWN_MS;
+            Log.w(TAG, "取模型整轮空回，进入冷却 " + (MODEL_COOLDOWN_MS / 1000) + " 秒");
         }
         return null;
     }
@@ -307,7 +331,7 @@ public final class HgPlayResolver {
         }
     }
 
-    private HgVideoModel fetchSigned(String videoId) {
+    private HgVideoModel fetchSigned(String videoId, int[] errCode) {
         CountDownLatch latch = new CountDownLatch(1);
         HgVideoModel[] box = new HgVideoModel[1];
         client.fetchVideoModel(videoId, new HgCallback<HgVideoModel>() {
@@ -319,6 +343,7 @@ public final class HgPlayResolver {
 
             @Override
             public void onError(int httpCode, String message) {
+                errCode[0] = httpCode;
                 latch.countDown();
             }
         });

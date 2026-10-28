@@ -915,47 +915,28 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         armAutoHide();
     }
 
-    /** settle 后的预备工作：同剧预取后 2 集数据、预热后 1–2 条流、回收滑远的流、预展开下一剧头。 */
+    /**
+     * settle 后的预备工作：只做详情类预展开（下一剧头定 vid）、回收滑远的流、
+     * 临近末尾续拉下一页。video_model 一律不再预取——限流对策口径
+     * （feed-all-placeholder §E）：play 类接口只为真正要播的那一条取，
+     * 预取批量正是把设备档案打爆的压力源；封面靠列表数据本身渲染，不另发请求。
+     */
     private void afterSettleSideWork(int position) {
-        HgFeedItem item = session.items.get(position);
         if (mode == MODE_FEED) {
-            // 短片流的预热只管相邻短片（账 §2.3）：下一条是剧头先定形态再 warm；
-            // 不展开整剧、不预取当前短片所属剧的其它集
-            // 模型先行：相邻短片的 video_model 走并发预取面先落缓存，解链队列
-            // （串行）轮到时直接命中，划过来基本直接起播（仍守未就绪不硬喂）
-            java.util.List<String> feedAhead = new java.util.ArrayList<>();
-            for (int i = position + 1; i <= Math.min(position + 2, session.items.size() - 1); i++) {
-                if (session.items.get(i).videoId != null) feedAhead.add(session.items.get(i).videoId);
-            }
-            if (!feedAhead.isEmpty()) session.prefetcher.prefetchIds(feedAhead, null);
             for (int i = position + 1; i <= Math.min(position + 2, session.items.size() - 1); i++) {
                 HgFeedItem next = session.items.get(i);
-                if (next.videoId != null) session.resolver.warm(next.videoId);
-                else if (next.seriesHead && i == position + 1 && !next.reservable) {
+                if (next.videoId == null && next.seriesHead && i == position + 1 && !next.reservable) {
                     int at = i;
                     session.resolveClip(at, changedAt -> {
                         if (changedAt < 0) return;
                         adapter.notifyItemChanged(changedAt);
-                        HgFeedItem clip = session.items.get(changedAt);
-                        if (clip.videoId != null) session.resolver.warm(clip.videoId);
                     });
                 }
             }
         } else {
-            if (item.seriesId != null) {
-                session.prefetcher.prefetchAround(session.seriesVideoIds(item.seriesId),
-                        session.indexWithinSeries(item), null);
-            }
-            // 集流同口径：后 2 集的模型也走并发预取面先行（解链队列是串行的）
-            java.util.List<String> seriesAhead = new java.util.ArrayList<>();
-            for (int i = position + 1; i <= Math.min(position + 2, session.items.size() - 1); i++) {
-                if (session.items.get(i).videoId != null) seriesAhead.add(session.items.get(i).videoId);
-            }
-            if (!seriesAhead.isEmpty()) session.prefetcher.prefetchIds(seriesAhead, null);
             for (int i = position + 1; i <= Math.min(position + 2, session.items.size() - 1); i++) {
                 HgFeedItem next = session.items.get(i);
-                if (next.videoId != null) session.resolver.warm(next.videoId);
-                else if (next.seriesHead && i == position + 1) {
+                if (next.videoId == null && next.seriesHead && i == position + 1) {
                     int sizeBefore = session.items.size();
                     int at = i;
                     session.expandHead(at, changedAt -> {
@@ -963,8 +944,6 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                         adapter.notifyItemChanged(changedAt);
                         int inserted = session.items.size() - sizeBefore;
                         if (inserted > 0) adapter.notifyItemRangeInserted(changedAt + 1, inserted);
-                        HgFeedItem first = session.items.get(changedAt);
-                        if (first.videoId != null) session.resolver.warm(first.videoId);
                     });
                 }
             }

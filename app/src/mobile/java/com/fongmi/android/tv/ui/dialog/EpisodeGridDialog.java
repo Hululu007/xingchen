@@ -138,7 +138,7 @@ public class EpisodeGridDialog extends BaseBottomSheetDialog {
             if (reverse) java.util.Collections.reverse(items);
         }
         EpisodeAdapter.OnClickListener listener = episode -> {
-            ((EpisodeAdapter.OnClickListener) requireActivity()).onItemClick(episode);
+            if (requireActivity() instanceof EpisodeAdapter.OnClickListener) ((EpisodeAdapter.OnClickListener) requireActivity()).onItemClick(episode);
             dismiss();
         };
         EpisodeAdapter adapter = new EpisodeAdapter(listener, com.fongmi.android.tv.ui.base.ViewType.GRID, items);
@@ -149,7 +149,7 @@ public class EpisodeGridDialog extends BaseBottomSheetDialog {
     protected void initEvent() {
         binding.column.setOnClickListener(this::onColumnToggle);
         getChildFragmentManager().setFragmentResultListener("result", this, (requestKey, bundle) -> {
-            ((EpisodeAdapter.OnClickListener) requireActivity()).onItemClick(bundle.getParcelable("episode"));
+            if (requireActivity() instanceof EpisodeAdapter.OnClickListener) ((EpisodeAdapter.OnClickListener) requireActivity()).onItemClick(bundle.getParcelable("episode"));
             dismiss();
         });
     }

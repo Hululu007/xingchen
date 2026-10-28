@@ -159,11 +159,11 @@ public class LutPanelDialog extends BaseBottomSheetDialog {
         tools.addView(favorite);
 
         MaterialTextView importView = chip(R.string.lut_local);
-        importView.setOnClickListener(view -> ((ControlDialog.Listener) requireActivity()).onLutImport());
+        importView.setOnClickListener(view -> { if (requireActivity() instanceof ControlDialog.Listener) ((ControlDialog.Listener) requireActivity()).onLutImport(); });
         tools.addView(importView);
 
         MaterialTextView dirView = chip(R.string.lut_directory);
-        dirView.setOnClickListener(view -> ((ControlDialog.Listener) requireActivity()).onLutDir());
+        dirView.setOnClickListener(view -> { if (requireActivity() instanceof ControlDialog.Listener) ((ControlDialog.Listener) requireActivity()).onLutDir(); });
         tools.addView(dirView);
 
         empty = text(R.string.lut_empty_presets, 14, false);
@@ -238,7 +238,7 @@ public class LutPanelDialog extends BaseBottomSheetDialog {
 
     private void select(LutPreset preset) {
         if (SpiderDebug.isEnabled()) SpiderDebug.log("lut-ui", "panel select preset=%s enabledBefore=%s current=%s", preset == null ? "original" : preset.getId(), LutSetting.isEnabled(), LutSetting.getPresetId());
-        ((ControlDialog.Listener) requireActivity()).onLutSelected(preset);
+        if (requireActivity() instanceof ControlDialog.Listener) ((ControlDialog.Listener) requireActivity()).onLutSelected(preset);
         refreshControlDialog();
         refreshList();
         recycler.requestFocus();

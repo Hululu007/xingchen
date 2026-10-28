@@ -166,7 +166,8 @@ public class GlobalProxy {
     private static void syncPythonLive(String[] names, String[] values) {
         try {
             Class<?> pythonClass = Class.forName("com.chaquo.python.Python");
-            boolean started = (Boolean) pythonClass.getMethod("isStarted").invoke(null);
+            Object startedRaw = pythonClass.getMethod("isStarted").invoke(null);
+            boolean started = startedRaw instanceof Boolean && (Boolean) startedRaw;
             if (!started) return;
             Object python = pythonClass.getMethod("getInstance").invoke(null);
             Class<?> pyObjectClass = Class.forName("com.chaquo.python.PyObject");

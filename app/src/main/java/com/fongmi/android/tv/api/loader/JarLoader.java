@@ -136,7 +136,8 @@ public class JarLoader {
     private void probeYoutube(String key, Class<?> clz, Object fetcher) {
         try {
             Object response = clz.getMethod("a", String.class).invoke(fetcher, "https://www.youtube.com/iframe_api");
-            String body = (String) response.getClass().getMethod("a").invoke(response);
+            Object raw = response.getClass().getMethod("a").invoke(response);
+            String body = raw instanceof String ? (String) raw : null;
             SpiderDebug.log("youtube-iframe", "probe success chars=%s", body == null ? -1 : body.length());
         } catch (Throwable e) {
             Throwable cause = e;
@@ -402,13 +403,15 @@ public class JarLoader {
     public JSONObject jsonExt(String key, LinkedHashMap<String, String> jxs, String url) throws Throwable {
         Class<?> clz = requireRecentLoader().loadClass("com.github.catvod.parser.Json" + key);
         Method method = clz.getMethod("parse", LinkedHashMap.class, String.class);
-        return (JSONObject) method.invoke(null, jxs, url);
+        Object result = method.invoke(null, jxs, url);
+        return result instanceof JSONObject ? (JSONObject) result : null;
     }
 
     public JSONObject jsonExtMix(String flag, String key, String name, LinkedHashMap<String, HashMap<String, String>> jxs, String url) throws Throwable {
         Class<?> clz = requireRecentLoader().loadClass("com.github.catvod.parser.Mix" + key);
         Method method = clz.getMethod("parse", LinkedHashMap.class, String.class, String.class, String.class);
-        return (JSONObject) method.invoke(null, jxs, name, flag, url);
+        Object result = method.invoke(null, jxs, name, flag, url);
+        return result instanceof JSONObject ? (JSONObject) result : null;
     }
 
     public Object[] proxy(Map<String, String> params) throws Exception {
@@ -426,9 +429,13 @@ public class JarLoader {
         try {
             if (proxy == null) return null;
             if (proxy.compat != null && "pan".equals(params.get("do"))) {
-                return proxy.compat.invoke(() -> (Object[]) proxy.method.invoke(null, params));
+                return proxy.compat.invoke(() -> {
+                    Object r = proxy.method.invoke(null, params);
+                    return r instanceof Object[] ? (Object[]) r : null;
+                });
             }
-            return (Object[]) proxy.method.invoke(null, params);
+            Object result = proxy.method.invoke(null, params);
+            return result instanceof Object[] ? (Object[]) result : null;
         } catch (Throwable e) {
             e.printStackTrace();
             return null;

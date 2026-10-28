@@ -95,7 +95,7 @@ public class UaDialog extends BaseAlertDialog {
     }
 
     private void onPositive(View view) {
-        ((UaListener) requireActivity()).setUa(binding.text.getText().toString().trim());
+        if (requireActivity() instanceof UaListener) ((UaListener) requireActivity()).setUa(binding.text.getText().toString().trim());
         dismiss();
     }
 

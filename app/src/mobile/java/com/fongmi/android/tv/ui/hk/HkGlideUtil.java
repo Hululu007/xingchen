@@ -241,7 +241,8 @@ public final class HkGlideUtil {
                 if (wh[0] != resource.getIntrinsicWidth()) {
                     imageView.setTag(resource.getIntrinsicWidth() + "×" + resource.getIntrinsicHeight()
                             + "/" + wh[0] + "×" + wh[1]);
-                    if (tagListener != null) tagListener.accept((String) imageView.getTag());
+                    Object tag = imageView.getTag();
+                    if (tagListener != null && tag instanceof String) tagListener.accept((String) tag);
                     final int fw = wh[0], fh = wh[1];
                     HEAVY.execute(() -> {
                         Drawable compressed;

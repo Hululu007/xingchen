@@ -194,7 +194,7 @@ public class ConfigDialog extends BaseAlertDialog {
             binding.text.requestFocus();
             return;
         }
-        ((ConfigListener) requireActivity()).setConfig(config);
+        if (requireActivity() instanceof ConfigListener) ((ConfigListener) requireActivity()).setConfig(config);
         dismiss();
     }
 

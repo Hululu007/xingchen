@@ -93,7 +93,7 @@ public class LiveEpgDialog extends BaseBottomSheetDialog implements LiveEpgAdapt
 
     private void select(String url) {
         if (editingUrl == null) LiveEpgSetting.putUrl(url);
-        ((Listener) requireActivity()).onLiveEpgSelected(url);
+        if (requireActivity() instanceof Listener) ((Listener) requireActivity()).onLiveEpgSelected(url);
         dismiss();
     }
 
@@ -121,7 +121,7 @@ public class LiveEpgDialog extends BaseBottomSheetDialog implements LiveEpgAdapt
         }
         LiveEpgSetting.removeHistory(url);
         adapter.reload();
-        if (current) ((Listener) requireActivity()).onLiveEpgSelected("");
+        if (current && requireActivity() instanceof Listener) ((Listener) requireActivity()).onLiveEpgSelected("");
     }
 
     private void configureWindow(Dialog dialog) {

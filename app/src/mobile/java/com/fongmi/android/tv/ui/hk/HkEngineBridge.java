@@ -64,6 +64,7 @@ public final class HkEngineBridge implements HkArticleListModel.EngineBridge {
         HkLazyRuleParser.setJsRuntime(new HkLazyRuleParser.JsRuntime() {
             @Override
             public String evalLazyRule(Object rule, String myCode, String jsRule) {
+                if (!(rule instanceof HkRule)) throw new IllegalArgumentException("rule is not HkRule: " + (rule == null ? "null" : rule.getClass().getName()));
                 HkRule hkRule = (HkRule) rule;
                 HkJsRuntime rt = HkEngineManager.runtimeFor(hkRule);
                 try {

@@ -178,7 +178,7 @@ public class CastDialog extends BaseAlertDialog implements DeviceAdapter.OnClick
     }
 
     private void onCasted() {
-        ((CastDialog.Listener) requireActivity()).onCasted();
+        if (requireActivity() instanceof CastDialog.Listener) ((CastDialog.Listener) requireActivity()).onCasted();
         dismiss();
     }
 

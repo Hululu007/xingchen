@@ -275,7 +275,8 @@ public class LxBridge {
     private void loadScript() {
         ctx.evaluate(scriptJs);
         try {
-            JSObject handlers = (JSObject) ctx.getProperty(ctx.getGlobalObject(), "__lxHandlers");
+            Object raw = ctx.getProperty(ctx.getGlobalObject(), "__lxHandlers");
+            JSObject handlers = raw instanceof JSObject ? (JSObject) raw : null;
             if (handlers != null) requestHandler = handlers.getJSFunction("request");
         } catch (Throwable ignored) {
         }

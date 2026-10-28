@@ -176,18 +176,18 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
         binding.episodeColumn1.setOnClickListener(v -> setEpisodeColumn(1));
         binding.episodeColumn2.setOnClickListener(v -> setEpisodeColumn(2));
         binding.compactEpisodeTitle.setOnClickListener(v -> setCompactEpisodeTitle());
-        binding.title.setOnClickListener(v -> ((Listener) requireActivity()).onTitlePanel());
+        binding.title.setOnClickListener(v -> { if (requireActivity() instanceof Listener) ((Listener) requireActivity()).onTitlePanel(); });
         binding.player.setOnClickListener(v -> dismiss(parent.control.action.player));
-        binding.danmaku.setOnClickListener(v -> ((Listener) requireActivity()).onDanmakuPanel());
+        binding.danmaku.setOnClickListener(v -> { if (requireActivity() instanceof Listener) ((Listener) requireActivity()).onDanmakuPanel(); });
         binding.repeat.setOnClickListener(v -> active(binding.repeat, parent.control.action.repeat));
         binding.decode.setOnClickListener(v -> click(binding.decode, parent.control.action.decode));
-        binding.codecCapability.setOnClickListener(v -> ((Listener) requireActivity()).onCodecCapabilityPanel());
+        binding.codecCapability.setOnClickListener(v -> { if (requireActivity() instanceof Listener) ((Listener) requireActivity()).onCodecCapabilityPanel(); });
         binding.panDiagnostic.setOnClickListener(v -> onPanDiagnostic());
         binding.lut.setOnClickListener(v -> onLut());
         binding.embyQuality.setVisibility(embyPlayback ? View.VISIBLE : View.GONE);
         binding.embyQuality.setOnClickListener(v -> {
             dismissAllowingStateLoss();
-            ((Listener) requireActivity()).onEmbyQualityPanel();
+            if (requireActivity() instanceof Listener) ((Listener) requireActivity()).onEmbyQualityPanel();
         });
         binding.ending.setOnClickListener(v -> click(binding.ending, parent.control.action.ending));
         binding.opening.setOnClickListener(v -> click(binding.opening, parent.control.action.opening));
@@ -211,13 +211,13 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
     private void setImmersiveAudio() {
         PlayerSetting.putImmersiveAudioMode(!PlayerSetting.isImmersiveAudioMode());
         binding.immersiveAudio.setSelected(PlayerSetting.isImmersiveAudioMode());
-        ((Listener) requireActivity()).onImmersiveAudioModeChanged();
+        if (requireActivity() instanceof Listener) ((Listener) requireActivity()).onImmersiveAudioModeChanged();
     }
 
     private void onTrack(View view) {
         Integer type = parseTagInt(view);
         if (type == null) return;
-        ((Listener) requireActivity()).onTrackPanel(type);
+        if (requireActivity() instanceof Listener) ((Listener) requireActivity()).onTrackPanel(type);
     }
 
     private Integer parseTagInt(View view) {
@@ -295,12 +295,12 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
         Integer tag = parseTagInt(view);
         if (tag == null) return;
         for (TextView textView : scales) textView.setSelected(false);
-        ((Listener) requireActivity()).onScale(tag);
+        if (requireActivity() instanceof Listener) ((Listener) requireActivity()).onScale(tag);
         view.setSelected(true);
     }
 
     private void setEpisodeColumn(int column) {
-        ((Listener) requireActivity()).onEpisodeColumn(column);
+        if (requireActivity() instanceof Listener) ((Listener) requireActivity()).onEpisodeColumn(column);
         setEpisodeColumn();
     }
 
@@ -318,7 +318,7 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
     private void setCompactEpisodeTitle() {
         Setting.putCompactEpisodeTitle(!Setting.isCompactEpisodeTitle());
         binding.compactEpisodeTitle.setSelected(Setting.isCompactEpisodeTitle());
-        ((Listener) requireActivity()).onCompactEpisodeTitleChanged();
+        if (requireActivity() instanceof Listener) ((Listener) requireActivity()).onCompactEpisodeTitleChanged();
     }
 
     private void active(View view, TextView target) {
@@ -332,7 +332,7 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
     }
 
     private void onLut() {
-        ((Listener) requireActivity()).onLutPanel();
+        if (requireActivity() instanceof Listener) ((Listener) requireActivity()).onLutPanel();
     }
 
     private boolean longClick(TextView view, TextView target) {
@@ -479,7 +479,7 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
 
     @Override
     public void onItemClick(Parse item) {
-        ((Listener) requireActivity()).onParse(item);
+        if (requireActivity() instanceof Listener) ((Listener) requireActivity()).onParse(item);
         binding.parse.getAdapter().notifyItemRangeChanged(0, binding.parse.getAdapter().getItemCount());
     }
 

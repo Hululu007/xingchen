@@ -51,7 +51,7 @@ public class BufferDialog extends BaseAlertDialog {
 
     @Override
     protected void initEvent() {
-        binding.slider.addOnChangeListener((slider, value, fromUser) -> ((BufferListener) requireActivity()).setBuffer((int) value));
+        binding.slider.addOnChangeListener((slider, value, fromUser) -> { if (requireActivity() instanceof BufferListener) ((BufferListener) requireActivity()).setBuffer((int) value); });
         binding.slider.setOnKeyListener((view, keyCode, event) -> {
             boolean enter = KeyUtil.isEnterKey(event);
             if (enter) dismiss();

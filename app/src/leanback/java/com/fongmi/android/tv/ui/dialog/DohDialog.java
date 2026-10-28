@@ -54,7 +54,7 @@ public class DohDialog extends BaseAlertDialog implements DohAdapter.OnClickList
 
     @Override
     public void onItemClick(Doh item) {
-        ((Listener) requireActivity()).setDoh(item);
+        if (requireActivity() instanceof Listener) ((Listener) requireActivity()).setDoh(item);
         dismiss();
     }
 

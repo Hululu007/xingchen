@@ -72,8 +72,18 @@ public class HkSearchModel {
     }
 
     private void processInBackground(String key, Callback callback) {
-        String keyword = (String) mParams[0];
-        HkSearchEngine engine = (HkSearchEngine) mParams[1];
+        // 参数拆包照 HkArticleListModel 口径加守卫：错位/错型时转 error 回调，不直崩后台任务。
+        final String keyword;
+        final HkSearchEngine engine;
+        final int page;
+        try {
+            keyword = (String) mParams[0];
+            engine = (HkSearchEngine) mParams[1];
+            page = (Integer) mParams[2];
+        } catch (Exception e) {
+            callback.error("参数错误", e.getMessage(), "404", e);
+            return;
+        }
         // 定向认领提前登记（同 HkArticleListModel 口径）：搜索首发请求同样走
         // enqueue 在调度线程判定，登记须赶在发请求之前；只给归属不决定走向。
         try {
@@ -81,7 +91,6 @@ public class HkSearchModel {
         } catch (Throwable ignored) {
         }
         String url = HkHttpParser.getUrlAppendUA(engine.getSearch_url(), engine.getUa());
-        int page = (Integer) mParams[2];
         if (page == 1 && mParams.length >= 4
                 && "true".equals(new Gson().toJson(mParams[3]))
                 && HkStringUtil.isNotEmpty(engine.getPreRule())) {

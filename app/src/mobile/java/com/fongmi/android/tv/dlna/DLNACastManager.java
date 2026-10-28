@@ -88,12 +88,12 @@ public class DLNACastManager extends DefaultRegistryListener implements ServiceC
 
     public List<Device> getRegistered() {
         if (upnpService == null) return List.of();
-        return upnpService.getRegistry().getDevices(RENDERER_TYPE).stream().map(d -> Device.get((RemoteDevice) d)).collect(Collectors.toList());
+        return upnpService.getRegistry().getDevices(RENDERER_TYPE).stream().filter(d -> d instanceof RemoteDevice).map(d -> Device.get((RemoteDevice) d)).collect(Collectors.toList());
     }
 
     public RemoteDevice findDevice(Device bean) {
         if (upnpService == null) return null;
-        return upnpService.getRegistry().getDevices(RENDERER_TYPE).stream().filter(d -> d.getIdentity().getUdn().getIdentifierString().equals(bean.getUuid())).map(d -> (RemoteDevice) d).findFirst().orElse(null);
+        return upnpService.getRegistry().getDevices(RENDERER_TYPE).stream().filter(d -> d.getIdentity().getUdn().getIdentifierString().equals(bean.getUuid())).filter(d -> d instanceof RemoteDevice).map(d -> (RemoteDevice) d).findFirst().orElse(null);
     }
 
     public RemoteService findAVTransport(Device bean) {

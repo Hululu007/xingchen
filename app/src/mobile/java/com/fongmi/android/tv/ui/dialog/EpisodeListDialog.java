@@ -303,7 +303,7 @@ public class EpisodeListDialog extends AppCompatDialogFragment implements FlagAd
 
     @Override
     public void onItemClick(Flag item) {
-        ((FlagAdapter.OnClickListener) requireActivity()).onItemClick(item);
+        if (requireActivity() instanceof FlagAdapter.OnClickListener) ((FlagAdapter.OnClickListener) requireActivity()).onItemClick(item);
         flagAdapter.notifyItemRangeChanged(0, flagAdapter.getItemCount());
         setGroups(item);
     }
@@ -353,7 +353,7 @@ public class EpisodeListDialog extends AppCompatDialogFragment implements FlagAd
 
     @Override
     public void onItemClick(Episode item) {
-        ((EpisodeAdapter.OnClickListener) requireActivity()).onItemClick(item);
+        if (requireActivity() instanceof EpisodeAdapter.OnClickListener) ((EpisodeAdapter.OnClickListener) requireActivity()).onItemClick(item);
         dismiss();
     }
 }

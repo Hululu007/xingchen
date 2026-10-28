@@ -192,8 +192,10 @@ public final class TrackDialog extends BaseBottomSheetDialog implements TrackAda
     }
 
     private void onSubtitle(View view) {
-        Listener listener = (Listener) requireActivity();
-        App.post(listener::onSubtitleClick, 100);
+        if (requireActivity() instanceof Listener) {
+            Listener listener = (Listener) requireActivity();
+            App.post(listener::onSubtitleClick, 100);
+        }
         dismiss();
     }
 

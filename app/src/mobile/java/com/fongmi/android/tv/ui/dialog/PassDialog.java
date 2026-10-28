@@ -43,7 +43,7 @@ public class PassDialog extends BaseBottomSheetDialog {
 
     private void onPass() {
         String pass = binding.pass.getText().toString().trim();
-        if (!pass.isEmpty()) ((PassListener) requireActivity()).setPass(pass);
+        if (!pass.isEmpty() && requireActivity() instanceof PassListener) ((PassListener) requireActivity()).setPass(pass);
         dismiss();
     }
 

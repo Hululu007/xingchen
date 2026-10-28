@@ -100,7 +100,7 @@ public class InfoDialog extends BaseAlertDialog {
     }
 
     private void onShare(View view) {
-        ((Listener) requireActivity()).onShare(title);
+        if (requireActivity() instanceof Listener) ((Listener) requireActivity()).onShare(title);
         dismiss();
     }
 

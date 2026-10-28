@@ -72,7 +72,7 @@ public class DanmakuApiDialog extends BaseAlertDialog {
     }
 
     private void onPositive(View view) {
-        ((DanmakuListener) requireActivity()).setDanmakuApi(binding.text.getText().toString().trim());
+        if (requireActivity() instanceof DanmakuListener) ((DanmakuListener) requireActivity()).setDanmakuApi(binding.text.getText().toString().trim());
         dismiss();
     }
 

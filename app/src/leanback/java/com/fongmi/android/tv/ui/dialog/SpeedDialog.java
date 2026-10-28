@@ -48,7 +48,7 @@ public class SpeedDialog extends BaseAlertDialog {
 
     @Override
     protected void initEvent() {
-        binding.slider.addOnChangeListener((slider, value, fromUser) -> ((SpeedListener) requireActivity()).setSpeed(value));
+        binding.slider.addOnChangeListener((slider, value, fromUser) -> { if (requireActivity() instanceof SpeedListener) ((SpeedListener) requireActivity()).setSpeed(value); });
         binding.slider.setOnKeyListener((view, keyCode, event) -> {
             boolean enter = KeyUtil.isEnterKey(event);
             if (enter) dismiss();

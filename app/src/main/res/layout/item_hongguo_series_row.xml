@@ -1,17 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 系列剧半屏单的一行＝一部/一季：海报＋剧名＋副行（只拼回包实证字段）＋各自的收藏钮。 -->
+<!-- 系列剧半屏单的一行（官方行构成定版 dig-seriesdialog：封面 98dp 宽、
+     宽高比 0.7059、圆角 6dp＋剧名 14sp/行高 20sp＋标签筹行＋描述文本＋
+     收藏/预约二态钮）。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:gravity="center_vertical"
     android:orientation="horizontal"
     android:paddingTop="10dp"
     android:paddingBottom="10dp">
 
     <ImageView
         android:id="@+id/hg_row_cover"
-        android:layout_width="52dp"
-        android:layout_height="70dp"
+        android:layout_width="98dp"
+        android:layout_height="139dp"
+        android:background="@drawable/bg_hg_cover_r6"
+        android:clipToOutline="true"
         android:contentDescription="@null"
         android:scaleType="centerCrop" />
 
@@ -27,10 +30,29 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:ellipsize="end"
+            android:lineHeight="20dp"
             android:maxLines="1"
             android:textColor="#111111"
-            android:textSize="16sp"
-            android:textStyle="bold" />
+            android:textSize="14sp" />
+
+        <LinearLayout
+            android:id="@+id/hg_row_tags"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:orientation="horizontal"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/hg_row_desc"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:ellipsize="end"
+            android:maxLines="2"
+            android:textColor="#666666"
+            android:textSize="12sp"
+            android:visibility="gone" />
 
         <TextView
             android:id="@+id/hg_row_sub"
@@ -52,11 +74,12 @@
             android:visibility="gone" />
     </LinearLayout>
 
-    <ImageView
-        android:id="@+id/hg_row_fav"
-        android:layout_width="36dp"
-        android:layout_height="36dp"
-        android:contentDescription="@null"
-        android:padding="7dp"
-        android:src="@drawable/ic_hg_star" />
+    <TextView
+        android:id="@+id/hg_row_action"
+        android:layout_width="66dp"
+        android:layout_height="30dp"
+        android:layout_gravity="center_vertical"
+        android:layout_marginStart="10dp"
+        android:gravity="center"
+        android:textSize="13sp" />
 </LinearLayout>

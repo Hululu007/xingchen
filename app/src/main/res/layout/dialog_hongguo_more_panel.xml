@@ -1,8 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 红果更多面板（他 2026-10-28 定五项，只这五项、多一项不加）：当前倍速
-     六档筹、清晰度档筹、弹幕开关、投屏、定时关闭。白底圆角顶照官方实拍
-     113510；官方其余行（不感兴趣/清屏/弹幕设置/下载/字体/画幅/设置默认
-     倍速）按他口径不抄。筹轨道/选中片走 bg_hg_panel_track/chip_on。 -->
+<!-- 红果更多面板（他 2026-10-28 定五项：倍速/清晰度/弹幕/投屏/定时关闭；
+     同日 22:40 他补钉：弹幕开后要在弹幕行下方出「弹幕设置」行——
+     hg_panel_danmaku_settings，关藏开出、点开弹幕设置单，照官方
+     HGSeriesPanelServiceImpl 的 insert/remove 口径）：当前倍速六档筹、
+     清晰度档筹、弹幕开关、弹幕设置行、投屏、定时关闭。白底圆角顶照
+     官方实拍 113510；官方其余行（不感兴趣/清屏/下载/字体/画幅/设置
+     默认倍速）按他口径不抄。筹轨道/选中片走 bg_hg_panel_track/chip_on。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
@@ -93,6 +96,34 @@
             android:switchPadding="5dp"
             android:thumb="@drawable/hg_switch_thumb"
             android:track="@drawable/hg_switch_track" />
+    </LinearLayout>
+
+    <!-- 弹幕设置行：弹幕开时才在（showMorePanel 按开关态定显隐、面板内
+         拨开关即时跟随），关时整行摘除，与官方 insert/remove 同口径。 -->
+    <LinearLayout
+        android:id="@+id/hg_panel_danmaku_settings"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="弹幕设置"
+            android:textColor="#FF111111"
+            android:textSize="16sp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="›"
+            android:textColor="#FFBBBBBB"
+            android:textSize="20sp" />
     </LinearLayout>
 
     <LinearLayout

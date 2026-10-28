@@ -436,8 +436,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         playerView = new PlayerView(this);
         playerView.setUseController(false);
         playerView.setDanmakuEnabled(HgStore.isDanmakuOn());
-        playerView.getDanmakuController().setConfig(
-                com.fongmi.android.tv.setting.DanmakuSetting.getConfig());
+        playerView.getDanmakuController().setConfig(hgDanmakuConfig());
         playerView.setShutterBackgroundColor(0xFF000000);
         playerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_ZOOM);
         setupTabs();
@@ -1629,14 +1628,17 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         dialog.show();
     }
 
-    // ---------- 更多面板（他定五项：倍速/清晰度/弹幕/投屏/定时关闭） ----------
+    // ---------- 更多面板（他定五项＋弹幕开后的弹幕设置行） ----------
 
     /**
-     * 五项面板（只这五项、多一项不加）：倍速六档筹（他实拍档表，点了立即
-     * 变速并存红果默认倍速）／清晰度（当前集模型现拉档表、高→低、当前档
-     * 对勾，点选以该档重解续播；单档整行隐藏）／弹幕开关（与抽屉同源走
-     * applyDanmakuSwitch）／投屏（星辰现成 CastDialog）／定时关闭（子选
-     * 四档）。白底底部单，形态照官方实拍 113510、与选集单同族口径。
+     * 五项面板：倍速六档筹（他实拍档表，点了立即变速并存红果默认倍速）／
+     * 清晰度（当前集模型现拉档表、高→低、当前档对勾，点选以该档重解续播；
+     * 单档整行隐藏）／弹幕开关（与抽屉同源走 applyDanmakuSwitch）／投屏
+     * （星辰现成 CastDialog）／定时关闭（子选四档）。外加他 2026-10-28
+     * 22:40 补钉的弹幕设置行：弹幕开时在弹幕行下方出、关时摘除（官方
+     * HGSeriesPanelServiceImpl 的 insert/remove 同口径，面板内拨开关即时
+     * 跟随），点开 showDanmakuSettings。白底底部单，形态照官方实拍
+     * 113510、与选集单同族口径。
      */
     private void showMorePanel() {
         if (currentPos < 0 || currentPos >= session.items.size()) return;
@@ -1649,7 +1651,13 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         bindPanelSpeed(pb);
         bindPanelDefinitions(pb, dialog, item);
         pb.hgPanelDanmakuSwitch.setChecked(HgStore.isDanmakuOn());
-        pb.hgPanelDanmakuSwitch.setOnCheckedChangeListener((b, on) -> applyDanmakuSwitch(on));
+        pb.hgPanelDanmakuSettings.setVisibility(
+                HgStore.isDanmakuOn() ? View.VISIBLE : View.GONE);
+        pb.hgPanelDanmakuSwitch.setOnCheckedChangeListener((b, on) -> {
+            applyDanmakuSwitch(on);
+            pb.hgPanelDanmakuSettings.setVisibility(on ? View.VISIBLE : View.GONE);
+        });
+        pb.hgPanelDanmakuSettings.setOnClickListener(v -> showDanmakuSettings());
         pb.hgPanelCast.setOnClickListener(v -> {
             dialog.dismiss();
             doCast();
@@ -1886,6 +1894,143 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         } else {
             clearDanmaku();
         }
+    }
+
+    /**
+     * 红果弹幕渲染配置（自有口径）：渲染器缺省打底＋HgStore 四项覆盖
+     * （不透明度/移动速度/显示区域/字体大小，映射在 HgPanelLogic）。
+     * 此前借点播 DanmakuSetting 的全局配置——红果设置与点播设置互串，
+     * 本批起断开：红果只读红果自有键（官方同为自有 danmaku_config 存储）。
+     * 横屏实例共用本 Activity 的装配、同走红果键（与官方单一存储同构）；
+     * 本批未动任何横屏界面/交互（横屏无设置入口，维持现状）。
+     */
+    private androidx.media3.ui.danmaku.DanmakuConfig hgDanmakuConfig() {
+        int lines = HgStore.getDanmakuLines();
+        return androidx.media3.ui.danmaku.DanmakuConfig.DEFAULT.buildUpon()
+                .setTransparency(HgPanelLogic.danmakuTransparency(HgStore.getDanmakuOpacity()))
+                .setScrollSpeedFactor(HgPanelLogic.danmakuSpeedFactor(HgStore.getDanmakuSpeedIndex()))
+                .setTextScale(HgPanelLogic.danmakuFontScale(HgStore.getDanmakuFontIndex()))
+                .setMaxScrollLines(lines)
+                .setMaxTopLines(lines)
+                .setMaxBottomLines(lines)
+                .build();
+    }
+
+    /** 弹幕设置改值即时回刷渲染层：正在播的当前条同步换观感，不等切集。 */
+    private void applyDanmakuOptions() {
+        if (playerView != null) playerView.getDanmakuController().setConfig(hgDanmakuConfig());
+    }
+
+    /**
+     * 弹幕设置单（官方 DanmakuOptionDialog 竖屏形态的自家等价）：不透明度／
+     * 移动速度／显示区域／字体大小四滑杆＋恢复默认，改值即存 HgStore 并
+     * 即时回刷渲染。官方另有四行（弹幕屏蔽词/屏蔽彩色弹幕/智能防遮/清屏
+     * 模式展示弹幕）由服务端旗标门控、官方包内无缺省值且咱家渲染层无
+     * 对应通道，不摆假项（留痕见 hongguo/panel-danmaku-settings-20261028.md）。
+     * 面板不关、设置单叠在面板之上（官方同为叠弹）。
+     */
+    private void showDanmakuSettings() {
+        com.fongmi.android.tv.databinding.DialogHongguoDanmakuSettingsBinding sb =
+                com.fongmi.android.tv.databinding.DialogHongguoDanmakuSettingsBinding.inflate(getLayoutInflater());
+        com.google.android.material.bottomsheet.BottomSheetDialog dialog =
+                new com.google.android.material.bottomsheet.BottomSheetDialog(this);
+        dialog.setContentView(sb.getRoot());
+        bindDanmakuSettings(sb);
+        sb.hgDmReset.setOnClickListener(v -> {
+            HgStore.resetDanmakuOptions();
+            bindDanmakuSettings(sb);
+            applyDanmakuOptions();
+            android.widget.Toast.makeText(this, "已恢复默认",
+                    android.widget.Toast.LENGTH_SHORT).show();
+        });
+        dialog.show();
+    }
+
+    /** 四滑杆按 HgStore 现值回填并挂监听（恢复默认后重绑一次即全量刷新）。 */
+    private void bindDanmakuSettings(
+            com.fongmi.android.tv.databinding.DialogHongguoDanmakuSettingsBinding sb) {
+        // 不透明度：滑杆 0–80 对应 20%–100%（官方滑杆 max 80＋偏移 20）
+        sb.hgDmOpacityValue.setText(HgStore.getDanmakuOpacity() + "%");
+        sb.hgDmOpacity.setOnSeekBarChangeListener(null);
+        sb.hgDmOpacity.setProgress(HgStore.getDanmakuOpacity() - HgPanelLogic.DM_OPACITY_MIN);
+        sb.hgDmOpacity.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(android.widget.SeekBar bar, int progress, boolean fromUser) {
+                int percent = progress + HgPanelLogic.DM_OPACITY_MIN;
+                HgStore.setDanmakuOpacity(percent);
+                sb.hgDmOpacityValue.setText(percent + "%");
+                applyDanmakuOptions();
+            }
+
+            @Override
+            public void onStartTrackingTouch(android.widget.SeekBar bar) {
+            }
+
+            @Override
+            public void onStopTrackingTouch(android.widget.SeekBar bar) {
+            }
+        });
+        // 移动速度：五档（下标即档位）
+        sb.hgDmSpeedValue.setText(HgPanelLogic.danmakuSpeedLabel(HgStore.getDanmakuSpeedIndex()));
+        sb.hgDmSpeed.setOnSeekBarChangeListener(null);
+        sb.hgDmSpeed.setProgress(HgStore.getDanmakuSpeedIndex());
+        sb.hgDmSpeed.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(android.widget.SeekBar bar, int progress, boolean fromUser) {
+                HgStore.setDanmakuSpeedIndex(progress);
+                sb.hgDmSpeedValue.setText(HgPanelLogic.danmakuSpeedLabel(progress));
+                applyDanmakuOptions();
+            }
+
+            @Override
+            public void onStartTrackingTouch(android.widget.SeekBar bar) {
+            }
+
+            @Override
+            public void onStopTrackingTouch(android.widget.SeekBar bar) {
+            }
+        });
+        // 显示区域：滑杆 0–3 对应 1–4 行
+        sb.hgDmAreaValue.setText(HgPanelLogic.danmakuAreaText(HgStore.getDanmakuLines()));
+        sb.hgDmArea.setOnSeekBarChangeListener(null);
+        sb.hgDmArea.setProgress(HgStore.getDanmakuLines() - HgPanelLogic.DM_LINES_MIN);
+        sb.hgDmArea.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(android.widget.SeekBar bar, int progress, boolean fromUser) {
+                int lines = progress + HgPanelLogic.DM_LINES_MIN;
+                HgStore.setDanmakuLines(lines);
+                sb.hgDmAreaValue.setText(HgPanelLogic.danmakuAreaText(lines));
+                applyDanmakuOptions();
+            }
+
+            @Override
+            public void onStartTrackingTouch(android.widget.SeekBar bar) {
+            }
+
+            @Override
+            public void onStopTrackingTouch(android.widget.SeekBar bar) {
+            }
+        });
+        // 字体大小：五档（下标即档位）
+        sb.hgDmFontValue.setText(HgPanelLogic.danmakuFontLabel(HgStore.getDanmakuFontIndex()));
+        sb.hgDmFont.setOnSeekBarChangeListener(null);
+        sb.hgDmFont.setProgress(HgStore.getDanmakuFontIndex());
+        sb.hgDmFont.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(android.widget.SeekBar bar, int progress, boolean fromUser) {
+                HgStore.setDanmakuFontIndex(progress);
+                sb.hgDmFontValue.setText(HgPanelLogic.danmakuFontLabel(progress));
+                applyDanmakuOptions();
+            }
+
+            @Override
+            public void onStartTrackingTouch(android.widget.SeekBar bar) {
+            }
+
+            @Override
+            public void onStopTrackingTouch(android.widget.SeekBar bar) {
+            }
+        });
     }
 
     /** 为一条起弹幕：关着/无 vid 直接清；同 vid 已有条目不重拉。 */

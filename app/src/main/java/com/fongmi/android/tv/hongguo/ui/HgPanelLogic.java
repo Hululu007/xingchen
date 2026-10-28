@@ -133,4 +133,90 @@ public final class HgPanelLogic {
         if (mode == TIMER_CUSTOM && minutes > 0) return minutes * 60_000L;
         return -1;
     }
+
+    // ---------- 弹幕设置（竖屏：面板弹幕开后出的「弹幕设置」行 → 设置单） ----------
+    // 构成照官方 DanmakuOptionDialog 竖屏形态定版（dig 账
+    // panel-danmaku-settings-20261028.md）：不透明度/移动速度/显示区域/
+    // 字体大小四滑杆＋恢复默认，常显；另有四行（屏蔽词/屏蔽彩色/智能
+    // 防遮/清屏展示）由官方服务端旗标门控、包内无缺省，不在此列。
+
+    /** 不透明度百分比界：官方滑杆 max 80＋偏移 20 → 20%–100%；缺省 100%（存储 alpha 255）。 */
+    public static final int DM_OPACITY_MIN = 20;
+    public static final int DM_OPACITY_MAX = 100;
+    public static final int DM_OPACITY_DEFAULT = 100;
+
+    /** 移动速度五档标签（官方串数组：慢/较慢/适中/较快/快）。 */
+    public static final String[] DM_SPEED_LABELS = {"慢", "较慢", "适中", "较快", "快"};
+
+    /** 移动速度五档倍率（官方 DanmakuSpeed 定版：0.5/0.7/1.0/1.25/1.5），下标与标签表同序。 */
+    public static final float[] DM_SPEED_FACTORS = {0.5f, 0.7f, 1f, 1.25f, 1.5f};
+
+    /** 移动速度缺省档下标（适中＝NORMAL 1.0x，官方存储缺省）。 */
+    public static final int DM_SPEED_DEFAULT_INDEX = 2;
+
+    /** 字体大小五档标签（官方串数组：小/较小/适中/较大/大）。 */
+    public static final String[] DM_FONT_LABELS = {"小", "较小", "适中", "较大", "大"};
+
+    /** 字体大小五档字号（官方 DanmakuTextSize 定版：12/14/16/18/20），下标与标签表同序。 */
+    public static final int[] DM_FONT_SIZES = {12, 14, 16, 18, 20};
+
+    /** 字体大小缺省档下标（适中＝DEFAULT 16，官方存储缺省）。 */
+    public static final int DM_FONT_DEFAULT_INDEX = 2;
+
+    /** 显示区域行数界（官方竖屏 DanmakuLineCount：1–4 行）。 */
+    public static final int DM_LINES_MIN = 1;
+    public static final int DM_LINES_MAX = 4;
+
+    /**
+     * 显示区域缺省行数＝3（自家定）：官方缺省走宿主注入配置（wp1.g），
+     * 官方包内无静态值可抠（留痕见汇总账）；3 与咱家渲染层此前实际
+     * 生效的缺省行数同值，换口径不跳变。
+     */
+    public static final int DM_LINES_DEFAULT = 3;
+
+    /** 不透明度百分比收界（20–100）。 */
+    public static int clampDanmakuOpacity(int percent) {
+        return Math.max(DM_OPACITY_MIN, Math.min(DM_OPACITY_MAX, percent));
+    }
+
+    /** 档下标收界（[0, count)）；count 非法回 0。 */
+    public static int clampDanmakuIndex(int index, int count) {
+        if (count <= 0) return 0;
+        return Math.max(0, Math.min(count - 1, index));
+    }
+
+    /** 显示区域行数收界（1–4）。 */
+    public static int clampDanmakuLines(int lines) {
+        return Math.max(DM_LINES_MIN, Math.min(DM_LINES_MAX, lines));
+    }
+
+    /** 不透明度百分比 → 渲染层透明度（0＝不透明、1＝全透明）：1 − percent/100。 */
+    public static float danmakuTransparency(int percent) {
+        return 1f - clampDanmakuOpacity(percent) / 100f;
+    }
+
+    /** 移动速度档下标 → 倍率。 */
+    public static float danmakuSpeedFactor(int index) {
+        return DM_SPEED_FACTORS[clampDanmakuIndex(index, DM_SPEED_FACTORS.length)];
+    }
+
+    /** 移动速度档下标 → 标签。 */
+    public static String danmakuSpeedLabel(int index) {
+        return DM_SPEED_LABELS[clampDanmakuIndex(index, DM_SPEED_LABELS.length)];
+    }
+
+    /** 字体大小档下标 → 标签。 */
+    public static String danmakuFontLabel(int index) {
+        return DM_FONT_LABELS[clampDanmakuIndex(index, DM_FONT_LABELS.length)];
+    }
+
+    /** 字体大小档下标 → 相对缩放（以适中 16 为 1.0 基准：0.75/0.875/1/1.125/1.25）。 */
+    public static float danmakuFontScale(int index) {
+        return DM_FONT_SIZES[clampDanmakuIndex(index, DM_FONT_SIZES.length)] / 16f;
+    }
+
+    /** 显示区域值文案（官方「%d行」定版）。 */
+    public static String danmakuAreaText(int lines) {
+        return clampDanmakuLines(lines) + "行";
+    }
 }

@@ -680,6 +680,49 @@ public class HgOfflineTest {
             check("§24 countLine 拼整串", "2.3万".equals(line), "实际=" + line);
         }
 
+        {
+            // §25 弹幕设置（官方 DanmakuOptionDialog 竖屏定版）：四项档表、
+            // 缺省与渲染映射全在 HgPanelLogic，逐项对官方抠到的值
+            check("§25 速度五档标签", java.util.Arrays.equals(
+                    com.fongmi.android.tv.hongguo.ui.HgPanelLogic.DM_SPEED_LABELS,
+                    new String[]{"慢", "较慢", "适中", "较快", "快"}), null);
+            check("§25 速度五档倍率", java.util.Arrays.equals(
+                    com.fongmi.android.tv.hongguo.ui.HgPanelLogic.DM_SPEED_FACTORS,
+                    new float[]{0.5f, 0.7f, 1f, 1.25f, 1.5f}), null);
+            check("§25 字号五档标签与字号", java.util.Arrays.equals(
+                    com.fongmi.android.tv.hongguo.ui.HgPanelLogic.DM_FONT_LABELS,
+                    new String[]{"小", "较小", "适中", "较大", "大"})
+                    && java.util.Arrays.equals(
+                    com.fongmi.android.tv.hongguo.ui.HgPanelLogic.DM_FONT_SIZES,
+                    new int[]{12, 14, 16, 18, 20}), null);
+            check("§25 缺省四项", com.fongmi.android.tv.hongguo.ui.HgPanelLogic.DM_OPACITY_DEFAULT == 100
+                    && com.fongmi.android.tv.hongguo.ui.HgPanelLogic.DM_SPEED_DEFAULT_INDEX == 2
+                    && com.fongmi.android.tv.hongguo.ui.HgPanelLogic.DM_FONT_DEFAULT_INDEX == 2
+                    && com.fongmi.android.tv.hongguo.ui.HgPanelLogic.DM_LINES_DEFAULT == 3, null);
+            check("§25 不透明度映射", com.fongmi.android.tv.hongguo.ui.HgPanelLogic.danmakuTransparency(100) == 0f
+                    && Math.abs(com.fongmi.android.tv.hongguo.ui.HgPanelLogic.danmakuTransparency(20) - 0.8f) < 1e-6
+                    && Math.abs(com.fongmi.android.tv.hongguo.ui.HgPanelLogic.danmakuTransparency(60) - 0.4f) < 1e-6, null);
+            check("§25 不透明度收界", com.fongmi.android.tv.hongguo.ui.HgPanelLogic.clampDanmakuOpacity(0) == 20
+                    && com.fongmi.android.tv.hongguo.ui.HgPanelLogic.clampDanmakuOpacity(250) == 100
+                    && com.fongmi.android.tv.hongguo.ui.HgPanelLogic.clampDanmakuOpacity(55) == 55, null);
+            check("§25 速度映射与收界", com.fongmi.android.tv.hongguo.ui.HgPanelLogic.danmakuSpeedFactor(2) == 1f
+                    && com.fongmi.android.tv.hongguo.ui.HgPanelLogic.danmakuSpeedFactor(0) == 0.5f
+                    && com.fongmi.android.tv.hongguo.ui.HgPanelLogic.danmakuSpeedFactor(9) == 1.5f
+                    && "适中".equals(com.fongmi.android.tv.hongguo.ui.HgPanelLogic.danmakuSpeedLabel(2))
+                    && "快".equals(com.fongmi.android.tv.hongguo.ui.HgPanelLogic.danmakuSpeedLabel(4)), null);
+            check("§25 字号缩放", com.fongmi.android.tv.hongguo.ui.HgPanelLogic.danmakuFontScale(2) == 1f
+                    && com.fongmi.android.tv.hongguo.ui.HgPanelLogic.danmakuFontScale(0) == 0.75f
+                    && com.fongmi.android.tv.hongguo.ui.HgPanelLogic.danmakuFontScale(4) == 1.25f
+                    && "大".equals(com.fongmi.android.tv.hongguo.ui.HgPanelLogic.danmakuFontLabel(4)), null);
+            check("§25 显示区域", com.fongmi.android.tv.hongguo.ui.HgPanelLogic.clampDanmakuLines(0) == 1
+                    && com.fongmi.android.tv.hongguo.ui.HgPanelLogic.clampDanmakuLines(7) == 4
+                    && "3行".equals(com.fongmi.android.tv.hongguo.ui.HgPanelLogic.danmakuAreaText(3))
+                    && "1行".equals(com.fongmi.android.tv.hongguo.ui.HgPanelLogic.danmakuAreaText(0)), null);
+            check("§25 下标收界", com.fongmi.android.tv.hongguo.ui.HgPanelLogic.clampDanmakuIndex(-2, 5) == 0
+                    && com.fongmi.android.tv.hongguo.ui.HgPanelLogic.clampDanmakuIndex(8, 5) == 4
+                    && com.fongmi.android.tv.hongguo.ui.HgPanelLogic.clampDanmakuIndex(3, 0) == 0, null);
+        }
+
         System.out.println(fail == 0 ? "ALL PASS" : ("FAILURES=" + fail));
         System.exit(fail == 0 ? 0 : 1);
     }

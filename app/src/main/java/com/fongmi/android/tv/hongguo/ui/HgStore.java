@@ -15,6 +15,10 @@ import java.util.Set;
 public final class HgStore {
 
     private static final String K_DANMAKU_ON = "hongguo_danmaku_on";
+    private static final String K_DM_OPACITY = "hongguo_dm_opacity";
+    private static final String K_DM_SPEED = "hongguo_dm_speed";
+    private static final String K_DM_LINES = "hongguo_dm_lines";
+    private static final String K_DM_FONT = "hongguo_dm_font";
     private static final String K_SPEED = "hongguo_speed";
     private static final String K_LAUNCH_DIRECT = "hongguo_launch_direct";
     private static final String K_AUTO_NEXT = "hongguo_auto_next";
@@ -45,6 +49,63 @@ public final class HgStore {
 
     public static void setDanmakuOn(boolean on) {
         Prefers.put(K_DANMAKU_ON, on);
+    }
+
+    // ---------- 弹幕设置（红果自有口：面板「弹幕设置」单的四项落点） ----------
+    // 键带 hongguo_dm_ 前缀自成一口，不读点播 DanmakuSetting 的 danmaku_*
+    // 全局键（此前喂 PlayerView 用的是点播那套配置，两边互串已断）。
+    // 档表/缺省/映射全在 HgPanelLogic（官方 DanmakuOptionDialog 定版）。
+
+    /** 不透明度百分比（20–100，缺省 100）。 */
+    public static int getDanmakuOpacity() {
+        return HgPanelLogic.clampDanmakuOpacity(
+                Prefers.getInt(K_DM_OPACITY, HgPanelLogic.DM_OPACITY_DEFAULT));
+    }
+
+    public static void setDanmakuOpacity(int percent) {
+        Prefers.put(K_DM_OPACITY, HgPanelLogic.clampDanmakuOpacity(percent));
+    }
+
+    /** 移动速度档下标（0–4，缺省适中）。 */
+    public static int getDanmakuSpeedIndex() {
+        return HgPanelLogic.clampDanmakuIndex(
+                Prefers.getInt(K_DM_SPEED, HgPanelLogic.DM_SPEED_DEFAULT_INDEX),
+                HgPanelLogic.DM_SPEED_FACTORS.length);
+    }
+
+    public static void setDanmakuSpeedIndex(int index) {
+        Prefers.put(K_DM_SPEED, HgPanelLogic.clampDanmakuIndex(
+                index, HgPanelLogic.DM_SPEED_FACTORS.length));
+    }
+
+    /** 显示区域行数（1–4，缺省自家定 3，理由见 HgPanelLogic.DM_LINES_DEFAULT）。 */
+    public static int getDanmakuLines() {
+        return HgPanelLogic.clampDanmakuLines(
+                Prefers.getInt(K_DM_LINES, HgPanelLogic.DM_LINES_DEFAULT));
+    }
+
+    public static void setDanmakuLines(int lines) {
+        Prefers.put(K_DM_LINES, HgPanelLogic.clampDanmakuLines(lines));
+    }
+
+    /** 字体大小档下标（0–4，缺省适中）。 */
+    public static int getDanmakuFontIndex() {
+        return HgPanelLogic.clampDanmakuIndex(
+                Prefers.getInt(K_DM_FONT, HgPanelLogic.DM_FONT_DEFAULT_INDEX),
+                HgPanelLogic.DM_FONT_SIZES.length);
+    }
+
+    public static void setDanmakuFontIndex(int index) {
+        Prefers.put(K_DM_FONT, HgPanelLogic.clampDanmakuIndex(
+                index, HgPanelLogic.DM_FONT_SIZES.length));
+    }
+
+    /** 恢复默认（官方同名动作：四项回缺省）。 */
+    public static void resetDanmakuOptions() {
+        Prefers.put(K_DM_OPACITY, HgPanelLogic.DM_OPACITY_DEFAULT);
+        Prefers.put(K_DM_SPEED, HgPanelLogic.DM_SPEED_DEFAULT_INDEX);
+        Prefers.put(K_DM_LINES, HgPanelLogic.DM_LINES_DEFAULT);
+        Prefers.put(K_DM_FONT, HgPanelLogic.DM_FONT_DEFAULT_INDEX);
     }
 
     // ---------- 红果默认倍速（更多面板选定即落此键，起播初始倍速读它） ----------

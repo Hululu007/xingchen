@@ -71,6 +71,7 @@ app/src/main/res/layout/activity_hongguo_feed.xml
 app/src/main/res/layout/activity_hongguo_search.xml
 app/src/main/res/layout/dialog_hongguo_comments.xml
 app/src/main/res/layout/dialog_hongguo_danmaku.xml
+app/src/main/res/layout/dialog_hongguo_danmaku_settings.xml
 app/src/main/res/layout/dialog_hongguo_comment_editor.xml
 app/src/main/res/layout/dialog_hongguo_episodes.xml
 app/src/main/res/layout/dialog_hongguo_more_panel.xml

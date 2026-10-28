@@ -223,7 +223,7 @@ public class CloudDriveActivity extends BaseActivity {
     /**
      * 搜索弹窗（他定的口径）：点右上角按钮在屏幕中间弹，不另开搜索页、不切本页列表；
      * 弹窗不大不小（宽留边、高封顶约七成），输词后结果直接在弹窗里出、列表在弹窗内滑动续拉。
-     * 搜的是当前这家网盘自己的文件（drive.searchFiles）；形态走本页既有深面玻璃口径。
+     * 搜的是当前这家网盘自己的文件（115 只搜视频、走 searchVideoFiles，其余两家 drive.searchFiles）；形态走本页既有深面玻璃口径。
      */
     private void showSearchDialog() {
         SearchState st = new SearchState();
@@ -386,7 +386,11 @@ public class CloudDriveActivity extends BaseActivity {
             List<CloudFile> page = null;
             Exception error = null;
             try {
-                page = drive.searchFiles(kw, offset, SEARCH_LIMIT);
+                // 115 只搜视频（他亲点）：走 Drive115.searchVideoFiles（服务端 type=4＋结果兜底过滤）；
+                // 其余两家维持 searchFiles 全类型口径不变。
+                page = Drive115.ID.equals(drive.getId())
+                        ? ((Drive115) drive).searchVideoFiles(kw, offset, SEARCH_LIMIT)
+                        : drive.searchFiles(kw, offset, SEARCH_LIMIT);
             } catch (Exception e) {
                 error = e;
             }
@@ -426,7 +430,7 @@ public class CloudDriveActivity extends BaseActivity {
 
     /**
      * 按页序拼：从 mergePage 起连续拼（先回的后页只攒着等，缺页绝不抢先上屏、不许乱序）。
-     * fetched/hasMore 记账按原始条数走、过滤在拼装处做（visibleInList），与主列表同口径；
+     * fetched/hasMore 记账按原始条数走、过滤在拼装处做（searchVisible）；
      * 拼到一页不满 SEARCH_LIMIT 就是尾页（endReached），其后攒着的页整批丢弃、不记账。
      * 首屏不等满 3 页：第一页拼上就先刷新上屏，后两页回来续拼到尾部。
      */
@@ -446,8 +450,9 @@ public class CloudDriveActivity extends BaseActivity {
             st.mergePage++;
             st.fetched += raw.size();
             int before = st.results.size();
-            // 搜索结果同文件列表口径：只出文件夹＋大于 30MB 的视频（过滤在组装处做，分页记账按原始条数走）
-            for (CloudFile f : raw) if (visibleInList(f)) st.results.add(f);
+            // 搜索结果展示过滤在组装处做、分页记账按原始条数走：115 只出视频（searchVisible），
+            // 其余两家同文件列表口径（文件夹＋大于 30MB 的视频）
+            for (CloudFile f : raw) if (searchVisible(f)) st.results.add(f);
             if (st.results.size() > before) st.chain = 0;
             else st.chain++;
             changed = true;
@@ -786,7 +791,18 @@ public class CloudDriveActivity extends BaseActivity {
     }
 
     /**
-     * 展示过滤（文件列表与搜索结果共用）：全类型可见（2026-10-28 做全口径——
+     * 搜索结果展示过滤：115 只出视频——Drive115.searchVideoFiles 已在数据源头
+     * 保证只回视频，这里再按同一谓词守一道（防其它路混入）；且不套主列表的
+     * 30MB 藏小视频口径：搜索是按名主动找文件，搜到了又藏掉等于搜不到。
+     * 其余两家搜索同文件列表口径，走 visibleInList。
+     */
+    private boolean searchVisible(CloudFile f) {
+        if (drive != null && Drive115.ID.equals(drive.getId())) return !f.isDir() && f.isVideo();
+        return visibleInList(f);
+    }
+
+    /**
+     * 展示过滤（文件列表与非 115 搜索结果共用）：全类型可见（2026-10-28 做全口径——
      * 文档/图片/压缩包/音频都列，非视频走长按管理动作）；他定的视频口径保留：
      * 大小在 30MB 以内的短视频直接藏掉（治短视频广告，「广告没有这么大」）。
      * 大小取不到/为 0 的视频不藏，免得误伤字段缺失的正常文件。文件夹永远不受影响。

@@ -582,13 +582,45 @@ public class Drive115 implements CloudDrive {
      * 参数集与 listDir 同构）。type 是服务端的类型过滤（0 全部／1 文件夹／
      * 2 文档／3 图片／4 视频／5 音频／6 压缩包，胖5 内置 115 工具表实证）：
      * 不传 type 时服务端只回文件夹、文件永远搜不到，必须显式传 0。
-     * 搜索结果的文件项里 cid 是其所在目录、目录项里
-     * pid 是其上级目录，parentCid 按此回填（供从结果直达所在目录）。
-     * 缩略图按 PY 活口径取 u（备选 thumb）；顶层键、首条目键名与缩略图有无
-     * 随调试日志打出，真机一跑即可对死。
+     * 本口径（type=0 全类型＋show_dir=1）是音乐搜 115 音频（CloudMusicSource
+     * 靠全类型回包自己筛音频）的地基，口径不许变；网盘页内搜只出视频走
+     * searchVideoFiles，别在这里改 type 连坐音乐链。
      */
     @Override
     public List<CloudFile> searchFiles(String keyword, int offset, int limit) throws Exception {
+        return searchByType(keyword, offset, limit, "0", "1");
+    }
+
+    /**
+     * 只搜视频（网盘页内搜专用，他 2026-10-28 亲点「不能只搜视频」）：
+     * 服务端先按 type=4 只回视频类、show_dir=0 不带文件夹；回包再按本地
+     * 口径兜底过滤一遍（只留非文件夹且 isVideo 的条目），服务端类目漏网的
+     * 非视频/文件夹不许混进列表。offset/limit 与 searchFiles 同为服务端
+     * 原始分页空间、1:1 透传，调用方的多翻页记账不变。
+     * 待真机首验：type=4 的回包形状本机拿不到（cookie 已过期）；万一服务端
+     * 类目与本地视频表对不齐、满页被兜底过滤成不满页，调用方会提前认尾页
+     * ——装机验时重点看长结果列表会不会提前收尾。
+     */
+    public List<CloudFile> searchVideoFiles(String keyword, int offset, int limit) throws Exception {
+        List<CloudFile> all = searchByType(keyword, offset, limit, "4", "0");
+        List<CloudFile> videos = new ArrayList<>();
+        for (CloudFile f : all) if (!f.isDir() && f.isVideo()) videos.add(f);
+        try {
+            com.github.catvod.crawler.SpiderDebug.log("pan115search",
+                    "videoOnly kw=%s parsed=%s kept=%s", keyword, all.size(), videos.size());
+        } catch (Throwable ignored) {
+        }
+        return videos;
+    }
+
+    /**
+     * 搜索请求与解析主体（searchFiles/searchVideoFiles 共用，差别只在
+     * type 与 show_dir 两个参数）。搜索结果的文件项里 cid 是其所在目录、
+     * 目录项里 pid 是其上级目录，parentCid 按此回填（供从结果直达所在目录）。
+     * 缩略图按 PY 活口径取 u（备选 thumb）；顶层键、首条目键名与缩略图有无
+     * 随调试日志打出，真机一跑即可对死。
+     */
+    private List<CloudFile> searchByType(String keyword, int offset, int limit, String type, String showDir) throws Exception {
         Map<String, String> p = new HashMap<>();
         p.put("aid", "1");
         p.put("cid", "0");
@@ -597,8 +629,8 @@ public class Drive115 implements CloudDrive {
         p.put("asc", "0");
         p.put("offset", String.valueOf(offset));
         p.put("limit", String.valueOf(limit));
-        p.put("show_dir", "1");
-        p.put("type", "0");
+        p.put("show_dir", showDir);
+        p.put("type", type);
         p.put("format", "json");
         JSONObject d = reqJson(API_SEARCH, p, null, null, null);
         if (!d.optBoolean("state", false) && d.has("error")) {

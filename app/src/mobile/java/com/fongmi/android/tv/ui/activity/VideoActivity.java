@@ -7182,7 +7182,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     private void syncAudioBackgroundHalo(AudioPlayerBackgroundDrawable drawable) {
         if (mBinding == null || drawable == null) return;
         View anchor = mBinding.audioCover != null ? mBinding.audioCover : mBinding.audioDisc;
-        if (mBinding.audioStage.getWidth() <= 0 || anchor.getWidth() <= 0 || anchor.getHeight() <= 0) return;
+        if (anchor == null || mBinding.audioStage.getWidth() <= 0 || anchor.getWidth() <= 0 || anchor.getHeight() <= 0) return;
         if (mBinding.audioStage.getBackground() != drawable) return;
         Rect bounds = new Rect(0, 0, anchor.getWidth(), anchor.getHeight());
         mBinding.audioStage.offsetDescendantRectToMyCoords(anchor, bounds);

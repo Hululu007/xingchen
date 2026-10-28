@@ -265,9 +265,6 @@ public class HealthActivity extends BaseActivity {
                 }
             }
             getSharedPreferences("xingchen", MODE_PRIVATE).edit()
-                    .putInt("health_ok", ok)
-                    .putInt("health_fail", fail)
-                    .putInt("health_unsupported", unsupported)
                     .putLong("health_time", System.currentTimeMillis())
                     .putString("health_results", results.toString())
                     .apply();

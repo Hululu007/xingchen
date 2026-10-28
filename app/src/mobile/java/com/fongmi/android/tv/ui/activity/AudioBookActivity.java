@@ -806,9 +806,26 @@ public class AudioBookActivity extends Activity implements ServiceConnection {
             String url;
             try {
                 LegadoAudio.Chapter c = album.current();
-                com.fongmi.android.tv.legado.LegadoSource src =
-                        com.fongmi.android.tv.legado.LegadoStore.get(album.legadoKey);
-                url = LegadoAudio.fetchAudioUrl(src, c.url, null);
+                if (!album.hkRule.isEmpty()) {
+                    // 海阔电台专辑：直链直接播，其余走海阔解析（与音乐侧
+                    // HkMusicSource.playUrl 同一口子）
+                    if (com.fongmi.android.tv.api.hk.HkRouter.isVideoOrMusicUrl(c.url)) {
+                        url = c.url;
+                    } else {
+                        com.fongmi.android.tv.bean.Result play =
+                                com.fongmi.android.tv.api.SiteApi.playerContentParseOnly(
+                                        com.fongmi.android.tv.api.hk.HkDetailBridge.siteKey(album.hkRule),
+                                        album.hkLine, c.url);
+                        url = play.getUrl() == null ? "" : play.getUrl().v();
+                        if (url == null || url.isEmpty()) {
+                            throw new com.fongmi.android.tv.legado.LegadoException("电台地址解析为空");
+                        }
+                    }
+                } else {
+                    com.fongmi.android.tv.legado.LegadoSource src =
+                            com.fongmi.android.tv.legado.LegadoStore.get(album.legadoKey);
+                    url = LegadoAudio.fetchAudioUrl(src, c.url, null);
+                }
             } catch (Throwable t) {
                 runOnUiThread(() -> {
                     String m = t instanceof LegadoException ? t.getMessage() : "音频地址解析失败";

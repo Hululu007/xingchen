@@ -26,6 +26,9 @@ public class LegadoAudio {
     public static class AudioAlbum {
         /** 书源 bookSourceUrl，复用阶段一口径。 */
         public String legadoKey = "";
+        /** 海阔电台专辑：规则名/线路名（非空时章节地址走海阔解析，与 legadoKey 分家）。 */
+        public String hkRule = "";
+        public String hkLine = "";
         public String sourceName = "";
         public String title = "";
         public String coverUrl = "";

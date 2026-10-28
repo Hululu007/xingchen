@@ -310,6 +310,10 @@ public class ReadingRouter {
         try {
             LegadoAudio.AudioAlbum a = new LegadoAudio.AudioAlbum();
             a.legadoKey = r.legadoKey == null ? "" : r.legadoKey;
+            // 海阔电台记录：legadoKey 是 "hk:<规则名>" 身份键，专辑要带回 hkRule 才走得通解析
+            if (a.legadoKey.startsWith("hk:")) {
+                a.hkRule = a.legadoKey.substring(3);
+            }
             a.sourceName = r.sourceName == null ? "" : r.sourceName;
             a.title = r.bookTitle == null ? "" : r.bookTitle;
             a.coverUrl = r.coverUrl == null ? "" : r.coverUrl;

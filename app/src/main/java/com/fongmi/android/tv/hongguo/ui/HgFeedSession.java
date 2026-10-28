@@ -8,6 +8,7 @@ import com.fongmi.android.tv.hongguo.api.HgCallback;
 import com.fongmi.android.tv.hongguo.api.HgModelCache;
 import com.fongmi.android.tv.hongguo.api.HgPrefetcher;
 import com.fongmi.android.tv.hongguo.model.HgSeriesDetail;
+import com.fongmi.android.tv.hongguo.model.HgSeriesItem;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
@@ -68,10 +69,6 @@ public final class HgFeedSession {
         if (seriesId != null) albums.put(seriesId, seasons);
     }
 
-    /** 详情缓存（进剧取专辑 id 用）；没拉过返回 null。 */
-    public HgSeriesDetail detailOf(String seriesId) {
-        return details.get(seriesId);
-    }
     private final Handler main = new Handler(Looper.getMainLooper());
 
     /**

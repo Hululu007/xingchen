@@ -363,7 +363,7 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         // 头像与作者名同路：进作者主页（官方 enableClickAvatarOpenSeriesProfilePage
         // 语义）；旧占位把点头像当「关注作者」的 Action.FOLLOW 已整段摘除
         b.hgAvatarBox.setOnClickListener(v -> host.onAuthor(holder.getBindingAdapterPosition()));
-        b.hgAuthorName.setOnClickListener(v -> host.onAuthor(holder.getBindingAdapterPosition()));
+        b.hgAuthor.setOnClickListener(v -> host.onAuthor(holder.getBindingAdapterPosition()));
         b.hgReserve.setOnClickListener(v -> host.onAction(holder.getBindingAdapterPosition(), Action.RESERVE));
         b.hgSeriesBar.setOnClickListener(v -> host.onSeriesBar(holder.getBindingAdapterPosition()));
         b.hgDanmakuBox.setOnClickListener(v -> host.onDanmakuPublish(holder.getBindingAdapterPosition()));

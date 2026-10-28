@@ -89,13 +89,9 @@ public class HongguoAuthorActivity extends BaseActivity {
         refreshFollowButton();
     }
 
-    /** 头像：有址圆图，没址用名首字圆牌（与 feed 作者行同一口径）。 */
+    /** 头像：有址圆图，没址用名首字牌（ImgUtil 的 text 占位，与 feed 作者行同一口径）。 */
     private void bindAvatar(android.widget.ImageView view, String avatar, String name) {
-        if (avatar != null && !avatar.isEmpty()) {
-            ImgUtil.loadCircle(avatar, view);
-        } else if (name != null && !name.isEmpty()) {
-            view.setImageDrawable(new HgInitialAvatarDrawable(name.substring(0, 1)));
-        }
+        ImgUtil.loadCircle(name, avatar, view);
     }
 
     private void refreshFollowButton() {

@@ -343,6 +343,41 @@ public final class HgStore {
 
     private static final String K_HIST_INDEX = "hongguo_hist_index";
 
+    /** 只写断点本体、不进历史索引/最近位：发现流短片的集内进度落盘用。 */
+    public static void saveProgressQuiet(String seriesId, int episodeIndex, long positionMs) {
+        if (seriesId == null || seriesId.isEmpty()) return;
+        Prefers.put(K_HIST_PREFIX + seriesId,
+                episodeIndex + "|" + Math.max(0, positionMs) + "|" + System.currentTimeMillis());
+    }
+
+    // ---------- 发现流位置（进程被杀后重进落位用） ----------
+
+    private static final String K_FEED_POS = "hongguo_feed_pos";
+
+    /** 发现流位置落盘：页签名＋流内下标，单值覆盖（只记最近一次浏览面）。 */
+    public static void saveFeedPos(String tabName, int index) {
+        if (tabName == null) return;
+        Prefers.put(K_FEED_POS, tabName + "|" + Math.max(0, index));
+    }
+
+    /** 上次发现流所在页签名；没存过返回 null。 */
+    public static String feedPosTab() {
+        String raw = Prefers.getString(K_FEED_POS, "");
+        if (raw == null || !raw.contains("|")) return null;
+        return raw.substring(0, raw.indexOf('|'));
+    }
+
+    /** 某页签上次的流内下标；页签不符或没存过返回 -1。 */
+    public static int feedPosIndex(String tabName) {
+        String raw = Prefers.getString(K_FEED_POS, "");
+        if (raw == null || tabName == null || !raw.startsWith(tabName + "|")) return -1;
+        try {
+            return Integer.parseInt(raw.substring(tabName.length() + 1));
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
     public static void saveProgress(String seriesId, int episodeIndex, long positionMs) {
         if (seriesId == null || seriesId.isEmpty()) return;
         Prefers.put(K_HIST_PREFIX + seriesId,

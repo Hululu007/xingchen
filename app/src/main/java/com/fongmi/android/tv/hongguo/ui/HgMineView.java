@@ -134,6 +134,51 @@ public final class HgMineView extends LinearLayout {
     public void refresh() {
         refreshAccount();
         renderTab();
+        backfillMissingCovers();
+    }
+
+    /**
+     * 历史封面回填：解析器旧 bug（条目空 cover 盖掉真封面，96fa6fa5 已修）把
+     * 一批历史记录的封面存成了空，这些记录在格子里只剩占位。本面可见时把
+     * 缺封面的历史（最多 12 部）逐个拉详情补封面落盘，回来重绑历史页签；
+     * 只补空的、不动已有封面，失败静默下次再补。
+     */
+    private void backfillMissingCovers() {
+        List<String> missing = new ArrayList<>();
+        for (HgStore.HistoryRecord r : HgStore.historyRecords()) {
+            if ((r.cover == null || r.cover.isEmpty()) && r.seriesId != null) {
+                missing.add(r.seriesId);
+                if (missing.size() >= 12) break;
+            }
+        }
+        if (missing.isEmpty()) return;
+        HgFeedSession.get().client.fetchVideoDetails(missing,
+                new HgCallback<java.util.Map<String, com.fongmi.android.tv.hongguo.model.HgSeriesDetail>>() {
+                    @Override
+                    public void onSuccess(java.util.Map<String, com.fongmi.android.tv.hongguo.model.HgSeriesDetail> map) {
+                        if (map == null || map.isEmpty()) return;
+                        boolean changed = false;
+                        for (java.util.Map.Entry<String, com.fongmi.android.tv.hongguo.model.HgSeriesDetail> e : map.entrySet()) {
+                            com.fongmi.android.tv.hongguo.model.HgSeriesDetail d = e.getValue();
+                            if (d == null || d.getCoverUrl() == null || d.getCoverUrl().isEmpty()) continue;
+                            String[] meta = HgStore.metaOf(e.getKey());
+                            HgStore.putMeta(e.getKey(),
+                                    d.getTitle() != null ? d.getTitle() : meta != null ? meta[0] : null,
+                                    d.getCoverUrl(),
+                                    d.getEpisodeCount() > 0 ? d.getEpisodeCount()
+                                            : meta != null ? parseCount(meta) : -1);
+                            changed = true;
+                        }
+                        if (changed) post(() -> {
+                            if (currentTab == TAB_HISTORY) renderTab();
+                        });
+                    }
+
+                    @Override
+                    public void onError(int httpCode, String message) {
+                        // 静默：下次进本面再补
+                    }
+                });
     }
 
     /** 页面销毁时停掉登录轮询，别让回调落到已销毁的面上。 */

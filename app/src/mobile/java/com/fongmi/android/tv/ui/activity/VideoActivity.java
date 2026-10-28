@@ -2209,15 +2209,30 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         CustomMovement.bind(mBinding.meta);
     }
 
-    // 播放器标题：单集时集名只是播放钮的标签（大量源就叫「播放」），不是标题，一律用片名；
-    // 多集时集名为空白或占位名（播放/正片）也回退片名；真集名（第01集等）保持集名不动。
-    private String getControlTitle(Flag flag, Episode episode) {
-        String display = episode.getDisplayName();
-        int count = flag != null && flag.getEpisodes() != null ? flag.getEpisodes().size() : getEpisodeCount();
-        if (count > 1 && !isPlaceholderTitle(episode.getName()) && !isPlaceholderTitle(display)) return display;
-        String vodName = mHistory != null ? mHistory.getVodName() : "";
-        if (TextUtils.isEmpty(vodName)) vodName = getName();
-        return TextUtils.isEmpty(vodName) ? display : vodName;
+    // 播放器标题（照上游 getPlaybackControlTitle）：片名打头、真集名拼在后面（片名 : 集名）；
+    // 集名为空白或占位名（播放/正片，多为播放钮标签、不是集名）时只用片名。
+    private String getPlaybackName() {
+        CharSequence name = mBinding == null || mBinding.name == null ? "" : mBinding.name.getText();
+        if (!TextUtils.isEmpty(name)) return name.toString();
+        String vodName = getName();
+        if (TextUtils.isEmpty(vodName) && mHistory != null) vodName = mHistory.getVodName();
+        return TextUtils.isEmpty(vodName) ? "" : vodName;
+    }
+
+    private String getEpisodeTitle(Episode episode) {
+        if (episode == null) return "";
+        String title = episode.getDisplayName();
+        return isPlaceholderTitle(title) ? "" : title;
+    }
+
+    private CharSequence getPlaybackControlTitle() {
+        return getPlaybackControlTitle(mEpisodeAdapter == null || mEpisodeAdapter.isEmpty() ? null : getEpisode());
+    }
+
+    private CharSequence getPlaybackControlTitle(Episode episode) {
+        String name = getPlaybackName();
+        String title = getEpisodeTitle(episode);
+        return TextUtils.isEmpty(title) || TextUtils.equals(name, title) ? name : getString(R.string.detail_title, name, title);
     }
 
     private boolean isPlaceholderTitle(String name) {
@@ -2231,7 +2246,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         hideSwitchCover();
         // 起播：详情页的无海报背景门控解除，后续走播放页原有背景逻辑
         mDetailWallOff = false;
-        mBinding.control.title.setText(getControlTitle(flag, episode));
+        mBinding.control.title.setText(getPlaybackControlTitle(episode));
         playerStartTime = System.currentTimeMillis();
         beginPlayHealth();
         String playFlag = getEpisodePlayFlag(flag, episode);
@@ -2730,6 +2745,10 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         updateAudioStageText();
         mBinding.control.parse.setVisibility(isUseParse() ? View.VISIBLE : View.GONE);
         List<Danmaku> siteDanmakus = result.getDanmaku();
+        // 直达播放（115/本地/推送）不经 getPlayer，标题在此统一补刷，否则标题文本一直为空、
+        // setSizeText 按「无标题」把它保持隐藏，小窗顶栏只剩分辨率一行。
+        mBinding.control.title.setText(getPlaybackControlTitle());
+        setSizeText();
         startPlayer(getHistoryKey(), result, isUseParse(), getSite().getTimeout(), buildMetadata());
         Episode playEpisode = getEpisode();
         if (DanmakuApi.canAutoSearch(siteDanmakus) && playEpisode != null)
@@ -3185,7 +3204,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         if (flag != null) setEpisodeAdapter(flag.getEpisodes());
         applyAudioQueueMetadata(item);
         if (isFullscreen()) Notify.show(getString(R.string.play_ready, item.getName()));
-        mBinding.control.title.setText(item.getDisplayName());
+        mBinding.control.title.setText(getPlaybackControlTitle(item));
         saveHistory();
         updateHistory(item);
         try {
@@ -6956,7 +6975,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         if (id) mHistory.replace(getHistoryKey());
         if (name) mHistory.setVodName(item.getName());
         if (name && !TextUtils.equals(mBinding.name.getText(), item.getName())) mBinding.name.setText(item.getName());
-        if (name) mBinding.control.title.setText(item.getName());
+        if (name) mBinding.control.title.setText(getPlaybackControlTitle());
         if (name) updateAudioStageText();
         updateFlag(getFlag(), item.getFlags());
         if (pic) setArtwork(item.getPic());

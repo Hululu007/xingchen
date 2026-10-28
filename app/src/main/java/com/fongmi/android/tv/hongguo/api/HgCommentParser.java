@@ -23,6 +23,33 @@ public final class HgCommentParser {
     private HgCommentParser() {
     }
 
+    /**
+     * 整剧评论回包的 extra 评分卡（详情页用，本机实拉验通）：credibility_score
+     * 红果分／credibility_score_count 评分人数／collectors_count 收藏数／
+     * can_comment_threshold 参与评分门槛秒／score_cnt 带分数。解析不出返回
+     * 全缺省对象（不为 null，消费侧按 hasAny 决定摆不摆卡）。
+     */
+    public static com.fongmi.android.tv.hongguo.model.HgSeriesRating parseSeriesRating(String text) {
+        JsonObject result = parseRoot(text);
+        if (result == null) return com.fongmi.android.tv.hongguo.model.HgSeriesRating.empty();
+        JsonObject data = obj(result, "data");
+        JsonObject extra = data == null ? null : obj(data, "extra");
+        if (extra == null) return com.fongmi.android.tv.hongguo.model.HgSeriesRating.empty();
+        float score = -1;
+        try {
+            if (extra.has("credibility_score") && extra.get("credibility_score").isJsonPrimitive()) {
+                score = extra.get("credibility_score").getAsFloat();
+            }
+        } catch (Exception ignored) {
+        }
+        return new com.fongmi.android.tv.hongguo.model.HgSeriesRating(
+                score,
+                num(extra, "credibility_score_count", -1),
+                num(extra, "collectors_count", -1),
+                (int) num(extra, "can_comment_threshold", -1),
+                num(extra, "score_cnt", -1));
+    }
+
     public static HgComment.Page parseList(String text, String series, String group, String cursor, boolean seriesDim) {
         JsonObject result = parseRoot(text);
         if (result == null) return null;
@@ -61,7 +88,9 @@ public final class HgCommentParser {
             items.add(new HgComment(id,
                     base == null ? "" : truncate(str(base, "user_name"), 200),
                     avatar, truncate(content, 20000),
-                    Math.max(0, num(common, "create_timestamp", 0)), likes, replyCount, null));
+                    Math.max(0, num(common, "create_timestamp", 0)), likes, replyCount, null,
+                    base == null ? "" : str(base, "user_id"),
+                    (int) num(expand, "score", -1)));
         }
         return new HgComment.Page(items, Math.max(0, num(info, "total", 0)), more ? next : "", more);
     }
@@ -118,7 +147,8 @@ public final class HgCommentParser {
                 items.add(new HgComment(id,
                         base == null ? "" : truncate(str(base, "user_name"), 200),
                         avatar, truncate(content, 20000),
-                        Math.max(0, num(common, "create_timestamp", 0)), likes, replyCount, replyTo));
+                        Math.max(0, num(common, "create_timestamp", 0)), likes, replyCount, replyTo,
+                        base == null ? "" : str(base, "user_id"), -1));
             }
         }
         return new HgComment.Page(items, Math.max(0, num(info, "total", 0)), more ? next : "", more);

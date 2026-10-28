@@ -15,9 +15,19 @@ public final class HgComment {
     public final long replyCount;
     /** 仅回复条目有值：被回复人昵称。 */
     public final String replyTo;
+    /** 评论者 uid（base_info.user_id；点头像/名进作者页用）；没带为空串。 */
+    public final String userId;
+    /** 剧评评分（十分制，expand.score；剧评条目才有）；没带为 -1。 */
+    public final int score;
 
     public HgComment(String id, String author, String avatar, String content,
                      long created, long likes, long replyCount, String replyTo) {
+        this(id, author, avatar, content, created, likes, replyCount, replyTo, "", -1);
+    }
+
+    public HgComment(String id, String author, String avatar, String content,
+                     long created, long likes, long replyCount, String replyTo,
+                     String userId, int score) {
         this.id = id;
         this.author = author;
         this.avatar = avatar;
@@ -26,6 +36,8 @@ public final class HgComment {
         this.likes = likes;
         this.replyCount = replyCount;
         this.replyTo = replyTo;
+        this.userId = userId == null ? "" : userId;
+        this.score = score;
     }
 
     /** 评论一页：条目＋总数＋下一页游标（hasMore=false 时游标为空串）。 */

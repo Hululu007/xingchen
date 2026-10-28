@@ -746,6 +746,129 @@ public class HgOfflineTest {
             check("§27 集流条·集数未知不编全0集", "选集 · 已完结".equals(t3), "实际=" + t3);
         }
 
+        // §28 作者主页三签解析（2026-10-29 本机实拉定版固件，probe-author
+        //     存档裁剪：作品口 tab5 动态/tab11 剧作/sub121 剧评、收藏签、
+        //     点赞签、资料页头增量、剧评评分卡）——字段逐个对真回包。
+        {
+            String dyn = Files.readString(Paths.get(dir + "author_works_dynamic.json"));
+            com.fongmi.android.tv.hongguo.model.HgAuthorWork.Page wp = HgParser.parseAuthorWorks(dyn);
+            check("§28 作品动态解析非空", wp != null, null);
+            if (wp != null) {
+                check("§28 动态条目 2 条", wp.items.size() == 2, "实际=" + wp.items.size());
+                check("§28 子档表带回（全部/合集/剧评）", wp.subTabs.size() == 3
+                                && wp.subTabs.get(0).tabType == 100
+                                && wp.subTabs.get(1).tabType == 13
+                                && wp.subTabs.get(2).tabType == 121,
+                        "实际=" + wp.subTabs.size());
+                check("§28 续拉游标整串＋hasMore", wp.hasMore && wp.nextCursor.contains("next_cursor"),
+                        null);
+                com.fongmi.android.tv.hongguo.model.HgAuthorWork v0 = wp.items.get(0);
+                check("§28 video 条目分形", v0.kind == com.fongmi.android.tv.hongguo.model.HgAuthorWork.KIND_VIDEO
+                                && !v0.id.isEmpty() && !v0.title.isEmpty() && !v0.cover.isEmpty(),
+                        "实际=" + v0.kind + "/" + v0.title);
+                com.fongmi.android.tv.hongguo.model.HgAuthorWork p1 = wp.items.get(1);
+                check("§28 post 条目分形", p1.kind == com.fongmi.android.tv.hongguo.model.HgAuthorWork.KIND_POST
+                                && !p1.id.isEmpty() && !p1.title.isEmpty(),
+                        "实际=" + p1.kind + "/" + p1.title);
+            }
+            String ser = Files.readString(Paths.get(dir + "author_works_series.json"));
+            com.fongmi.android.tv.hongguo.model.HgAuthorWork.Page sp = HgParser.parseAuthorWorks(ser);
+            check("§28 剧作解析非空", sp != null && sp.items.size() == 2, null);
+            if (sp != null && !sp.items.isEmpty()) {
+                com.fongmi.android.tv.hongguo.model.HgAuthorWork s0 = sp.items.get(0);
+                check("§28 剧作条目＝剧（id 即 series、集数/副标题段在）",
+                        "7700949466840304664".equals(s0.playSeriesId())
+                                && s0.episodeCount == 109 && s0.subTitles.size() == 2,
+                        "实际=" + s0.playSeriesId() + "/" + s0.episodeCount + "/" + s0.subTitles);
+            }
+            String rev = Files.readString(Paths.get(dir + "author_works_reviews.json"));
+            com.fongmi.android.tv.hongguo.model.HgAuthorWork.Page rp = HgParser.parseAuthorWorks(rev);
+            check("§28 剧评子档解析非空", rp != null && !rp.items.isEmpty(), null);
+            if (rp != null && !rp.items.isEmpty()) {
+                com.fongmi.android.tv.hongguo.model.HgAuthorWork r0 = rp.items.get(0);
+                check("§28 剧评条目带十分制分", r0.kind == com.fongmi.android.tv.hongguo.model.HgAuthorWork.KIND_COMMENT
+                                && r0.score == 10 && !r0.title.isEmpty(),
+                        "实际=" + r0.kind + "/" + r0.score);
+            }
+            String shelf = Files.readString(Paths.get(dir + "author_shelf.json"));
+            com.fongmi.android.tv.hongguo.model.HgAuthorWork.Page fp = HgParser.parseAuthorShelf(shelf);
+            check("§28 收藏签解析非空", fp != null && fp.items.size() == 2, null);
+            if (fp != null && !fp.items.isEmpty()) {
+                com.fongmi.android.tv.hongguo.model.HgAuthorWork f0 = fp.items.get(0);
+                check("§28 收藏条目带 series_id/剧名/封面",
+                        "7700425313766870040".equals(f0.seriesId)
+                                && "谁说十五不能斩神".equals(f0.title) && !f0.cover.isEmpty(),
+                        "实际=" + f0.seriesId + "/" + f0.title);
+                check("§28 收藏 offset 续拉", fp.hasMore && "18".equals(fp.nextCursor),
+                        "实际=" + fp.nextCursor);
+            }
+            String likes = Files.readString(Paths.get(dir + "author_likes.json"));
+            com.fongmi.android.tv.hongguo.model.HgAuthorWork.Page lp = HgParser.parseAuthorLikes(likes);
+            check("§28 点赞签解析非空", lp != null && lp.items.size() == 2, null);
+            if (lp != null && !lp.items.isEmpty()) {
+                com.fongmi.android.tv.hongguo.model.HgAuthorWork l0 = lp.items.get(0);
+                check("§28 点赞条目 video_data 分形",
+                        "7685980827544456254".equals(l0.seriesId) && l0.episodeCount == 86
+                                && !l0.cover.isEmpty(),
+                        "实际=" + l0.seriesId + "/" + l0.episodeCount);
+            }
+            check("§28 作品口坏包回 null", HgParser.parseAuthorWorks("{\"code\":0}") == null, null);
+            check("§28 收藏口坏包回 null", HgParser.parseAuthorShelf("not json") == null, null);
+        }
+        {
+            // 资料页头增量：头衔徽标「已入驻」＋图标、bg_color/bg_covers、
+            // 隐私开关、计数（出品方作者真回包固件）
+            String raw = Files.readString(Paths.get(dir + "author_profile_studio.json"));
+            com.fongmi.android.tv.hongguo.model.HgUserProfile p = HgParser.parseUserProfile(raw);
+            check("§28 出品方资料解析非空", p != null, null);
+            if (p != null) {
+                check("§28 头衔徽标＝已入驻＋图标", "已入驻".equals(p.titleBadge)
+                                && p.titleBadgeIcon != null && p.titleBadgeIcon.startsWith("https://"),
+                        "实际=" + p.titleBadge + "/" + p.titleBadgeIcon);
+                check("§28 页头底色/背景图", "#707070".equals(p.bgColor)
+                                && p.bgCover != null && p.bgCover.startsWith("https://"),
+                        "实际=" + p.bgColor);
+                check("§28 两签隐私开关默认开", p.shelfOpen && p.diggOpen, null);
+                check("§28 粉丝数真值", p.fansNum == 425645, "实际=" + p.fansNum);
+                check("§28 头像回归（误删防线）", p.avatar != null && p.avatar.contains("novel-pic"),
+                        "实际=" + p.avatar);
+            }
+        }
+        {
+            // 剧评评分卡＋评论条目 uid/score（整剧评论真回包固件）
+            String raw = Files.readString(Paths.get(dir + "series_comments_rating.json"));
+            com.fongmi.android.tv.hongguo.model.HgSeriesRating rating =
+                    com.fongmi.android.tv.hongguo.api.HgCommentParser.parseSeriesRating(raw);
+            check("§28 红果分 7.2/926 人", Math.abs(rating.credibilityScore - 7.2f) < 1e-6
+                            && rating.credibilityScoreCount == 926,
+                    "实际=" + rating.credibilityScore + "/" + rating.credibilityScoreCount);
+            check("§28 收藏数/门槛秒", rating.collectorsCount == 766665
+                            && rating.canCommentThresholdSec == 300,
+                    "实际=" + rating.collectorsCount + "/" + rating.canCommentThresholdSec);
+            com.fongmi.android.tv.hongguo.model.HgComment.Page page =
+                    com.fongmi.android.tv.hongguo.api.HgCommentParser.parseList(
+                            raw, "7697561772433099800", "7697561772433099800", "", true);
+            check("§28 整剧评论解析非空", page != null && !page.items.isEmpty(), null);
+            if (page != null && !page.items.isEmpty()) {
+                com.fongmi.android.tv.hongguo.model.HgComment c0 = page.items.get(0);
+                check("§28 评论带 uid＋十分制分", !c0.userId.isEmpty() && c0.score == 10,
+                        "实际=" + c0.userId + "/" + c0.score);
+            }
+        }
+        {
+            // 详情增量字段（e1_detail 真回包）：热度/收藏态/收藏数/主色/副标题段/标签
+            String raw = Files.readString(Paths.get(dir + "tabprobe-20261028/e1_detail.json"));
+            com.fongmi.android.tv.hongguo.model.HgSeriesDetail det = HgParser.parseVideoDetail(raw);
+            check("§28 详情增量非空", det != null, null);
+            if (det != null) {
+                check("§28 热度原值", det.getHotScore() == 57090608L, "实际=" + det.getHotScore());
+                check("§28 副标题段两条", det.getSubTitles().size() == 2
+                                && det.getSubTitles().get(1).contains("5709"),
+                        "实际=" + det.getSubTitles());
+                check("§28 标签带名", !det.getTags().isEmpty(), "实际=" + det.getTags());
+            }
+        }
+
         System.out.println(fail == 0 ? "ALL PASS" : ("FAILURES=" + fail));
         System.exit(fail == 0 ? 0 : 1);
     }

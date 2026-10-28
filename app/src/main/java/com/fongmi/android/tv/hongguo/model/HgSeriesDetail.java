@@ -75,11 +75,24 @@ public final class HgSeriesDetail {
     private final boolean multiSeason;
     /** 所属专辑 id（related_album_id，系列单取数钥匙）；没带为 null。 */
     private final String relatedAlbumId;
+    /** 热度原值（hot_score，详情页「红果热度值」拼串用）；没带为 -1。 */
+    private final long hotScore;
+    /** 服务端收藏态（followed）；回包没带为 false。 */
+    private final boolean followed;
+    /** 收藏数（followed_cnt）；没带为 -1。 */
+    private final long followedCnt;
+    /** 服务端下发的剧主色（series_color_hex，详情页沉浸底色）；没带为 null。 */
+    private final String colorHex;
+    /** 副标题段（series_sub_title_list，如「全74集」「红果热度值4463万」）；没带为空表。 */
+    private final List<String> subTitles;
+    /** 分类标签名（category_schema 的 name 列）；没带为空表。 */
+    private final List<String> tags;
 
     HgSeriesDetail(String seriesId, String title, String coverUrl, String desc,
                    String authorName, int episodeCount, List<Episode> episodes, JsonObject raw) {
         this(seriesId, title, coverUrl, desc, authorName, episodeCount, episodes, raw,
-                false, false, null, Collections.emptyList(), null, null, false, null);
+                false, false, null, Collections.emptyList(), null, null, false, null,
+                -1, false, -1, null, Collections.emptyList(), Collections.emptyList());
     }
 
     HgSeriesDetail(String seriesId, String title, String coverUrl, String desc,
@@ -87,7 +100,8 @@ public final class HgSeriesDetail {
                    boolean hasAppointment, boolean appointmentSubscribed, String dueStartText) {
         this(seriesId, title, coverUrl, desc, authorName, episodeCount, episodes, raw,
                 hasAppointment, appointmentSubscribed, dueStartText,
-                Collections.emptyList(), null, null, false, null);
+                Collections.emptyList(), null, null, false, null,
+                -1, false, -1, null, Collections.emptyList(), Collections.emptyList());
     }
 
     HgSeriesDetail(String seriesId, String title, String coverUrl, String desc,
@@ -95,6 +109,19 @@ public final class HgSeriesDetail {
                    boolean hasAppointment, boolean appointmentSubscribed, String dueStartText,
                    List<Celebrity> celebrities, Integer seriesStatus, String statement,
                    boolean multiSeason, String relatedAlbumId) {
+        this(seriesId, title, coverUrl, desc, authorName, episodeCount, episodes, raw,
+                hasAppointment, appointmentSubscribed, dueStartText,
+                celebrities, seriesStatus, statement, multiSeason, relatedAlbumId,
+                -1, false, -1, null, Collections.emptyList(), Collections.emptyList());
+    }
+
+    HgSeriesDetail(String seriesId, String title, String coverUrl, String desc,
+                   String authorName, int episodeCount, List<Episode> episodes, JsonObject raw,
+                   boolean hasAppointment, boolean appointmentSubscribed, String dueStartText,
+                   List<Celebrity> celebrities, Integer seriesStatus, String statement,
+                   boolean multiSeason, String relatedAlbumId,
+                   long hotScore, boolean followed, long followedCnt, String colorHex,
+                   List<String> subTitles, List<String> tags) {
         this.seriesId = seriesId;
         this.title = title;
         this.coverUrl = coverUrl;
@@ -111,9 +138,23 @@ public final class HgSeriesDetail {
         this.statement = statement;
         this.multiSeason = multiSeason;
         this.relatedAlbumId = relatedAlbumId;
+        this.hotScore = hotScore;
+        this.followed = followed;
+        this.followedCnt = followedCnt;
+        this.colorHex = colorHex;
+        this.subTitles = subTitles == null ? Collections.emptyList()
+                : Collections.unmodifiableList(subTitles);
+        this.tags = tags == null ? Collections.emptyList()
+                : Collections.unmodifiableList(tags);
     }
 
     public String getStatement() { return statement; }
+    public long getHotScore() { return hotScore; }
+    public boolean isFollowed() { return followed; }
+    public long getFollowedCnt() { return followedCnt; }
+    public String getColorHex() { return colorHex; }
+    public List<String> getSubTitles() { return subTitles; }
+    public List<String> getTags() { return tags; }
     public boolean isMultiSeason() { return multiSeason; }
     public String getRelatedAlbumId() { return relatedAlbumId; }
 

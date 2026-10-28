@@ -201,12 +201,53 @@ public final class HgParser {
                         nick, role, str(co, "avatar"), str(co, "sub_title")));
             }
         }
+        // 详情页增量（video_data 真回包逐字，e1_detail 存档实证）：热度原值、
+        // 服务端收藏态与收藏数、剧主色、副标题段、分类标签名。
+        List<String> tags = new ArrayList<>();
+        String schema = str(d, "category_schema");
+        if (schema != null && !schema.isEmpty()) {
+            try {
+                JsonElement parsed = JsonParser.parseString(schema);
+                if (parsed.isJsonArray()) {
+                    for (JsonElement el : parsed.getAsJsonArray()) {
+                        if (el.isJsonObject()) {
+                            String n = str(el.getAsJsonObject(), "name");
+                            if (n != null && !n.isEmpty()) tags.add(n);
+                        }
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        if (tags.isEmpty()) {
+            for (String key : new String[]{"abstract_tags", "rec_tags"}) {
+                JsonArray ta = arr(d, key);
+                if (ta == null) continue;
+                for (JsonElement el : ta) {
+                    String n = null;
+                    if (el.isJsonObject()) n = str(el.getAsJsonObject(), "name");
+                    else if (el.isJsonPrimitive()) {
+                        try {
+                            n = el.getAsString();
+                        } catch (Exception ignored) {
+                        }
+                    }
+                    if (n != null && !n.isEmpty()) tags.add(n);
+                }
+                if (!tags.isEmpty()) break;
+            }
+        }
+        String colorHex = str(d, "series_color_hex");
         return new HgSeriesDetail(seriesId, title, cover, desc, author, count, episodes, root,
                 appt != null, appt != null && boolOf(appt, "is_subscribed"),
                 appt == null ? null : str(appt, "due_start_text"),
                 celebrities, intOrNull(d, "series_status"),
                 statementOf(intOrNull(d, "ai_usage_type")),
-                boolOf(d, "is_multi_season"), firstStr(d, "related_album_id_str", "related_album_id"));
+                boolOf(d, "is_multi_season"), firstStr(d, "related_album_id_str", "related_album_id"),
+                longOf(d, "hot_score", -1), boolOf(d, "followed"),
+                longOf(d, "followed_cnt", -1),
+                colorHex == null || colorHex.isEmpty() ? null : colorHex,
+                subTitleList(d), tags);
     }
 
     /**
@@ -1061,6 +1102,72 @@ public final class HgParser {
                 }
             }
         }
+        // 副标题行（user_expand.sub_title_list，官方作者页「出品方 | 红果号：
+        // 数字」行同源；元素两形并存：对象取 text/content、纯字符串直用）
+        String subTitleLine = null;
+        String hongguoId = null;
+        JsonObject expand = obj(ugc, "user_expand");
+        JsonArray subs = expand == null ? null : arr(expand, "sub_title_list");
+        if (subs != null) {
+            List<String> parts = new ArrayList<>();
+            for (JsonElement el : subs) {
+                String v = null;
+                if (el.isJsonObject()) v = firstStr(el.getAsJsonObject(), "text", "content");
+                else if (el.isJsonPrimitive()) {
+                    try {
+                        v = el.getAsString();
+                    } catch (Exception ignored) {
+                    }
+                }
+                if (v != null && !v.isEmpty()) parts.add(v);
+            }
+            if (!parts.isEmpty()) {
+                subTitleLine = String.join(" | ", parts);
+                for (String part : parts) {
+                    int at = part.indexOf("红果号");
+                    if (at < 0) continue;
+                    String digits = part.substring(at).replaceAll("[^0-9]", "");
+                    if (!digits.isEmpty()) hongguoId = digits;
+                }
+            }
+        }
+        // 头衔徽标（user_tag.user_title_info：zh_title＋icon.icon_default_url，
+        // 本机实拉出品方作者验通：「已入驻」＋35×16 图标）
+        String titleBadge = null;
+        String titleBadgeIcon = null;
+        JsonObject tag = obj(ugc, "user_tag");
+        JsonArray titles = tag == null ? null : arr(tag, "user_title_info");
+        if (titles != null && titles.size() > 0 && titles.get(0).isJsonObject()) {
+            JsonObject t0 = titles.get(0).getAsJsonObject();
+            titleBadge = str(t0, "zh_title");
+            String iconRaw = str(t0, "icon");
+            if (iconRaw != null && !iconRaw.isEmpty()) {
+                try {
+                    JsonElement ip = JsonParser.parseString(iconRaw);
+                    if (ip.isJsonObject()) {
+                        titleBadgeIcon = str(ip.getAsJsonObject(), "icon_default_url");
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        // 页头底（data.bg_color/bg_covers）与两签隐私开关（data 层，与 ugc_user 平级）
+        String bgColor = str(data, "bg_color");
+        String bgCover = null;
+        JsonArray covers = arr(data, "bg_covers");
+        if (covers != null && covers.size() > 0 && covers.get(0).isJsonPrimitive()) {
+            try {
+                bgCover = covers.get(0).getAsString();
+            } catch (Exception ignored) {
+            }
+        }
+        boolean shelfOpen = true;
+        boolean diggOpen = true;
+        JsonObject privacy = obj(data, "person_privacy_switch_conf");
+        if (privacy != null) {
+            shelfOpen = !"off".equals(str(privacy, "person_bookshelf_video_list_switcher"));
+            diggOpen = !"off".equals(str(privacy, "person_digg_video_switcher"));
+        }
         return new HgUserProfile(
                 firstStr(ugc, "user_id"),
                 base == null ? null : firstStr(base, "user_name"),
@@ -1069,6 +1176,250 @@ public final class HgParser {
                 rel == null ? -1 : intOf(rel, "follow_user_num", -1),
                 rel == null ? -1 : intOf(rel, "fans_num", -1),
                 rel == null ? -1 : intOf(rel, "recv_digged_count", -1),
-                relationRaw, followed);
+                relationRaw, followed, subTitleLine, hongguoId,
+                titleBadge, titleBadgeIcon,
+                bgColor == null || bgColor.isEmpty() ? null : bgColor,
+                bgCover == null || bgCover.isEmpty() ? null : bgCover,
+                shelfOpen, diggOpen);
+    }
+
+    // ---------- 作者主页三签（2026-10-29 本机实拉定版，probe-author 存档） ----------
+
+    /**
+     * 作者作品口回包（POST commentapi/user/profile/:uid/v1/）→ 一页。
+     * data.tabs[0].sub_tabs 是子档表（全部100/合集13/剧评121…，服务端按
+     * 作者类型下发）；data_list 按 data_type 分形（1 video／3 post／
+     * 4 comment）；续拉凭据＝common_list_info.cursor 整串原样回传。
+     * 信封坏或无 data 返回 null。
+     */
+    public static HgAuthorWork.Page parseAuthorWorks(String json) {
+        JsonObject root = parseEnvelope(json);
+        if (root == null) return null;
+        JsonObject data = obj(root, "data");
+        if (data == null) return null;
+        List<HgAuthorWork.SubTab> subTabs = new ArrayList<>();
+        JsonArray tabs = arr(data, "tabs");
+        if (tabs != null && tabs.size() > 0 && tabs.get(0).isJsonObject()) {
+            JsonArray subs = arr(tabs.get(0).getAsJsonObject(), "sub_tabs");
+            if (subs != null) {
+                for (JsonElement el : subs) {
+                    if (!el.isJsonObject()) continue;
+                    JsonObject so = el.getAsJsonObject();
+                    subTabs.add(new HgAuthorWork.SubTab(
+                            str(so, "name"), intOf(so, "tab_type", -1),
+                            longOf(so, "total", -1)));
+                }
+            }
+        }
+        List<HgAuthorWork> items = new ArrayList<>();
+        JsonArray rows = arr(data, "data_list");
+        if (rows != null) {
+            for (JsonElement el : rows) {
+                if (!el.isJsonObject()) continue;
+                HgAuthorWork w = authorWorkOf(el.getAsJsonObject());
+                if (w != null) items.add(w);
+            }
+        }
+        JsonObject info = obj(data, "common_list_info");
+        boolean more = info != null && boolOf(info, "has_more");
+        String cursor = info == null ? null : str(info, "cursor");
+        return new HgAuthorWork.Page(items, more ? cursor : "", more, subTabs);
+    }
+
+    /** 作品口单条分形抽取（video/post/comment 三形＋收藏/点赞的 video_data 形复用点不在此）。 */
+    private static HgAuthorWork authorWorkOf(JsonObject row) {
+        int type = intOf(row, "data_type", -1);
+        if (type == HgAuthorWork.KIND_VIDEO) {
+            JsonObject v = obj(row, "video");
+            if (v == null) return null;
+            JsonObject common = obj(v, "common");
+            JsonObject expand = obj(v, "expand");
+            JsonObject stat = obj(v, "stat");
+            JsonObject base = baseInfoOf(common);
+            String cover = common == null ? null
+                    : firstStr(common, "cover", "cover_vertical", "horiz_cover");
+            List<String> subs = new ArrayList<>();
+            if (expand != null) {
+                JsonArray sa = arr(expand, "sub_title_list");
+                if (sa != null) {
+                    for (JsonElement el : sa) {
+                        if (el.isJsonObject()) {
+                            String t = str(el.getAsJsonObject(), "text");
+                            if (t != null && !t.isEmpty()) subs.add(t);
+                        }
+                    }
+                }
+            }
+            return new HgAuthorWork(HgAuthorWork.KIND_VIDEO,
+                    firstStr(v, "video_id", "vid"),
+                    null,
+                    cover,
+                    common == null ? null : str(common, "title"),
+                    common == null ? null : str(common, "intro"),
+                    expand == null ? 0 : intOf(expand, "episode_cnt", 0),
+                    stat == null ? 0 : longOf(stat, "digg_cnt", 0),
+                    stat == null ? 0 : longOf(stat, "play_cnt", 0),
+                    stat == null ? 0 : longOf(stat, "hot", 0),
+                    subs,
+                    base == null ? null : str(base, "user_name"),
+                    base == null ? null : str(base, "user_avatar"),
+                    -1,
+                    common == null ? 0 : longOf(common, "create_timestamp", 0));
+        }
+        if (type == HgAuthorWork.KIND_POST) {
+            JsonObject p = obj(row, "post");
+            if (p == null) return null;
+            JsonObject common = obj(p, "common");
+            JsonObject stat = obj(p, "stat");
+            JsonObject base = baseInfoOf(common);
+            String cover = null;
+            JsonObject coverObj = common == null ? null : obj(common, "cover");
+            if (coverObj != null) cover = str(coverObj, "web_url");
+            String title = common == null ? null : str(common, "title");
+            if (title == null || title.isEmpty()) {
+                JsonObject content = common == null ? null : obj(common, "content");
+                title = content == null ? null : str(content, "pure_text");
+            }
+            return new HgAuthorWork(HgAuthorWork.KIND_POST,
+                    str(p, "post_id"),
+                    null, cover, title, null, 0,
+                    stat == null ? 0 : longOf(stat, "digg_count", 0),
+                    0, 0, null,
+                    base == null ? null : str(base, "user_name"),
+                    base == null ? null : str(base, "user_avatar"),
+                    -1,
+                    common == null ? 0 : longOf(common, "create_timestamp", 0));
+        }
+        if (type == HgAuthorWork.KIND_COMMENT) {
+            JsonObject c = obj(row, "comment");
+            if (c == null) return null;
+            JsonObject common = obj(c, "common");
+            JsonObject expand = obj(c, "expand");
+            JsonObject stat = obj(c, "stat");
+            JsonObject base = baseInfoOf(common);
+            JsonObject content = common == null ? null : obj(common, "content");
+            return new HgAuthorWork(HgAuthorWork.KIND_COMMENT,
+                    str(c, "comment_id"),
+                    null, null,
+                    content == null ? null : str(content, "text"),
+                    null, 0,
+                    stat == null ? 0 : longOf(stat, "digg_count", 0),
+                    0, 0, null,
+                    base == null ? null : str(base, "user_name"),
+                    base == null ? null : str(base, "user_avatar"),
+                    scoreOf(expand),
+                    common == null ? 0 : longOf(common, "create_timestamp", 0));
+        }
+        return null;
+    }
+
+    /** 剧评分（expand.score 真回包是字符串型 "10"，数字型也容忍）；没带为 -1。 */
+    private static int scoreOf(JsonObject expand) {
+        if (expand == null || !expand.has("score")) return -1;
+        JsonElement e = expand.get("score");
+        if (e == null || !e.isJsonPrimitive()) return -1;
+        try {
+            if (e.getAsJsonPrimitive().isNumber()) return e.getAsInt();
+            if (e.getAsJsonPrimitive().isString()) return Integer.parseInt(e.getAsString().trim());
+        } catch (Exception ignored) {
+        }
+        return -1;
+    }
+
+    /** common.user_info.base_info 抽取（作品口三形共用）。 */
+    private static JsonObject baseInfoOf(JsonObject common) {
+        if (common == null) return null;
+        JsonObject ui = obj(common, "user_info");
+        return ui == null ? null : obj(ui, "base_info");
+    }
+
+    /**
+     * 作者收藏签回包（GET bookshelf/video/info?target_user_id=，本机实拉
+     * 验通）：data.video_shelf_info[]＋next_offset/has_more。条目剧信息在
+     * 本层（series_title/series_cover_url），video_data 里有 series_id。
+     */
+    public static HgAuthorWork.Page parseAuthorShelf(String json) {
+        JsonObject root = parseEnvelope(json);
+        if (root == null) return null;
+        JsonObject data = obj(root, "data");
+        if (data == null) return null;
+        List<HgAuthorWork> items = new ArrayList<>();
+        JsonArray rows = arr(data, "video_shelf_info");
+        if (rows != null) {
+            for (JsonElement el : rows) {
+                if (!el.isJsonObject()) continue;
+                JsonObject o = el.getAsJsonObject();
+                JsonObject vd = obj(o, "video_data");
+                String seriesId = vd == null ? null
+                        : firstStr(vd, "series_id_str", "series_id");
+                if (seriesId == null) seriesId = firstStr(o, "series_id_str", "series_id");
+                items.add(new HgAuthorWork(HgAuthorWork.KIND_VIDEO,
+                        vd == null ? null : firstStr(vd, "vid", "video_id"),
+                        seriesId,
+                        firstStr(o, "series_cover_url", "cover"),
+                        firstStr(o, "series_title", "title"),
+                        str(o, "series_intro"),
+                        vd == null ? 0 : intOf(vd, "episode_cnt", 0),
+                        0, 0, 0, null, null, null, -1,
+                        longOf(o, "collect_time", 0)));
+            }
+        }
+        boolean more = boolOf(data, "has_more");
+        int next = intOf(data, "next_offset", -1);
+        return new HgAuthorWork.Page(items,
+                more && next >= 0 ? String.valueOf(next) : "", more, null);
+    }
+
+    /**
+     * 作者点赞签回包（GET ugc/action/mget?action_type=3，本机实拉验通）：
+     * data.mixed_data_list[]＋next_offset/has_more。data_type=30 带
+     * video_data{vid/series_id/title/cover/episode_cnt/digged_count}；
+     * 35 带 video_detail_info（内层形状未细验，容忍递归找 video_data/
+     * series_id/title/cover）。
+     */
+    public static HgAuthorWork.Page parseAuthorLikes(String json) {
+        JsonObject root = parseEnvelope(json);
+        if (root == null) return null;
+        JsonObject data = obj(root, "data");
+        if (data == null) return null;
+        List<HgAuthorWork> items = new ArrayList<>();
+        JsonArray rows = arr(data, "mixed_data_list");
+        if (rows != null) {
+            for (JsonElement el : rows) {
+                if (!el.isJsonObject()) continue;
+                JsonObject o = el.getAsJsonObject();
+                JsonObject vd = obj(o, "video_data");
+                if (vd == null) {
+                    JsonObject info = obj(o, "video_detail_info");
+                    if (info != null) vd = obj(info, "video_data");
+                    if (vd == null && info != null) vd = info;
+                }
+                if (vd == null) continue;
+                items.add(new HgAuthorWork(HgAuthorWork.KIND_VIDEO,
+                        firstStr(vd, "vid", "video_id"),
+                        firstStr(vd, "series_id_str", "series_id"),
+                        firstStr(vd, "cover", "series_cover"),
+                        firstStr(vd, "title", "series_title"),
+                        str(vd, "video_desc"),
+                        intOf(vd, "episode_cnt", 0),
+                        longOf(vd, "digged_count", 0),
+                        0, 0, null, null, null, -1, 0));
+            }
+        }
+        boolean more = boolOf(data, "has_more");
+        int next = intOf(data, "next_offset", -1);
+        return new HgAuthorWork.Page(items,
+                more && next >= 0 ? String.valueOf(next) : "", more, null);
+    }
+
+    /** 信封解析（code 缺失或 JSON 坏返回 null；code 非 0 也返回根，消费侧按 data 空判失败）。 */
+    private static JsonObject parseEnvelope(String json) {
+        if (json == null || json.isEmpty()) return null;
+        try {
+            JsonElement el = JsonParser.parseString(json);
+            return el.isJsonObject() ? el.getAsJsonObject() : null;
+        } catch (Exception e) {
+            return null;
+        }
     }
 }

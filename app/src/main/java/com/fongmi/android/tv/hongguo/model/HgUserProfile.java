@@ -25,10 +25,52 @@ public final class HgUserProfile {
     public final String relationType;
     /** 我已关注他（relation_type＝Follow/MutualFollow）；判读不出为 null。 */
     public final Boolean followedByMe;
+    /**
+     * 副标题行（user_expand.sub_title_list 各段以「 | 」拼，官方作者页
+     * 「出品方 | 红果号：数字」那行同源）；回包没带为 null。
+     */
+    public final String subTitleLine;
+    /** 红果号数字（从 sub_title_line 的「红果号：」段抽出，供点行复制）；无为 null。 */
+    public final String hongguoId;
+    /**
+     * 头衔徽标文案（user_tag.user_title_info 首条 zh_title，官方作者页名旁
+     * 「已入驻」蓝标同源，本机实拉验通）；无为 null。
+     */
+    public final String titleBadge;
+    /** 头衔徽标图标地址（title_info.icon 的 icon_default_url）；无为 null。 */
+    public final String titleBadgeIcon;
+    /** 页头底色（data.bg_color，如 #707070）；无为 null。 */
+    public final String bgColor;
+    /** 页头背景图（data.bg_covers 首张，柔光色场垫图）；无为 null。 */
+    public final String bgCover;
+    /** 收藏签可见（person_privacy_switch_conf.person_bookshelf_video_list_switcher 非 off）。 */
+    public final boolean shelfOpen;
+    /** 点赞签可见（person_digg_video_switcher 非 off）。 */
+    public final boolean diggOpen;
 
     public HgUserProfile(String userId, String name, String avatar, String desc,
                          int followUserNum, int fansNum, int recvDiggedCount,
                          String relationType, Boolean followedByMe) {
+        this(userId, name, avatar, desc, followUserNum, fansNum, recvDiggedCount,
+                relationType, followedByMe, null, null, null, null, null, null, true, true);
+    }
+
+    public HgUserProfile(String userId, String name, String avatar, String desc,
+                         int followUserNum, int fansNum, int recvDiggedCount,
+                         String relationType, Boolean followedByMe,
+                         String subTitleLine, String hongguoId) {
+        this(userId, name, avatar, desc, followUserNum, fansNum, recvDiggedCount,
+                relationType, followedByMe, subTitleLine, hongguoId,
+                null, null, null, null, true, true);
+    }
+
+    public HgUserProfile(String userId, String name, String avatar, String desc,
+                         int followUserNum, int fansNum, int recvDiggedCount,
+                         String relationType, Boolean followedByMe,
+                         String subTitleLine, String hongguoId,
+                         String titleBadge, String titleBadgeIcon,
+                         String bgColor, String bgCover,
+                         boolean shelfOpen, boolean diggOpen) {
         this.userId = userId;
         this.name = name;
         this.avatar = avatar;
@@ -38,6 +80,14 @@ public final class HgUserProfile {
         this.recvDiggedCount = recvDiggedCount;
         this.relationType = relationType;
         this.followedByMe = followedByMe;
+        this.subTitleLine = subTitleLine;
+        this.hongguoId = hongguoId;
+        this.titleBadge = titleBadge;
+        this.titleBadgeIcon = titleBadgeIcon;
+        this.bgColor = bgColor;
+        this.bgCover = bgCover;
+        this.shelfOpen = shelfOpen;
+        this.diggOpen = diggOpen;
     }
 
     /** 计数三组齐备才算有数据行（任一计数缺失时整行不显，不摆半份数）。 */

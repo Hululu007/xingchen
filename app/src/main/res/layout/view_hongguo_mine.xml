@@ -107,11 +107,48 @@
         </LinearLayout>
     </FrameLayout>
 
+    <!-- 功能列表（官方 pj() 主列表的短剧子集：只留有真数据/真去处的项；
+         我的预约开预约页（新剧预约数据面未抠到，本版先做我的预约一面）；
+         金币/商城/钱包/会员是官方商业件，第三方不做；我的下载无下载功能不摆） -->
     <LinearLayout
-        android:layout_width="wrap_content"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp">
+
+        <LinearLayout
+            android:id="@+id/hg_mine_entry_reserve"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:gravity="center_horizontal"
+            android:orientation="vertical"
+            android:padding="6dp">
+
+            <ImageView
+                android:layout_width="26dp"
+                android:layout_height="26dp"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_hg_entry_reserve" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="我的预约"
+                android:textColor="#FF000000"
+                android:textSize="12sp" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- 页签条（官方 qb3/f：标题 16sp 选中粗体；右端搜索图标 20dp）。
+         页签＝历史/收藏/点赞（短剧范围）；预约走上方功能位开页，不占页签。 -->
+    <LinearLayout
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginStart="8dp"
         android:layout_marginTop="10dp"
+        android:gravity="center_vertical"
         android:orientation="horizontal">
 
         <TextView
@@ -120,7 +157,7 @@
             android:layout_height="wrap_content"
             android:padding="8dp"
             android:text="历史"
-            android:textSize="15sp" />
+            android:textSize="16sp" />
 
         <TextView
             android:id="@+id/hg_mine_tab_fav"
@@ -128,7 +165,7 @@
             android:layout_height="wrap_content"
             android:padding="8dp"
             android:text="收藏"
-            android:textSize="15sp" />
+            android:textSize="16sp" />
 
         <TextView
             android:id="@+id/hg_mine_tab_like"
@@ -136,15 +173,49 @@
             android:layout_height="wrap_content"
             android:padding="8dp"
             android:text="点赞"
-            android:textSize="15sp" />
+            android:textSize="16sp" />
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
+
+        <ImageView
+            android:id="@+id/hg_mine_search"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:layout_marginEnd="16dp"
+            android:contentDescription="@null"
+            android:src="@drawable/ic_hg_search" />
+    </LinearLayout>
+
+    <!-- 子筛行（官方书架壳 auf：二级页签条 42dp 高、右端筛选/编辑 14sp 粗）。
+         筹集按页签换：历史＝全部/已看完/未看完；收藏＝全部/真人剧/追更（他定）；
+         点赞无子筛。编辑进多选删除态。 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="42dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp">
+
+        <LinearLayout
+            android:id="@+id/hg_mine_chips"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="horizontal" />
 
         <TextView
-            android:id="@+id/hg_mine_tab_reserve"
+            android:id="@+id/hg_mine_edit"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:padding="8dp"
-            android:text="预约"
-            android:textSize="15sp" />
+            android:padding="6dp"
+            android:text="编辑"
+            android:textColor="#FF000000"
+            android:textSize="14sp"
+            android:textStyle="bold" />
     </LinearLayout>
 
     <TextView
@@ -164,4 +235,36 @@
         android:layout_weight="1"
         android:clipToPadding="false"
         android:padding="8dp" />
+
+    <!-- 编辑模式底条（选中计数＋删除动作；非编辑态 gone） -->
+    <LinearLayout
+        android:id="@+id/hg_mine_edit_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="16dp"
+        android:paddingTop="10dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="10dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/hg_mine_edit_count"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textColor="#666666"
+            android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/hg_mine_edit_delete"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:padding="6dp"
+            android:text="删除"
+            android:textColor="#E5484D"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+    </LinearLayout>
 </com.fongmi.android.tv.hongguo.ui.HgMineView>

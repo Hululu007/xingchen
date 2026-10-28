@@ -700,7 +700,8 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         for (int i = 0; i < result.size(); i++) {
             HgSeriesItem s = result.get(i);
             if (s.getSeriesId() != null) {
-                HgStore.putMeta(s.getSeriesId(), s.getTitle(), s.getCoverUrl(), s.getEpisodeCount());
+                HgStore.putMeta(s.getSeriesId(), s.getTitle(), s.getCoverUrl(), s.getEpisodeCount(),
+                        s.getBadge());
                 if (s.hasAppointment()) {
                     // 未上线剧：服务端预约态同步进镜像
                     HgStore.setReserved(s.getSeriesId(), s.isAppointmentSubscribed());

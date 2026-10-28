@@ -272,13 +272,25 @@ public final class HgStore {
     private static final String SEP = "\u0001";
 
     public static void putMeta(String seriesId, String title, String cover, int episodeCount) {
+        putMeta(seriesId, title, cover, episodeCount, null);
+    }
+
+    /** badge＝服务端角标原文（漫剧/AI剧/真人剧等，流条目 tag_info.text）；第四段存，旧三段读法不受影响。badge 为 null 时保留已存的角标不冲掉。 */
+    public static void putMeta(String seriesId, String title, String cover, int episodeCount,
+                               String badge) {
         if (seriesId == null || seriesId.isEmpty()) return;
         String t = title == null ? "" : title.replace(SEP, " ");
         String c = cover == null ? "" : cover.replace(SEP, " ");
-        Prefers.put(K_META_PREFIX + seriesId, t + SEP + c + SEP + episodeCount);
+        String b = badge;
+        if (b == null) {
+            String[] old = metaOf(seriesId);
+            b = old != null && old.length > 3 ? old[3] : "";
+        }
+        Prefers.put(K_META_PREFIX + seriesId,
+                t + SEP + c + SEP + episodeCount + SEP + b.replace(SEP, " "));
     }
 
-    /** 返回 {标题, 封面, 集数串}；没存过返回 null。 */
+    /** 返回 {标题, 封面, 集数串, 角标}（角标可能缺省为""）；没存过返回 null。 */
     public static String[] metaOf(String seriesId) {
         if (seriesId == null || seriesId.isEmpty()) return null;
         String raw = Prefers.getString(K_META_PREFIX + seriesId, "");
@@ -286,6 +298,16 @@ public final class HgStore {
         String[] parts = raw.split(SEP, -1);
         if (parts.length < 3) return null;
         return parts;
+    }
+
+    /** 删除一条观看历史（断点+索引一并摘掉，我的页编辑模式用）。 */
+    public static void removeHistory(String seriesId) {
+        if (seriesId == null || seriesId.isEmpty()) return;
+        Prefers.put(K_HIST_PREFIX + seriesId, "");
+        java.util.List<String> ids = new java.util.ArrayList<>(readSet(K_HIST_INDEX));
+        if (ids.remove(seriesId)) {
+            Prefers.put(K_HIST_INDEX, String.join(",", ids));
+        }
     }
 
     /** 切换成员状态，返回切换后的状态。 */

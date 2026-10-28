@@ -234,7 +234,8 @@ public final class HgFeedSession {
         String title = detail != null && detail.getTitle() != null ? detail.getTitle() : head.title;
         HgStore.putMeta(head.seriesId, title,
                 detail != null && detail.getCoverUrl() != null ? detail.getCoverUrl() : head.coverUrl,
-                detail != null && detail.getEpisodeCount() > 0 ? detail.getEpisodeCount() : head.episodeCount);
+                detail != null && detail.getEpisodeCount() > 0 ? detail.getEpisodeCount() : head.episodeCount,
+                head.badge);
         String desc = detail != null && detail.getDesc() != null ? detail.getDesc() : head.desc;
         String author = detail == null ? null : detail.getAuthorName();
         String avatar = avatarOf(detail);
@@ -327,7 +328,8 @@ public final class HgFeedSession {
         // 元信息顺手落盘：追更/收藏/历史列表页靠它显示标题封面（不另拉接口）
         HgStore.putMeta(head.seriesId, title,
                 detail != null && detail.getCoverUrl() != null ? detail.getCoverUrl() : head.coverUrl,
-                detail != null && detail.getEpisodeCount() > 0 ? detail.getEpisodeCount() : head.episodeCount);
+                detail != null && detail.getEpisodeCount() > 0 ? detail.getEpisodeCount() : head.episodeCount,
+                head.badge);
         String desc = detail != null && detail.getDesc() != null ? detail.getDesc() : head.desc;
         String cover = detail != null && detail.getCoverUrl() != null ? detail.getCoverUrl() : head.coverUrl;
         String author = detail == null ? null : detail.getAuthorName();

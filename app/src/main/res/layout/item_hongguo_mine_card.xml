@@ -26,6 +26,34 @@
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toTopOf="parent" />
+
+        <!-- 右上角标（服务端角标原文：漫剧/AI剧/真人剧等；无角标 gone） -->
+        <TextView
+            android:id="@+id/hg_m_badge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_margin="4dp"
+            android:background="@drawable/bg_hg_mine_badge"
+            android:paddingStart="4dp"
+            android:paddingTop="1dp"
+            android:paddingEnd="4dp"
+            android:paddingBottom="1dp"
+            android:textColor="#FFFFFF"
+            android:textSize="9sp"
+            android:visibility="gone"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toTopOf="parent" />
+
+        <!-- 编辑模式勾选位（封面右下 22dp，官方 hl8 同位；非编辑态 gone） -->
+        <ImageView
+            android:id="@+id/hg_m_check"
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:layout_margin="6dp"
+            android:contentDescription="@null"
+            android:visibility="gone"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
     </androidx.constraintlayout.widget.ConstraintLayout>
 
     <TextView

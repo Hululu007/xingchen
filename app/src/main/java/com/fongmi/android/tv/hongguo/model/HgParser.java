@@ -652,7 +652,17 @@ public final class HgParser {
             }
         }
         for (Map.Entry<String, JsonElement> e : o.entrySet()) {
-            merged.add(e.getKey(), e.getValue());
+            // 条目自带空串不许盖掉已从 video_detail 抬升的真值：推荐频道
+            // video_data 条目自带 cover:""/vid:""、真封面只在 video_detail
+            // .series_cover 里——无条件覆盖时封面被空串抹掉（2026-10-28
+            // 《镇国杀神》真回包探针定罪：parseDiscoverTab 出 cover=null）
+            JsonElement v = e.getValue();
+            if (v != null && v.isJsonPrimitive() && v.getAsJsonPrimitive().isString()
+                    && v.getAsString().isEmpty()
+                    && firstStr(merged, e.getKey()) != null) {
+                continue;
+            }
+            merged.add(e.getKey(), v);
         }
         if (firstStr(merged, "series_id", "book_id") == null) {
             putIfPresent(merged, "series_id", firstStr(merged, "series_id_str"));

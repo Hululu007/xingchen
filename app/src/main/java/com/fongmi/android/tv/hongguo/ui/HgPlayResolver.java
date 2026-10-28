@@ -274,12 +274,37 @@ public final class HgPlayResolver {
      * HgApiClient 类头注）。fplay 兜底只能跟在拿到模型之后（fallback_api
      * 在回包里）。
      */
+    private static final Object FETCH_GATE = new Object();
+    private static long lastFetchStartMs = 0;
+
     private HgVideoModel fetchModel(String videoId) {
         for (int attempt = 0; attempt < 3; attempt++) {
+            // 网关对同一设备短时密集取模型会回空体（2026-10-28 本机实证：
+            // 连续取数次后 video_model 回空、换新设备档案立刻恢复）——
+            // 重试之间留间隔、全局取模型起步错峰，别连发撞限流
+            if (attempt == 1) sleepQuiet(1200);
+            else if (attempt == 2) sleepQuiet(3000);
+            gateFetchStart();
             HgVideoModel m = fetchSigned(videoId);
             if (m != null) return m;
         }
         return null;
+    }
+
+    private static void gateFetchStart() {
+        synchronized (FETCH_GATE) {
+            long wait = lastFetchStartMs + 700 - System.currentTimeMillis();
+            if (wait > 0) sleepQuiet(wait);
+            lastFetchStartMs = System.currentTimeMillis();
+        }
+    }
+
+    private static void sleepQuiet(long ms) {
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private HgVideoModel fetchSigned(String videoId) {

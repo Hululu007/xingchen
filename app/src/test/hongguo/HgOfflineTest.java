@@ -225,6 +225,18 @@ public class HgOfflineTest {
                 if (it.getStatement() != null) feedStmt = true;
             }
             check("频道条目作者声明在", feedStmt, null);
+            // 推荐频道 video_data 条目自带 cover:""——video_detail.series_cover
+            // 才是真封面，空串不许盖掉（《镇国杀神》真机只剩大字占位定罪）
+            boolean zgCover = false;
+            for (com.fongmi.android.tv.hongguo.model.HgSeriesItem it :
+                    HgParser.parseDiscoverTab(recRaw, 16).getItems()) {
+                if ("7689087139169963032".equals(it.getSeriesId())) {
+                    zgCover = it.getCoverUrl() != null
+                            && it.getCoverUrl().contains("09db19a8761d976e0a592ea7ce6fd72d")
+                            && "7689135643254852632".equals(it.getVid());
+                }
+            }
+            check("video_data 空封面不盖真封面（镇国杀神）", zgCover, null);
             // 多季系列：详情存档（空间囤货）带 is_multi_season＋related_album_id，
             // 此前解析不读、系列单永远弹不出（频道面只有专辑 id 没兄弟表，
             // 进剧时靠 fetchAlbum 现拉，见 HgApiClient.fetchAlbum）

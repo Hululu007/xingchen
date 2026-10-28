@@ -838,8 +838,21 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     private void showErrorWithCode(HgFeedAdapter.Holder holder, String code) {
         if (holder == null) return;
         if (code != null && !code.isEmpty()) android.util.Log.w("HgFeed", "条目加载失败 code=" + code);
-        holder.binding.hgError.setText("加载失败，点按重试");
+        holder.binding.hgError.setText(errorTextFor(code));
         holder.binding.hgError.setVisibility(View.VISIBLE);
+    }
+
+    /** 失败阶段的人话（编号只进日志）：让他一眼知道卡在哪一环。 */
+    private static String errorTextFor(String code) {
+        if (code == null) return "加载失败，点按重试";
+        switch (code) {
+            case "E1": return "取数据失败，点按重试";
+            case "E2": return "这一集暂时没有可播的源";
+            case "E3": return "取地址失败，点按重试";
+            case "E4": return "解密失败，点按重试";
+            case "E5": return "播放准备失败，点按重试";
+            default: return "加载失败，点按重试";
+        }
     }
 
     private void startCurrentPlayback() {

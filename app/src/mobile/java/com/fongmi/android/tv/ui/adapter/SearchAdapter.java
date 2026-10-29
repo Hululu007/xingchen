@@ -134,9 +134,11 @@ public class SearchAdapter extends BaseDiffAdapter<Vod, RecyclerView.ViewHolder>
         }
 
         private void applySize() {
-            ViewGroup.LayoutParams imageParams = binding.image.getLayoutParams();
-            imageParams.height = size[1];
-            binding.image.setLayoutParams(imageParams);
+            // 高必须设在 imageWrap 上（与 VodRectHolder.size 同口径）：设在 image 上时
+            // 外框停留在布局写死的 80dp，封面被压成横宽条、图还溢出压住标题行。
+            ViewGroup.LayoutParams wrapParams = binding.imageWrap.getLayoutParams();
+            wrapParams.height = size[1];
+            binding.imageWrap.setLayoutParams(wrapParams);
             ViewGroup.LayoutParams rootParams = binding.getRoot().getLayoutParams();
             rootParams.width = size[0];
             if (rootParams instanceof ViewGroup.MarginLayoutParams params) {

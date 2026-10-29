@@ -1,5 +1,7 @@
 package com.fongmi.android.tv.hongguo.sign;
 
+import com.fongmi.android.tv.api.FqCommentSigner;
+
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -17,7 +19,9 @@ import java.util.Map;
  * 字节系请求签名（X-Gorgon/X-Argus/X-Helios/X-Medusa/X-Ladon/X-Khronos/X-SS-STUB）：
  * 逐行移植 openhongguo internal/protocol/sign/（request/gorgon/helios/medusa/f13/aes/
  * prim/proto），纯算法无 native 依赖。定罪依据 openhongguo-dig-20261028.md §2/§3：
- * 无签名＋假指纹的请求被网关回 200 空体，签名头才是门。
+ * 无签名＋假指纹的请求被网关回 200 空体，签名头才是门。例外：X-Argus/X-Ladon
+ * 自 2026-10-29 起改走树内 {@link FqCommentSigner} 的真算法（见 signRequest 内注），
+ * 不再是 openhongguo 的时间戳占位。
  *
  * <p>正确性锚点＝Go 侧 sign_test.go 的参考向量（gorgon/helios/keyHash/xmxor/medusa），
  * 离线单测 HgSignTest 逐条对拍。数值常量在 {@link HgSignConsts}（脚本从 Go 源码提取）。</p>
@@ -103,11 +107,26 @@ public final class HgSign {
         headers.put("passport-sdk-version", "50561");
         headers.put("x-vc-bdturing-sdk-version", "3.7.2.cn");
         headers.put("x-khronos", String.valueOf(khronos & 0xFFFFFFFFL));
-        headers.put("x-ladon", Base64.getEncoder().encodeToString(be32(khronos)));
-        headers.put("x-argus", Base64.getEncoder().encodeToString(le32(khronos)));
+        // x-argus/x-ladon（2026-10-29 改）：改走 FqCommentSigner 的真算法
+        // （argus＝protobuf＋Simon＋AES、ladon＝轮函数展开，与评论签名同一实现，
+        // 不另抄一份）。此前是 Base64(时间戳) 占位——签名门不拦占位值，但 passport
+        // 两路登录（短信/抖音兑换）都在最后一跳被风控以「为保证账号安全，暂不
+        // 支持此操作」收口，占位签名是第一嫌疑（定根账 sms-login-fail-20261029.md
+        // 第五节）。nonce 从本次签名熵派生：同熵同刻产出确定（离线单测的头集
+        // 确定性断言靠它），熵本身每次现抽随机。
+        byte[] argusNonce = new byte[11];
+        System.arraycopy(le32(ent.messageRandom), 0, argusNonce, 0, 4);
+        System.arraycopy(le32(ent.random), 0, argusNonce, 4, 4);
+        System.arraycopy(le32(ent.packedRandom), 0, argusNonce, 8, 3);
+        String[] argusLadon = FqCommentSigner.argusLadon(query, body, khronos & 0xFFFFFFFFL, argusNonce);
+        headers.put("x-ladon", argusLadon[1]);
+        headers.put("x-argus", argusLadon[0]);
         headers.put("x-gorgon", xGorgon(query, body, hasBody, khronos, ent.gorgonRandom));
         headers.put("x-helios", assembleHelios(khronos, ent.heliosRandom));
         headers.put("x-medusa", assembleMedusa(rawURL, body, hasBody, khronos, deviceId, versionName, ent));
+        // x-tt-dt【剩余最大缺口】：官方由 TTNet 原生层填真设备票据，本地造不出
+        // 真值，只能继续留空串，不许拿假值糊弄。若真签名版首登仍回安全句，
+        // 剩余嫌疑只剩这一处与 medusa 环境面（sms-login-fail-20261029.md 第五节）。
         headers.put("x-tt-dt", "");
         if (hasBody) {
             headers.put("Content-Type", "application/json; charset=UTF-8");

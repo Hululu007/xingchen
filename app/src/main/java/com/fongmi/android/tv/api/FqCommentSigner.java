@@ -16,7 +16,9 @@ import javax.crypto.spec.SecretKeySpec;
 /**
  * 红果（fqnovel）评论只读轻签名器：X-Gorgon 0404 + X-Khronos + 轻量 X-Argus / X-Ladon。
  * 逐行移植自在产实现 hongguoTV CommentSignature（设计 hongguo-comments-shell-design.md §3），
- * SM3 手写对译红果 py 源自带实现。只服务匿名只读评论，不带任何账号凭据。
+ * SM3 手写对译红果 py 源自带实现。评论链只服务匿名只读、不带任何账号凭据；
+ * 其中 X-Argus / X-Ladon 真算法自 2026-10-29 起也被 HgSign 复用（passport 登录
+ * 签名改走真算法，定根见 hongguo/sms-login-fail-20261029.md），见 {@link #argusLadon}。
  */
 public class FqCommentSigner {
 
@@ -38,9 +40,21 @@ public class FqCommentSigner {
         map.put("X-Khronos", String.valueOf(ts));
         map.put("X-SS-Req-Ticket", String.valueOf(now));
         map.put("X-SS-STUB", "");
-        map.put("X-Argus", argus(query, ts, nonce));
+        map.put("X-Argus", argus(query, null, ts, nonce));
         map.put("X-Ladon", ladon(ts, copyOfRange(nonce, 2, 6)));
         return map;
+    }
+
+    /**
+     * X-Argus / X-Ladon 真算法的对外入口（HgSign 的 passport 等签名复用同一实现，
+     * 不另抄一份）：query 传最终查询串（含 ts/_rticket），body 传实际请求体字节
+     * （GET/无体传 null），tsSeconds 与 x-khronos 同秒，nonce 为 11 字节随机源
+     * （argus 的 random 与 ladon 的 salt 都从它派生，与 {@link #headers} 同口径）。
+     * 返回 {x-argus, x-ladon}。
+     */
+    public static String[] argusLadon(String query, byte[] body, long tsSeconds, byte[] nonce) {
+        if (nonce == null || nonce.length != 11) throw new IllegalArgumentException("nonce must be 11 bytes");
+        return new String[]{argus(query, body, tsSeconds, nonce), ladon(tsSeconds, copyOfRange(nonce, 2, 6))};
     }
 
     private static String gorgon(String query, long ts, byte[] nonce) {
@@ -113,7 +127,7 @@ public class FqCommentSigner {
         return Base64.getEncoder().encodeToString(result.toByteArray());
     }
 
-    private static String argus(String query, long ts, byte[] nonce) {
+    private static String argus(String query, byte[] body, long ts, byte[] nonce) {
         long random = ByteBuffer.wrap(nonce, 6, 4).order(ByteOrder.LITTLE_ENDIAN).getInt() & 0xffffffffL;
         byte[] nested = new Proto()
                 .varint(1, 2 + (nonce[10] & 255) % 49 * 2)
@@ -132,7 +146,9 @@ public class FqCommentSigner {
                 .varint(9, 135135744)
                 .bytes(10, new byte[8])
                 .varint(12, ts * 2)
-                .bytes(13, copyOf(sm3(new byte[16]), 6))
+                // 字段 13＝请求体哈希前 6 字节：有体取 sm3(body)；无体按算法惯例
+                // 用 16 字节零的哈希（评论 GET 恒走此支，产出与改前逐字一致）。
+                .bytes(13, copyOf(sm3(body != null ? body : new byte[16]), 6))
                 .bytes(14, copyOf(sm3(query.getBytes()), 6))
                 .bytes(15, nested)
                 .bytes(20, "none".getBytes())

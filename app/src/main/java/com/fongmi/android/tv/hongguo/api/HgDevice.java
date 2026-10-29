@@ -88,6 +88,36 @@ public final class HgDevice {
 
     private static Profile cached;
 
+    /**
+     * 档案代次：每次重置 +1。注册请求发出时记下代次，回包落盘前比对——
+     * 期间档案被重置过，那一轮注册回的 id/游客 Cookie 属于旧档案，作废
+     * 不许回填到新档案上（HgApiClient.doRegister 据此判定）。
+     */
+    private static int generation;
+
+    public static synchronized int profileGeneration() {
+        return generation;
+    }
+
+    /**
+     * 重置设备档案：整份匿名身份作废——本地派生标识（cdid/openudid/
+     * clientudid/oaid/req_id）重新派生，注册回的 device_id/install_id 与
+     * 注册派生的游客 Cookie 材料（ttreq/store-region）随旧档案一并清掉，
+     * 落盘后即未注册态；重新注册走 HgApiClient.ensureDevice 既有流程。
+     *
+     * <p>边界（死线）：这里只动匿名设备档案这一份落盘（PREF_KEY）。
+     * 账号登录态是另一回事——passport 会话 Cookie 由壳子账号托管
+     * （CloudAccountStore，见 HongguoLoginProvider）独立存储，本方法
+     * 不读不写；换档案后已登录账号不掉线，只是后续请求改用新设备 id
+     * 签名（签名时现读档案，天然跟随）。</p>
+     */
+    public static synchronized void resetProfile() {
+        generation++;
+        Profile p = generate();
+        save(p);
+        cached = p;
+    }
+
     /** 取档案：没有就本地派生一份并落盘（device_id/install_id 待注册回填）。 */
     public static synchronized Profile profile() {
         if (cached != null) return cached;

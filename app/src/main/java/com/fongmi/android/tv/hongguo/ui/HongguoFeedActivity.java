@@ -173,6 +173,9 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     private String danmakuSeriesId;
     private final java.util.List<androidx.media3.ui.danmaku.Danmaku> danmakuItems =
             new java.util.ArrayList<>();
+    /** 与 danmakuItems 同序的弹幕模型（点赞态/计数在模型上维护，渲染条是其投影）。 */
+    private final java.util.List<com.fongmi.android.tv.hongguo.model.HgDanmaku> danmakuModels =
+            new java.util.ArrayList<>();
     private String danmakuCursor;
     private long danmakuNextQueryMs = -1;
     private boolean danmakuFetching;
@@ -447,6 +450,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         playerView.setUseController(false);
         playerView.setDanmakuEnabled(HgStore.isDanmakuOn());
         playerView.getDanmakuController().setConfig(hgDanmakuConfig());
+        setupDanmakuTap();
         playerView.setShutterBackgroundColor(0xFF000000);
         // 初始缩放先给 FIT（流页口径），attachSurface/首帧回调会按条目再定
         playerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FIT);
@@ -1422,6 +1426,12 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     @Override
     public void onTap(int position) {
         if (position != currentPos) return;
+        if (danmakuTapMarkMs != 0) {
+            // 本次点按命中了飞行弹幕：默认动作（清屏/控制层）让位给弹幕
+            // 交互层，旗一次性消费（立旗点见 setupDanmakuTap）
+            danmakuTapMarkMs = 0;
+            return;
+        }
         if (landInstance) {
             onLandTap();
             return;
@@ -1880,9 +1890,11 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                         // 只并入仍是当前条的弹幕表：已滑走/已关弹幕就不喂，
                         // 防把这条塞进别集的表里
                         if (vid.equals(danmakuVid) && playerView != null) {
-                            danmakuItems.add(toMedia3Danmaku(
+                            com.fongmi.android.tv.hongguo.model.HgDanmaku own =
                                     new com.fongmi.android.tv.hongguo.model.HgDanmaku(
-                                            text, offsetMs, 0, null, 0)));
+                                            text, offsetMs, 0, null, 0);
+                            danmakuModels.add(own);
+                            danmakuItems.add(toMedia3Danmaku(own));
                             playerView.getDanmakuController().setItems(
                                     new java.util.ArrayList<>(danmakuItems));
                         }
@@ -2308,6 +2320,249 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         });
     }
 
+    /** 最近一次命中弹幕的点按事件时刻（onTap 同步消费后清零，见 setupDanmakuTap）。 */
+    private long danmakuTapMarkMs;
+
+    /**
+     * 弹幕点按命中（完工账 danmaku-completion-20261029.md）：官方点中飞行
+     * 中的弹幕正文/尾巴出底部交互层（fx1.z：点赞／+1／回复／不喜欢／更多
+     * ／删除）。咱家渲染层原无命中通道，本批给 vendored 引擎加了只读命中
+     * 查询（DanmakuView.findDanmakuUserIdAt，按上帧绘制矩形回查 userId
+     * 槽里的 commentId）。挂点选在翻页器的触摸观察位（只观察、永不拦截）：
+     * 视频区既有手势全在 hgPageRoot 的点击/长按链上，弹幕层自己抢事件
+     * 会把长按倍速与点画面清屏整链断掉——命中时只立同步旗，由紧随其后
+     * 的 onTap 消费该旗并跳过本次默认动作，交互层延后一帧再弹。
+     * 官方点中后还会冻结弹幕滚动并高亮该条——咱家引擎时钟与播放时钟
+     * 同源、无独立冻结通道，未做（账内缺口）。
+     */
+    private void setupDanmakuTap() {
+        if (binding == null || playerView == null) return;
+        android.view.View child = binding.hgPager.getChildAt(0);
+        if (!(child instanceof androidx.recyclerview.widget.RecyclerView)) return;
+        androidx.recyclerview.widget.RecyclerView rv =
+                (androidx.recyclerview.widget.RecyclerView) child;
+        final float[] down = new float[2];
+        final long[] downAt = new long[1];
+        final boolean[] downOk = new boolean[1];
+        rv.addOnItemTouchListener(new androidx.recyclerview.widget.RecyclerView.SimpleOnItemTouchListener() {
+            @Override
+            public boolean onInterceptTouchEvent(
+                    androidx.recyclerview.widget.RecyclerView rv2, android.view.MotionEvent e) {
+                switch (e.getActionMasked()) {
+                    case android.view.MotionEvent.ACTION_DOWN:
+                        danmakuTapMarkMs = 0; // 新手势起头：旧旗作废
+                        down[0] = e.getX();
+                        down[1] = e.getY();
+                        downAt[0] = e.getEventTime();
+                        downOk[0] = true;
+                        break;
+                    case android.view.MotionEvent.ACTION_UP: {
+                        if (!downOk[0]) break;
+                        downOk[0] = false;
+                        if (!HgStore.isDanmakuOn() || cleanMode) break;
+                        float dx = e.getX() - down[0];
+                        float dy = e.getY() - down[1];
+                        float slop = 24 * getResources().getDisplayMetrics().density;
+                        if (dx * dx + dy * dy > slop * slop
+                                || e.getEventTime() - downAt[0] > 400) break;
+                        androidx.media3.ui.danmaku.DanmakuView dv = playerView.getDanmakuView();
+                        if (dv == null) break;
+                        int[] rvLoc = new int[2];
+                        int[] dvLoc = new int[2];
+                        rv2.getLocationOnScreen(rvLoc);
+                        dv.getLocationOnScreen(dvLoc);
+                        String id = dv.findDanmakuUserIdAt(
+                                e.getX() + rvLoc[0] - dvLoc[0],
+                                e.getY() + rvLoc[1] - dvLoc[1]);
+                        if (id == null) break;
+                        final com.fongmi.android.tv.hongguo.model.HgDanmaku dm =
+                                danmakuModelById(id);
+                        if (dm == null) break;
+                        danmakuTapMarkMs = e.getEventTime();
+                        dv.post(() -> {
+                            if (!isFinishing() && !isDestroyed()) showDanmakuActionSheet(dm);
+                        });
+                        break;
+                    }
+                    default:
+                        break;
+                }
+                return false; // 只观察：既有手势链一概不抢
+            }
+        });
+    }
+
+    private com.fongmi.android.tv.hongguo.model.HgDanmaku danmakuModelById(String commentId) {
+        int idx = danmakuModelIndex(commentId);
+        return idx < 0 ? null : danmakuModels.get(idx);
+    }
+
+    private int danmakuModelIndex(String commentId) {
+        if (commentId == null || commentId.isEmpty()) return -1;
+        for (int i = 0; i < danmakuModels.size(); i++) {
+            if (commentId.equals(danmakuModels.get(i).commentId)) return i;
+        }
+        return -1;
+    }
+
+    /** 模型变更后重投影一条渲染条并整表重喂（与发弹幕并入同一口径）。 */
+    private void refreshDanmakuItem(int index) {
+        if (index < 0 || index >= danmakuModels.size() || playerView == null) return;
+        androidx.media3.ui.danmaku.Danmaku projected = toMedia3Danmaku(danmakuModels.get(index));
+        if (index < danmakuItems.size()) danmakuItems.set(index, projected);
+        else danmakuItems.add(projected);
+        playerView.getDanmakuController().setItems(new java.util.ArrayList<>(danmakuItems));
+    }
+
+    /**
+     * 弹幕交互层（官方 fx1.z 的自家等价，本批只落已定版的两行）：
+     * 正文＋点赞行（心形＋计数，点按翻转）＋「+1」跟发行。官方还有
+     * 回复／不喜欢／更多／删除（仅自己）四行——回复与删除走的是另外
+     * 的链（回复弹幕的编辑器上下文、删除接口），未定版前不摆假行
+     * （账内缺口）；不喜欢与点赞同 plumbing（Dislike=1），待与评论页
+     * 的点踩口径一起定时再补。
+     */
+    private void showDanmakuActionSheet(
+            com.fongmi.android.tv.hongguo.model.HgDanmaku dm) {
+        android.widget.LinearLayout box = new android.widget.LinearLayout(this);
+        box.setOrientation(android.widget.LinearLayout.VERTICAL);
+        box.setBackgroundColor(0xFFFFFFFF);
+        int pad = (int) (16 * getResources().getDisplayMetrics().density);
+        box.setPadding(pad, pad, pad, pad);
+        android.widget.TextView body = new android.widget.TextView(this);
+        body.setText(dm.text);
+        body.setTextColor(0xFF222222);
+        body.setTextSize(15);
+        body.setMaxLines(2);
+        box.addView(body);
+        android.widget.TextView diggRow = danmakuSheetRow();
+        diggRow.setText(danmakuDiggLabel(dm));
+        box.addView(diggRow);
+        android.widget.TextView addOneRow = danmakuSheetRow();
+        addOneRow.setText("+1  跟发这条弹幕");
+        box.addView(addOneRow);
+        com.google.android.material.bottomsheet.BottomSheetDialog dialog =
+                new com.google.android.material.bottomsheet.BottomSheetDialog(this);
+        dialog.setContentView(box);
+        diggRow.setOnClickListener(v -> {
+            com.fongmi.android.tv.hongguo.model.HgDanmaku cur = danmakuModelById(dm.commentId);
+            if (cur != null) toggleDanmakuDigg(cur, diggRow);
+        });
+        addOneRow.setOnClickListener(v -> {
+            dialog.dismiss();
+            addOneDanmaku(dm);
+        });
+        dialog.show();
+    }
+
+    private android.widget.TextView danmakuSheetRow() {
+        android.widget.TextView row = new android.widget.TextView(this);
+        row.setTextColor(0xFF222222);
+        row.setTextSize(15);
+        int vPad = (int) (12 * getResources().getDisplayMetrics().density);
+        row.setPadding(0, vPad, 0, vPad);
+        row.setLayoutParams(new android.widget.LinearLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT));
+        return row;
+    }
+
+    private static String danmakuDiggLabel(
+            com.fongmi.android.tv.hongguo.model.HgDanmaku dm) {
+        String count = dm.diggCount > 0 ? " · " + formatDanmakuCount(dm.diggCount) : "";
+        return (dm.userDigg ? "♥ 已点赞" : "♡ 点赞") + count;
+    }
+
+    /**
+     * 弹幕点赞翻转（官方 dx1.l.v 同构）：先乐观翻转本地态与计数并重投影，
+     * 请求失败全量回滚＋提示；在飞不做去重（官方按 commentId 去重，咱家
+     * 交互层一次只开一张、行点按即当前条，重复点按按最新态再翻转——与
+     * 官方乐观翻转语义一致）。未登录先拉登录（与发弹幕同口径）。
+     */
+    private void toggleDanmakuDigg(
+            com.fongmi.android.tv.hongguo.model.HgDanmaku dm, android.widget.TextView label) {
+        if (session.interactions.requiresLogin()) {
+            promptHongguoLogin();
+            return;
+        }
+        int idx = danmakuModelIndex(dm.commentId);
+        if (idx < 0) return;
+        final com.fongmi.android.tv.hongguo.model.HgDanmaku before = danmakuModels.get(idx);
+        final boolean target = !before.userDigg;
+        final com.fongmi.android.tv.hongguo.model.HgDanmaku optimistic =
+                before.withDigg(target, before.diggCount + (target ? 1 : -1));
+        danmakuModels.set(idx, optimistic);
+        refreshDanmakuItem(idx);
+        if (label != null) label.setText(danmakuDiggLabel(optimistic));
+        final String vid = danmakuVid;
+        session.fqClient.diggDanmaku(target, before.commentId, before.text,
+                danmakuSeriesId, vid, new HgCallback<Void>() {
+                    @Override
+                    public void onSuccess(Void ignored) {
+                    }
+
+                    @Override
+                    public void onError(int httpCode, String message) {
+                        runOnUiThread(() -> {
+                            if (isFinishing() || isDestroyed()) return;
+                            if (!java.util.Objects.equals(vid, danmakuVid)) return;
+                            int at = danmakuModelIndex(before.commentId);
+                            if (at < 0) return;
+                            danmakuModels.set(at, before);
+                            refreshDanmakuItem(at);
+                            if (label != null) label.setText(danmakuDiggLabel(before));
+                            android.widget.Toast.makeText(HongguoFeedActivity.this,
+                                    target ? "点赞失败" : "取消点赞失败",
+                                    android.widget.Toast.LENGTH_SHORT).show();
+                        });
+                    }
+                });
+    }
+
+    /**
+     * 「+1」跟发（官方尾巴点按＝以同一正文在当前播放位置再发一条，走的
+     * 是发布链 xw1.n，不是 do_action 的 AddOne 统计动作——统计动作未做，
+     * 账内缺口）：未登录先拉登录；成功把自己这条并入弹幕表（与发弹幕
+     * 同口径），失败给提示。
+     */
+    private void addOneDanmaku(com.fongmi.android.tv.hongguo.model.HgDanmaku dm) {
+        if (session.interactions.requiresLogin()) {
+            promptHongguoLogin();
+            return;
+        }
+        final String vid = danmakuVid;
+        final String sid = danmakuSeriesId;
+        if (vid == null || sid == null || player == null) return;
+        final long offsetMs = Math.max(0, player.getCurrentPosition());
+        session.fqClient.publishDanmaku(sid, vid, dm.text, offsetMs, new HgCallback<Void>() {
+            @Override
+            public void onSuccess(Void ignored) {
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    android.widget.Toast.makeText(HongguoFeedActivity.this, "已 +1",
+                            android.widget.Toast.LENGTH_SHORT).show();
+                    if (!vid.equals(danmakuVid) || playerView == null) return;
+                    com.fongmi.android.tv.hongguo.model.HgDanmaku own =
+                            new com.fongmi.android.tv.hongguo.model.HgDanmaku(
+                                    dm.text, offsetMs, 0, null, 0);
+                    danmakuModels.add(own);
+                    danmakuItems.add(toMedia3Danmaku(own));
+                    playerView.getDanmakuController().setItems(
+                            new java.util.ArrayList<>(danmakuItems));
+                });
+            }
+
+            @Override
+            public void onError(int httpCode, String message) {
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    android.widget.Toast.makeText(HongguoFeedActivity.this, "+1 发送失败",
+                            android.widget.Toast.LENGTH_SHORT).show();
+                });
+            }
+        });
+    }
+
     /** 为一条起弹幕：关着/无 vid 直接清；同 vid 已有条目不重拉。 */
     private void startDanmakuFor(HgFeedItem item, long startAtMs) {
         if (playerView == null || item == null) return;
@@ -2319,6 +2574,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         danmakuVid = item.videoId;
         danmakuSeriesId = item.seriesId;
         danmakuItems.clear();
+        danmakuModels.clear();
         danmakuCursor = null;
         danmakuNextQueryMs = -1;
         playerView.getDanmakuController().clearItems();
@@ -2329,6 +2585,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         danmakuVid = null;
         danmakuSeriesId = null;
         danmakuItems.clear();
+        danmakuModels.clear();
         danmakuCursor = null;
         danmakuNextQueryMs = -1;
         danmakuFetching = false;
@@ -2351,6 +2608,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                             danmakuFetching = false;
                             if (!vid.equals(danmakuVid)) return; // 已滑走/已关
                             for (com.fongmi.android.tv.hongguo.model.HgDanmaku dm : w.items) {
+                                danmakuModels.add(dm);
                                 danmakuItems.add(toMedia3Danmaku(dm));
                             }
                             if (playerView != null) {
@@ -2372,7 +2630,15 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                 });
     }
 
-    /** HgDanmaku → media3 弹幕条：位置 0 滚动／1 底／2 顶，颜色缺省白。 */
+    /**
+     * HgDanmaku → media3 弹幕条：位置 0 滚动／1 底／2 顶，颜色缺省白。
+     * userId 槽带 commentId（渲染层命中测试按它回查模型，见弹幕点赞）。
+     * 点赞尾巴的近似呈现（完工账 danmaku-completion-20261029.md）：官方
+     * 尾巴是独立绘制的心形图标＋计数（字节 meteor 引擎尾巴组件），咱家
+     * 渲染层无尾巴通道——服务端点赞旗（show_digg）或本人已赞的条目，
+     * 正文后以文字形附「 ♥计数」；不带旗的条目不附（与官方「只给被
+     * 服务端选中的条目挂尾巴」同口径，不许拿本地阈值冒充）。
+     */
     private static androidx.media3.ui.danmaku.Danmaku toMedia3Danmaku(
             com.fongmi.android.tv.hongguo.model.HgDanmaku dm) {
         int type = dm.positionType == 1 ? androidx.media3.ui.danmaku.Danmaku.TYPE_BOTTOM
@@ -2386,8 +2652,21 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             } catch (Exception ignored) {
             }
         }
-        return new androidx.media3.ui.danmaku.Danmaku(dm.text, dm.offsetTimeMs, type, color,
-                0f, 0, "", 0);
+        String display = dm.text;
+        if (dm.showDigg || dm.userDigg) {
+            display = dm.text + "  ♥" + (dm.diggCount > 0 ? " " + formatDanmakuCount(dm.diggCount) : "");
+        }
+        return new androidx.media3.ui.danmaku.Danmaku(display, dm.offsetTimeMs, type, color,
+                0f, 0, dm.commentId, 0);
+    }
+
+    /** 弹幕尾巴计数格式（官方 nr1.d 口径的近似：万级一位小数去尾零）。 */
+    private static String formatDanmakuCount(long count) {
+        if (count < 10000) return String.valueOf(count);
+        long w10 = count * 10 / 10000;
+        long whole = w10 / 10;
+        long frac = w10 % 10;
+        return frac == 0 ? whole + "万" : whole + "." + frac + "万";
     }
 
     /**

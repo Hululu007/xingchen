@@ -750,6 +750,85 @@ public final class HgCommentClient {
         });
     }
 
+    // ---------- 弹幕点赞 ----------
+
+    /** UgcActionType（pbrpc 定版）：Agree=8 / CancelAgree=9（社区口「赞」）。 */
+    public static final int ACTION_AGREE = 8;
+    public static final int ACTION_CANCEL_AGREE = 9;
+    /** UgcActionObjectType：Comment=2。 */
+    public static final int OBJECT_COMMENT = 2;
+    /** UgcCommentGroupTypeOutter：Danmaku=20（弹幕档的 comment_type）。 */
+    public static final int COMMENT_TYPE_DANMAKU = 20;
+    /** CommentApiERR.RepeatDiggError：官方 g() 把「重复点赞」也算成功。 */
+    public static final int CODE_REPEAT_DIGG = 102498;
+
+    /**
+     * 弹幕点赞/取消请求体（完工账 danmaku-completion-20261029.md，官方包
+     * 一手链：dx1.l.v → kw1.n0.z → r22.e.p → CommentApiService.doAction）：
+     * DoActionRequest（k1 SerialName 实证）＝action_type Agree(8)／
+     * CancelAgree(9)、object_type Comment(2)、object_id＝弹幕的
+     * comment_id、comment_type＝20（弹幕档）、aid＝8662；business_param
+     * .shark_param 由 r22.e.j() 装配：base（照本文件既有写口径落
+     * type/aid 两键，运行时反作弊全图抠不到、同 follow 口径待校准）＋
+     * target＝comment_id、target_text＝弹幕正文、novel_id＝series_id、
+     * section_id＝vid、action_source＝"default_digg_source"（尾巴点赞的
+     * 官方来源串；正文点赞浮层同走 l.u 同一来源口径）。
+     * 端点与关注同：POST /novel/commentapi/comment/do_action/v1/，
+     * 写操作头 0/0。
+     */
+    public static JsonObject danmakuDiggPayload(boolean digg, String commentId, String text,
+                                                String seriesId, String videoId) {
+        JsonObject payload = new JsonObject();
+        payload.addProperty("action_type", digg ? ACTION_AGREE : ACTION_CANCEL_AGREE);
+        payload.addProperty("object_type", OBJECT_COMMENT);
+        payload.addProperty("object_id", commentId);
+        payload.addProperty("comment_type", COMMENT_TYPE_DANMAKU);
+        payload.addProperty("aid", 8662);
+        JsonObject business = new JsonObject();
+        JsonObject shark = new JsonObject();
+        shark.addProperty("type", "short_play");
+        shark.addProperty("aid", "8662");
+        shark.addProperty("target", commentId);
+        shark.addProperty("target_text", text == null ? "" : text);
+        shark.addProperty("novel_id", seriesId == null ? "" : seriesId);
+        shark.addProperty("section_id", videoId == null ? "" : videoId);
+        shark.addProperty("action_source", "default_digg_source");
+        business.add("shark_param", shark);
+        payload.add("business_param", business);
+        return payload;
+    }
+
+    /**
+     * 弹幕点赞/取消：受理判定＝信封 code 0（writeResult 三态）或
+     * RepeatDiggError(102498)（官方把重复点赞算成功——本地乐观态可能
+     * 与服务端不一致时不许把已赞报成失败）。回包不带新计数（官方从
+     * 本地乐观计数对齐），计数由调用方本地维护。
+     */
+    public void diggDanmaku(boolean digg, String commentId, String text,
+                            String seriesId, String videoId, HgCallback<Void> cb) {
+        if (!isId(commentId)) {
+            cb.onError(-1, "弹幕 id 非法");
+            return;
+        }
+        post("comment/do_action", danmakuDiggPayload(digg, commentId, text, seriesId, videoId), 0, 0,
+                new TextCallback() {
+                    @Override
+                    void onText(String resp) {
+                        if (HgCommentParser.writeResult(resp) > 0
+                                || HgCommentParser.envelopeCode(resp) == CODE_REPEAT_DIGG) {
+                            cb.onSuccess(null);
+                            return;
+                        }
+                        cb.onError(-2, "点赞被服务端拒绝");
+                    }
+
+                    @Override
+                    void onFail(int code, String msg) {
+                        cb.onError(code, msg);
+                    }
+                });
+    }
+
     // ---------- 传输（照 HongguoCommentApi.post 的签名/设备口径） ----------
 
     private abstract static class TextCallback {

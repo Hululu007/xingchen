@@ -335,7 +335,15 @@ public final class HgCommentParser {
             }
             JsonObject stat = obj(comment, "stat");
             long digg = stat == null ? 0 : num(stat, "digg_count", 0);
-            items.add(new com.fongmi.android.tv.hongguo.model.HgDanmaku(body, offset, posType, color, digg));
+            // 点赞面（完工账 danmaku-completion-20261029.md）：comment_id 在
+            // comment 层、串/数两形（存档回包双证）；本人态度在 user_action；
+            // show_digg／hot_danmaku 是 expand 里的服务端旗（无键＝false）
+            String commentId = str(comment, "comment_id");
+            JsonObject userAction = obj(comment, "user_action");
+            items.add(new com.fongmi.android.tv.hongguo.model.HgDanmaku(body, offset, posType, color, digg,
+                    commentId, bool(userAction, "user_digg"), bool(userAction, "user_disagree"),
+                    bool(expand, "show_digg"), bool(expand, "hot_danmaku"),
+                    str(expand, "add_one_parent_id")));
         }
         items.sort((a, b) -> Long.compare(a.offsetTimeMs, b.offsetTimeMs));
         JsonObject info = obj(data, "common_list_info");

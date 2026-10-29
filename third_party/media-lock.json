@@ -52,6 +52,10 @@
       {
         "path": "third_party/patches/media3-exo-hdmv-dts-flag-r1.patch",
         "sha256": "ef444f5244bda152137c5cce2be29fe748d6513822afbce75532068ab197e56c"
+      },
+      {
+        "path": "third_party/patches/media3-danmaku-hit-test-r1.patch",
+        "sha256": "f4c7abb4ac712202a4c964e9910dddd65c112f67e28d6229bd8c062731a59645"
       }
     ],
     "artifact_overrides": [

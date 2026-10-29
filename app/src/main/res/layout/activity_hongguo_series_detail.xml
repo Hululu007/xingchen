@@ -188,10 +188,10 @@
                 android:id="@+id/hg_sd_reviews_title"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="24dp"
+                android:layout_marginTop="16dp"
                 android:text="剧评"
                 android:textColor="#FFFFFFFF"
-                android:textSize="15sp"
+                android:textSize="17sp"
                 android:textStyle="bold"
                 android:visibility="gone" />
 
@@ -321,7 +321,7 @@
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/hg_sd_reviews"
                 android:layout_width="match_parent"
-                android:layout_height="148dp"
+                android:layout_height="126dp"
                 android:layout_marginTop="10dp"
                 android:visibility="gone" />
         </LinearLayout>

@@ -11,7 +11,8 @@ import android.os.Looper;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.GridLayout;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -132,6 +133,21 @@ public class HongguoSeriesDetailActivity extends BaseActivity {
                         binding.hgSdTitle.getText().toString(),
                         detail != null ? detail.getCoverUrl() : cover));
         binding.hgSdFav.setOnClickListener(v -> toggleFav());
+        // 剧集状态行点按：集条滚到当前集（官方 › 的确切去向未抠到，此为咱家口径）
+        binding.hgSdEpStatus.setOnClickListener(v -> scrollStripToCurrent());
+        // 集条滚动反推当前分段（手指滑条时页签高亮跟着走）
+        binding.hgSdEpStrip.getViewTreeObserver().addOnScrollChangedListener(() -> {
+            if (detail == null || detail.getEpisodes().isEmpty()) return;
+            int pitch = epCellSide() + dp(4);
+            if (pitch <= 0) return;
+            int idx = (binding.hgSdEpStrip.getScrollX() + pitch / 2) / pitch;
+            int segments = (detail.getEpisodes().size() + SEGMENT - 1) / SEGMENT;
+            int seg = Math.min(segments - 1, Math.max(0, idx / SEGMENT));
+            if (seg != segment) {
+                segment = seg;
+                paintSegmentTabs();
+            }
+        });
         binding.hgSdDesc.setOnClickListener(v -> {
             if (!descExpandable && !descExpanded) return;
             descExpanded = !descExpanded;
@@ -236,13 +252,14 @@ public class HongguoSeriesDetailActivity extends BaseActivity {
         fullDesc = d.getDesc() == null ? "" : d.getDesc();
         descExpanded = false;
         paintDesc();
-        // 剧集状态行
+        // 剧集状态行（官方 113563：「已完结 共N集 ›」空格分隔、带 ›；
+        // 更新中此图无样本、按同构写「更新至N集 ›」）
         Integer status = d.getSeriesStatus();
         int count = d.getEpisodeCount() > 0 ? d.getEpisodeCount() : d.getEpisodes().size();
         String statusText;
-        if (status != null && status == 1) statusText = "已完结 · 共" + count + "集";
-        else if (status != null && status == 0) statusText = "更新中 · 已更新" + count + "集";
-        else statusText = "共" + count + "集";
+        if (status != null && status == 1) statusText = "已完结 共" + count + "集 ›";
+        else if (status != null && status == 0) statusText = "更新至" + count + "集 ›";
+        else statusText = "共" + count + "集 ›";
         binding.hgSdEpStatus.setText(statusText);
         buildEpisodes(d);
         // 收藏态以服务端为准
@@ -320,67 +337,100 @@ public class HongguoSeriesDetailActivity extends BaseActivity {
         });
     }
 
-    // ---------- 集格 ----------
+    // ---------- 集格（官方 113563：横滑单行方格条＋文字分段页签） ----------
+
+    /** 方格边长：按屏宽算（(屏宽dp－56)/6，他机实测 ≈61dp 正方）。 */
+    private int epCellSide() {
+        float density = getResources().getDisplayMetrics().density;
+        int screenDp = Math.round(getResources().getDisplayMetrics().widthPixels / density);
+        return dp(Math.max(48, (screenDp - 56) / 6));
+    }
+
+    private void paintSegmentTabs() {
+        for (int i = 0; i < binding.hgSdSegments.getChildCount(); i++) {
+            TextView tab = (TextView) binding.hgSdSegments.getChildAt(i);
+            boolean on = i == segment;
+            tab.setTextColor(on ? 0xFFFFFFFF : 0x99FFFFFF);
+            tab.setTypeface(null, on ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+        }
+    }
+
+    private void scrollStripToEp(int epNum) {
+        int idx = epNum - 1;
+        if (idx < 0 || idx >= binding.hgSdEpCells.getChildCount()) return;
+        int x = idx * (epCellSide() + dp(4));
+        binding.hgSdEpStrip.post(() ->
+                binding.hgSdEpStrip.smoothScrollTo(Math.max(0, x - dp(2)), 0));
+    }
+
+    private void scrollStripToCurrent() {
+        HgStore.Progress p = HgStore.progressOf(seriesId);
+        if (p != null && p.episodeIndex > 0) scrollStripToEp(p.episodeIndex);
+    }
 
     private void buildEpisodes(HgSeriesDetail d) {
         List<HgSeriesDetail.Episode> eps = d.getEpisodes();
         binding.hgSdSegments.removeAllViews();
-        binding.hgSdEpGrid.removeAllViews();
+        binding.hgSdEpCells.removeAllViews();
         if (eps.isEmpty()) return;
         int segments = (eps.size() + SEGMENT - 1) / SEGMENT;
         HgStore.Progress p = HgStore.progressOf(seriesId);
         int currentEp = p == null ? -1 : p.episodeIndex;
         if (currentEp > 0) segment = Math.min(segments - 1, (currentEp - 1) / SEGMENT);
-        if (segments <= 1) {
-            binding.hgSdSegmentsScroll.setVisibility(View.GONE);
-        } else {
-            binding.hgSdSegmentsScroll.setVisibility(View.VISIBLE);
+        binding.hgSdSegmentsScroll.setVisibility(segments <= 1 ? View.GONE : View.VISIBLE);
+        if (segments > 1) {
             for (int s = 0; s < segments; s++) {
                 int from = s * SEGMENT + 1;
                 int to = Math.min(eps.size(), (s + 1) * SEGMENT);
-                TextView chip = new TextView(this);
-                chip.setText(from + "-" + to);
-                chip.setTextSize(13);
-                chip.setPadding(dp(12), dp(6), dp(12), dp(6));
+                TextView tab = new TextView(this);
+                tab.setText(from + "-" + to);
+                tab.setTextSize(15);
+                tab.setPadding(dp(2), dp(6), dp(2), dp(6));
                 android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(
                         android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
                         android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
-                if (s > 0) lp.setMarginStart(dp(8));
-                chip.setLayoutParams(lp);
+                if (s > 0) lp.setMarginStart(dp(26));
+                tab.setLayoutParams(lp);
                 final int seg = s;
-                chip.setOnClickListener(v -> {
+                tab.setOnClickListener(v -> {
                     segment = seg;
-                    buildEpisodes(detail);
+                    paintSegmentTabs();
+                    scrollStripToEp(seg * SEGMENT + 1);
                 });
-                boolean on = s == segment;
-                chip.setBackgroundResource(on
-                        ? com.fongmi.android.tv.R.drawable.bg_hg_ep_current
-                        : com.fongmi.android.tv.R.drawable.bg_hg_ep_cell_dark);
-                chip.setTextColor(on ? 0xFF1D2129 : 0xFFFFFFFF);
-                binding.hgSdSegments.addView(chip);
+                binding.hgSdSegments.addView(tab);
             }
+            paintSegmentTabs();
         }
-        int from = segment * SEGMENT;
-        int to = Math.min(eps.size(), from + SEGMENT);
-        for (int i = from; i < to; i++) {
+        int side = epCellSide();
+        for (int i = 0; i < eps.size(); i++) {
             HgSeriesDetail.Episode ep = eps.get(i);
             int epNum = ep.getIndex() > 0 ? ep.getIndex() : i + 1;
-            TextView cell = new TextView(this);
-            cell.setText(String.valueOf(epNum));
-            cell.setTextSize(14);
-            cell.setGravity(android.view.Gravity.CENTER);
             boolean current = epNum == currentEp;
+            FrameLayout cell = new FrameLayout(this);
             cell.setBackgroundResource(current
-                    ? com.fongmi.android.tv.R.drawable.bg_hg_ep_current
-                    : com.fongmi.android.tv.R.drawable.bg_hg_ep_cell_dark);
-            cell.setTextColor(current ? 0xFF1D2129 : 0xFFFFFFFF);
-            if (current) cell.setTypeface(null, android.graphics.Typeface.BOLD);
-            GridLayout.LayoutParams lp = new GridLayout.LayoutParams(
-                    GridLayout.spec(GridLayout.UNDEFINED, 1f), GridLayout.spec(GridLayout.UNDEFINED, 1f));
-            lp.width = 0;
-            lp.height = dp(44);
-            lp.setMargins(dp(3), dp(3), dp(3), dp(3));
+                    ? com.fongmi.android.tv.R.drawable.bg_hg_detail_current
+                    : com.fongmi.android.tv.R.drawable.bg_hg_detail_cell);
+            android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(side, side);
+            if (i > 0) lp.setMarginStart(dp(4));
             cell.setLayoutParams(lp);
+            TextView num = new TextView(this);
+            num.setText(String.valueOf(epNum));
+            num.setTextSize(16);
+            num.setGravity(android.view.Gravity.CENTER);
+            num.setTextColor(0xFFFFFFFF);
+            if (current) num.setTypeface(null, android.graphics.Typeface.BOLD);
+            cell.addView(num, new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+            if (current) {
+                ImageView bars = new ImageView(this);
+                bars.setImageResource(com.fongmi.android.tv.R.drawable.ic_hg_now_playing);
+                bars.setContentDescription(null);
+                FrameLayout.LayoutParams blp = new FrameLayout.LayoutParams(dp(11), dp(11));
+                blp.gravity = android.view.Gravity.TOP | android.view.Gravity.END;
+                blp.setMargins(0, dp(4), dp(4), 0);
+                bars.setLayoutParams(blp);
+                cell.addView(bars);
+            }
             final int targetEp = epNum;
             cell.setOnClickListener(v -> {
                 HgStore.saveProgress(seriesId, targetEp, 0);
@@ -388,8 +438,9 @@ public class HongguoSeriesDetailActivity extends BaseActivity {
                         binding.hgSdTitle.getText().toString(),
                         detail != null ? detail.getCoverUrl() : null);
             });
-            binding.hgSdEpGrid.addView(cell);
+            binding.hgSdEpCells.addView(cell);
         }
+        if (currentEp > 0) scrollStripToEp(currentEp);
     }
 
     // ---------- 剧评/评分卡 ----------

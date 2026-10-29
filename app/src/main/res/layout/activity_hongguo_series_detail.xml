@@ -115,11 +115,17 @@
                 android:textColor="#D9FFFFFF"
                 android:textSize="15sp" />
 
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="0.5dp"
+                android:layout_marginTop="16dp"
+                android:background="#14FFFFFF" />
+
             <!-- 剧集 -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="22dp"
+                android:layout_marginTop="18dp"
                 android:gravity="center_vertical"
                 android:orientation="horizontal">
 
@@ -129,7 +135,7 @@
                     android:layout_weight="1"
                     android:text="剧集"
                     android:textColor="#FFFFFFFF"
-                    android:textSize="15sp"
+                    android:textSize="17sp"
                     android:textStyle="bold" />
 
                 <TextView
@@ -144,7 +150,7 @@
                 android:id="@+id/hg_sd_segments_scroll"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
+                android:layout_marginTop="10dp"
                 android:scrollbars="none">
 
                 <LinearLayout
@@ -154,12 +160,28 @@
                     android:orientation="horizontal" />
             </HorizontalScrollView>
 
-            <GridLayout
-                android:id="@+id/hg_sd_ep_grid"
+            <!-- 集格：官方 113563 是横滑单行方格条（格正方、条尾出血到屏缘） -->
+            <HorizontalScrollView
+                android:id="@+id/hg_sd_ep_strip"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:columnCount="6" />
+                android:layout_marginTop="14dp"
+                android:layout_marginEnd="-16dp"
+                android:scrollbars="none">
+
+                <LinearLayout
+                    android:id="@+id/hg_sd_ep_cells"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingEnd="16dp" />
+            </HorizontalScrollView>
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="0.5dp"
+                android:layout_marginTop="18dp"
+                android:background="#14FFFFFF" />
 
             <!-- 剧评 -->
             <TextView

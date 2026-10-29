@@ -10,6 +10,13 @@
     android:paddingEnd="16dp"
     android:paddingBottom="12dp">
 
+    <View
+        android:layout_width="36dp"
+        android:layout_height="4dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginBottom="10dp"
+        android:background="@drawable/bg_hg_grab" />
+
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -65,7 +72,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="12dp"
-        android:background="@drawable/bg_hg_chip"
+        android:background="@drawable/bg_hg_comment_input"
         android:paddingStart="14dp"
         android:paddingTop="11dp"
         android:paddingEnd="14dp"

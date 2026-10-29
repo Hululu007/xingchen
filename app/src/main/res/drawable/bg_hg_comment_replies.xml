@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 评论行展开回复区底（原为直角平灰块 #14FFFFFF，改圆角 8dp 同色收边）。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <corners android:radius="8dp" />
+    <solid android:color="#14FFFFFF" />
+</shape>

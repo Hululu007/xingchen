@@ -312,7 +312,7 @@ public final class HgCommentsPanel {
                 hasMore = hit.hasMore;
                 firstLoaded = true;
                 if (onTotal != null) onTotal.accept(hit.total);
-                binding.hgCmTitle.setText(hit.total > 0 ? "评论 " + hit.total : "评论");
+                binding.hgCmTitle.setText(hit.total > 0 ? hit.total + "条评论" : "评论");
                 binding.hgCmEmpty.setVisibility(View.GONE);
                 binding.hgCmList.setVisibility(View.VISIBLE);
                 adapter.notifyDataSetChanged();
@@ -402,7 +402,7 @@ public final class HgCommentsPanel {
                         if (!firstLoaded || isRefresh) {
                             firstLoaded = true;
                             if (onTotal != null) onTotal.accept(page.total);
-                            binding.hgCmTitle.setText(page.total > 0 ? "评论 " + page.total : "评论");
+                            binding.hgCmTitle.setText(page.total > 0 ? page.total + "条评论" : "评论");
                         }
                         if (comments.isEmpty()) {
                             binding.hgCmEmpty.setVisibility(View.VISIBLE);

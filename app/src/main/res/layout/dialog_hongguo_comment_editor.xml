@@ -26,7 +26,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="12dp"
-        android:background="@drawable/bg_hg_chip"
+        android:background="@drawable/bg_hg_editor_input"
         android:hint="发条友善的评论吧"
         android:inputType="text"
         android:maxLines="3"

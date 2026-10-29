@@ -61,7 +61,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
-            android:background="#14FFFFFF"
+            android:background="@drawable/bg_hg_comment_replies"
             android:lineSpacingMultiplier="1.25"
             android:padding="8dp"
             android:textColor="#E6FFFFFF"

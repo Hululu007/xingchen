@@ -750,6 +750,108 @@ public final class HgCommentClient {
         });
     }
 
+    // ---------- 评论/回复点赞 ----------
+
+    /** UgcActionObjectType：Reply=8（Comment=2 已在弹幕点赞段定义，共用）。 */
+    public static final int OBJECT_REPLY = 8;
+
+    /**
+     * 评论点赞/取消赞请求体：与关注同端点同信封（comment/do_action）。
+     * 动作档位一手链定版（jadx2 r22/e.java:175/180，社区评论动作装配器）：
+     * 评论与回复的赞都走 Agree(8)/CancelAgree(9)（ACTION_AGREE 已在弹幕
+     * 点赞段定义——弹幕同为 Comment 对象、同装配器），不是 Digg(7)；
+     * object_type＝Comment(2)/Reply(8)、object_id＝评论/回复 id、
+     * aid＝8662、business_param 只带 shark_param 两键（与关注同口径，
+     * 运行时反作弊图抠不到全表，待真机回包校准）。
+     */
+    public static JsonObject commentActionPayload(boolean digg, String objectId, int objectType) {
+        JsonObject payload = new JsonObject();
+        payload.addProperty("action_type", digg ? ACTION_AGREE : ACTION_CANCEL_AGREE);
+        payload.addProperty("object_type", objectType);
+        payload.addProperty("object_id", objectId);
+        payload.addProperty("aid", 8662);
+        JsonObject business = new JsonObject();
+        JsonObject shark = new JsonObject();
+        shark.addProperty("type", "short_play");
+        shark.addProperty("aid", "8662");
+        business.add("shark_param", shark);
+        payload.add("business_param", business);
+        return payload;
+    }
+
+    /** 评论点赞/取消赞。成功＝信封 code=0；被拒透传真实 code（103006 页面拉登录）。 */
+    public void doCommentAction(boolean digg, String objectId, int objectType, HgCallback<Void> cb) {
+        if (objectId == null || objectId.isEmpty()) {
+            cb.onError(-1, "id 非法");
+            return;
+        }
+        postWrite("comment/do_action", commentActionPayload(digg, objectId, objectType), "点赞", cb);
+    }
+
+    // ---------- 发表回复（楼中楼） ----------
+
+    /** UgcCommentCommitSourceEnum：NovelItemReplyAdd=9（单集）/ NovelPlayletReplyAdd=13（剧评）。 */
+    public static final int COMMIT_SOURCE_ITEM_REPLY = 9;
+    public static final int COMMIT_SOURCE_PLAYLET_REPLY = 13;
+
+    /**
+     * 发回复请求体 POST /novel/commentapi/reply/add/v1/。档位出处：
+     * 官方视频回复仓库 kmp_video_comment/publish/i.java 的 e() 逐环——
+     * commit_source＝9、group_id＝vid、group_type＝30（SeriesVideo）、
+     * data_type＝4（NewItem）；字段映射经 q02/f（e→AddReplyRequest 位置
+     * 映射）定版：reply_to_comment_id＝根评论 id、reply_to_userid＝被回
+     * 作者 uid、reply_to_replyid＝被点中的那条 id（直回评论时即评论 id
+     * 本身）；官方该仓库不给 parent_reply_id 赋值（e.m 全程无人写），
+     * 本体不带。business 只带 book_id＋shark_param 两键（官方回复仓库
+     * 不写 offset）。剧评档镜像剧评发表场景：commit_source＝13、
+     * group_id＝剧 id、group_type＝1（Book）、data_type＝3（FakeBook）。
+     * /v1/ 后缀照本客户端写口统一约定，真机回包校准点。
+     */
+    public static JsonObject replyPostPayload(boolean series, String seriesId, String vid,
+                                              String rootCommentId, String targetId,
+                                              String targetUserId, String text) {
+        JsonObject payload = new JsonObject();
+        payload.addProperty("commit_source", series ? COMMIT_SOURCE_PLAYLET_REPLY : COMMIT_SOURCE_ITEM_REPLY);
+        payload.addProperty("group_id", series ? seriesId : vid);
+        payload.addProperty("reply_to_comment_id", rootCommentId);
+        payload.addProperty("group_type", series ? 1 : 30);
+        payload.addProperty("data_type", series ? DATA_TYPE_FAKE_BOOK : 4);
+        payload.addProperty("text", text == null ? "" : text);
+        if (targetUserId != null && !targetUserId.isEmpty()) {
+            payload.addProperty("reply_to_userid", targetUserId);
+        }
+        if (targetId != null && !targetId.isEmpty()) {
+            payload.addProperty("reply_to_replyid", targetId);
+        }
+        payload.addProperty("aid", 8662);
+        JsonObject business = new JsonObject();
+        business.addProperty("book_id", seriesId);
+        JsonObject shark = new JsonObject();
+        shark.addProperty("type", "short_play");
+        shark.addProperty("aid", "8662");
+        business.add("shark_param", shark);
+        payload.add("business_param", business);
+        return payload;
+    }
+
+    /** 发一条回复。成功＝信封 code=0；被拒透传真实 code（103006 页面拉登录）。 */
+    public void publishReply(boolean series, String seriesId, String vid,
+                             String rootCommentId, String targetId, String targetUserId,
+                             String text, HgCallback<Void> cb) {
+        if (!isId(seriesId) || rootCommentId == null || rootCommentId.isEmpty()
+                || (!series && !isId(vid))) {
+            cb.onError(-1, "id 非法");
+            return;
+        }
+        if (text == null || text.trim().isEmpty()) {
+            cb.onError(-1, "回复为空");
+            return;
+        }
+        postWrite("reply/add",
+                replyPostPayload(series, seriesId, vid, rootCommentId, targetId, targetUserId, text),
+                "回复", cb);
+    }
+
     // ---------- 弹幕点赞 ----------
 
     /** UgcActionType（pbrpc 定版）：Agree=8 / CancelAgree=9（社区口「赞」）。 */

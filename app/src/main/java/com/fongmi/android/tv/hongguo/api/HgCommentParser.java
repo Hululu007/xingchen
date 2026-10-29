@@ -125,12 +125,16 @@ public final class HgCommentParser {
             JsonObject stat = obj(comment, "stat");
             long likes = stat != null && stat.has("digg_count") ? Math.max(0, num(stat, "digg_count", 0)) : likesOf(row, common, expand);
             long replyCount = stat == null ? 0 : Math.max(0, num(stat, "reply_count", 0));
+            // 本人点赞态：comment.user_action.user_digg（官方登录回包实证，
+            // series_comments_mine.json 存档）；匿名回包无此键 → false。
+            JsonObject userAction = obj(comment, "user_action");
+            boolean digged = userAction != null && bool(userAction, "user_digg");
             items.add(new HgComment(id,
                     base == null ? "" : truncate(str(base, "user_name"), 200),
                     avatar, truncate(content, 20000),
                     Math.max(0, num(common, "create_timestamp", 0)), likes, replyCount, null,
                     base == null ? "" : str(base, "user_id"),
-                    (int) num(expand, "score", -1)));
+                    (int) num(expand, "score", -1), digged));
         }
         return new HgComment.Page(items, Math.max(0, num(info, "total", 0)), more ? next : "", more);
     }
@@ -184,11 +188,13 @@ public final class HgCommentParser {
                     JsonObject toBase = obj(toInfo, "base_info");
                     if (toBase != null && !str(toBase, "user_name").isEmpty()) replyTo = str(toBase, "user_name");
                 }
+                JsonObject replyAction = obj(row, "user_action");
+                boolean replyDigged = replyAction != null && bool(replyAction, "user_digg");
                 items.add(new HgComment(id,
                         base == null ? "" : truncate(str(base, "user_name"), 200),
                         avatar, truncate(content, 20000),
                         Math.max(0, num(common, "create_timestamp", 0)), likes, replyCount, replyTo,
-                        base == null ? "" : str(base, "user_id"), -1));
+                        base == null ? "" : str(base, "user_id"), -1, replyDigged));
             }
         }
         return new HgComment.Page(items, Math.max(0, num(info, "total", 0)), more ? next : "", more);

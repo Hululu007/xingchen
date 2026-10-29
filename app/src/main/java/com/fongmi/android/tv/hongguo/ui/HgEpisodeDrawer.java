@@ -15,6 +15,7 @@ import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.databinding.DialogHongguoLandEpisodesBinding;
 import com.fongmi.android.tv.databinding.ItemHongguoEpisodeBinding;
 
@@ -24,17 +25,25 @@ import java.util.function.IntConsumer;
 
 /**
  * 横屏页选集侧抽屉（官方 caa：右锚 244dp、关闭图标＋「选集」标题＋列表）：
- * 集格与竖屏选集单同源同标（同布局 item_hongguo_episode、同当前/看过/
- * 不可播三档色，色值与 HgEpisodeSheet 同值），数据同走 session.items 的
- * 同剧位置表，不复制解析。列数按抽屉宽适配 3 列（官方抽屉内列数未抠到）。
+ * 集格与竖屏选集单同布局（item_hongguo_episode）但深浅分开：板底官方
+ * 定版 #FF161616 深板，文字色/集格底走本类深底口径（COLOR_* 白色阶＋
+ * bg_hg_ep_cell_land），不许拿竖屏浅底的黑字系与 bg_hg_ep_cell 串用。
+ * 数据同走 session.items 的同剧位置表，不复制解析。列数按抽屉宽适配
+ * 3 列（官方抽屉内列数未抠到）。
  */
 public final class HgEpisodeDrawer {
 
     private static final int COLUMNS = 3;
 
-    private static final int COLOR_UNWATCHED = 0xFF000000;
-    private static final int COLOR_WATCHED = 0x66000000;
-    private static final int COLOR_UNPLAYABLE = 0x33000000;
+    // 深板（#FF161616）语境文字色：本类即横屏抽屉专用、与竖屏选集单的
+    // 浅底黑字系（HgEpisodeSheet 同名常量）分开，不许串。当前集橙与浅底
+    // 同值（品牌色跨语境一致）；其余三档官方 caa 无集格色实物（列表由
+    // 适配器绑定、无布局文件），按白色阶推断：未看纯白、已看白 60%、
+    // 不可播白 30%，与 #161616 对比依次约 15:1／6.5:1／3:1（不可播本
+    // 就是弱化档）。
+    private static final int COLOR_UNWATCHED = 0xFFFFFFFF;
+    private static final int COLOR_WATCHED = 0x99FFFFFF;
+    private static final int COLOR_UNPLAYABLE = 0x4DFFFFFF;
     private static final int COLOR_CURRENT = 0xFFFA7705;
 
     private HgEpisodeDrawer() {
@@ -80,8 +89,11 @@ public final class HgEpisodeDrawer {
             @NonNull
             @Override
             public EpHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-                return new EpHolder(ItemHongguoEpisodeBinding.inflate(
+                EpHolder holder = new EpHolder(ItemHongguoEpisodeBinding.inflate(
                         LayoutInflater.from(parent.getContext()), parent, false));
+                // 集格底换横屏专用深底版（item 布局默认是竖屏浅底 bg_hg_ep_cell）
+                holder.binding.hgEpNum.setBackgroundResource(R.drawable.bg_hg_ep_cell_land);
+                return holder;
             }
 
             @Override

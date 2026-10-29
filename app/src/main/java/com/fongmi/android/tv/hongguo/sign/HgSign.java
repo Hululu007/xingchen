@@ -1,6 +1,7 @@
 package com.fongmi.android.tv.hongguo.sign;
 
 import com.fongmi.android.tv.api.FqCommentSigner;
+import com.fongmi.android.tv.hongguo.api.HgDevice;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
@@ -124,10 +125,14 @@ public final class HgSign {
         headers.put("x-gorgon", xGorgon(query, body, hasBody, khronos, ent.gorgonRandom));
         headers.put("x-helios", assembleHelios(khronos, ent.heliosRandom));
         headers.put("x-medusa", assembleMedusa(rawURL, body, hasBody, khronos, deviceId, versionName, ent));
-        // x-tt-dt【剩余最大缺口】：官方由 TTNet 原生层填真设备票据，本地造不出
-        // 真值，只能继续留空串，不许拿假值糊弄。若真签名版首登仍回安全句，
-        // 剩余嫌疑只剩这一处与 medusa 环境面（sms-login-fail-20261029.md 第五节）。
-        headers.put("x-tt-dt", "");
+        // x-tt-dt：值＝device_register 回包下发的 device_token——官方链
+        // 是注册 SDK 从回包读出、落本地偏好、每请求以此头带出（Java 层
+        // 全程可抠，两候选原生库 strings 里根本没这串字；定根账
+        // login-ticket-dig-20261029.md 第一节）。旧版 HgDevice 解析注册
+        // 回包时把这个字段扔了、这里只能恒发空串；现签名时现读档案现值
+        // （与 deviceId 同源），档案还没刷到 token（存量旧档案补刷在途）
+        // 时仍为空串，不拿假值糊弄。
+        headers.put("x-tt-dt", HgDevice.deviceToken());
         if (hasBody) {
             headers.put("Content-Type", "application/json; charset=UTF-8");
             headers.put("x-ss-stub", hexUpper(md5Raw(body)));

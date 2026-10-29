@@ -185,6 +185,8 @@ public final class HgApiClient {
     private static final Object deviceLock = new Object();
     private static final List<HgCallback<Boolean>> deviceWaiters = new ArrayList<>();
     private static boolean deviceRegistering;
+    /** 存量档案 device_token 补刷在途旗（与注册闸分家：补刷不占注册轮）。 */
+    private static boolean deviceTokenRefreshing;
     /** 旧代次轮作废后按新档案续注册用的空等待者（结果只给真等待者）。 */
     private static final HgCallback<Boolean> REREGISTER_WAITER = new HgCallback<Boolean>() {
         @Override
@@ -203,11 +205,13 @@ public final class HgApiClient {
     public void ensureDevice(HgCallback<Boolean> cb) {
         if (HgDevice.isRegistered()) {
             cb.onSuccess(Boolean.TRUE);
+            maybeRefreshDeviceToken();
             return;
         }
         synchronized (deviceLock) {
             if (HgDevice.isRegistered()) {
                 cb.onSuccess(Boolean.TRUE);
+                maybeRefreshDeviceToken();
                 return;
             }
             deviceWaiters.add(cb);
@@ -215,6 +219,82 @@ public final class HgApiClient {
             deviceRegistering = true;
         }
         doRegister();
+    }
+
+    /**
+     * 存量档案 device_token 补刷（定根账 login-ticket-dig-20261029.md
+     * 第六节）：已注册但 token 为空的档案是旧版注册的——旧 parseRegister
+     * 把回包里的 device_token 扔了，不补刷就永远发空 x-tt-dt。在签名门
+     * （ensureDevice）成功路径后静默发一轮同身份刷新注册：注册体照旧
+     * 由同一份 cdid/openudid/clientudid 派生（身份锚不变，与官方注册
+     * SDK 的周期性重注册同机制；本机实拉验证同锚二刷 ids 不变、token
+     * 每轮轮换、以最新一发为准）。失败不拦业务、不回错给任何等待者，
+     * 下一轮 ensureDevice 再试。
+     */
+    private void maybeRefreshDeviceToken() {
+        if (!HgDevice.needsDeviceToken()) return;
+        synchronized (deviceLock) {
+            if (deviceTokenRefreshing) return;
+            deviceTokenRefreshing = true;
+        }
+        doRefreshDeviceToken();
+    }
+
+    private void doRefreshDeviceToken() {
+        // 发出时的档案代次：回包落盘前由 saveRegisteredIfGeneration 原子
+        // 复核——期间档案被重置则本轮 token 属旧档案，整发作废不写。
+        final int gen = HgDevice.profileGeneration();
+        final byte[] body;
+        try {
+            body = HgDevice.buildRegisterBody(System.currentTimeMillis());
+        } catch (Exception e) {
+            finishRefreshDeviceToken();
+            return;
+        }
+        HgDevice.Profile p = HgDevice.profile();
+        String url = HgDevice.REGISTER_HOST + "/service/2/device_register/?req_id="
+                + p.reqId + "&tt_data=a";
+        Map<String, String> h = new HashMap<>();
+        h.put("user-agent", HgDevice.userAgent());
+        h.put("Content-Type", "application/octet-stream;tt-data=a");
+        h.put("log-encode-type", "gzip");
+        h.put("sdk-version", "2");
+        h.put("passport-sdk-version", "5051452");
+        h.put("x-vc-bdturing-sdk-version", "4.0.3.cn");
+        h.put("x-ss-dp", "8662");
+        h.put("X-SS-STUB", HgSign.contentMd5Hex(body));
+        RequestBody rb = RequestBody.create(body, MediaType.parse("application/octet-stream;tt-data=a"));
+        Call call = OkHttp.newCall(url, h, rb);
+        enqueue(call, new BodyCallback() {
+            @Override
+            void onCookies(Map<String, String> cookies) {
+                // 与注册轮同口径：刷新回包的游客 Cookie 也是本档案的
+                HgDevice.applyGuestCookiesIfGeneration(gen, cookies);
+            }
+
+            @Override
+            void onBody(String text) {
+                finishRefreshDeviceToken();
+                String[] ids = HgDevice.parseRegister(text);
+                if (ids == null || ids[2].isEmpty()) return;
+                // 只为取 token：本机实证同锚二刷 ids 与现档案一致；万一
+                // 服务端回了不同 ids，按代次原子口径整体回填（与官方
+                // SDK 对回包 ids 的处置同义），代次已变则整发作废。
+                HgDevice.saveRegisteredIfGeneration(gen, ids[0], ids[1], ids[2]);
+            }
+
+            @Override
+            void onFail(int code, String msg) {
+                // 静默：补刷失败不拦业务，下一轮 ensureDevice 再试
+                finishRefreshDeviceToken();
+            }
+        }, "device_register_token_refresh");
+    }
+
+    private void finishRefreshDeviceToken() {
+        synchronized (deviceLock) {
+            deviceTokenRefreshing = false;
+        }
     }
 
     /**
@@ -281,7 +361,7 @@ public final class HgApiClient {
                     finishRegister("注册回包无设备 id");
                     return;
                 }
-                if (!HgDevice.saveRegisteredIfGeneration(gen, ids[0], ids[1])) {
+                if (!HgDevice.saveRegisteredIfGeneration(gen, ids[0], ids[1], ids[2])) {
                     // 落盘瞬间档案已被重置：回的 id 属于旧档案、原子校验
                     // 已保证没写进新档案，作废本轮、按新档案重新注册；
                     // 等待者不释放、等新一轮结果

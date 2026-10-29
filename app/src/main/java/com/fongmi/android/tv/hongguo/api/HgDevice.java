@@ -73,6 +73,8 @@ public final class HgDevice {
         public String reqId;
         public String deviceId;
         public String installId;
+        /** 注册回包下发的 device_token（请求头 x-tt-dt 的真值来源，见 login-ticket-dig-20261029.md）。 */
+        public String deviceToken = "";
         public String ttReq = "";
         public String storeRegion = "";
         public String storeRegionSrc = "";
@@ -139,11 +141,17 @@ public final class HgDevice {
         cached = null;
     }
 
-    /** 注册成功回填真 id（并落盘）。 */
+    /** 注册成功回填真 id（并落盘，device_token 不动）；旧调用口（测试探针）保留。 */
     public static synchronized void saveRegistered(String deviceId, String installId) {
+        saveRegistered(deviceId, installId, null);
+    }
+
+    /** 注册成功回填真 id 与 device_token（并落盘）；token 为空不覆写已有值。 */
+    public static synchronized void saveRegistered(String deviceId, String installId, String deviceToken) {
         Profile p = profile();
         p.deviceId = deviceId;
         p.installId = installId;
+        if (deviceToken != null && !deviceToken.isEmpty()) p.deviceToken = deviceToken;
         save(p);
     }
 
@@ -152,14 +160,32 @@ public final class HgDevice {
      * 请求在途时档案被重置（resetProfile 同锁 +1 代次），本轮回的旧 id
      * 绝无可能在「先查代次、后落盘」的缝里写进新档案（扫查 P2）。
      * 代次不符返回 false 且什么都不写，调用方按新档案重新注册。
+     * device_token 随同一发回包落盘（官方口径：每轮注册回包重写、以
+     * 最近一次为准）；回包没带 token 时不覆写已有值，防坏回包清凭证。
      */
-    public static synchronized boolean saveRegisteredIfGeneration(int gen, String deviceId, String installId) {
+    public static synchronized boolean saveRegisteredIfGeneration(int gen, String deviceId, String installId, String deviceToken) {
         if (generation != gen) return false;
         Profile p = profile();
         p.deviceId = deviceId;
         p.installId = installId;
+        if (deviceToken != null && !deviceToken.isEmpty()) p.deviceToken = deviceToken;
         save(p);
         return true;
+    }
+
+    /** 档案现存的 device_token（x-tt-dt 填值口）；没刷到过时为空串。 */
+    public static String deviceToken() {
+        return nz(profile().deviceToken);
+    }
+
+    /**
+     * 存量档案补刷判定：已注册但 device_token 为空——这类档案是旧版
+     * 注册的（旧 parseRegister 把回包 token 扔了），要走一发同身份刷新
+     * 注册把 token 捡回来（HgApiClient.ensureDevice 成功路径后静默触发）。
+     */
+    public static synchronized boolean needsDeviceToken() {
+        Profile p = profile();
+        return p.registered() && (p.deviceToken == null || p.deviceToken.isEmpty());
     }
 
     /** 游客 Cookie 落盘的代次原子版（同 saveRegisteredIfGeneration 口径）。 */
@@ -392,8 +418,12 @@ public final class HgDevice {
     }
 
     /**
-     * 解析注册回包：{device_id_str, install_id_str}（字符串或数字都收），
-     * 缺失/为 "0" 返回 null（对照 ParseRegister）。
+     * 解析注册回包：{device_id_str, install_id_str, device_token}（字符串
+     * 或数字都收），id 缺失/为 "0" 返回 null（对照 ParseRegister）；
+     * device_token 缺失时第三元素为空串（落盘层以非空才覆写处置）。
+     * device_token 就是请求头 x-tt-dt 的值：官方注册 SDK 从同一回包
+     * 读出落盘、每请求带出（login-ticket-dig-20261029.md 第一节四环
+     * 实证）；旧版只取两个 id 把它扔了，HgSign 因此恒发空 x-tt-dt。
      */
     public static String[] parseRegister(String json) {
         try {
@@ -401,7 +431,8 @@ public final class HgDevice {
             String deviceId = flexString(root, "device_id_str");
             String installId = flexString(root, "install_id_str");
             if (!Profile.nonZero(deviceId) || !Profile.nonZero(installId)) return null;
-            return new String[]{deviceId, installId};
+            String token = flexString(root, "device_token");
+            return new String[]{deviceId, installId, token == null ? "" : token};
         } catch (Exception e) {
             return null;
         }
@@ -464,6 +495,7 @@ public final class HgDevice {
             p.reqId = str(o, "req_id");
             p.deviceId = str(o, "device_id");
             p.installId = str(o, "install_id");
+            p.deviceToken = str(o, "device_token");
             p.ttReq = str(o, "ttreq");
             p.storeRegion = str(o, "store_region");
             p.storeRegionSrc = str(o, "store_region_src");
@@ -488,6 +520,7 @@ public final class HgDevice {
         o.addProperty("req_id", nz(p.reqId));
         o.addProperty("device_id", nz(p.deviceId));
         o.addProperty("install_id", nz(p.installId));
+        o.addProperty("device_token", nz(p.deviceToken));
         o.addProperty("ttreq", nz(p.ttReq));
         o.addProperty("store_region", nz(p.storeRegion));
         o.addProperty("store_region_src", nz(p.storeRegionSrc));

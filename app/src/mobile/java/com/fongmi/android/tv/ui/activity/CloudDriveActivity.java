@@ -802,13 +802,17 @@ public class CloudDriveActivity extends BaseActivity {
     }
 
     /**
-     * 展示过滤（文件列表与非 115 搜索结果共用）：全类型可见（2026-10-28 做全口径——
-     * 文档/图片/压缩包/音频都列，非视频走长按管理动作）；他定的视频口径保留：
-     * 大小在 30MB 以内的短视频直接藏掉（治短视频广告，「广告没有这么大」）。
-     * 大小取不到/为 0 的视频不藏，免得误伤字段缺失的正常文件。文件夹永远不受影响。
+     * 展示过滤（文件列表与非 115 搜索结果共用）：
+     * 115 按他的定案——列表只留文件夹＋视频，文档/图片/压缩包/音频一律不列
+     * （2026-10-28「做全」的全类型可见只对夸克/PikPak 成立，两家维持不变、非视频走长按管理动作）。
+     * 视频口径三家共同：大小在 30MB 以内的短视频直接藏掉（治短视频广告，「广告没有这么大」）；
+     * 大小取不到/为 0 的视频不藏，免得误伤字段缺失的正常文件。文件夹永远不受影响、永远显示。
      */
-    private static boolean visibleInList(CloudFile f) {
+    private boolean visibleInList(CloudFile f) {
         if (f.isDir()) return true;
+        if (drive != null && Drive115.ID.equals(drive.getId())) {
+            return f.isVideo() && (f.getSize() <= 0 || f.getSize() > MIN_VIDEO_SIZE);
+        }
         if (!f.isVideo()) return true;
         return f.getSize() <= 0 || f.getSize() > MIN_VIDEO_SIZE;
     }
@@ -845,7 +849,8 @@ public class CloudDriveActivity extends BaseActivity {
                     int added = 0;
                     if (result != null) {
                         fetchedCount = append ? fetchedCount + result.size() : result.size();
-                        // 展示口径：全类型可见，只藏 30MB 以内的短视频（visibleInList）。
+                        // 展示口径走 visibleInList：115 只留文件夹＋视频（再藏 30MB 以内的短视频），
+                        // 夸克/PikPak 全类型可见（同款藏小视频）。
                         // 过滤只在组装展示处做，不动各 Drive 的 listDir；分页 offset 与 hasMore 都按原始条数算，
                         // 免得一页全是被过滤的文件时被误判成到底、把后面的视频漏掉。
                         for (CloudFile f : result) if (visibleInList(f)) {

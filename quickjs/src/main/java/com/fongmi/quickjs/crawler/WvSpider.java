@@ -337,6 +337,9 @@ public class WvSpider extends com.github.catvod.crawler.Spider {
     private void initializeJS() throws Exception {
         submitAndGet(() -> {
             String content = Module.get().fetch(api);
+            // 同普通通道：内容取不到时 fetch 回 null，parseConfig 虽容 null，
+            // createCtx 的 evaluate(null) 不容——具名失败、上层降级 SpiderNull。
+            if (content == null) throw new IllegalStateException("wv source content unavailable: " + api);
             config = parseConfig(content);
             createCtx(content);
             return null;

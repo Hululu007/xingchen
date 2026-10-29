@@ -4,6 +4,9 @@ import com.fongmi.android.tv.utils.ToastUtil;
 import android.app.Dialog;
 import android.content.Context;
 import android.os.Bundle;
+import android.os.FileObserver;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.View;
@@ -29,6 +32,28 @@ public class SourceScriptsDialog extends Dialog {
     private List<File> allJsFiles = new ArrayList<>();
     private ScriptAdapter pyAdapter;
     private ScriptAdapter jsAdapter;
+    private RecyclerView rvPy;
+    private RecyclerView rvJs;
+    private LinearLayout colPy;
+    private LinearLayout colJs;
+    private LinearLayout layoutColumns;
+    private TextView tvEmpty;
+    private File pyDir;
+    private File jsDir;
+    private String currentQuery = "";
+    private LinearLayout.LayoutParams pristinePyParams;
+    private LinearLayout.LayoutParams pristineJsParams;
+    private FileObserver pyObserver;
+    private FileObserver jsObserver;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private boolean reloadPosted;
+    private final Runnable reloadRunnable = new Runnable() {
+        @Override
+        public void run() {
+            reloadPosted = false;
+            if (isShowing()) renderLists();
+        }
+    };
 
     public interface OnScriptSelectListener {
         void onScriptSelect(File file, boolean isPy);
@@ -70,67 +95,22 @@ public class SourceScriptsDialog extends Dialog {
             }
         } catch (Exception e) { e.printStackTrace(); }
 
-        RecyclerView rvPy = findViewById(R.id.rv_py);
-        RecyclerView rvJs = findViewById(R.id.rv_js);
-        LinearLayout colPy = findViewById(R.id.column_py);
-        LinearLayout colJs = findViewById(R.id.column_js);
-        LinearLayout layoutColumns = findViewById(R.id.layout_columns);
-        TextView tvEmpty = findViewById(R.id.tv_empty);
+        rvPy = findViewById(R.id.rv_py);
+        rvJs = findViewById(R.id.rv_js);
+        colPy = findViewById(R.id.column_py);
+        colJs = findViewById(R.id.column_js);
+        layoutColumns = findViewById(R.id.layout_columns);
+        tvEmpty = findViewById(R.id.tv_empty);
 
-        File pyDir = new File(getContext().getFilesDir(), "plugins/py");
-        File jsDir = new File(getContext().getFilesDir(), "plugins/js");
+        // 列参数的布局原值先存一份：单列形态会改 weight/外边距，重列时先复位再套形态，
+        // 不许上一形态的改动残留（首开空→补列后直接进双列/单列都要从原值起算）。
+        pristinePyParams = new LinearLayout.LayoutParams((LinearLayout.LayoutParams) colPy.getLayoutParams());
+        pristineJsParams = new LinearLayout.LayoutParams((LinearLayout.LayoutParams) colJs.getLayoutParams());
 
-        allPyFiles = listScripts(pyDir, ".py");
-        allJsFiles = listScripts(jsDir, ".js");
+        pyDir = new File(getContext().getFilesDir(), "plugins/py");
+        jsDir = new File(getContext().getFilesDir(), "plugins/js");
 
-        boolean hasPy = !allPyFiles.isEmpty();
-        boolean hasJs = !allJsFiles.isEmpty();
-
-        if (!hasPy && !hasJs) {
-            layoutColumns.setVisibility(View.GONE);
-            tvEmpty.setVisibility(View.VISIBLE);
-        } else {
-            layoutColumns.setVisibility(View.VISIBLE);
-            tvEmpty.setVisibility(View.GONE);
-
-            if (hasPy && hasJs) {
-                colPy.setVisibility(View.VISIBLE);
-                colJs.setVisibility(View.VISIBLE);
-            } else if (hasPy) {
-                colPy.setVisibility(View.VISIBLE);
-                colJs.setVisibility(View.GONE);
-                LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) colPy.getLayoutParams();
-                lp.weight = 1;
-                lp.setMarginEnd(0);
-                colPy.setLayoutParams(lp);
-            } else {
-                colPy.setVisibility(View.GONE);
-                colJs.setVisibility(View.VISIBLE);
-                LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) colJs.getLayoutParams();
-                lp.weight = 1;
-                lp.setMarginStart(0);
-                colJs.setLayoutParams(lp);
-            }
-
-            rvPy.setLayoutManager(new LinearLayoutManager(getContext()));
-            pyAdapter = new ScriptAdapter(allPyFiles, f -> {
-                if (listener != null) listener.onScriptSelect(f, true);
-                dismiss();
-            });
-            pyAdapter.setOnItemLongClickListener(f -> showExtConfigDialog(f, true));
-            rvPy.setAdapter(pyAdapter);
-
-            rvJs.setLayoutManager(new LinearLayoutManager(getContext()));
-            jsAdapter = new ScriptAdapter(allJsFiles, f -> {
-                if (listener != null) listener.onScriptSelect(f, false);
-                dismiss();
-            });
-            jsAdapter.setOnItemLongClickListener(f -> showExtConfigDialog(f, false));
-            rvJs.setAdapter(jsAdapter);
-
-            scrollToCurrent(rvPy, allPyFiles);
-            scrollToCurrent(rvJs, allJsFiles);
-        }
+        renderLists();
 
         EditText etSearch = findViewById(R.id.et_search);
         etSearch.addTextChangedListener(new TextWatcher() {
@@ -140,11 +120,145 @@ public class SourceScriptsDialog extends Dialog {
             public void onTextChanged(CharSequence s, int start, int before, int count) {}
             @Override
             public void afterTextChanged(Editable s) {
-                applyFilter(s.toString());
+                currentQuery = s == null ? "" : s.toString();
+                applyFilter(currentQuery);
             }
         });
 
         findViewById(android.R.id.content).setOnClickListener(v -> dismiss());
+    }
+
+    /**
+     * 重读两目录并整表重列（空/单列/双列三形态都从布局原值起算）。
+     * 首开空的病根：旧版只在 onCreate 读一次目录——读的那一瞬目录还没就绪
+     * （文件在弹窗打开之后才落盘/到位），空态连同「适配器从未创建」被冻住，
+     * 弹窗开着永远不会自己好，只能关掉重开才读到。本方法由三路触发：
+     * onCreate 首列、onStart 补读（堵构造→显示之间的落盘窗口）、目录监听
+     * 事件（弹窗开着时文件到位即补列）。数据本来就绪时重列结果与首列一致。
+     */
+    private void renderLists() {
+        if (rvPy == null || rvJs == null) return;
+        allPyFiles = listScripts(pyDir, ".py");
+        allJsFiles = listScripts(jsDir, ".js");
+
+        boolean hasPy = !allPyFiles.isEmpty();
+        boolean hasJs = !allJsFiles.isEmpty();
+
+        colPy.setLayoutParams(new LinearLayout.LayoutParams(pristinePyParams));
+        colJs.setLayoutParams(new LinearLayout.LayoutParams(pristineJsParams));
+
+        if (!hasPy && !hasJs) {
+            layoutColumns.setVisibility(View.GONE);
+            tvEmpty.setVisibility(View.VISIBLE);
+            return;
+        }
+        layoutColumns.setVisibility(View.VISIBLE);
+        tvEmpty.setVisibility(View.GONE);
+
+        if (hasPy && hasJs) {
+            colPy.setVisibility(View.VISIBLE);
+            colJs.setVisibility(View.VISIBLE);
+        } else if (hasPy) {
+            colPy.setVisibility(View.VISIBLE);
+            colJs.setVisibility(View.GONE);
+            LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) colPy.getLayoutParams();
+            lp.weight = 1;
+            lp.setMarginEnd(0);
+            colPy.setLayoutParams(lp);
+        } else {
+            colPy.setVisibility(View.GONE);
+            colJs.setVisibility(View.VISIBLE);
+            LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) colJs.getLayoutParams();
+            lp.weight = 1;
+            lp.setMarginStart(0);
+            colJs.setLayoutParams(lp);
+        }
+
+        boolean firstFill = pyAdapter == null && jsAdapter == null;
+        if (pyAdapter == null) {
+            rvPy.setLayoutManager(new LinearLayoutManager(getContext()));
+            pyAdapter = new ScriptAdapter(allPyFiles, f -> {
+                if (listener != null) listener.onScriptSelect(f, true);
+                dismiss();
+            });
+            pyAdapter.setOnItemLongClickListener(f -> showExtConfigDialog(f, true));
+            rvPy.setAdapter(pyAdapter);
+        }
+        if (jsAdapter == null) {
+            rvJs.setLayoutManager(new LinearLayoutManager(getContext()));
+            jsAdapter = new ScriptAdapter(allJsFiles, f -> {
+                if (listener != null) listener.onScriptSelect(f, false);
+                dismiss();
+            });
+            jsAdapter.setOnItemLongClickListener(f -> showExtConfigDialog(f, false));
+            rvJs.setAdapter(jsAdapter);
+        }
+
+        applyFilter(currentQuery);
+        // 滚动定位只在首次填充时做：开着时因文件事件补列不许把用户正看的位置拽走。
+        if (firstFill) {
+            scrollToCurrent(rvPy, allPyFiles);
+            scrollToCurrent(rvJs, allJsFiles);
+        }
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        startWatching();
+        renderLists();
+    }
+
+    @Override
+    protected void onStop() {
+        stopWatching();
+        super.onStop();
+    }
+
+    /** 监听两脚本目录（与 JsLoader.watchPlugins 同一目录、同一事件口径）：文件落盘/替换/删除即补列。 */
+    private void startWatching() {
+        pyObserver = watchDir(pyDir, true);
+        jsObserver = watchDir(jsDir, false);
+    }
+
+    private FileObserver watchDir(File dir, final boolean py) {
+        if (dir == null) return null;
+        try {
+            // 目录尚不存在时监听挂不上：先建出来（导入链也以此目录为落点，建空目录无副作用）。
+            if (!dir.exists()) dir.mkdirs();
+            FileObserver observer = new FileObserver(dir.getAbsolutePath(),
+                    FileObserver.CREATE | FileObserver.CLOSE_WRITE | FileObserver.MOVED_TO | FileObserver.DELETE) {
+                @Override
+                public void onEvent(int event, String path) {
+                    if (!ScriptFiles.isScriptName(path, py)) return;
+                    postReload();
+                }
+            };
+            observer.startWatching();
+            return observer;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private void stopWatching() {
+        if (pyObserver != null) {
+            try { pyObserver.stopWatching(); } catch (Exception ignored) {}
+            pyObserver = null;
+        }
+        if (jsObserver != null) {
+            try { jsObserver.stopWatching(); } catch (Exception ignored) {}
+            jsObserver = null;
+        }
+        mainHandler.removeCallbacks(reloadRunnable);
+        reloadPosted = false;
+    }
+
+    /** 文件系统事件可能连发：合并成一次主线程重列（事件合并，非数据重试）。 */
+    private void postReload() {
+        if (reloadPosted) return;
+        reloadPosted = true;
+        mainHandler.post(reloadRunnable);
     }
 
     private void applyFilter(String keyword) {
@@ -316,13 +430,6 @@ public class SourceScriptsDialog extends Dialog {
     }
 
     private List<File> listScripts(File dir, String ext) {
-        List<File> result = new ArrayList<>();
-        if (dir.exists() && dir.isDirectory()) {
-            File[] files = dir.listFiles((d, name) -> name.endsWith(ext) || (".js".equals(ext) && name.endsWith(".wv")));
-            if (files != null) {
-                for (File f : files) result.add(f);
-            }
-        }
-        return result;
+        return ScriptFiles.list(dir, ext);
     }
 }

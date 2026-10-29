@@ -283,6 +283,10 @@ public class Spider extends com.github.catvod.crawler.Spider {
         String spider = "__JS_SPIDER__";
         String global = "globalThis." + spider;
         String content = Module.get().fetch(api);
+        // 内容取不到（本地读失败/远程非 200）时 fetch 回 null：不许裸 NPE 在
+        // content.contains 上、更不许把 null 交给 evaluateModule，具名失败给
+        // JsLoader 记账，上层照旧降级 SpiderNull。
+        if (content == null) throw new IllegalStateException("quickjs source content unavailable: " + api);
         cat = content.contains("__jsEvalReturn");
         ctx.evaluateModule(content.replace(spider, global), api);
         ctx.evaluateModule(String.format(Asset.read("js/lib/spider.js"), api, JSONObject.quote(siteKey)));

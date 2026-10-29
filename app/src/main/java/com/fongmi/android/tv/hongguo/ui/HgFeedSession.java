@@ -333,138 +333,227 @@ public final class HgFeedSession {
 
             @Override
             public void onError(int httpCode, String message) {
-                main.post(() -> changed.accept(-1));
+                main.post(() -> {
+                    changed.accept(-1);
+                    // 详情没拉到：作者名无从富集，但出品方词还在条目上，
+                    // 反查照样能试（词表在核验链里组装）
+                    kickAuthorResolve(item, changed);
+                });
             }
         });
     }
 
-    /** 正剧作者 uid 反查的会话内命中缓存：按搜索名记；跨剧复用必须先过
-     * verifyCachedHit 二次核对，不许拿名字相同直接补（扫查 H4）。 */
+    /** 反查核验过的正主缓存：按搜索词记，只存作品核验通过的命中，
+     * 用作同名候选的优先核验序；跨剧复用仍须过本剧作品核验，不许拿
+     * 名字相同直接回补（旧 verifyCachedHit 的名/头像核对由作品核验
+     * 整体取代——正剧详情根本不给头像，用户签头像又是签名缩略图，
+     * 全等比对只会误杀）。 */
     private final Map<String, HgAuthorHit> authorHitByName = new HashMap<>();
-    /** 反查已发起过的（剧＋搜索名）组合：按名记而不是只按剧——首个 hint
-     * 用的名查无结果后，换一个名（作者名/出品方品牌互为备选）还要能再试
-     * （扫查 H4 附带项）。 */
+    /** 反查已完整试过的（剧＋搜索词）组合：词表逐词推进的记账，
+     * 试尽的词本会话内不再重发。 */
     private final java.util.Set<String> authorResolveTried = new java.util.HashSet<>();
+    /** 点按反查的在途等待表（按剧合并同剧连点，只发一次核验链）。 */
+    private final Map<String, List<java.util.function.Consumer<Boolean>>> authorTapWaiters = new HashMap<>();
 
     /**
-     * 正剧作者 uid 兜底反查（2026-10-29 本机实拉定根，账
-     * author-page-why-missing-20261029 追补）：详情口对剧集内容恒不
-     * 下发作者身份（单剧/批量/账号自制剧/单集模型五路全量扫零 uid），
-     * 正剧条目 authorUid 只能靠搜索「用户」签按名反查——搜索名取作者名、
-     * 没有取出品方品牌（cell copyright 抬升），定正主口径＝同名精确
-     * 匹配里作品数最高者（潮汐剧场实证：同名三号中作品数 628 的正主
-     * uid＝3336352032369972、与结果序首位一致；公司全称类品牌多半查无
-     * 账号，无果即止）。命中后给同剧全部条目回补 uid（缺名/头像一并
-     * 补）、回写详情缓存让后续展开直接继承，并报首个受影响下标。
-     * UGC 条目 uid 本就齐、进门即回，不走此路；失败一律静默，不打扰播放。
-     * 调用方都在主线程（页表口径），网络回调经 main 转手后才碰页表。
+     * 正剧作者 uid 兜底反查（2026-10-29 晚实拉定根，账
+     * author-entry-still-dead-20261029）：阅读面全口不下发正剧出品方
+     * 账号身份（流 cell 只有 copyright、单剧详情 410KB 全量扫零作者
+     * 字段、漫剧频道 1.9MB 全扫 ugc_user_info 零出现），正剧条目
+     * authorUid 只能靠搜索「用户」签（tab_type=27）按名反查、再以
+     * 作品核验定正主：
      *
-     * <p>同名误配防线（扫查 H4）：按名缓存的命中是「为另一部剧」核出来
-     * 的，跨剧复用前必须二次核对（verifyCachedHit：头像、详情作者名）——
-     * 核出不符不配、核不了不直接用缓存而是落回本剧自己的搜索；搜索选
-     * 正主时本剧条目带头像的，同名候选先过头像核对，核不上宁可不配，
-     * 不许静默补一个错 uid。</p>
+     * <p>词表逐词试（条目作者名→详情作者名→出品方品牌），含「有限
+     * 公司」的公司全称词直接跳过（实拉：用户签对公司词回空壳/零候
+     * 选，灵龙科技、北京种花寻梦影视有限公司同型）；精确同名候选逐
+     * 个拉剧作列（tab_type=11、time_desc、最多 2 面）查本剧
+     * seriesId，命中者才是正主——旧「同名取 celebrity_work_cnt 最
+     * 高」已被九天漫剧实证判死（正主作品数 2、粉丝 3052 与官方图全
+     * 对上；错号作品数 914、粉丝 30 万，点开是别人主页比打不开更
+     * 坏）；头像全等硬门一并摘除（理由见 authorHitByName 注）。全
+     * 不中不配、不硬认。命中后给同剧全部条目回补 uid（缺名/头像一
+     * 并补）、回写详情缓存，并报首个受影响下标。</p>
+     *
+     * <p>两个入口共用核验链：落定富集的 kickAuthorResolve（静默、
+     * 不打扰播放）与点头像的 resolveAuthorForTap（必有回音，见
+     * HongguoFeedActivity.onAuthor）。UGC 条目 uid 本就齐、不走此
+     * 路。调用方都在主线程，网络回调经 main 转手后才碰页表。</p>
      */
     private void kickAuthorResolve(HgFeedItem hint, java.util.function.IntConsumer changed) {
         if (hint == null || hint.authorUid != null || hint.seriesId == null) return;
-        final boolean nameFromAuthor = hint.authorName != null && !hint.authorName.isEmpty();
-        final String name = nameFromAuthor ? hint.authorName : hint.publisher;
-        if (name == null || name.isEmpty()) return;
-        HgAuthorHit hit = authorHitByName.get(name);
-        if (hit != null) {
-            int verdict = verifyCachedHit(hint, nameFromAuthor, hit);
-            if (verdict > 0) {
-                patchAuthor(hint.seriesId, hit, changed);
-                return;
-            }
-            if (verdict < 0) {
-                // 详情作者名与命中名冲突＝核出不是此人：此剧按未配收口，
-                // 同名不再重试（按此名搜候选全是同名，换汤不换药）
-                authorResolveTried.add(hint.seriesId + "\n" + name);
-                return;
-            }
-            // 头像冲突（缓存里是重名者）或核不了（本剧无可比信号）：不直
-            // 接用缓存，落到本剧自己的搜索路径——选正主有头像核对兜底，
-            // 真正主在候选里才配得上，核不上宁可不配
+        authorResolveChain(hint, changed, null);
+    }
+
+    /**
+     * 点头像触发的反查：与落定链同一核验链，但结果必回 done——
+     * true＝已回补（调用方重读条目开作者页），false＝词表试尽无正
+     * 主（调用方给用户明确反馈）。同剧在途合并，连点只发一次链。
+     */
+    public void resolveAuthorForTap(HgFeedItem item, java.util.function.Consumer<Boolean> done) {
+        if (item == null || done == null) return;
+        if (item.authorUid != null && !item.authorUid.isEmpty()) {
+            done.accept(true);
+            return;
         }
-        if (!authorResolveTried.add(hint.seriesId + "\n" + name)) return;
-        final String seriesId = hint.seriesId;
-        final String seriesAvatar = seriesAvatarOf(seriesId, hint);
+        if (item.seriesId == null) {
+            done.accept(false);
+            return;
+        }
+        for (HgFeedItem it : items) {
+            if (item.seriesId.equals(it.seriesId)
+                    && it.authorUid != null && !it.authorUid.isEmpty()) {
+                done.accept(true);
+                return;
+            }
+        }
+        synchronized (authorTapWaiters) {
+            List<java.util.function.Consumer<Boolean>> ws = authorTapWaiters.get(item.seriesId);
+            if (ws != null) {
+                ws.add(done);
+                return;
+            }
+            ws = new ArrayList<>();
+            ws.add(done);
+            authorTapWaiters.put(item.seriesId, ws);
+        }
+        authorResolveChain(item, null, ok -> finishAuthorTap(item.seriesId, ok));
+    }
+
+    private void finishAuthorTap(String seriesId, boolean ok) {
+        List<java.util.function.Consumer<Boolean>> ws;
+        synchronized (authorTapWaiters) {
+            ws = authorTapWaiters.remove(seriesId);
+        }
+        if (ws == null) return;
+        for (java.util.function.Consumer<Boolean> c : ws) c.accept(ok);
+    }
+
+    /** 反查词表：条目作者名→详情作者名→出品方品牌，去空去重去公司全称。 */
+    private List<String> authorResolveWords(HgFeedItem hint) {
+        List<String> words = new ArrayList<>();
+        addResolveWord(words, hint.authorName);
+        HgSeriesDetail d = details.get(hint.seriesId);
+        addResolveWord(words, d == null ? null : d.getAuthorName());
+        addResolveWord(words, hint.publisher);
+        return words;
+    }
+
+    private static void addResolveWord(List<String> words, String word) {
+        if (word == null) return;
+        String w = word.trim();
+        if (w.isEmpty() || words.contains(w)) return;
+        // 公司全称（…有限公司）在用户签里没有账号（实拉空壳/零候选），
+        // 发出去只白等一轮往返，直接跳过
+        if (w.contains("有限公司")) return;
+        words.add(w);
+    }
+
+    private void authorResolveChain(HgFeedItem hint, java.util.function.IntConsumer changed,
+                                    java.util.function.Consumer<Boolean> done) {
+        List<String> words = authorResolveWords(hint);
+        if (words.isEmpty()) {
+            if (done != null) done.accept(false);
+            return;
+        }
+        tryResolveWord(hint, words, 0, changed, done);
+    }
+
+    private void tryResolveWord(HgFeedItem hint, List<String> words, int wi,
+                                java.util.function.IntConsumer changed,
+                                java.util.function.Consumer<Boolean> done) {
+        if (wi >= words.size()) {
+            if (done != null) done.accept(false);
+            return;
+        }
+        final String name = words.get(wi);
+        if (!authorResolveTried.add(hint.seriesId + "\n" + name)) {
+            tryResolveWord(hint, words, wi + 1, changed, done);
+            return;
+        }
         client.searchUsers(name, new HgCallback<List<HgAuthorHit>>() {
             @Override
             public void onSuccess(List<HgAuthorHit> hits) {
                 main.post(() -> {
-                    HgAuthorHit best = selectAuthorHit(hits, name, seriesAvatar);
-                    if (best == null) return;
-                    authorHitByName.put(name, best);
-                    HgSeriesDetail d = details.get(seriesId);
-                    if (d != null) d.attachAuthorUid(best.uid);
-                    patchAuthor(seriesId, best, changed);
+                    List<HgAuthorHit> cands = new ArrayList<>();
+                    if (hits != null) {
+                        for (HgAuthorHit h : hits) {
+                            if (h != null && name.equals(h.name)) cands.add(h);
+                        }
+                    }
+                    // 核验过的正主排首位先核（多半一击命中，省请求）
+                    HgAuthorHit cached = authorHitByName.get(name);
+                    if (cached != null) {
+                        cands.removeIf(h -> cached.uid.equals(h.uid));
+                        cands.add(0, cached);
+                    }
+                    if (cands.isEmpty()) {
+                        tryResolveWord(hint, words, wi + 1, changed, done);
+                        return;
+                    }
+                    verifyAuthorCandidate(hint, name, cands, 0, changed,
+                            () -> tryResolveWord(hint, words, wi + 1, changed, done), done);
                 });
             }
 
             @Override
             public void onError(int httpCode, String message) {
-                // 反查失败静默：作者入口保持现状，不打扰播放
+                main.post(() -> tryResolveWord(hint, words, wi + 1, changed, done));
             }
         });
     }
 
-    /** 本剧已知的作者头像：hint 自带优先，其次同剧任一条目带的；都没有为 null（无可比信号）。 */
-    private String seriesAvatarOf(String seriesId, HgFeedItem hint) {
-        if (hint != null && hint.authorAvatar != null && !hint.authorAvatar.isEmpty()) {
-            return hint.authorAvatar;
+    /** 逐个候选作品核验：首个剧作列含本剧的即正主；全不中走 next（换词）。 */
+    private void verifyAuthorCandidate(HgFeedItem hint, String name, List<HgAuthorHit> cands, int ci,
+                                       java.util.function.IntConsumer changed, Runnable next,
+                                       java.util.function.Consumer<Boolean> done) {
+        if (ci >= cands.size()) {
+            next.run();
+            return;
         }
-        for (HgFeedItem it : items) {
-            if (it.seriesId != null && it.seriesId.equals(seriesId)
-                    && it.authorAvatar != null && !it.authorAvatar.isEmpty()) {
-                return it.authorAvatar;
+        HgAuthorHit cand = cands.get(ci);
+        verifyCandidateWorks(hint.seriesId, cand, "", 0, ok -> {
+            if (ok) {
+                authorHitByName.put(name, cand);
+                HgSeriesDetail d = details.get(hint.seriesId);
+                if (d != null) d.attachAuthorUid(cand.uid);
+                patchAuthor(hint.seriesId, cand, changed);
+                if (done != null) done.accept(true);
+            } else {
+                verifyAuthorCandidate(hint, name, cands, ci + 1, changed, next, done);
             }
-        }
-        return null;
+        });
     }
 
-    /**
-     * 缓存命中跨剧复用的二次核对：1＝有正向证据（头像一致／详情作者名
-     * 一致）且无冲突；-1＝详情作者名与命中名冲突（硬否决）；0＝其余
-     * （头像冲突说明缓存里是重名者、无可比信号说明核不了）——一律不用
-     * 缓存、落回本剧自己的搜索路径再定。
-     */
-    private int verifyCachedHit(HgFeedItem hint, boolean nameFromAuthor, HgAuthorHit hit) {
-        boolean positive = false;
-        String avatar = seriesAvatarOf(hint.seriesId, hint);
-        if (avatar != null && hit.avatar != null) {
-            // 头像两边都有却对不上：缓存里是重名者，名字再像也不是此人，
-            // 直接落回本剧搜索（下方详情名一致也不许翻案）
-            if (!avatar.equals(hit.avatar)) return 0;
-            positive = true;
-        }
-        if (nameFromAuthor) {
-            HgSeriesDetail d = details.get(hint.seriesId);
-            String detailName = d == null ? null : d.getAuthorName();
-            if (detailName != null && !detailName.isEmpty()) {
-                if (!detailName.equals(hit.name)) return -1;
-                positive = true;
-            }
-        }
-        return positive ? 1 : 0;
-    }
+    /** 作品核验：拉候选的剧作列（tab_type=11）查本剧，最多 2 面。 */
+    private void verifyCandidateWorks(String seriesId, HgAuthorHit cand, String cursor, int page,
+                                      java.util.function.Consumer<Boolean> verdict) {
+        fqClient.authorProfileList(cand.uid, 11, -1, "time_desc", cursor,
+                new HgCallback<com.fongmi.android.tv.hongguo.model.HgAuthorWork.Page>() {
+                    @Override
+                    public void onSuccess(com.fongmi.android.tv.hongguo.model.HgAuthorWork.Page p) {
+                        main.post(() -> {
+                            if (p != null && p.items != null) {
+                                for (com.fongmi.android.tv.hongguo.model.HgAuthorWork w : p.items) {
+                                    if (w != null && seriesId.equals(w.seriesId)) {
+                                        verdict.accept(true);
+                                        return;
+                                    }
+                                }
+                            }
+                            if (p != null && p.hasMore && p.nextCursor != null && !p.nextCursor.isEmpty()
+                                    && page + 1 < 2) {
+                                verifyCandidateWorks(seriesId, cand, p.nextCursor, page + 1, verdict);
+                            } else {
+                                verdict.accept(false);
+                            }
+                        });
+                    }
 
-    /**
-     * 搜索候选定正主：同名精确匹配＋作品数最高（原口径）；本剧条目带
-     * 头像时先过头像核对——候选头像对不上的视同重名者剔除，全部对不
-     * 上（或都没带头像可核）时返回 null 不配，不许拿作品数硬认。
-     */
-    private static HgAuthorHit selectAuthorHit(List<HgAuthorHit> hits, String name, String seriesAvatar) {
-        HgAuthorHit best = null;
-        if (hits != null) {
-            for (HgAuthorHit h : hits) {
-                if (h == null || !name.equals(h.name)) continue;
-                if (seriesAvatar != null && (h.avatar == null || !seriesAvatar.equals(h.avatar))) continue;
-                if (best == null || h.workCount > best.workCount) best = h;
-            }
-        }
-        return best;
+                    @Override
+                    public void onError(int code, String msg) {
+                        main.post(() -> verdict.accept(false));
+                    }
+                });
     }
 
     /** 把命中的作者身份回补到同剧全部条目（只补缺的），报首个受影响下标。 */

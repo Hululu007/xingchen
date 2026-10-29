@@ -1696,20 +1696,58 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
 
     /**
      * 点头像/作者名进作者主页（官方 HGOpenProfilePageServiceImpl 门禁口径：
-     * 非本人才能打开）。条目没带作者 uid（详情/搜索来源不下发）时静默
-     * 不打开——不许按名字认人；本人（uid 与本地账号 uid 相同）同样不开。
-     * 本人 uid 未回填（从没登录成功过）时门禁无从比对，按非本人放行。
+     * 非本人才能打开）。条目没带作者 uid（正剧阅读面恒不下发，账
+     * author-entry-still-dead-20261029）时不再静默——点按即走作品核验
+     * 反查，核中正主才开页（仍不许只按名字认人）、试尽给明确反馈；本人
+     * （uid 与本地账号 uid 相同）不开。本人 uid 未回填（从没登录成功
+     * 过）时门禁无从比对，按非本人放行。
      */
     @Override
     public void onAuthor(int position) {
         if (position < 0 || position >= session.items.size()) return;
         HgFeedItem item = session.items.get(position);
         String authorUid = item.authorUid;
-        if (authorUid == null || authorUid.isEmpty()) return;
-        if (authorUid.equals(HgStore.profileUid())) return;
-        authorReturnRefresh = true;
-        HongguoAuthorActivity.start(this, authorUid, item.authorName,
-                item.authorAvatar, item.authorDesc);
+        if (authorUid != null && !authorUid.isEmpty()) {
+            if (authorUid.equals(HgStore.profileUid())) return;
+            authorReturnRefresh = true;
+            HongguoAuthorActivity.start(this, authorUid, item.authorName,
+                    item.authorAvatar, item.authorDesc);
+            return;
+        }
+        // 正剧条目阅读面恒不下发作者 uid（账 author-entry-still-dead
+        // -20261029），空 uid 时旧版静默 return＝点头像零反应（他真机
+        // 点名）。改点按反查：当场走作品核验链找正主，命中回补后直开
+        // 作者页、试尽给明确反馈——点下去必有去处，不许再静默。
+        if (item.seriesId == null) {
+            android.widget.Toast.makeText(this, "没找到这位作者",
+                    android.widget.Toast.LENGTH_SHORT).show();
+            return;
+        }
+        android.widget.Toast.makeText(this, "正在找作者…",
+                android.widget.Toast.LENGTH_SHORT).show();
+        final String sid = item.seriesId;
+        session.resolveAuthorForTap(item, found -> {
+            if (isFinishing() || isDestroyed()) return;
+            HgFeedItem now = null;
+            if (found) {
+                for (HgFeedItem it : session.items) {
+                    if (sid.equals(it.seriesId)
+                            && it.authorUid != null && !it.authorUid.isEmpty()) {
+                        now = it;
+                        break;
+                    }
+                }
+            }
+            if (now != null) {
+                if (now.authorUid.equals(HgStore.profileUid())) return;
+                authorReturnRefresh = true;
+                HongguoAuthorActivity.start(this, now.authorUid, now.authorName,
+                        now.authorAvatar, now.authorDesc);
+            } else {
+                android.widget.Toast.makeText(this, "没找到这位作者",
+                        android.widget.Toast.LENGTH_SHORT).show();
+            }
+        });
     }
 
     /**

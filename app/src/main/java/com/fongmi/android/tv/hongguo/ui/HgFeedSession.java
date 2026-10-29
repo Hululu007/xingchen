@@ -338,9 +338,12 @@ public final class HgFeedSession {
         });
     }
 
-    /** 正剧作者 uid 反查的会话内命中缓存：按搜索名记（同名出品方多剧复用）。 */
+    /** 正剧作者 uid 反查的会话内命中缓存：按搜索名记；跨剧复用必须先过
+     * verifyCachedHit 二次核对，不许拿名字相同直接补（扫查 H4）。 */
     private final Map<String, HgAuthorHit> authorHitByName = new HashMap<>();
-    /** 反查已发起过的剧（本会话每部只查一次，无果/失败都静默不再查）。 */
+    /** 反查已发起过的（剧＋搜索名）组合：按名记而不是只按剧——首个 hint
+     * 用的名查无结果后，换一个名（作者名/出品方品牌互为备选）还要能再试
+     * （扫查 H4 附带项）。 */
     private final java.util.Set<String> authorResolveTried = new java.util.HashSet<>();
 
     /**
@@ -355,30 +358,43 @@ public final class HgFeedSession {
      * 补）、回写详情缓存让后续展开直接继承，并报首个受影响下标。
      * UGC 条目 uid 本就齐、进门即回，不走此路；失败一律静默，不打扰播放。
      * 调用方都在主线程（页表口径），网络回调经 main 转手后才碰页表。
+     *
+     * <p>同名误配防线（扫查 H4）：按名缓存的命中是「为另一部剧」核出来
+     * 的，跨剧复用前必须二次核对（verifyCachedHit：头像、详情作者名）——
+     * 核出不符不配、核不了不直接用缓存而是落回本剧自己的搜索；搜索选
+     * 正主时本剧条目带头像的，同名候选先过头像核对，核不上宁可不配，
+     * 不许静默补一个错 uid。</p>
      */
     private void kickAuthorResolve(HgFeedItem hint, java.util.function.IntConsumer changed) {
         if (hint == null || hint.authorUid != null || hint.seriesId == null) return;
-        final String name = hint.authorName != null && !hint.authorName.isEmpty()
-                ? hint.authorName : hint.publisher;
+        final boolean nameFromAuthor = hint.authorName != null && !hint.authorName.isEmpty();
+        final String name = nameFromAuthor ? hint.authorName : hint.publisher;
         if (name == null || name.isEmpty()) return;
         HgAuthorHit hit = authorHitByName.get(name);
         if (hit != null) {
-            patchAuthor(hint.seriesId, hit, changed);
-            return;
+            int verdict = verifyCachedHit(hint, nameFromAuthor, hit);
+            if (verdict > 0) {
+                patchAuthor(hint.seriesId, hit, changed);
+                return;
+            }
+            if (verdict < 0) {
+                // 详情作者名与命中名冲突＝核出不是此人：此剧按未配收口，
+                // 同名不再重试（按此名搜候选全是同名，换汤不换药）
+                authorResolveTried.add(hint.seriesId + "\n" + name);
+                return;
+            }
+            // 头像冲突（缓存里是重名者）或核不了（本剧无可比信号）：不直
+            // 接用缓存，落到本剧自己的搜索路径——选正主有头像核对兜底，
+            // 真正主在候选里才配得上，核不上宁可不配
         }
-        if (!authorResolveTried.add(hint.seriesId)) return;
+        if (!authorResolveTried.add(hint.seriesId + "\n" + name)) return;
         final String seriesId = hint.seriesId;
+        final String seriesAvatar = seriesAvatarOf(seriesId, hint);
         client.searchUsers(name, new HgCallback<List<HgAuthorHit>>() {
             @Override
             public void onSuccess(List<HgAuthorHit> hits) {
                 main.post(() -> {
-                    HgAuthorHit best = null;
-                    if (hits != null) {
-                        for (HgAuthorHit h : hits) {
-                            if (h == null || !name.equals(h.name)) continue;
-                            if (best == null || h.workCount > best.workCount) best = h;
-                        }
-                    }
+                    HgAuthorHit best = selectAuthorHit(hits, name, seriesAvatar);
                     if (best == null) return;
                     authorHitByName.put(name, best);
                     HgSeriesDetail d = details.get(seriesId);
@@ -392,6 +408,63 @@ public final class HgFeedSession {
                 // 反查失败静默：作者入口保持现状，不打扰播放
             }
         });
+    }
+
+    /** 本剧已知的作者头像：hint 自带优先，其次同剧任一条目带的；都没有为 null（无可比信号）。 */
+    private String seriesAvatarOf(String seriesId, HgFeedItem hint) {
+        if (hint != null && hint.authorAvatar != null && !hint.authorAvatar.isEmpty()) {
+            return hint.authorAvatar;
+        }
+        for (HgFeedItem it : items) {
+            if (it.seriesId != null && it.seriesId.equals(seriesId)
+                    && it.authorAvatar != null && !it.authorAvatar.isEmpty()) {
+                return it.authorAvatar;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 缓存命中跨剧复用的二次核对：1＝有正向证据（头像一致／详情作者名
+     * 一致）且无冲突；-1＝详情作者名与命中名冲突（硬否决）；0＝其余
+     * （头像冲突说明缓存里是重名者、无可比信号说明核不了）——一律不用
+     * 缓存、落回本剧自己的搜索路径再定。
+     */
+    private int verifyCachedHit(HgFeedItem hint, boolean nameFromAuthor, HgAuthorHit hit) {
+        boolean positive = false;
+        String avatar = seriesAvatarOf(hint.seriesId, hint);
+        if (avatar != null && hit.avatar != null) {
+            // 头像两边都有却对不上：缓存里是重名者，名字再像也不是此人，
+            // 直接落回本剧搜索（下方详情名一致也不许翻案）
+            if (!avatar.equals(hit.avatar)) return 0;
+            positive = true;
+        }
+        if (nameFromAuthor) {
+            HgSeriesDetail d = details.get(hint.seriesId);
+            String detailName = d == null ? null : d.getAuthorName();
+            if (detailName != null && !detailName.isEmpty()) {
+                if (!detailName.equals(hit.name)) return -1;
+                positive = true;
+            }
+        }
+        return positive ? 1 : 0;
+    }
+
+    /**
+     * 搜索候选定正主：同名精确匹配＋作品数最高（原口径）；本剧条目带
+     * 头像时先过头像核对——候选头像对不上的视同重名者剔除，全部对不
+     * 上（或都没带头像可核）时返回 null 不配，不许拿作品数硬认。
+     */
+    private static HgAuthorHit selectAuthorHit(List<HgAuthorHit> hits, String name, String seriesAvatar) {
+        HgAuthorHit best = null;
+        if (hits != null) {
+            for (HgAuthorHit h : hits) {
+                if (h == null || !name.equals(h.name)) continue;
+                if (seriesAvatar != null && (h.avatar == null || !seriesAvatar.equals(h.avatar))) continue;
+                if (best == null || h.workCount > best.workCount) best = h;
+            }
+        }
+        return best;
     }
 
     /** 把命中的作者身份回补到同剧全部条目（只补缺的），报首个受影响下标。 */

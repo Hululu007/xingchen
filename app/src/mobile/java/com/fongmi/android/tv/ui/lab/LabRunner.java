@@ -5,6 +5,7 @@ import android.text.TextUtils;
 
 import com.fongmi.android.tv.clash.ClashSettings;
 import com.fongmi.android.tv.clash.MihomoManager;
+import com.github.catvod.Proxy;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -411,7 +412,10 @@ public final class LabRunner {
      * 命令展开（上游 LabRunner.expand 口径的精简版）：
      * 1) {var} 变量替换（vars 优先，包设置值已在调用方合并进来），支持嵌套（最多 5 层），
      *    ${...} 跳过不碰；没值的占位原样保留（缺失变量由调用方先弹变量表补齐）。
-     * 2) 特殊占位：{serverPort}＝本次分配端口；{tvPath}{dataPath}{cachePath}
+     * 2) 特殊占位：{serverPort}＝本次分配端口；{hostPort}＝宿主 Nano 服务口
+     *    （Proxy.getPort()，与点播链 NodeBoot 给 bundle 的 catDartServerPort
+     *    同一个值；服务没起来时为 -1，与 NodeBoot 直传同口径）；
+     *    {tvPath}{dataPath}{cachePath}
      *    {envRootPath}{wwwroot}{sdcard}；旧 {port}{pkgDir}{filesDir} 照旧。
      */
     private static String expand(Context c, String pkgId, String command, int port,
@@ -422,6 +426,7 @@ public final class LabRunner {
         File labRoot = LabPaths.root(c);
         return out
                 .replace("{serverPort}", String.valueOf(port))
+                .replace("{hostPort}", String.valueOf(Proxy.getPort()))
                 .replace("{tvPath}", new File(c.getFilesDir(), "TV").getAbsolutePath())
                 .replace("{dataPath}", new File(pkgDir, "data").getAbsolutePath())
                 .replace("{cachePath}", c.getCacheDir().getAbsolutePath())

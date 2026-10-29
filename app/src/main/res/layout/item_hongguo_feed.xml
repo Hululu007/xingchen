@@ -14,12 +14,15 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
+    <!-- 封面与视频同口径（官方流页实拍 113592/113476/113482 定版）：按自身
+         比例满宽放、上下留黑、在页面区内居中，不裁切——旧 centerCrop 把横版
+         海报拉满竖屏裁掉两侧（113593 真机点名）。页根底为黑，留黑即黑边 -->
     <ImageView
         android:id="@+id/hg_cover"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:contentDescription="@null"
-        android:scaleType="centerCrop" />
+        android:scaleType="fitCenter" />
 
     <View
         android:layout_width="match_parent"

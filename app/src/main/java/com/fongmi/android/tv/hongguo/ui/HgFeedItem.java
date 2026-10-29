@@ -368,15 +368,19 @@ public final class HgFeedItem {
      * catalogTitleText 同口径：完结段在全N集之前；集数未知不编全0集。
      */
     /**
-     * 流页剧条文案（官方流页实拍 113482 定版形态：[类目] 剧名 · 全N集）：
-     * 没有「选集」前缀、没有「已完结」状态段——那是集流 CatalogView 的
-     * 拼法，旧版流页借用了它（seriesBarText），与官方流页构成对不上。
-     * 无剧名时退「观看完整短剧 · 全N集」（官方实拍 113476 同形态）。
+     * 流页剧条文案（官方流页实拍定版，两种条目形态分用）：
+     * 作者帖（UGC 短片挂靠正剧，实拍 113482）＝[类目] 剧名 · 全N集——条子
+     * 是「进这部剧」的入口，带类目与剧名；正剧短片（剧的某一集在流里播，
+     * 实拍 113476/113592）＝「观看完整短剧 · 全N集」——信息摞里有剧名行
+     * 也不进条子。旧版按「有没有剧名」分形是读错了 113476（那条摞里明明
+     * 有剧名行、条子仍是观看完整短剧），判别实为条目种类。两种形态都没
+     * 有「选集」前缀、没有「已完结」状态段——那是集流 CatalogView 的拼法。
      */
     public String feedBarText() {
         StringBuilder sb = new StringBuilder();
         String name = title == null ? "" : title.trim();
-        if (!name.isEmpty()) {
+        boolean postForm = isUgcClip() || (authorName != null && !authorName.isEmpty());
+        if (postForm && !name.isEmpty()) {
             if (category != null && !category.isEmpty()) sb.append(category).append(' ');
             sb.append(name);
         } else {

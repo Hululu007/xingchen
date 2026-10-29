@@ -458,6 +458,10 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
      * 圆角 8dp、无播放图标、文案起点 16dp、尾箭头图 20×10；行侧距 12dp/
      * 底距 8dp 照实拍 113558、进度线移到条上方）；流页＝全宽深底 strip
      * （官方流页实拍 113482：全宽、播放图标＋「›」、进度线贴条底沿）。
+     * 注意边距的坑：布局 XML 用 layout_marginStart/End 写边距，
+     * setMargins() 只写左右不清 Start/End，流页清零必须连 Start/End 一起
+     * 清——旧版只 setMargins(0,0,0,0)，12dp 侧距残留、剧条悬在中间两侧
+     * 留空（1.4.59 真机图 113593 像素实证、他点名）。
      */
     private void applyCatalogMode(ItemHongguoFeedBinding b) {
         float density = b.getRoot().getResources().getDisplayMetrics().density;
@@ -467,6 +471,8 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         LinearLayout.LayoutParams textLp = (LinearLayout.LayoutParams) b.hgSeriesText.getLayoutParams();
         if (seriesMode) {
             rowLp.setMargins(Math.round(12 * density), 0, Math.round(12 * density), Math.round(8 * density));
+            rowLp.setMarginStart(Math.round(12 * density));
+            rowLp.setMarginEnd(Math.round(12 * density));
             progressLp.bottomMargin = Math.round(52 * density);
             b.hgSeriesBar.setBackgroundResource(R.drawable.bg_hg_catalog_bar);
             barLp.height = Math.round(40 * density);
@@ -483,6 +489,8 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
             // 字重（官方非粗体）、尾箭头细「›」；旧版裸三角 14dp＋14sp
             // 粗体＋集流文案拼法是整条借了集流的面孔
             rowLp.setMargins(0, 0, 0, 0);
+            rowLp.setMarginStart(0);
+            rowLp.setMarginEnd(0);
             progressLp.bottomMargin = 0;
             b.hgSeriesBar.setBackgroundResource(R.drawable.bg_hg_series_bar);
             barLp.height = ViewGroup.LayoutParams.WRAP_CONTENT;

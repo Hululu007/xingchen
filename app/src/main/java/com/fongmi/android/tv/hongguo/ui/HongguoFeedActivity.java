@@ -335,8 +335,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             String vidNow = currentVideoId();
             if (vidNow != null) playedVideoSizes.put(vidNow, new int[]{size.width, size.height});
             boolean landscape = size.width > size.height;
-            playerView.setResizeMode(landInstance || landscape
-                    ? AspectRatioFrameLayout.RESIZE_MODE_FIT : AspectRatioFrameLayout.RESIZE_MODE_ZOOM);
+            playerView.setResizeMode(resizeModeFor(landscape));
             HgFeedAdapter.Holder h = currentHolder();
             if (h != null) {
                 android.view.View btn = h.binding.hgFullscreenWatch;
@@ -459,7 +458,8 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         playerView.setDanmakuEnabled(HgStore.isDanmakuOn());
         playerView.getDanmakuController().setConfig(hgDanmakuConfig());
         playerView.setShutterBackgroundColor(0xFF000000);
-        playerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_ZOOM);
+        // 初始缩放先给 FIT（流页口径），attachSurface/首帧回调会按条目再定
+        playerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FIT);
         setupTabs();
         // 加载失败态可点重试（列表为空时点状态文案重拉当前页签）：
         // 此前失败只剩切页签/杀进程两条路，文案写着「稍后再试」却没给试的口
@@ -1132,6 +1132,20 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
 
     // ---------- 表面与进度 ----------
 
+    /**
+     * 视频缩放口径（官方流页实拍 113592/113476/113482 像素定版）：刷剧流里
+     * 任何比例都保比例满宽放——FIT、上下留黑、在页面区内居中（pager 已按
+     * 底栏占位让出底部），不许裁切。旧口径竖屏内容走 ZOOM 裁满：9:16 在高
+     * 屏上削顶削底、横版内容更是被拉满竖屏裁掉两侧（113593 真机点名）。
+     * 集流竖屏剧维持旧口径（竖屏 ZOOM 裁满、横屏 FIT）；横屏实例与横屏
+     * 内容恒 FIT。
+     */
+    private int resizeModeFor(boolean landscape) {
+        return landInstance || landscape || mode == MODE_FEED
+                ? AspectRatioFrameLayout.RESIZE_MODE_FIT
+                : AspectRatioFrameLayout.RESIZE_MODE_ZOOM;
+    }
+
     private HgFeedAdapter.Holder currentHolder() {
         if (currentPos < 0) return null;
         RecyclerView rv = (RecyclerView) binding.hgPager.getChildAt(0);
@@ -1149,8 +1163,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         }
         if (currentPos >= 0 && currentPos < session.items.size()) {
-            playerView.setResizeMode(landInstance || session.items.get(currentPos).isLandscape()
-                    ? AspectRatioFrameLayout.RESIZE_MODE_FIT : AspectRatioFrameLayout.RESIZE_MODE_ZOOM);
+            playerView.setResizeMode(resizeModeFor(session.items.get(currentPos).isLandscape()));
         }
     }
 
@@ -2762,8 +2775,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         lp.height = ViewGroup.LayoutParams.MATCH_PARENT;
         root.setLayoutParams(lp);
         if (playerView != null && currentPos >= 0 && currentPos < session.items.size()) {
-            playerView.setResizeMode(session.items.get(currentPos).isLandscape()
-                    ? AspectRatioFrameLayout.RESIZE_MODE_FIT : AspectRatioFrameLayout.RESIZE_MODE_ZOOM);
+            playerView.setResizeMode(resizeModeFor(session.items.get(currentPos).isLandscape()));
         }
         if (mode == MODE_FEED) {
             binding.hgBottomBar.setVisibility(View.VISIBLE);
@@ -3114,12 +3126,32 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     }
 
     /**
-     * 底栏随面变色（他真机亲点）：刷剧面＝黑色沉浸底（与流同面，选中白、
-     * 未选灰）；「我的」面＝白色底（与我的面同面，选中深、未选灰）。
-     * 旧版底色在布局里写死 #FFFFFF、两面恒白，刷剧面上像贴了条白带。
+     * 底栏随面变色（他真机亲点）：刷剧面＝与条目内剧条＋进度线合为一整块
+     * 连续面板（官方流页实拍 113592 定版：同底色、无缝、满宽）——底栏底
+     * 直接借剧条的 bg_hg_series_bar（同值同透明度，两边都压在黑底上、
+     * 渲染一致；剧条底色本身是他定的对值，不动），去掉 elevation 的上沿
+     * 阴影缝，形态照官方刷剧页底栏：纯文字无图标、字 16sp（旧版纯黑
+     * #000000 底＋图标，与剧条分家，113593 真机点名）；「我的」面＝白色
+     * 底（与我的面同面，选中深、未选灰）、图标＋11sp 维持本面原样。
      */
     private void updateBottomTabs() {
-        binding.hgBottomBar.setBackgroundColor(mineShowing ? 0xFFFFFFFF : 0xFF000000);
+        float density = getResources().getDisplayMetrics().density;
+        if (mineShowing) {
+            binding.hgBottomBar.setBackgroundColor(0xFFFFFFFF);
+            binding.hgBottomBar.setElevation(8 * density);
+            binding.hgTabHomeIcon.setVisibility(View.VISIBLE);
+            binding.hgTabMineIcon.setVisibility(View.VISIBLE);
+            binding.hgTabHomeText.setTextSize(11);
+            binding.hgTabMineText.setTextSize(11);
+        } else {
+            binding.hgBottomBar.setBackgroundResource(
+                    com.fongmi.android.tv.R.drawable.bg_hg_series_bar);
+            binding.hgBottomBar.setElevation(0);
+            binding.hgTabHomeIcon.setVisibility(View.GONE);
+            binding.hgTabMineIcon.setVisibility(View.GONE);
+            binding.hgTabHomeText.setTextSize(16);
+            binding.hgTabMineText.setTextSize(16);
+        }
         int on = mineShowing ? 0xFF111111 : 0xFFFFFFFF;
         int off = mineShowing ? 0xFF999999 : 0xFF8E8E93;
         binding.hgTabHomeText.setTextColor(mineShowing ? off : on);

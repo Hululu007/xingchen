@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 系列剧半屏单（账 §5.4）：进多季系列前先选部，白底圆角顶、底部弹出，形态同选集弹层。 -->
+<!-- 系列剧半屏单（账 §5.4）：进多季系列前先选部，白底圆角顶、底部弹出，形态同选集弹层。
+     横把改用 bg_hg_ep_grab（#1A000000）：旧 bg_hg_grab 是 #66FFFFFF 白色系，压在白底上看不见。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -14,7 +15,7 @@
         android:layout_width="36dp"
         android:layout_height="4dp"
         android:layout_gravity="center_horizontal"
-        android:background="@drawable/bg_hg_grab" />
+        android:background="@drawable/bg_hg_ep_grab" />
 
     <TextView
         android:layout_width="wrap_content"

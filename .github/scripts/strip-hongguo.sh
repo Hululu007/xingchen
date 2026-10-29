@@ -216,6 +216,7 @@ app/src/main/res/drawable/bg_hg_mine_chip_on.xml
 app/src/main/res/drawable/bg_hg_mine_edit_bar.xml
 app/src/main/res/drawable/bg_hg_mine_header.xml
 app/src/main/res/drawable/bg_hg_mine_page.xml
+app/src/main/res/drawable/bg_hg_mine_sheet.xml
 app/src/main/res/drawable/bg_hg_panel_badge.xml
 app/src/main/res/drawable/bg_hg_panel_card.xml
 app/src/main/res/drawable/bg_hg_panel_sheet.xml

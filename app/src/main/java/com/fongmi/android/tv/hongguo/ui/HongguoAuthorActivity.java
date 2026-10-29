@@ -168,6 +168,17 @@ public class HongguoAuthorActivity extends BaseActivity {
 
     @Override
     protected void initView(Bundle savedInstanceState) {
+        // 顶部避让（与搜索页同口径，2026-10-29 补）：头图全幅垫到状态栏底下
+        // 连续不断层，但压在图上的置顶 chip 行原从 y=0 起排、会钻进状态栏区
+        // 与系统图标相撞——按状态栏真实高度给页头加顶内距，图不动、内容让开。
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(getWindow().getDecorView(), (v, insets) -> {
+            int top = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.statusBars()).top;
+            if (binding.hgAuthorHeader.getPaddingTop() != top) {
+                binding.hgAuthorHeader.setPadding(binding.hgAuthorHeader.getPaddingLeft(), top,
+                        binding.hgAuthorHeader.getPaddingRight(), binding.hgAuthorHeader.getPaddingBottom());
+            }
+            return insets;
+        });
         uid = getIntent().getStringExtra(EXTRA_UID);
         String name = getIntent().getStringExtra(EXTRA_NAME);
         String avatar = getIntent().getStringExtra(EXTRA_AVATAR);

@@ -1,7 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 红果「我的」面：嵌在刷剧页壳内（底栏「我的」格），构成＝登录区＋页签排
-     （历史/收藏/点赞/预约，序为他亲定；预约链已抠实落码 dd184c44）＋海报格子。
-     无自带返回箭头（走系统返回），顶部留距由刷剧页按状态栏 insets 注入 padding。 -->
+<!-- 红果「我的」面：嵌在刷剧页壳内（底栏「我的」格），构成＝登录区＋功能卡
+     ＋白底层上的页签排（历史/收藏/点赞/预约，序为他亲定；预约链已抠实落码
+     dd184c44）＋海报格子。无自带返回箭头（走系统返回），顶部留距由刷剧页
+     按状态栏 insets 注入 padding。白底层（bg_hg_mine_sheet）照官方构成：
+     头部柔光只罩登录区＋功能卡，页签行起整段坐白面——旧版无白底层，
+     页签行正骑在头部渐变可见下沿上被切成上下两色（2026-10-29 他点名，
+     账 statusbar-band-20261029.md）。 -->
 <com.fongmi.android.tv.hongguo.ui.HgMineView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -281,6 +285,17 @@
         </LinearLayout>
     </LinearLayout>
 
+    <!-- 白底层：页签条起整段坐白面（见文件头注）。旧页签条的 marginTop 10dp
+         改作本层 paddingTop（卡与页签的间距不变），层顶＝功能卡底＋卡的
+         marginBottom 8dp，头部柔光到此收住、页签整行全在白上。 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:background="@drawable/bg_hg_mine_sheet"
+        android:orientation="vertical"
+        android:paddingTop="10dp">
+
     <!-- 页签条（官方 qb3/f：标题 16sp 选中粗体；右端搜索图标 20dp）。
          页签＝历史/收藏/点赞/预约（短剧范围，他亲定预约放点赞后面；国内版
          预约就是页内页签形态、与功能位「我的预约」互斥，本面取页签形态）。 -->
@@ -288,7 +303,6 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginStart="8dp"
-        android:layout_marginTop="10dp"
         android:gravity="center_vertical"
         android:orientation="horizontal">
 
@@ -429,5 +443,6 @@
             android:textColor="#E5484D"
             android:textSize="14sp"
             android:textStyle="bold" />
+    </LinearLayout>
     </LinearLayout>
 </com.fongmi.android.tv.hongguo.ui.HgMineView>

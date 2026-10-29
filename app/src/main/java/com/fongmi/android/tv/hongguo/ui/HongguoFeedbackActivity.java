@@ -53,6 +53,18 @@ public class HongguoFeedbackActivity extends BaseActivity {
     @SuppressLint("SetJavaScriptEnabled")
     @Override
     protected void initView(Bundle savedInstanceState) {
+        // 顶部避让（与搜索页同口径，2026-10-29 补）：白底全幅垫到状态栏底下
+        // 不断层，但标题原只有自身 16dp 顶内距、会钻进状态栏区——按状态栏
+        // 真实高度给根列加顶内距，标题间距口径不变。
+        final android.view.View rootView = binding.getRoot();
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(getWindow().getDecorView(), (v, insets) -> {
+            int top = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.statusBars()).top;
+            if (rootView.getPaddingTop() != top) {
+                rootView.setPadding(rootView.getPaddingLeft(), top,
+                        rootView.getPaddingRight(), rootView.getPaddingBottom());
+            }
+            return insets;
+        });
         WebView web = binding.hgFeedbackWeb;
         WebSettings settings = web.getSettings();
         settings.setJavaScriptEnabled(true);

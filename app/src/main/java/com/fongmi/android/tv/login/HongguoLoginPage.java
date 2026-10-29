@@ -198,9 +198,19 @@ public class HongguoLoginPage extends DialogFragment {
      * 底下连续一色）、浅底配深色状态栏图标；底部按导航区真实高度留距
      * （手势让位全应用口径），根视图顶距不动（页内列自带 54dp 顶内距已
      * 让开状态栏高度）。
+     *
+     * <p>2026-10-29 补根（1.4.59 装机截图 113591 定罪）：上一版只落了颜色
+     * （状态栏透明＋decorFits=false＋MATCH_PARENT），真机上带仍在——像素
+     * 实测带高恰＝状态栏高、带色＝宿主页顶渐变被 Dialog 的 dim 压暗后的
+     * 色（左橙右灰、横向匀变、纵向恒定）。真断点＝Dialog 窗口的「帧」本身
+     * 没盖住状态栏区：MATCH_PARENT 只定尺寸不定帧位，dialog 窗默认帧被
+     * 系统收在状态栏下方，状态栏区露出的是宿主窗口（再被 dim 压暗）。
+     * 补 FLAG_LAYOUT_IN_SCREEN 让窗口帧盖满整屏（含状态栏底下），柔光底
+     * 这才真铺到屏幕顶；颜色那套保留不动。</p>
      */
     private void applyImmersiveStatusBar(Window window) {
-        window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+        window.addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                | WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
         window.setStatusBarColor(Color.TRANSPARENT);
         WindowCompat.setDecorFitsSystemWindows(window, false);
         new WindowInsetsControllerCompat(window, window.getDecorView())

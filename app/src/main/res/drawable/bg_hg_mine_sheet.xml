@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 「我的」页白底层：页签行起整段内容坐的白面（官方「我的」页构成，
+     照他发过的官方图 113479：头部柔光只罩登录区＋功能行，其下是一张
+     白色层、顶角带圆角，页签/子筛/格子全在白层上）。旧版无此层，内容
+     直坐页底 bg_hg_mine_page，头部渐变的可见下沿正落在页签行中段，
+     页签字上半截压桃色、下半截压白，像被切成两半（1.4.59 装机截图
+     113589 定罪，账 statusbar-band-20261029.md）。圆角 12dp 为构成级
+     取值（官方图量级），国内版包内此层无布局原件可抠。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <corners
+        android:topLeftRadius="12dp"
+        android:topRightRadius="12dp" />
+    <solid android:color="#FFFFFFFF" />
+</shape>

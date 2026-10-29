@@ -96,6 +96,19 @@ public class HongguoPostActivity extends BaseActivity {
 
     @Override
     protected void initView(Bundle savedInstanceState) {
+        // 顶部避让（与搜索页同口径，2026-10-29 补）：白底全幅垫到状态栏底下
+        // 不断层，但正文列原只有 16dp 顶内距、作者行会钻进状态栏区——按
+        // 状态栏真实高度在原 16dp 之上追加，间距口径不变。
+        final int baseTop = Math.round(16 * getResources().getDisplayMetrics().density);
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(getWindow().getDecorView(), (v, insets) -> {
+            int top = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.statusBars()).top;
+            int want = baseTop + top;
+            if (binding.hgPostContent.getPaddingTop() != want) {
+                binding.hgPostContent.setPadding(binding.hgPostContent.getPaddingLeft(), want,
+                        binding.hgPostContent.getPaddingRight(), binding.hgPostContent.getPaddingBottom());
+            }
+            return insets;
+        });
         Intent intent = getIntent();
         authorUid = orEmpty(intent.getStringExtra(EXTRA_AUTHOR_UID));
         String authorName = orEmpty(intent.getStringExtra(EXTRA_AUTHOR_NAME));

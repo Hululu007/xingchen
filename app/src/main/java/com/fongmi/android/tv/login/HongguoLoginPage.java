@@ -35,6 +35,10 @@ import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
 import androidx.fragment.app.DialogFragment;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentActivity;
@@ -82,6 +86,7 @@ public class HongguoLoginPage extends DialogFragment {
 
     private final HgPassportClient client = new HgPassportClient();
 
+    private View rootView;
     private View paneHome;
     private View panePhone;
     private View paneWeb;
@@ -182,6 +187,33 @@ public class HongguoLoginPage extends DialogFragment {
         params.height = WindowManager.LayoutParams.MATCH_PARENT;
         params.gravity = Gravity.CENTER;
         window.setAttributes(params);
+        applyImmersiveStatusBar(window);
+    }
+
+    /**
+     * 状态栏沉浸（照全应用既有口径）：裸 Dialog 的窗口走默认 dialog 主题，
+     * 没继承 App 主题（Theme.Base）的透明状态栏，状态栏落主题默认灰、且
+     * 内容被系统窗框收在状态栏下方——柔光渐变铺不上去、顶上留一条灰带。
+     * 这里给本页窗口单独落：edge-to-edge＋状态栏透明（渐变直接铺到状态栏
+     * 底下连续一色）、浅底配深色状态栏图标；底部按导航区真实高度留距
+     * （手势让位全应用口径），根视图顶距不动（页内列自带 54dp 顶内距已
+     * 让开状态栏高度）。
+     */
+    private void applyImmersiveStatusBar(Window window) {
+        window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+        window.setStatusBarColor(Color.TRANSPARENT);
+        WindowCompat.setDecorFitsSystemWindows(window, false);
+        new WindowInsetsControllerCompat(window, window.getDecorView())
+                .setAppearanceLightStatusBars(true);
+        View content = rootView;
+        if (content == null) return;
+        ViewCompat.setOnApplyWindowInsetsListener(content, (v, insets) -> {
+            int nav = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom;
+            if (v.getPaddingBottom() != nav) {
+                v.setPadding(v.getPaddingLeft(), v.getPaddingTop(), v.getPaddingRight(), nav);
+            }
+            return insets;
+        });
     }
 
     @Override
@@ -233,6 +265,7 @@ public class HongguoLoginPage extends DialogFragment {
         root.addView(paneWeb, matchParent());
         panePhone.setVisibility(View.GONE);
         paneWeb.setVisibility(View.GONE);
+        rootView = root;
         return root;
     }
 

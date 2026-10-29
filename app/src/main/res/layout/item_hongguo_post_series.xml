@@ -4,7 +4,8 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:layout_marginTop="8dp"
-    android:background="#FFF5F5F5"
+    android:background="@drawable/bg_hg_author_series_card"
+    android:elevation="2dp"
     android:gravity="center_vertical"
     android:orientation="horizontal"
     android:padding="8dp">
@@ -31,7 +32,7 @@
             android:layout_height="wrap_content"
             android:ellipsize="end"
             android:maxLines="2"
-            android:textColor="#FF1A1A1A"
+            android:textColor="#FF1D2129"
             android:textSize="14sp"
             android:textStyle="bold" />
 
@@ -40,7 +41,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
-            android:textColor="#FF999999"
+            android:textColor="#FF86909C"
             android:textSize="12sp" />
     </LinearLayout>
 </LinearLayout>

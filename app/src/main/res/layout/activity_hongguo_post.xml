@@ -44,7 +44,7 @@
                     android:id="@+id/hg_post_author"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:textColor="#FF1A1A1A"
+                    android:textColor="#FF1D2129"
                     android:textSize="15sp"
                     android:textStyle="bold" />
 
@@ -53,7 +53,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="2dp"
-                    android:textColor="#FF999999"
+                    android:textColor="#FF86909C"
                     android:textSize="12sp" />
             </LinearLayout>
         </LinearLayout>
@@ -64,7 +64,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="14dp"
             android:lineSpacingMultiplier="1.25"
-            android:textColor="#FF1A1A1A"
+            android:textColor="#FF1D2129"
             android:textSize="17sp"
             android:textStyle="bold" />
 
@@ -74,7 +74,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:lineSpacingMultiplier="1.35"
-            android:textColor="#FF333333"
+            android:textColor="#FF3C424B"
             android:textSize="15sp" />
 
         <!-- 图集（代码按 materials 顺序逐张加） -->
@@ -103,7 +103,10 @@
                 android:id="@+id/hg_post_digg"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textColor="#FF666666"
+                android:drawableStart="@drawable/ic_hg_author_heart"
+                android:drawablePadding="4dp"
+                android:gravity="center_vertical"
+                android:textColor="#FF86909C"
                 android:textSize="13sp" />
 
             <TextView
@@ -111,7 +114,10 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="24dp"
-                android:textColor="#FF666666"
+                android:drawableStart="@drawable/ic_hg_author_collect"
+                android:drawablePadding="4dp"
+                android:gravity="center_vertical"
+                android:textColor="#FF86909C"
                 android:textSize="13sp" />
 
             <TextView
@@ -119,7 +125,10 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="24dp"
-                android:textColor="#FF666666"
+                android:drawableStart="@drawable/ic_hg_author_comment"
+                android:drawablePadding="4dp"
+                android:gravity="center_vertical"
+                android:textColor="#FF86909C"
                 android:textSize="13sp" />
         </LinearLayout>
     </LinearLayout>

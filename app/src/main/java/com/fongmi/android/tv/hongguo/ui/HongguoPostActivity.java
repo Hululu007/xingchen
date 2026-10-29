@@ -137,15 +137,19 @@ public class HongguoPostActivity extends BaseActivity {
                 iv.setLayoutParams(lp);
                 iv.setAdjustViewBounds(true);
                 iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
+                // 图集圆角（与家族封面口径同手法：圆角底＋clipToOutline 裁角）
+                iv.setBackgroundResource(com.fongmi.android.tv.R.drawable.bg_hg_cover_r12);
+                iv.setClipToOutline(true);
                 binding.hgPostImages.addView(iv);
                 ImgUtil.load(title, url, iv);
             }
         }
-        binding.hgPostDigg.setText("点赞 " + HgFormat.countLine(
+        // 计数行＝真图标（布局侧 drawableStart）＋数，不再拿文字当前缀凑图标
+        binding.hgPostDigg.setText(HgFormat.countLine(
                 intent.getLongExtra(EXTRA_DIGG, 0)));
-        binding.hgPostCollect.setText("收藏 " + HgFormat.countLine(
+        binding.hgPostCollect.setText(HgFormat.countLine(
                 intent.getLongExtra(EXTRA_COLLECT, 0)));
-        binding.hgPostComment.setText("评论 " + HgFormat.countLine(
+        binding.hgPostComment.setText(HgFormat.countLine(
                 intent.getLongExtra(EXTRA_COMMENTS, 0)));
         List<String> seriesIds = intent.getStringArrayListExtra(EXTRA_SERIES);
         if (seriesIds != null && !seriesIds.isEmpty()) loadSeriesCards(seriesIds);

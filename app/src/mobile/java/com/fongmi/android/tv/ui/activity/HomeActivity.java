@@ -28,7 +28,6 @@ import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.config.LiveConfig;
 import com.fongmi.android.tv.api.config.VodConfig;
-import com.fongmi.android.tv.api.node.NodeRuntime;
 import com.fongmi.android.tv.api.config.WallConfig;
 import com.fongmi.android.tv.bean.Config;
 import com.fongmi.android.tv.bean.Site;
@@ -89,15 +88,6 @@ public class HomeActivity extends BaseActivity implements XcBottomBar.OnItemSele
     public static final String EXTRA_NAV_POSITION = "nav_position";
     private static final String STATE_CURRENT_POSITION = "currentPosition";
 
-    // 在场计数（上游同名口径）：NodeRuntime.releaseIfUnused 靠它判首页
-    // 还在不在；主题切换 recreate 时新实例先建、旧实例后销，计数不归零，
-    // 不会误触释放。
-    private static volatile int instanceCount;
-
-    public static boolean isRunning() {
-        return instanceCount > 0;
-    }
-
     private FragmentStateManager mManager;
     private ActivityHomeBinding mBinding;
     private WebHomeChromeController mChrome;
@@ -124,7 +114,6 @@ public class HomeActivity extends BaseActivity implements XcBottomBar.OnItemSele
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        instanceCount++;
         androidx.core.splashscreen.SplashScreen.installSplashScreen(this);
         super.onCreate(savedInstanceState);
     }
@@ -804,10 +793,6 @@ public class HomeActivity extends BaseActivity implements XcBottomBar.OnItemSele
 
     @Override
     protected void onDestroy() {
-        // 最后一个首页实例销毁时给 Node 桥一次闲置回收机会（上游 releaseIfUnused
-        // 钩）：其内部还要复查首页/播放服务都不在才真正清，不与下面 isFinishing
-        // 的全清冲突——recreate 计数不归零、不会走到这里。
-        if (--instanceCount == 0) NodeRuntime.get().releaseIfUnused();
         if (mChrome != null) mChrome.destroy();
         // 主题切换 recreate 也走 onDestroy：此时不是真 finish，配置与服务留给新实例接手，
         // 不清 Vod/Live 配置、不停本地服务，否则重建后首页要重拉配置、后台播放也被掐断。

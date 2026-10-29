@@ -1,7 +1,6 @@
 package com.fongmi.android.tv.ui.lab;
 
 import android.content.Context;
-import android.content.Intent;
 import android.net.Uri;
 
 import java.io.BufferedInputStream;
@@ -889,88 +888,8 @@ public final class LabRuntimeManager {
         return e == null ? "" : e.version;
     }
 
-    // ===== Node 内置桥「使用中」登记（桥接设计风险 2 定法，施工第 1 步定死）=====
-    // 桥的监护进程在 :nodejs 进程里、实验室在主进程，内存标记互相看不见，
-    // 登记只能落文件：环境目录里的 bridge-inuse，内容是「子进程 pid＋启动时刻」。
-    // 时机：桥起子进程成功后登记（markNodeBridgeInUse，第 3 步落码调用）、
-    // 正常停时按 pid 注销（clearNodeBridgeInUse）；实验室装/重装/卸载 nodejs
-    // 都先过 stopRuntimeUsers，那里连桥一起停（stopNodeBridge）——否则删目录
-    // 把 bin/node 从桥子进程脚下抽走、桥半死不活（已 exec 的靠 inode 还能跑、
-    // 新起必败）。键只有一个：nodejs 环境目录本身，不按包/脚本分。
-
-    private static File nodeBridgeMarker(Context c) {
-        return new File(LabPaths.runtimeDir(c, "nodejs"), "bridge-inuse");
-    }
-
-    /** 桥登记：Node 子进程已起，记下它的 pid。 */
-    public static void markNodeBridgeInUse(Context c, long pid) {
-        try {
-            File marker = nodeBridgeMarker(c);
-            File parent = marker.getParentFile();
-            if (parent != null) parent.mkdirs();
-            try (FileOutputStream out = new FileOutputStream(marker)) {
-                out.write((pid + " " + System.currentTimeMillis()).getBytes(StandardCharsets.UTF_8));
-            }
-        } catch (Exception ignored) {
-        }
-    }
-
-    /** 桥注销：只注销自己那一代（pid 对不上＝登记已被新一代接管，不动）。 */
-    public static void clearNodeBridgeInUse(Context c, long pid) {
-        try {
-            if (nodeBridgePid(c) != pid) return;
-            File marker = nodeBridgeMarker(c);
-            if (marker.exists()) marker.delete();
-        } catch (Exception ignored) {
-        }
-    }
-
-    private static long nodeBridgePid(Context c) {
-        try {
-            File marker = nodeBridgeMarker(c);
-            if (!marker.isFile()) return -1;
-            byte[] bytes = new byte[64];
-            int read;
-            try (FileInputStream in = new FileInputStream(marker)) {
-                read = in.read(bytes);
-            }
-            if (read <= 0) return -1;
-            String text = new String(bytes, 0, read, StandardCharsets.UTF_8).trim();
-            int space = text.indexOf(' ');
-            if (space > 0) text = text.substring(0, space);
-            return Long.parseLong(text);
-        } catch (Exception e) {
-            return -1;
-        }
-    }
-
-    /** 连桥一起停：先停监护服务（走它自己的收口），再按登记 pid 杀残留子进程，最后清登记。 */
-    private static void stopNodeBridge(Context ctx) {
-        long pid = nodeBridgePid(ctx);
-        if (pid < 0) return;
-        try {
-            ctx.stopService(new Intent().setClassName(ctx.getPackageName(),
-                    "com.fongmi.android.tv.api.node.NodeService"));
-        } catch (Exception ignored) {
-        }
-        if (pid > 0 && pid <= Integer.MAX_VALUE) {
-            try {
-                LabProc.killTree((int) pid);
-            } catch (Exception ignored) {
-            }
-        }
-        try {
-            File marker = nodeBridgeMarker(ctx);
-            if (marker.exists()) marker.delete();
-        } catch (Exception ignored) {
-        }
-    }
-
     /** 停掉依赖某环境的运行中服务（卸载/重装环境删目录前用） */
     private static void stopRuntimeUsers(Context ctx, String runtime) {
-        // Node 桥钩子（风险 2 定法）：桥的子进程不是实验室服务、注册表里查不到，
-        // 删目录前先连它一起停，见上方 stopNodeBridge。
-        if ("nodejs".equals(LabManifest.normalizeRuntime(runtime))) stopNodeBridge(ctx);
         for (LabRegistry.Svc s : LabRegistry.get(ctx).services(runtime)) {
             try {
                 LabRunner.stopPackage(ctx, s.id);

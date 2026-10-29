@@ -25,9 +25,6 @@ public final class LabBoot {
     public static synchronized void schedule(Context ctx) {
         if (scheduled) return;
         scheduled = true;
-        // Node 内置桥的宿主判据登记（同步做，不等延迟 boot）：模块页检测与
-        // 配置加载随时可能调 RuntimeModule.NODEJS.require()，登记必须先于它们。
-        LabNodeHost.register();
         final Context c = ctx.getApplicationContext();
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
             try {
@@ -43,11 +40,8 @@ public final class LabBoot {
      * 回环地址，服务没起来时首读必然连不上、必弹「配置取得失败」）；
      * ②实验室首页把总开关拨上时（LabHomeActivity）。
      * 门槛只有总开关＋环境已装＋没在跑，失败经 LabRunner 落运行记录。
-     * Node 宿主登记同步先做：配置加载随时可能调 RuntimeModule.NODEJS，
-     * 登记必须先于它（与 schedule 同口径，重复登记同义覆盖）。
      */
     public static void kick(Context ctx) {
-        LabNodeHost.register();
         final Context c = ctx.getApplicationContext();
         new Thread(() -> {
             try {

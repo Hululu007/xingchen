@@ -28,7 +28,6 @@ import com.fongmi.android.tv.Product;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.config.LiveConfig;
 import com.fongmi.android.tv.api.config.VodConfig;
-import com.fongmi.android.tv.api.node.NodeRuntime;
 import com.fongmi.android.tv.api.config.WallConfig;
 import com.fongmi.android.tv.bean.Cache;
 import com.fongmi.android.tv.bean.Class;
@@ -93,14 +92,6 @@ import java.util.Optional;
 
 public class HomeActivity extends BaseActivity implements CustomTitleView.Listener, VodPresenter.OnClickListener, FuncPresenter.OnClickListener, HistoryPresenter.OnClickListener, TypeAdapter.OnClickListener, HomeWebController.Listener {
 
-    // 在场计数（上游同名口径）：NodeRuntime.releaseIfUnused 靠它判首页
-    // 还在不在；实例重建时新实例先建、旧实例后销，计数不归零，不误触释放。
-    private static volatile int instanceCount;
-
-    public static boolean isRunning() {
-        return instanceCount > 0;
-    }
-
     private static final String TV_NORMAL = "tv-normal";
     private static final String TV_TOOLBAR_HIDDEN = "tv-toolbar-hidden";
     private static final String TV_OVERLAY = "tv-overlay";
@@ -144,7 +135,6 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        instanceCount++;
         setTheme(R.style.Theme_App);
         super.onCreate(savedInstanceState);
     }
@@ -798,9 +788,6 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
 
     @Override
     protected void onDestroy() {
-        // 最后一个首页实例销毁时给 Node 桥一次闲置回收机会（上游 releaseIfUnused
-        // 钩）：其内部还要复查首页/播放服务都不在才真正清。
-        if (--instanceCount == 0) NodeRuntime.get().releaseIfUnused();
         if (mWeb != null) mWeb.destroy();
         DLNARendererService.stop(this);
         LiveConfig.get().clear();

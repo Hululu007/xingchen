@@ -123,7 +123,8 @@ public class App extends Application implements Application.ActivityLifecycleCal
         // http://127.0.0.1:<分配端口>/），服务没拉起来首读必然连不上、每次冷启
         // 必弹「配置取得失败」。实验室在 mobile 源集，主源集不能直引（leanback
         // 无此类），照 AiActionExecutor／NodeLabInfo 的反射口径调 LabBoot.kick；
-        // 拉不拉由实验室总开关在 LabBoot 内决定，类不在时静默跳过。
+        // 实验室已无总开关（2026-10-29 摘除），拉不拉由 LabBoot 按每个服务
+        // 自身的自启标记（autoStartOf）决定，类不在时静默跳过。
         try {
             Class.forName("com.fongmi.android.tv.ui.lab.LabBoot")
                     .getMethod("kick", Context.class)

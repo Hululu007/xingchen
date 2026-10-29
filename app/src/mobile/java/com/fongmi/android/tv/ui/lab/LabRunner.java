@@ -418,13 +418,33 @@ public final class LabRunner {
      * 登记的口与命令实际绑的口两张皮 */
     private static int allocPort(Context c, LabRegistry.Svc pkg, LabManifest manifest,
                                  String preferredPort) throws Exception {
-        if (preferredPort != null && preferredPort.trim().matches("\\d+")) {
+        int preferred = fixedPortOf(preferredPort);
+        if (preferred > 0) {
             LabManifest fake = new LabManifest();
             fake.output = new LabManifest.LabOutput();
-            fake.output.port = preferredPort.trim();
+            fake.output.port = String.valueOf(preferred);
             return allocPort(c, pkg, fake);
         }
         return allocPort(c, pkg, manifest);
+    }
+
+    /**
+     * 固定口解析（纯函数，便于单测）：纯数字且落在 1..65535 内才认，返回口值；
+     * 其余（空/非数字/0/超限/长到溢出的数字串）一律无效、返回 -1，按「没声明
+     * 固定口」回落 auto 分配。此前只判 \d+：填 0 或 >65535 也进固定口分支，
+     * 十次重试后误报「固定端口已经被别的程序占着」，文案与真因不符；
+     * 溢出数字串还会让 parseInt 直接抛 NumberFormatException。
+     */
+    static int fixedPortOf(String policy) {
+        if (policy == null) return -1;
+        String p = policy.trim();
+        if (!p.matches("\\d+")) return -1;
+        try {
+            int v = Integer.parseInt(p);
+            return v >= 1 && v <= 65535 ? v : -1;
+        } catch (NumberFormatException e) {
+            return -1;
+        }
     }
 
     /** 命令变量默认值表：命令 variables 的 defaultValue + 包 settings 的 defaultValue */
@@ -445,8 +465,8 @@ public final class LabRunner {
 
     private static int allocPort(Context c, LabRegistry.Svc pkg, LabManifest manifest) throws Exception {
         String policy = manifest == null || manifest.output == null ? "auto" : manifest.output.port;
-        if (policy != null && policy.matches("\\d+")) {
-            int fixed = Integer.parseInt(policy);
+        int fixed = fixedPortOf(policy);
+        if (fixed > 0) {
             // 固定口先查占用（G-3）：此前不查，被占时服务绑口失败只进日志、
             // 界面还按这个口登记，用户对着死口干等。刚停掉的自家进程放口
             // 可能慢一拍，给十次短重试；仍占着就报人话，不许静默按错口展开

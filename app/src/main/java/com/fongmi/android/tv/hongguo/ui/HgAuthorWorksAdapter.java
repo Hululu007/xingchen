@@ -1,11 +1,10 @@
 package com.fongmi.android.tv.hongguo.ui;
 
-import android.text.Spannable;
-import android.text.SpannableString;
-import android.text.style.ForegroundColorSpan;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
 
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
@@ -109,7 +108,8 @@ public class HgAuthorWorksAdapter extends RecyclerView.Adapter<RecyclerView.View
             b.hgAwAvatar.setVisibility(View.GONE);
             b.hgAwAuthor.setVisibility(View.GONE);
         }
-        b.hgAwDigg.setText(w.diggCount > 0 ? "♡ " + HgFormat.countLine(w.diggCount) : "");
+        // 点赞段＝描边心图标＋数（实拍 113562）；无 countable 时照实拍摆「点赞」标签
+        b.hgAwDigg.setText(w.diggCount > 0 ? HgFormat.countLine(w.diggCount) : "点赞");
     }
 
     private void bindReview(ItemHongguoAuthorReviewBinding b, HgAuthorWork w) {
@@ -122,25 +122,25 @@ public class HgAuthorWorksAdapter extends RecyclerView.Adapter<RecyclerView.View
         b.hgArAuthor.setText(w.authorName.isEmpty() ? "红果用户" : w.authorName);
         if (w.score >= 0) {
             b.hgArStars.setVisibility(View.VISIBLE);
-            b.hgArStars.setText(stars(w.score));
+            paintStars(b.hgArStars, w.score);
         } else {
             b.hgArStars.setVisibility(View.GONE);
         }
         b.hgArContent.setText(w.title);
-        b.hgArDigg.setText(w.diggCount > 0 ? "♡ " + HgFormat.countLine(w.diggCount) : "");
+        b.hgArDiggBox.setVisibility(w.diggCount > 0 ? View.VISIBLE : View.GONE);
+        b.hgArDigg.setText(w.diggCount > 0 ? HgFormat.countLine(w.diggCount) : "");
     }
 
-    /** 十分制折五星串（满星橘、空星灰）。 */
-    private static SpannableString stars(int scoreTen) {
+    /** 十分制折五星（满星橘、空星灰，真矢量星取代旧 ★ 字形串）。 */
+    private static void paintStars(LinearLayout row, int scoreTen) {
         int filled = Math.round(scoreTen / 2f);
         if (filled < 0) filled = 0;
         if (filled > 5) filled = 5;
-        SpannableString s = new SpannableString("★★★★★");
-        s.setSpan(new ForegroundColorSpan(0xFFFF7E0D), 0, filled, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-        if (filled < 5) {
-            s.setSpan(new ForegroundColorSpan(0xFFD9D9D9), filled, 5, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+        for (int i = 0; i < row.getChildCount(); i++) {
+            ((ImageView) row.getChildAt(i)).setImageResource(i < filled
+                    ? com.fongmi.android.tv.R.drawable.ic_hg_author_star_on
+                    : com.fongmi.android.tv.R.drawable.ic_hg_author_star_off);
         }
-        return s;
     }
 
     @Override

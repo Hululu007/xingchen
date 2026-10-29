@@ -84,18 +84,33 @@
         android:textColor="#FF86909C"
         android:textSize="12sp"
         app:layout_constraintBottom_toBottomOf="@id/hg_aw_avatar"
-        app:layout_constraintEnd_toStartOf="@id/hg_aw_digg"
+        app:layout_constraintEnd_toStartOf="@id/hg_aw_digg_box"
         app:layout_constraintStart_toEndOf="@id/hg_aw_avatar"
         app:layout_constraintTop_toTopOf="@id/hg_aw_avatar" />
 
-    <TextView
-        android:id="@+id/hg_aw_digg"
+    <LinearLayout
+        android:id="@+id/hg_aw_digg_box"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginEnd="10dp"
-        android:textColor="#FF86909C"
-        android:textSize="12sp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
         app:layout_constraintBottom_toBottomOf="@id/hg_aw_avatar"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintTop_toTopOf="@id/hg_aw_avatar" />
+        app:layout_constraintTop_toTopOf="@id/hg_aw_avatar">
+
+        <ImageView
+            android:layout_width="14dp"
+            android:layout_height="14dp"
+            android:contentDescription="@null"
+            android:src="@drawable/ic_hg_author_heart" />
+
+        <TextView
+            android:id="@+id/hg_aw_digg"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="3dp"
+            android:textColor="#FF86909C"
+            android:textSize="12sp" />
+    </LinearLayout>
 </androidx.constraintlayout.widget.ConstraintLayout>

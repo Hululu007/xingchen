@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 作者页头图底部渐隐（实拍 113562：390dp 头图下沿渐隐入白，
+     不留硬切边；上透下白，压在头图容器底部）。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <gradient
+        android:angle="270"
+        android:endColor="#FFFFFFFF"
+        android:startColor="#00FFFFFF"
+        android:type="linear" />
+</shape>

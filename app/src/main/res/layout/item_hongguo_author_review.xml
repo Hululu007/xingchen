@@ -39,11 +39,41 @@
             android:textSize="13sp"
             android:textStyle="bold" />
 
-        <TextView
+        <LinearLayout
             android:id="@+id/hg_ar_stars"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textSize="12sp" />
+            android:orientation="horizontal">
+
+            <ImageView
+                android:layout_width="12dp"
+                android:layout_height="12dp"
+                android:contentDescription="@null" />
+
+            <ImageView
+                android:layout_width="12dp"
+                android:layout_height="12dp"
+                android:layout_marginStart="1dp"
+                android:contentDescription="@null" />
+
+            <ImageView
+                android:layout_width="12dp"
+                android:layout_height="12dp"
+                android:layout_marginStart="1dp"
+                android:contentDescription="@null" />
+
+            <ImageView
+                android:layout_width="12dp"
+                android:layout_height="12dp"
+                android:layout_marginStart="1dp"
+                android:contentDescription="@null" />
+
+            <ImageView
+                android:layout_width="12dp"
+                android:layout_height="12dp"
+                android:layout_marginStart="1dp"
+                android:contentDescription="@null" />
+        </LinearLayout>
     </LinearLayout>
 
     <TextView
@@ -57,11 +87,26 @@
         android:textColor="#FF3C424B"
         android:textSize="13sp" />
 
-    <TextView
-        android:id="@+id/hg_ar_digg"
+    <LinearLayout
+        android:id="@+id/hg_ar_digg_box"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="6dp"
-        android:textColor="#FF86909C"
-        android:textSize="12sp" />
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <ImageView
+            android:layout_width="14dp"
+            android:layout_height="14dp"
+            android:contentDescription="@null"
+            android:src="@drawable/ic_hg_author_heart" />
+
+        <TextView
+            android:id="@+id/hg_ar_digg"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="3dp"
+            android:textColor="#FF86909C"
+            android:textSize="12sp" />
+    </LinearLayout>
 </LinearLayout>

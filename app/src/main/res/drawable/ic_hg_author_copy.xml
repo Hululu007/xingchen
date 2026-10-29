@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 作者页副标题行复制图标（官方 csp 定版：红果号段 drawableEnd=
+     @drawable/skin_icon_copy_light、drawablePadding 2dp；官方原图为
+     位图，此为同形描边矢量复刻，色随副标题行 #66000000）。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="14dp"
+    android:height="14dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M9,9h10v12H9z"
+        android:strokeColor="#66000000"
+        android:strokeWidth="1.8" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M5,15H4a1,1 0,0 1,-1 -1V4a1,1 0,0 1,1 -1h10a1,1 0,0 1,1 1v1"
+        android:strokeColor="#66000000"
+        android:strokeWidth="1.8" />
+</vector>

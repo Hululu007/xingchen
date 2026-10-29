@@ -300,16 +300,16 @@ public class HongguoAuthorActivity extends BaseActivity {
                     } else {
                         binding.hgAuthorVipBadge.setVisibility(View.GONE);
                     }
-                    // 页头底：色优先于图（bg_color 是官方定版底色，bg_covers 垫其上偏淡显）
+                    // 页头底（ax8 定版）：bg_color 只作头图衬色垫在图下，
+                    // bg_covers 全幅全不透明垫底（390dp 头图层），不再压淡
                     if (p.bgColor != null) {
                         try {
-                            binding.hgAuthorHeader.setBackgroundColor(Color.parseColor(p.bgColor));
+                            binding.hgAuthorBgBox.setBackgroundColor(Color.parseColor(p.bgColor));
                         } catch (Exception ignored) {
                         }
                     }
                     if (p.bgCover != null && !p.bgCover.isEmpty()) {
                         binding.hgAuthorBg.setVisibility(View.VISIBLE);
-                        binding.hgAuthorBg.setAlpha(0.45f);
                         ImgUtil.load("", p.bgCover, binding.hgAuthorBg);
                     }
                     // 隐私开关：作者关掉的签不摆
@@ -355,10 +355,16 @@ public class HongguoAuthorActivity extends BaseActivity {
     private void refreshFollowButton() {
         boolean followed = HgStore.isAuthorFollowed(uid);
         binding.hgAuthorFollow.setText(followed ? "已关注" : "关注");
+        // 官方 csp 的 fox 定版：未关注＝白底圆角 8dp＋橘字 #FA7705＋加号图标；
+        // 已关注＝半透明白底＋白字、无加号
         binding.hgAuthorFollow.setBackgroundResource(followed
-                ? com.fongmi.android.tv.R.drawable.bg_hg_followed_btn
-                : com.fongmi.android.tv.R.drawable.bg_hg_follow_btn);
-        binding.hgAuthorFollow.setTextColor(followed ? 0xFF4E5969 : 0xFFFFFFFF);
+                ? com.fongmi.android.tv.R.drawable.bg_hg_author_followed_btn
+                : com.fongmi.android.tv.R.drawable.bg_hg_author_follow_btn);
+        binding.hgAuthorFollow.setTextColor(followed ? 0xFFFFFFFF : 0xFFFA7705);
+        binding.hgAuthorFollow.setCompoundDrawablesWithIntrinsicBounds(
+                followed ? null : androidx.core.content.ContextCompat.getDrawable(
+                        this, com.fongmi.android.tv.R.drawable.ic_hg_author_plus),
+                null, null, null);
         refreshFloatCard();
     }
 

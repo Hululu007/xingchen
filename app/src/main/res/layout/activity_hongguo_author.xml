@@ -1,34 +1,50 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 红果·作者主页（官方原生轨 SeriesGuestProfile 构成＋2026-10-29 实拍
-     113562 与 profile/get 实拉定版补全）：页头（服务端 bg_color/bg_covers
-     垫底、置顶 chip 行、头像姓名行＋头衔徽标、副标题行、简介、数据行＋
-     关注钮）＋三页签 作品/收藏/点赞（收藏/点赞签受服务端隐私开关控制）
-     ＋作品子档筹（服务端 tabs 驱动：全部/剧作/合集/剧评）＋最新|最热排序
-     ＋双列卡列表＋底部浮动关注卡。不放页面自带返回箭头（走系统返回）。
-     数据行形态照 ct0（数值 14sp 黑上、标签 12sp 灰70 下、组距 24dp）。 -->
+<!-- 红果·作者主页（官方 SeriesGuestProfile 构成，2026-10-29 质感返工）：
+     页头照官方 ax8/csp 定版——390dp 头图（en9：服务端 bg_covers 全幅垫底、
+     下沿渐隐入白，bg_color 作图下衬色）＋44dp 置顶 chip 行（ax8 的 c2c：
+     22dp 圆头像＋16sp 粗名）＋头像姓名列（csp：58dp 头像、名 20sp 粗、
+     名下副标题行 12sp #66000000、段间竖线、红果号段尾复制图标
+     skin_icon_copy_light）＋头衔徽标＋简介（iyq：12sp 灰70、行距 +4dp、
+     marginTop 16dp）＋数据行（ct0：数 14sp 粗、标签 12sp 灰70、组距
+     24dp）＋关注钮（csp 的 fox：66dp、白底圆角 8dp、14sp 粗橘字
+     #FA7705、左侧加号图标）；页签以下为白色圆顶层（实拍 113562）。
+     不放页面自带返回箭头（走系统返回，与官方的偏差是潇洒哥站规矩）。 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#FFFFFF">
+
+    <!-- 头图层（ax8 的 en9：390dp 高、服务端 bg 图全幅；色衬＋渐隐） -->
+    <FrameLayout
+        android:id="@+id/hg_author_bg_box"
+        android:layout_width="match_parent"
+        android:layout_height="390dp">
+
+        <ImageView
+            android:id="@+id/hg_author_bg"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:contentDescription="@null"
+            android:scaleType="centerCrop"
+            android:visibility="gone" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="140dp"
+            android:layout_gravity="bottom"
+            android:background="@drawable/bg_hg_author_bg_fade" />
+    </FrameLayout>
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:orientation="vertical">
 
-        <!-- 页头：bg 图垫底（服务端下发，有才显）＋内容列 -->
+        <!-- 页头（内容压在头图上） -->
         <FrameLayout
             android:id="@+id/hg_author_header"
             android:layout_width="match_parent"
             android:layout_height="wrap_content">
-
-            <ImageView
-                android:id="@+id/hg_author_bg"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:contentDescription="@null"
-                android:scaleType="centerCrop"
-                android:visibility="gone" />
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -38,11 +54,10 @@
                 android:paddingEnd="16dp"
                 android:paddingBottom="4dp">
 
-                <!-- 置顶 chip 行（官方 ctw：22dp 圆头像＋16sp 粗名横排） -->
+                <!-- 置顶 chip 行（ax8 的 c2c：44dp 行高、22dp 圆头像＋16sp 粗名） -->
                 <LinearLayout
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
+                    android:layout_height="44dp"
                     android:gravity="center_vertical"
                     android:orientation="horizontal">
 
@@ -62,12 +77,12 @@
                         android:textStyle="bold" />
                 </LinearLayout>
 
-                <!-- 头像姓名行（官方 c_m：58dp 头像＋20sp 粗名＋头衔徽标） -->
+                <!-- 头像姓名列（csp：58dp 头像 marginTop 10dp；名 20sp 粗、
+                     marginStart 16dp；副标题行在名下） -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="20dp"
-                    android:gravity="center_vertical"
+                    android:layout_marginTop="10dp"
                     android:orientation="horizontal">
 
                     <FrameLayout
@@ -81,7 +96,7 @@
                             android:contentDescription="@null" />
 
                         <!-- V 标（user_tag.is_blue_vip 为真且 vip_icon_url 有址
-                             才显，图为服务端 48×48 圆 V 图直用；实拍 113563
+                             才显，图为服务端 48×48 圆 V 图直用；实拍 113562
                              头像右下角同位） -->
                         <ImageView
                             android:id="@+id/hg_author_vip_badge"
@@ -92,52 +107,71 @@
                             android:visibility="gone" />
                     </FrameLayout>
 
-                    <TextView
-                        android:id="@+id/hg_author_name"
-                        android:layout_width="wrap_content"
+                    <LinearLayout
+                        android:layout_width="0dp"
                         android:layout_height="wrap_content"
-                        android:layout_marginStart="12dp"
-                        android:ellipsize="end"
-                        android:maxLines="1"
-                        android:textColor="#FF1D2129"
-                        android:textSize="20sp"
-                        android:textStyle="bold" />
+                        android:layout_marginStart="16dp"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
 
-                    <ImageView
-                        android:id="@+id/hg_author_badge_icon"
-                        android:layout_width="wrap_content"
-                        android:layout_height="16dp"
-                        android:layout_marginStart="6dp"
-                        android:adjustViewBounds="true"
-                        android:contentDescription="@null"
-                        android:visibility="gone" />
+                        <LinearLayout
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal">
 
-                    <TextView
-                        android:id="@+id/hg_author_badge"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="6dp"
-                        android:background="@drawable/bg_hg_title_badge"
-                        android:paddingStart="5dp"
-                        android:paddingTop="2dp"
-                        android:paddingEnd="5dp"
-                        android:paddingBottom="2dp"
-                        android:textColor="#FF2E6BE6"
-                        android:textSize="10sp"
-                        android:textStyle="bold"
-                        android:visibility="gone" />
+                            <TextView
+                                android:id="@+id/hg_author_name"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:ellipsize="end"
+                                android:maxLines="1"
+                                android:textColor="#FF1D2129"
+                                android:textSize="20sp"
+                                android:textStyle="bold" />
+
+                            <ImageView
+                                android:id="@+id/hg_author_badge_icon"
+                                android:layout_width="wrap_content"
+                                android:layout_height="16dp"
+                                android:layout_marginStart="6dp"
+                                android:adjustViewBounds="true"
+                                android:contentDescription="@null"
+                                android:visibility="gone" />
+
+                            <TextView
+                                android:id="@+id/hg_author_badge"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="6dp"
+                                android:background="@drawable/bg_hg_title_badge"
+                                android:paddingStart="5dp"
+                                android:paddingTop="2dp"
+                                android:paddingEnd="5dp"
+                                android:paddingBottom="2dp"
+                                android:textColor="#FF2E6BE6"
+                                android:textSize="10sp"
+                                android:textStyle="bold"
+                                android:visibility="gone" />
+                        </LinearLayout>
+
+                        <!-- 副标题行（csp 的 kc：12sp、#66000000；服务端
+                             sub_title_list 段拼串＋末段「红果号：…」，尾带
+                             复制图标；有才显，点行复制红果号） -->
+                        <TextView
+                            android:id="@+id/hg_author_subline"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="6dp"
+                            android:drawableEnd="@drawable/ic_hg_author_copy"
+                            android:drawablePadding="2dp"
+                            android:ellipsize="end"
+                            android:maxLines="1"
+                            android:textColor="#66000000"
+                            android:textSize="12sp"
+                            android:visibility="gone" />
+                    </LinearLayout>
                 </LinearLayout>
-
-                <!-- 副标题行（服务端 sub_title_list 拼串，如「出品方 | 红果号：…」；
-                     有才显，点行复制红果号） -->
-                <TextView
-                    android:id="@+id/hg_author_subline"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:textColor="#FF86909C"
-                    android:textSize="12sp"
-                    android:visibility="gone" />
 
                 <!-- 简介（csp 的 iyq：12sp 灰70、行距 +4dp、marginTop 16dp；有才显） -->
                 <TextView
@@ -150,7 +184,7 @@
                     android:textSize="12sp"
                     android:visibility="gone" />
 
-                <!-- 数据行＋关注钮同带（照 ct0） -->
+                <!-- 数据行＋关注钮同带（ct0＋csp 的 fox） -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -177,7 +211,8 @@
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:textColor="#FF000000"
-                                android:textSize="14sp" />
+                                android:textSize="14sp"
+                                android:textStyle="bold" />
 
                             <TextView
                                 android:layout_width="wrap_content"
@@ -199,7 +234,8 @@
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:textColor="#FF000000"
-                                android:textSize="14sp" />
+                                android:textSize="14sp"
+                                android:textStyle="bold" />
 
                             <TextView
                                 android:layout_width="wrap_content"
@@ -220,7 +256,8 @@
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:textColor="#FF000000"
-                                android:textSize="14sp" />
+                                android:textSize="14sp"
+                                android:textStyle="bold" />
 
                             <TextView
                                 android:layout_width="wrap_content"
@@ -236,188 +273,199 @@
                         android:id="@+id/hg_author_follow"
                         android:layout_width="66dp"
                         android:layout_height="wrap_content"
-                        android:background="@drawable/bg_hg_follow_btn"
+                        android:background="@drawable/bg_hg_author_follow_btn"
+                        android:drawablePadding="2dp"
                         android:gravity="center"
+                        android:includeFontPadding="false"
                         android:paddingTop="7dp"
                         android:paddingBottom="7dp"
                         android:text="关注"
-                        android:textColor="#FFFFFF"
+                        android:textColor="#FFFA7705"
                         android:textSize="14sp"
                         android:textStyle="bold" />
                 </LinearLayout>
             </LinearLayout>
         </FrameLayout>
 
-        <!-- 三页签（作品/收藏/点赞；选中黑粗＋橘下划线，官方实拍口径） -->
+        <!-- 内容白层（页签＋子档行＋列表；实拍 113562 的白色圆顶层） -->
         <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:orientation="horizontal"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp">
-
-            <LinearLayout
-                android:id="@+id/hg_author_tab_works_box"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginEnd="28dp"
-                android:gravity="center_horizontal"
-                android:orientation="vertical">
-
-                <TextView
-                    android:id="@+id/hg_author_tab_works"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:paddingTop="6dp"
-                    android:paddingBottom="6dp"
-                    android:text="作品"
-                    android:textColor="#FF1D2129"
-                    android:textSize="15sp"
-                    android:textStyle="bold" />
-
-                <View
-                    android:id="@+id/hg_author_tab_works_line"
-                    android:layout_width="18dp"
-                    android:layout_height="3dp"
-                    android:background="#FFFF7E0D" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:id="@+id/hg_author_tab_shelf_box"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginEnd="28dp"
-                android:gravity="center_horizontal"
-                android:orientation="vertical">
-
-                <TextView
-                    android:id="@+id/hg_author_tab_shelf"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:paddingTop="6dp"
-                    android:paddingBottom="6dp"
-                    android:text="收藏"
-                    android:textColor="#FF86909C"
-                    android:textSize="15sp" />
-
-                <View
-                    android:id="@+id/hg_author_tab_shelf_line"
-                    android:layout_width="18dp"
-                    android:layout_height="3dp"
-                    android:background="#FFFF7E0D"
-                    android:visibility="invisible" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:id="@+id/hg_author_tab_likes_box"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:gravity="center_horizontal"
-                android:orientation="vertical">
-
-                <TextView
-                    android:id="@+id/hg_author_tab_likes"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:paddingTop="6dp"
-                    android:paddingBottom="6dp"
-                    android:text="点赞"
-                    android:textColor="#FF86909C"
-                    android:textSize="15sp" />
-
-                <View
-                    android:id="@+id/hg_author_tab_likes_line"
-                    android:layout_width="18dp"
-                    android:layout_height="3dp"
-                    android:background="#FFFF7E0D"
-                    android:visibility="invisible" />
-            </LinearLayout>
-        </LinearLayout>
-
-        <!-- 子档行（只作品签显）：筹横滑＋右侧排序 最新|最热 -->
-        <LinearLayout
-            android:id="@+id/hg_author_subrow"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp">
-
-            <HorizontalScrollView
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:scrollbars="none">
-
-                <LinearLayout
-                    android:id="@+id/hg_author_chips"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal" />
-            </HorizontalScrollView>
-
-            <TextView
-                android:id="@+id/hg_author_sort_new"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:paddingStart="6dp"
-                android:paddingTop="4dp"
-                android:paddingBottom="4dp"
-                android:text="最新"
-                android:textColor="#FFFF7E0D"
-                android:textSize="13sp" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text=" | "
-                android:textColor="#FFC9CDD4"
-                android:textSize="13sp" />
-
-            <TextView
-                android:id="@+id/hg_author_sort_hot"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:paddingTop="4dp"
-                android:paddingEnd="2dp"
-                android:paddingBottom="4dp"
-                android:text="最热"
-                android:textColor="#FF1D2129"
-                android:textSize="13sp" />
-        </LinearLayout>
-
-        <!-- 列表区（双列卡；剧评子档整宽行） -->
-        <FrameLayout
             android:layout_width="match_parent"
             android:layout_height="0dp"
-            android:layout_weight="1">
+            android:layout_marginTop="6dp"
+            android:layout_weight="1"
+            android:background="@drawable/bg_hg_author_sheet"
+            android:orientation="vertical">
 
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/hg_author_list"
+            <!-- 三页签（作品/收藏/点赞；实拍口径：选中黑粗、未选灰，
+                 无下划线） -->
+            <LinearLayout
                 android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:clipToPadding="false"
-                android:paddingStart="11dp"
-                android:paddingTop="10dp"
-                android:paddingEnd="11dp"
-                android:paddingBottom="16dp" />
-
-            <TextView
-                android:id="@+id/hg_author_empty"
-                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_gravity="center"
-                android:textColor="#FF86909C"
-                android:textSize="13sp"
-                android:visibility="gone" />
-        </FrameLayout>
+                android:layout_marginTop="10dp"
+                android:orientation="horizontal"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp">
+
+                <LinearLayout
+                    android:id="@+id/hg_author_tab_works_box"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="28dp"
+                    android:gravity="center_horizontal"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/hg_author_tab_works"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:paddingTop="6dp"
+                        android:paddingBottom="6dp"
+                        android:text="作品"
+                        android:textColor="#FF1D2129"
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
+
+                    <View
+                        android:id="@+id/hg_author_tab_works_line"
+                        android:layout_width="18dp"
+                        android:layout_height="0dp"
+                        android:visibility="invisible" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/hg_author_tab_shelf_box"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="28dp"
+                    android:gravity="center_horizontal"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/hg_author_tab_shelf"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:paddingTop="6dp"
+                        android:paddingBottom="6dp"
+                        android:text="收藏"
+                        android:textColor="#FF86909C"
+                        android:textSize="16sp" />
+
+                    <View
+                        android:id="@+id/hg_author_tab_shelf_line"
+                        android:layout_width="18dp"
+                        android:layout_height="0dp"
+                        android:visibility="invisible" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/hg_author_tab_likes_box"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_horizontal"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/hg_author_tab_likes"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:paddingTop="6dp"
+                        android:paddingBottom="6dp"
+                        android:text="点赞"
+                        android:textColor="#FF86909C"
+                        android:textSize="16sp" />
+
+                    <View
+                        android:id="@+id/hg_author_tab_likes_line"
+                        android:layout_width="18dp"
+                        android:layout_height="0dp"
+                        android:visibility="invisible" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- 子档行（只作品签显）：筹横滑＋右侧排序 最新|最热 -->
+            <LinearLayout
+                android:id="@+id/hg_author_subrow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp">
+
+                <HorizontalScrollView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:scrollbars="none">
+
+                    <LinearLayout
+                        android:id="@+id/hg_author_chips"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal" />
+                </HorizontalScrollView>
+
+                <TextView
+                    android:id="@+id/hg_author_sort_new"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="6dp"
+                    android:paddingTop="4dp"
+                    android:paddingBottom="4dp"
+                    android:text="最新"
+                    android:textColor="#FFFF7E0D"
+                    android:textSize="13sp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text=" | "
+                    android:textColor="#FFC9CDD4"
+                    android:textSize="13sp" />
+
+                <TextView
+                    android:id="@+id/hg_author_sort_hot"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingTop="4dp"
+                    android:paddingEnd="2dp"
+                    android:paddingBottom="4dp"
+                    android:text="最热"
+                    android:textColor="#FF1D2129"
+                    android:textSize="13sp" />
+            </LinearLayout>
+
+            <!-- 列表区（双列卡；剧评子档整宽行） -->
+            <FrameLayout
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1">
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/hg_author_list"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:clipToPadding="false"
+                    android:paddingStart="11dp"
+                    android:paddingTop="10dp"
+                    android:paddingEnd="11dp"
+                    android:paddingBottom="16dp" />
+
+                <TextView
+                    android:id="@+id/hg_author_empty"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:textColor="#FF86909C"
+                    android:textSize="13sp"
+                    android:visibility="gone" />
+            </FrameLayout>
+        </LinearLayout>
     </LinearLayout>
 
-    <!-- 底部浮动关注卡（实拍：头像＋「已看TA很久了，加个关注吧」＋通知副行
-         ＋浅橘关注钮；未关注且非本人时出，关注后收） -->
+    <!-- 底部浮动关注卡（实拍 113562：头像＋「已看TA很久了，加个关注吧」
+         ＋通知副行＋浅橘关注钮；未关注且非本人时出，关注后收） -->
     <LinearLayout
         android:id="@+id/hg_author_float"
         android:layout_width="match_parent"
@@ -471,11 +519,14 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:background="@drawable/bg_hg_sub_chip_on"
+            android:drawableStart="@drawable/ic_hg_author_plus"
+            android:drawablePadding="2dp"
+            android:gravity="center"
             android:paddingStart="14dp"
             android:paddingTop="7dp"
             android:paddingEnd="14dp"
             android:paddingBottom="7dp"
-            android:text="+ 关注"
+            android:text="关注"
             android:textColor="#FFFF7E0D"
             android:textSize="13sp"
             android:textStyle="bold" />

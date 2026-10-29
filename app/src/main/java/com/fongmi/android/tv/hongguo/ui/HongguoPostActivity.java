@@ -189,7 +189,7 @@ public class HongguoPostActivity extends BaseActivity {
         }
         row.getRoot().setOnClickListener(v -> HongguoFeedActivity.startSeries(
                 this, seriesId, detail.getTitle(), detail.getCoverUrl(),
-                authorUid.isEmpty() ? null : authorUid));
+                authorUid.isEmpty() ? null : authorUid, null));
         binding.hgPostSeries.addView(row.getRoot());
     }
 

@@ -128,7 +128,7 @@ public class HongguoAuthorActivity extends BaseActivity {
                         if (m != null) session.cache.put(vid, m);
                     }
                     HongguoFeedActivity.startSeries(HongguoAuthorActivity.this,
-                            vid, work.title, work.cover, uid);
+                            vid, work.title, work.cover, uid, null);
                 });
             }
 
@@ -137,7 +137,7 @@ public class HongguoAuthorActivity extends BaseActivity {
                 mainHandler.post(() -> {
                     ugcOpening = false;
                     HongguoFeedActivity.startSeries(HongguoAuthorActivity.this,
-                            vid, work.title, work.cover, uid);
+                            vid, work.title, work.cover, uid, null);
                 });
             }
         });

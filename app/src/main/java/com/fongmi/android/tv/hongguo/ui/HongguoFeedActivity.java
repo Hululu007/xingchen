@@ -1654,6 +1654,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             final String title = item.title;
             final String cover = item.coverUrl;
             final String entryAuthorUid = item.authorUid;
+            final String entryPublisher = item.publisher;
             session.client.fetchAlbum(albumId, new HgCallback<java.util.List<com.fongmi.android.tv.hongguo.model.HgSeriesItem>>() {
                 @Override
                 public void onSuccess(java.util.List<com.fongmi.android.tv.hongguo.model.HgSeriesItem> seasons) {
@@ -1662,7 +1663,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                         // 迟到回调防串面：页签已切/条目已不在当前表就丢弃
                         if (isFinishing() || isDestroyed() || !session.items.contains(item)) return;
                         if (seasons != null && seasons.size() >= 2) showSeriesSheet(item, seasons);
-                        else startSeries(HongguoFeedActivity.this, sid, title, cover, entryAuthorUid);
+                        else startSeries(HongguoFeedActivity.this, sid, title, cover, entryAuthorUid, entryPublisher);
                     });
                 }
 
@@ -1671,7 +1672,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                     session.putAlbum(sid, java.util.Collections.emptyList());
                     runOnUiThread(() -> {
                         if (!isFinishing() && !isDestroyed() && session.items.contains(item)) {
-                            startSeries(HongguoFeedActivity.this, sid, title, cover, entryAuthorUid);
+                            startSeries(HongguoFeedActivity.this, sid, title, cover, entryAuthorUid, entryPublisher);
                         }
                     });
                 }
@@ -1684,7 +1685,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     private void showSeriesSheet(HgFeedItem item, java.util.List<com.fongmi.android.tv.hongguo.model.HgSeriesItem> siblings) {
         HgSeriesSheet.show(this, siblings, item, session.interactions,
                 picked -> startSeries(this, picked.getSeriesId(), picked.getTitle(),
-                        picked.getCoverUrl(), picked.getAuthorUid()));
+                        picked.getCoverUrl(), picked.getAuthorUid(), picked.getPublisher()));
     }
 
     /**

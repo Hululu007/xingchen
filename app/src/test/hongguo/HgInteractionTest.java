@@ -258,7 +258,7 @@ public class HgInteractionTest {
                 "aweme_v2".equals(dyForm.get("platform")) && "0".equals(dyForm.get("expires_in"))
                         && "authcode123".equals(dyForm.get("code"))
                         && "7828".equals(dyForm.get("platform_app_id")), dyForm.toString());
-        String authUrl = HgDouyinAuth.buildAuthorizeUrl("stateXYZ");
+        String authUrl = HgDouyinAuth.buildAuthorizeUrl("stateXYZ", HgDouyinAuth.NETWORK_WIFI);
         check("授权 URL 起点＋client_key＋response_type=code",
                 authUrl.startsWith("https://open.douyin.com/platform/oauth/connect/?response_type=code")
                         && authUrl.contains("client_key=awhrxjuqewhhyckk"), authUrl);
@@ -270,14 +270,27 @@ public class HgInteractionTest {
                         && authUrl.contains("scope=user_info")
                         && authUrl.contains("state=stateXYZ")
                         && authUrl.contains("enter_from=account"), null);
+        check("授权 URL 尾段四参（authorize/a.java 本体：live_enter_from/is_wifi/comment_id/web_auth_type）",
+                authUrl.contains("live_enter_from=&enter_from=account")
+                        && authUrl.contains("is_wifi=1")
+                        && authUrl.contains("comment_id=")
+                        && authUrl.contains("is_other_account_auth=2")
+                        && authUrl.endsWith("web_auth_type="), authUrl);
         HgDouyinAuth.Callback cbOk = HgDouyinAuth.parseCallback(
                 "https://api.snssdk.com/oauth/authorize/callback/?code=abc123&state=stateXYZ&scopes=user_info");
-        check("回跳带 code 解析出授权码", cbOk != null && cbOk.hasCode() && "abc123".equals(cbOk.code),
+        check("回跳带 code 解析出授权码＋state/scopes 同读",
+                cbOk != null && cbOk.hasCode() && "abc123".equals(cbOk.code)
+                        && "stateXYZ".equals(cbOk.state) && "user_info".equals(cbOk.scopes),
                 cbOk == null ? "null" : cbOk.code);
         HgDouyinAuth.Callback cbErr = HgDouyinAuth.parseCallback(
                 "https://api.snssdk.com/oauth/authorize/callback/?errCode=2001&state=stateXYZ");
         check("回跳带 errCode 解析为拒绝", cbErr != null && !cbErr.hasCode() && "2001".equals(cbErr.errCode),
                 cbErr == null ? "null" : cbErr.errCode);
+        HgDouyinAuth.Callback cbErr2 = HgDouyinAuth.parseCallback(
+                "https://api.snssdk.com/oauth/authorize/callback/?error=access_denied&state=stateXYZ");
+        check("回跳带 error（OAuth 通行失败参数）兜底解析为拒绝",
+                cbErr2 != null && !cbErr2.hasCode() && "access_denied".equals(cbErr2.error),
+                cbErr2 == null ? "null" : cbErr2.error);
         check("非回跳地址 parseCallback 为 null",
                 HgDouyinAuth.parseCallback("https://open.douyin.com/platform/oauth/connect/") == null
                         && HgDouyinAuth.parseCallback(null) == null, null);

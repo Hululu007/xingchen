@@ -1,13 +1,17 @@
 package com.fongmi.android.tv.login;
 
 import android.app.Dialog;
+import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
+import android.net.ConnectivityManager;
+import android.net.NetworkInfo;
 import android.net.Uri;
+import android.net.http.SslError;
 import android.os.Bundle;
 import android.text.Editable;
 import android.text.InputType;
@@ -20,7 +24,9 @@ import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
 import android.webkit.CookieManager;
+import android.webkit.SslErrorHandler;
 import android.webkit.WebChromeClient;
+import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -64,14 +70,19 @@ import com.fongmi.android.tv.hongguo.api.HgPassportClient;
  * 抖音授权页本体（{@link HgDouyinAuth#buildAuthorizeUrl}，身份参数全套
  * 出官方包、本机实拉发页与探针逐字节同长）→用户在抖音侧登录并同意→
  * 回跳 api.snssdk.com/oauth/authorize/callback/ 在加载前拦截取 code
- * （拦截契约照官方 SDK BaseWebAuthorizeActivity；回调端点裸拉 504、
- * 本就不供直开）→原生 POST /passport/auth/login/ 兑换会话
- * （{@link HgPassportClient#douyinAuthLogin}，探针 P4 证兑换口只判码
- * 本身）。授权页之外的任何登录表单都不 WebView 化：手机号路是原生
- * passport 链（发码/码登，HgPassportClient 整套复用）。授权页里若跳
- * 非 http 协议（拉抖音 App 的深链），尝试交给系统、无人接就吞掉留在
- * 页内——此跳行为待首登观察。can_aweme_quick_login 快捷资格口不进
- * 主流程（无在机抖音会话时恒 false，web 路不依赖它）。</p>
+ * （拦截契约照官方 SDK BaseWebAuthorizeActivity.handleRedirect 本体；
+ * 回调端点裸拉 504、本就不供直开）→原生 POST /passport/auth/login/
+ * 兑换会话（{@link HgPassportClient#douyinAuthLogin}，探针 P4 证兑换
+ * 口只判码本身）。授权页之外的任何登录表单都不 WebView 化：手机号路
+ * 是原生 passport 链（发码/码登，HgPassportClient 整套复用）。授权页
+ * 的 App 接力（他机装有抖音且已登录，2026-10-29 他亲口定此前提成立）：
+ * H5 内部接力 scheme 的确切形状静态抠不到（授权页 bundle 全文无字面
+ * 量，账见 HgDouyinAuth 类头），WebView 侧把出口全接住——非 http
+ * scheme 交系统拉起抖音 App、intent:// 按 Intent.parseUri 解析（含
+ * browser_fallback_url 时回退页内加载）、回跳 state 与发起值软校验
+ * （非空且不符才判失败）；每次接力外跳只记 scheme 进日志，供首登
+ * 回溯。can_aweme_quick_login 快捷资格口不进主流程（无在机抖音会话
+ * 时恒 false，web 路不依赖它）。</p>
  *
  * <p>两路成功都经 LoginManager 落同一托管口（HongguoLoginProvider），
  * 并照 SMS 路同样跑登录后第一验（HgLoginSessionCheck，只记形状）。
@@ -476,7 +487,23 @@ public class HongguoLoginPage extends DialogFragment {
         authState = HgDouyinAuth.newState();
         showPane(PANE_WEB);
         ensureWebView();
-        webView.loadUrl(HgDouyinAuth.buildAuthorizeUrl(authState));
+        webView.loadUrl(HgDouyinAuth.buildAuthorizeUrl(authState, networkType()));
+    }
+
+    /** is_wifi 参数的网络类型（官方 NetUtils.getNetWorkType 本体口径：WIFI=1/MOBILE=0/无网=2，异常回 MOBILE）。 */
+    private int networkType() {
+        try {
+            ConnectivityManager cm = (ConnectivityManager)
+                    requireContext().getSystemService(Context.CONNECTIVITY_SERVICE);
+            NetworkInfo info = cm == null ? null : cm.getActiveNetworkInfo();
+            if (info != null && info.isAvailable()) {
+                if (info.getType() == ConnectivityManager.TYPE_WIFI) return HgDouyinAuth.NETWORK_WIFI;
+                if (info.getType() == ConnectivityManager.TYPE_MOBILE) return HgDouyinAuth.NETWORK_MOBILE;
+            }
+            return HgDouyinAuth.NETWORK_NONE;
+        } catch (Exception e) {
+            return HgDouyinAuth.NETWORK_MOBILE;
+        }
     }
 
     private void setDouyinBusy(boolean busy) {
@@ -549,6 +576,10 @@ public class HongguoLoginPage extends DialogFragment {
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
         settings.setDatabaseEnabled(true);
+        // 与官方 SDK WebView（open/common/a 本体）对齐的两项：不存表单
+        // 密码、禁文件访问（JS/存储/CacheMode 缺省与 SDK 同，不另设）
+        settings.setSavePassword(false);
+        settings.setAllowFileAccess(false);
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(wv, true);
         wv.setWebChromeClient(new WebChromeClient() {
@@ -570,6 +601,28 @@ public class HongguoLoginPage extends DialogFragment {
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
                 return handleAuthNavigation(url);
             }
+
+            @Override
+            public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                // 授权页本体主帧加载失败（断网等）：回主页给人话，不留白屏
+                // 干等（官方 SDK 同位是弹网络错误框）。回跳地址已在加载前
+                // 拦截、不会走到这里，命中它一律放过。
+                if (request == null || !request.isForMainFrame()) return;
+                String url = request.getUrl() == null ? "" : request.getUrl().toString();
+                if (url.startsWith(HgDouyinAuth.REDIRECT_URI)) return;
+                if (pane != PANE_WEB) return;
+                showPane(PANE_HOME);
+                tvHomeStatus.setText("授权页加载失败，请检查网络后再试");
+            }
+
+            @Override
+            public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
+                // 官方 SDK 口径：取消加载＋报错，不放行坏证书
+                handler.cancel();
+                if (pane != PANE_WEB) return;
+                showPane(PANE_HOME);
+                tvHomeStatus.setText("授权页加载失败，请检查网络后再试");
+            }
         });
         webHolder.addView(wv, matchParent());
         webView = wv;
@@ -577,18 +630,49 @@ public class HongguoLoginPage extends DialogFragment {
 
     /**
      * 授权页导航分流：回跳地址（redirect_uri 前缀）在加载前拦截取 code
-     * （照官方 SDK 契约）；非 http 协议（拉抖音 App 的深链）尝试交系统、
-     * 无人接就吞掉；其余放行页内导航。
+     * （照官方 SDK handleRedirect 契约，含 state 软校验）；非 http 协议
+     * 是抖音 App 接力出口——intent:// 按 Intent.parseUri 解析后交系统
+     * （带 browser_fallback_url 且无人接时回退页内加载该地址），其余
+     * scheme 裸 VIEW 交系统拉起抖音 App、无人接就吞掉留在页内；每次
+     * 外跳只记 scheme 一行日志（URL 本体含授权参数、不入日志），供
+     * 首登回溯接力落点。其余 http 导航放行页内。
      */
     private boolean handleAuthNavigation(String url) {
         if (url == null) return false;
         HgDouyinAuth.Callback cb = HgDouyinAuth.parseCallback(url);
         if (cb != null) {
+            // state 软校验：SDK 只透传不设闸，咱家只拦「回了 state 且与
+            // 发起值对不上」这一形状（串话/伪造回跳），空 state 照常放行
+            if (cb.state != null && !cb.state.isEmpty() && authState != null
+                    && !cb.state.equals(authState)) {
+                android.util.Log.w("HgLoginPage", "抖音回跳 state 与发起值不符，判授权未完成");
+                onDouyinDenied();
+                return true;
+            }
             if (cb.hasCode()) onDouyinCode(cb.code);
             else onDouyinDenied();
             return true;
         }
         if (!url.startsWith("http://") && !url.startsWith("https://")) {
+            int sep = url.indexOf("://");
+            String scheme = sep > 0 ? url.substring(0, sep) : url;
+            android.util.Log.d("HgLoginPage", "抖音授权页外跳 scheme=" + scheme);
+            if (url.startsWith("intent://")) {
+                try {
+                    Intent intent = Intent.parseUri(url, Intent.URI_INTENT_SCHEME);
+                    if (intent != null && requireContext().getPackageManager()
+                            .resolveActivity(intent, 0) != null) {
+                        startActivity(intent);
+                        return true;
+                    }
+                    String fallback = intent == null ? null
+                            : intent.getStringExtra("browser_fallback_url");
+                    if (fallback != null && webView != null) webView.loadUrl(fallback);
+                } catch (Exception ignored) {
+                    // 解析不了/无人接：留在授权页内，不让 WebView 报裸错误
+                }
+                return true;
+            }
             try {
                 startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
             } catch (Exception ignored) {

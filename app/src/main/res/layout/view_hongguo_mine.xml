@@ -5,7 +5,7 @@
 <com.fongmi.android.tv.hongguo.ui.HgMineView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#FFFFFF"
+    android:background="@drawable/bg_hg_mine_page"
     android:orientation="vertical">
 
     <!-- 头部（官方真值）：未登录＝大标题「免费短剧 尽在红果」20sp 粗 #FF000000
@@ -82,7 +82,7 @@
                     android:id="@+id/hg_mine_avatar_badge"
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
-                    android:background="@drawable/bg_hg_avatar_circle"
+                    android:background="@drawable/bg_hg_mine_avatar"
                     android:gravity="center"
                     android:text="红"
                     android:textColor="#FFFFFF"
@@ -335,7 +335,7 @@
             android:layout_height="20dp"
             android:layout_marginEnd="16dp"
             android:contentDescription="@null"
-            android:src="@drawable/ic_hg_search" />
+            android:src="@drawable/ic_hg_mine_search" />
     </LinearLayout>
 
     <!-- 子筛行（官方书架壳 auf：二级页签条 42dp 高、右端筛选/编辑 14sp 粗）。
@@ -385,7 +385,7 @@
         android:layout_height="wrap_content"
         android:layout_gravity="center_horizontal"
         android:layout_marginTop="48dp"
-        android:textColor="#999999"
+        android:textColor="#66000000"
         android:textSize="14sp"
         android:visibility="gone" />
 
@@ -403,6 +403,7 @@
         android:id="@+id/hg_mine_edit_bar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:background="@drawable/bg_hg_mine_edit_bar"
         android:gravity="center_vertical"
         android:orientation="horizontal"
         android:paddingStart="16dp"
@@ -416,7 +417,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:textColor="#666666"
+            android:textColor="#66000000"
             android:textSize="13sp" />
 
         <TextView

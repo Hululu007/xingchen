@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 「我的」已登录头头像缺省字徽底：官方已登录头只有真头像图、无字徽
+     件，此件是无头像时的自家兜底——底色不再用旧自选深灰盘，改官方
+     品牌橙两色（skin_color_orange_brand_light #FFFA7705 →
+     fqhybrid 品牌橙 #FFFA6725）对角渐变，白字居中。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+    <gradient
+        android:angle="315"
+        android:endColor="#FFFA6725"
+        android:startColor="#FFFA7705"
+        android:type="linear" />
+</shape>

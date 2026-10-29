@@ -1,7 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 「我的」面立即登录钮：圆角 8dp（官方真值）。底色官方未抠到，
-     用星辰红果既有强调色 #FF5A3C（自选，待真机对——见 undecided-fix 账）。 -->
+<!-- 品牌钮底（官方 BrandTextButton fs9 定版：圆角 @dimen/ld＝8dp、白字
+     14sp 粗、padding 16/8；按钮本体是品牌渐变、停点由主题属性装配，
+     本轮未逐值抠到——先落官方品牌橙单色 skin_color_orange_brand_light
+     #FFFA7705，不再用旧自选珊瑚色 #FF5A3C）。仅「我的」面登录钮与
+     看剧偏好页保存钮在用。 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
     <corners android:radius="8dp" />
-    <solid android:color="#FF5A3C" />
+    <solid android:color="#FFFA7705" />
 </shape>

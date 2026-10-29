@@ -510,17 +510,20 @@ public final class HgMineView extends LinearLayout {
     }
 
     private TextView createChip(String text, boolean on, OnClickListener click) {
-        // 二级页签样式照 bb8.xml：14sp、左右 padding 14dp、上下 5dp、带底选择器
+        // 二级页签照 bb8.xml＋selector 定版：14sp、minWidth 56dp、高 32dp、
+        // padding 左右 14dp 上下 5dp、圆角 8dp；选中底 #1AFA7705／字
+        // #FFFA7705（品牌橙 10%／品牌橙）、未选底 #08000000／字 #66000000
+        // （灰03／灰40），底走 bg_hg_mine_chip_on/off drawable
         TextView chip = new TextView(getContext());
         chip.setText(text);
         chip.setTextSize(14);
-        chip.setTextColor(on ? 0xFFFF7A1A : 0xFF333333);
+        chip.setTextColor(on ? 0xFFFA7705 : 0x66000000);
         chip.setTypeface(null, on ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
-        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
-        bg.setCornerRadius(dp(10));
-        bg.setColor(on ? 0xFFFFF3E8 : 0xFFF5F5F5);
-        chip.setBackground(bg);
+        chip.setBackgroundResource(on ? R.drawable.bg_hg_mine_chip_on : R.drawable.bg_hg_mine_chip_off);
         chip.setPadding(dp(14), dp(5), dp(14), dp(5));
+        chip.setMinWidth(dp(56));
+        chip.setMinimumHeight(dp(32));
+        chip.setGravity(android.view.Gravity.CENTER);
         chip.setOnClickListener(click);
         return chip;
     }
@@ -573,7 +576,7 @@ public final class HgMineView extends LinearLayout {
     private void renderTab() {
         for (int i = 0; i < tabViews.length; i++) {
             boolean on = i == currentTab;
-            tabViews[i].setTextColor(on ? 0xFF111111 : 0xFF999999);
+            tabViews[i].setTextColor(on ? 0xFF000000 : 0x66000000);
             tabViews[i].setTypeface(null, on ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
         }
         renderChips();
@@ -1022,7 +1025,7 @@ public final class HgMineView extends LinearLayout {
             h.check.setVisibility(editing ? VISIBLE : GONE);
             if (editing) {
                 h.check.setImageResource(selected.contains(row.seriesId)
-                        ? R.drawable.ic_hg_check_on : R.drawable.bg_hg_check_off);
+                        ? R.drawable.bg_hg_mine_check_on : R.drawable.bg_hg_mine_check_off);
             }
             h.itemView.setOnClickListener(v -> {
                 if (editing) {

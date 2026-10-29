@@ -216,7 +216,12 @@ public class Updater implements UpdateTransfer.Callback, UpdateListener {
     private List<RuntimeModule> getInstalledModules() {
         RuntimeModule.refresh();
         // 迅雷已改回内置：即使用户机上还留着旧外置包，也不提示模块更新（宿主不再消费它）。
-        return Arrays.stream(RuntimeModule.values()).filter(RuntimeModule::isInstalled).filter(module -> module != RuntimeModule.THUNDER).toList();
+        // Node 同口径：旧桥已整套退场、Node 改走实验室（模块页 NODEJS 行只认
+        // NodeLabInfo 登记），残留的旧 com.fongmi.runtime.nodejs 插件同样不许再
+        // 被当已装模块弹更新。只在此处排除已足够：模块页的 NODEJS 状态走
+        // ModuleViewModel.nodeStatus()、不经本路与目录；枚举与包名／兼容 id
+        // 保留不动（模块页行、RuntimeReceiver、RuntimeInstaller 仍在引用）。
+        return Arrays.stream(RuntimeModule.values()).filter(RuntimeModule::isInstalled).filter(module -> module != RuntimeModule.THUNDER && module != RuntimeModule.NODEJS).toList();
     }
 
     private List<String> getModuleUpdates(List<RuntimeModule> installed, JSONObject catalog) throws IOException {

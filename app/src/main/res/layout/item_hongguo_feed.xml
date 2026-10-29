@@ -674,7 +674,9 @@
              封面 32×44 圆角 6dp＋标题 14sp 白粗＋副行（上线文案）＋右侧
              48dp 品牌钮；状态色对——未预约底 #FFFA7705 字白、已预约底
              #1AFFFFFF 字 #66FFFFFF。回包带 appointment 才亮，整卡点击
-             走预约开关。此前只有一行文字筹、是形态缺件） -->
+             走预约开关。此前只有一行文字筹、是形态缺件）
+             注：本卡只在发现流出；集流页的预约已随追更一起收进下方剧条
+             （hg_drama_bar 同槽药丸，见该件注释），集流绑定恒藏本卡 -->
         <LinearLayout
             android:id="@+id/hg_reserve"
             android:layout_width="match_parent"
@@ -734,72 +736,77 @@
                 android:textSize="12sp" />
         </LinearLayout>
 
-        <!-- 追更卡：与预约卡同位互斥（他 2026-10-29 点名补）——预约卡
-             只亮未上线剧，本卡只在集流页给已上线剧亮，同槽同版：封面
-             32×44 圆角 6dp＋标题 14sp 白粗＋副行（集数/完结真数据）＋
-             右侧 48dp 钮；两态色对与预约钮一致（未追更橘底白字、已
-             追更透明白底灰字）。整卡点击走 KIND_FOLLOW 管道。官方包
-             7.2.5.32 里该槽只有预约卡（can-reserve 门控）、已上线剧的
-             追剧官方收在右列星钮，本卡是按他的定案补的同位件（账
-             follow-button-20261029） -->
+    </LinearLayout>
+
+    <!-- 剧条（集流专款，官方单剧播放页实拍 113630 定版排布）：信息摞
+         之下、选集条之上的一整行——封面 32×44 圆角 6dp＋剧名 14sp
+         白粗＋副行 12sp（更新至N集／未上线剧的上线文案）＋右端品牌
+         药丸 48dp（追更与预约同槽互斥：已上线剧＝追更、未上线剧＝
+         预约；两态色对走 ks3、形状全圆药丸）。旧版把追更/预约做成
+         信息摞内 54dp 大卡：卡底与选集条只隔 2dp、进度线横穿卡面、
+         剧名与集数在摞内重复出现——底部全叠（他 113630 对照点名），
+         本批整卡废除、动作收进本条。只集流模式亮（正剧条目），发现
+         流恒藏（流页追剧走右列星钮、无药丸，官方核查账定版） -->
+    <LinearLayout
+        android:id="@+id/hg_drama_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="start|bottom"
+        android:layout_marginStart="12dp"
+        android:layout_marginEnd="84dp"
+        android:layout_marginBottom="52dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:visibility="gone">
+
+        <ImageView
+            android:id="@+id/hg_drama_cover"
+            android:layout_width="32dp"
+            android:layout_height="44dp"
+            android:background="@drawable/bg_hg_cover_r6"
+            android:clipToOutline="true"
+            android:contentDescription="@null" />
+
         <LinearLayout
-            android:id="@+id/hg_follow"
-            android:layout_width="match_parent"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:visibility="gone">
-
-            <ImageView
-                android:id="@+id/hg_follow_cover"
-                android:layout_width="32dp"
-                android:layout_height="44dp"
-                android:background="@drawable/bg_hg_cover_r6"
-                android:clipToOutline="true"
-                android:contentDescription="@null" />
-
-            <LinearLayout
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="10dp"
-                android:layout_weight="1"
-                android:orientation="vertical">
-
-                <TextView
-                    android:id="@+id/hg_follow_title"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:ellipsize="end"
-                    android:maxLines="1"
-                    android:textColor="#FFFFFF"
-                    android:textSize="14sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/hg_follow_sub"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="3dp"
-                    android:ellipsize="end"
-                    android:maxLines="1"
-                    android:textColor="#CCFFFFFF"
-                    android:textSize="12sp" />
-            </LinearLayout>
+            android:layout_marginStart="10dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
 
             <TextView
-                android:id="@+id/hg_follow_act"
-                android:layout_width="48dp"
+                android:id="@+id/hg_drama_title"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="10dp"
-                android:background="@drawable/bg_hg_reserve_btn"
-                android:gravity="center"
-                android:paddingTop="5dp"
-                android:paddingBottom="5dp"
-                android:text="追更"
+                android:ellipsize="end"
+                android:maxLines="1"
                 android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/hg_drama_sub"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="3dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="#CCFFFFFF"
                 android:textSize="12sp" />
         </LinearLayout>
+
+        <TextView
+            android:id="@+id/hg_drama_act"
+            android:layout_width="48dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="10dp"
+            android:background="@drawable/bg_hg_follow_pill"
+            android:gravity="center"
+            android:paddingTop="5dp"
+            android:paddingBottom="5dp"
+            android:text="追更"
+            android:textColor="#FFFFFF"
+            android:textSize="12sp" />
     </LinearLayout>
 
     <!-- 底部行：选集条＋全屏方钮。材料/几何按模式分工（适配器 bind 时切换，

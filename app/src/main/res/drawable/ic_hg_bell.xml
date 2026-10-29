@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 追更铃铛（官方选集弹窗药丸图标 e63 的同形自绘：轮廓铃＋底横杠＋铃舌；
+     白色作版、着色在使用处以 tint 给品牌橘） -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M12,3.2 C8.1,3.2 5,6.3 5,10.2 L5,15.2"
+        android:strokeWidth="1.9"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round" />
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M12,3.2 C15.9,3.2 19,6.3 19,10.2 L19,15.2"
+        android:strokeWidth="1.9"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round" />
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M3.4,17.4 L20.6,17.4"
+        android:strokeWidth="1.9"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round" />
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M10.2,20.8 L13.8,20.8"
+        android:strokeWidth="1.9"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round" />
+</vector>

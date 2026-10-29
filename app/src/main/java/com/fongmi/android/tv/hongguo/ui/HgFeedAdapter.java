@@ -375,6 +375,23 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         }
         bindInteractionState(holder, item);
         bindDanmakuState(holder);
+        // 「弹」筹纵位（仅集流竖屏）：官方锚在剧名行上方；咱家摞高随行数
+        // 变，写死 158dp 会在摞高时压住摞内行（旧病，本批收口一并挪）——
+        // 布局后按摞实高把筹底钉在摞顶之上 6dp；发现流保持布局原值不动
+        if (seriesMode && !landInstance) {
+            b.getRoot().post(() -> {
+                int infoH = b.hgInfo.getHeight();
+                if (infoH <= 0) return;
+                float density = b.getRoot().getResources().getDisplayMetrics().density;
+                FrameLayout.LayoutParams chipLp =
+                        (FrameLayout.LayoutParams) b.hgDanmakuBox.getLayoutParams();
+                int want = Math.round(110 * density) + infoH;
+                if (chipLp.bottomMargin != want) {
+                    chipLp.bottomMargin = want;
+                    b.hgDanmakuBox.setLayoutParams(chipLp);
+                }
+            });
+        }
         bindClicks(holder, position);
         if (cleanMode) applyCleanState(holder);
         if (position == currentPos) host.onHolderBound(holder, position);
@@ -410,6 +427,7 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         ItemHongguoFeedBinding b = holder.binding;
         b.hgRightRail.setVisibility(View.GONE);
         b.hgInfo.setVisibility(View.GONE);
+        b.hgDramaBar.setVisibility(View.GONE);
         b.hgSeriesBar.setVisibility(View.INVISIBLE);
         b.hgDanmakuBox.setVisibility(View.GONE);
         b.hgFullscreenWatch.setVisibility(View.GONE);
@@ -441,15 +459,17 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         setCount(b.hgCommentCount, cc != null ? cc : item.commentCount);
         setCount(b.hgFavCount, item.favCount);
         bindReserveState(holder, item);
-        bindFollowState(holder, item);
+        bindDramaBarState(holder, item);
     }
 
-    /** 预约卡：只在未上线剧（reservable）亮；官方 cu6 形态——封面＋标题＋
-     * 上线文案副行＋48dp 品牌钮，钮文案/状态色对照 ks3.i（预约＝橘底白字、
-     * 已预约＝透明白底灰字）。 */
+    /** 预约卡：只在发现流给未上线剧（reservable）亮；官方 cu6 形态——
+     * 封面＋标题＋上线文案副行＋48dp 品牌钮，钮文案/状态色对照 ks3.i
+     * （预约＝橘底白字、已预约＝透明白底灰字）。集流页不走本卡：预约
+     * 与追更已收进剧条同槽药丸（bindDramaBarState），摞内再摆大卡就是
+     * 他点名的底部叠压。 */
     public void bindReserveState(Holder holder, HgFeedItem item) {
         ItemHongguoFeedBinding b = holder.binding;
-        if (!item.reservable) {
+        if (seriesMode || !item.reservable) {
             b.hgReserve.setVisibility(View.GONE);
             return;
         }
@@ -465,41 +485,53 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         b.hgReserveBtn.setTextColor(reserved ? 0x66FFFFFF : 0xFFFFFFFF);
     }
 
-    /** 追更卡：与预约卡同位互斥——预约卡只亮未上线剧（reservable），
-     * 本卡只在集流页给已上线剧亮（他定案「追更在播放页信息摞」，发现
-     * 流不亮）；形态与预约卡同版（封面＋标题＋副行＋48dp 钮），两态
-     * 色对与预约钮一致（未追更橘底白字、已追更透明白底灰字），整卡
-     * 点击走 KIND_FOLLOW 管道（本地镜像 HgStore.followedIds＋服务端
-     * 追剧架同步、失败回滚在互动层）。官方包 7.2.5.32 该槽只有预约
-     * 卡、已上线剧的追剧收在右列星钮，本卡按他的定案补同位件（账
-     * follow-button-20261029）。 */
-    public void bindFollowState(Holder holder, HgFeedItem item) {
+    /**
+     * 剧条（集流专款，官方单剧播放页实拍 113630 定版排布）：信息摞之下、
+     * 选集条之上的一整行——小封面＋剧名＋副行＋右端品牌药丸。药丸同槽
+     * 互斥：未上线剧＝预约（副行＝上线文案）、已上线剧＝追更（副行＝
+     * 更新至N集）；显隐按他实看官方定证——正剧条目就显，不按更新中/
+     * 已完结过滤（官方包显隐链同向：挂专辑条目＋实验开关、无完结条件，
+     * 核查账 official-follow-where §4）。两态色对走 ks3（未＝橘底白字、
+     * 已＝透明白底灰字），药丸点击走既有 KIND_FOLLOW／预约管道（本地
+     * 镜像＋服务端同步、失败回滚在互动层）。发现流恒藏（流页追剧是
+     * 右列星钮本体、无药丸）；横屏实例恒藏（自有 chrome）。
+     * 旧版同位是摞内 54dp 追更/预约大卡，卡底距选集条只 2dp、进度线
+     * 横穿卡面、剧名集数重复——本批整卡废除（账 series-play-layout）。
+     */
+    public void bindDramaBarState(Holder holder, HgFeedItem item) {
         ItemHongguoFeedBinding b = holder.binding;
-        if (!seriesMode || item.reservable || item.seriesId == null || item.seriesId.isEmpty()) {
-            b.hgFollow.setVisibility(View.GONE);
+        if (!seriesMode || landInstance || item.seriesId == null || item.seriesId.isEmpty()
+                || item.isUgcClip()) {
+            b.hgDramaBar.setVisibility(View.GONE);
             return;
         }
-        boolean followed = session.interactions.isFollowing(item.seriesId);
-        b.hgFollow.setVisibility(View.VISIBLE);
-        ImgUtil.load(item.title == null ? "" : item.title, item.coverUrl, b.hgFollowCover, true);
-        b.hgFollowTitle.setText(item.title == null ? "" : item.title);
-        String sub = followSubText(item);
-        b.hgFollowSub.setText(sub);
-        b.hgFollowSub.setVisibility(sub.isEmpty() ? View.GONE : View.VISIBLE);
-        b.hgFollowAct.setText(followed ? "已追更" : "追更");
-        b.hgFollowAct.setBackgroundResource(followed
-                ? R.drawable.bg_hg_reserve_btn_on : R.drawable.bg_hg_reserve_btn);
-        b.hgFollowAct.setTextColor(followed ? 0x66FFFFFF : 0xFFFFFFFF);
+        b.hgDramaBar.setVisibility(View.VISIBLE);
+        ImgUtil.load(item.title == null ? "" : item.title, item.coverUrl, b.hgDramaCover, true);
+        b.hgDramaTitle.setText(item.title == null ? "" : item.title);
+        String sub;
+        boolean acted;
+        if (item.reservable) {
+            String due = item.dueStartText;
+            sub = due != null && !due.isEmpty() ? due : "即将上线";
+            acted = session.interactions.isReserved(item.seriesId);
+            b.hgDramaAct.setText(acted ? "已预约" : "预约");
+        } else {
+            sub = barSubText(item);
+            acted = session.interactions.isFollowing(item.seriesId);
+            b.hgDramaAct.setText(acted ? "已追更" : "追更");
+        }
+        b.hgDramaSub.setText(sub);
+        b.hgDramaSub.setVisibility(sub == null || sub.isEmpty() ? View.GONE : View.VISIBLE);
+        b.hgDramaAct.setBackgroundResource(acted
+                ? R.drawable.bg_hg_follow_pill_on : R.drawable.bg_hg_follow_pill);
+        b.hgDramaAct.setTextColor(acted ? 0x66FFFFFF : 0xFFFFFFFF);
     }
 
-    /** 追更卡副行：只用条目真数据（集数＋完结态，series_status＝1
-     * 为已完结、官方 SeriesStatus 定版），都没有就空行隐藏，不编。 */
-    private static String followSubText(HgFeedItem item) {
-        if (item.episodeCount > 0) {
-            boolean finished = item.seriesStatus != null && item.seriesStatus == 1;
-            return finished ? "已完结 · 全" + item.episodeCount + "集"
-                    : "更新至" + item.episodeCount + "集";
-        }
+    /** 剧条副行（追更态）：只用条目真数据——有集数一律「更新至N集」
+     * （官方 113630 定版样本：已完结 77 集剧同位文案仍是更新至77集，
+     * 完结态不在这行表达）；没集数退类目，都没有就空行隐藏，不编。 */
+    private static String barSubText(HgFeedItem item) {
+        if (item.episodeCount > 0) return "更新至" + item.episodeCount + "集";
         return item.category == null ? "" : item.category;
     }
 
@@ -531,6 +563,15 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
      */
     private void applyCatalogMode(ItemHongguoFeedBinding b) {
         float density = b.getRoot().getResources().getDisplayMetrics().density;
+        // 信息摞下沿：集流给剧条让位——剧条带 52..96、摞底抬到 104 留
+        // 8dp 气口；发现流无剧条，维持布局原值 50（只动 bottomMargin
+        // 字段，不走 setMargins，免踩下方 Start/End 残留的坑）
+        FrameLayout.LayoutParams infoLp = (FrameLayout.LayoutParams) b.hgInfo.getLayoutParams();
+        int infoBottom = seriesMode ? 104 : 50;
+        if (infoLp.bottomMargin != Math.round(infoBottom * density)) {
+            infoLp.bottomMargin = Math.round(infoBottom * density);
+            b.hgInfo.setLayoutParams(infoLp);
+        }
         FrameLayout.LayoutParams rowLp = (FrameLayout.LayoutParams) b.hgBottomRow.getLayoutParams();
         FrameLayout.LayoutParams progressLp = (FrameLayout.LayoutParams) b.hgProgressBox.getLayoutParams();
         LinearLayout.LayoutParams barLp = (LinearLayout.LayoutParams) b.hgSeriesBar.getLayoutParams();
@@ -742,7 +783,15 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         b.hgFeedTitleRow.setOnClickListener(v -> host.onSeriesDetail(holder.getBindingAdapterPosition()));
         b.hgGuideChip.setOnClickListener(v -> host.onStartFromFirst(holder.getBindingAdapterPosition()));
         b.hgReserve.setOnClickListener(v -> host.onAction(holder.getBindingAdapterPosition(), Action.RESERVE));
-        b.hgFollow.setOnClickListener(v -> host.onAction(holder.getBindingAdapterPosition(), Action.FOLLOW));
+        // 剧条：药丸按当前条目分发（未上线剧＝预约、已上线剧＝追更，
+        // 走 host 既有登录门＋KIND 管道）；条身（封面/剧名区）＝进详情，
+        // 与信息摞集流标题行同一去处
+        b.hgDramaAct.setOnClickListener(v -> {
+            int pos = holder.getBindingAdapterPosition();
+            if (pos < 0 || pos >= items.size()) return;
+            host.onAction(pos, items.get(pos).reservable ? Action.RESERVE : Action.FOLLOW);
+        });
+        b.hgDramaBar.setOnClickListener(v -> host.onSeriesDetail(holder.getBindingAdapterPosition()));
         b.hgSeriesBar.setOnClickListener(v -> host.onSeriesBar(holder.getBindingAdapterPosition()));
         b.hgDanmakuBox.setOnClickListener(v -> host.onDanmakuPublish(holder.getBindingAdapterPosition()));
         b.hgFullscreenWatch.setOnClickListener(v -> host.onFullscreenWatch(holder.getBindingAdapterPosition()));

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 剧条品牌药丸·未追更态（色对官方 ks3.i：底 #FFFA7705、字白；形状＝
+     全圆药丸，官方单剧播放页实拍 113630 定版——包内 ks3 钮为 6dp 圆角，
+     他机上现行版药丸两端全圆，形状从实拍、颜色从包） -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="100dp" />
+    <solid android:color="#FFFA7705" />
+</shape>

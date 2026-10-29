@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 红果选集单（官方 dig E1–E19 定版）：半屏底部层（单高＝屏高 50%、可拉升、
      顶部横把 36×4、无 × 关闭钮），单体白底圆角顶；头部＝封面 44×62 圆角 4
-     ＋剧名 16sp 粗体（maxWidth 170dp）＋跳详情箭头 8×16＋右端收藏钮 72×28，
+     ＋剧名 16sp 粗体（maxWidth 170dp）＋跳详情箭头 8×16＋右端同槽互斥钮
+     （收藏钮 72×28／追更药丸，二选一，见 hg_ep_follow 处注释），
      作者副行（作者名＋圆点＋sub_title_list[0]，12sp 灰，有才显）；简介 14sp
      折叠 2 行、展开文案「更多」；集格单个 RecyclerView 连续竖滚 6 列。
      官方头部没有「选集·已完结·全X集」文案行与完结标记（E10），不许再加。 -->
@@ -105,6 +106,45 @@
                     android:textColor="#66000000"
                     android:textSize="12sp" />
             </LinearLayout>
+        </LinearLayout>
+
+        <!-- 追更药丸：与右侧收藏钮同槽互斥（官方选集弹窗 aib/q7 定版：
+             同槽两件——品牌钮 dll 与追更药丸 dlw，dlw＝浅橘底 #1AFA7705
+             圆角 8dp＋铃铛图标 16dp 品牌橘＋字 12sp 品牌橘、内距左右 12
+             上下 6、minWidth 72dp）。咱家两套状态分开记账的映射：已上线
+             正剧亮药丸（走 KIND_FOLLOW 管道、两态 追更/已追更 同底换字）、
+             未上线剧仍亮收藏钮（预约在播放页剧条，两件不并排挤头部） -->
+        <LinearLayout
+            android:id="@+id/hg_ep_follow"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_vertical"
+            android:layout_marginStart="12dp"
+            android:background="@drawable/bg_hg_ep_follow_pill"
+            android:gravity="center_vertical"
+            android:minWidth="72dp"
+            android:orientation="horizontal"
+            android:paddingStart="12dp"
+            android:paddingTop="6dp"
+            android:paddingEnd="12dp"
+            android:paddingBottom="6dp"
+            android:visibility="gone">
+
+            <ImageView
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_hg_bell"
+                android:tint="#FFFA7705" />
+
+            <TextView
+                android:id="@+id/hg_ep_follow_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="2dp"
+                android:text="追更"
+                android:textColor="#FFFA7705"
+                android:textSize="12sp" />
         </LinearLayout>
 
         <TextView

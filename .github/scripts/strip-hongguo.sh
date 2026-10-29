@@ -131,6 +131,8 @@ app/src/main/res/drawable/bg_hg_follow_mini.xml
 app/src/main/res/drawable/bg_hg_guide_chip.xml
 app/src/main/res/drawable/bg_hg_reserve_btn.xml
 app/src/main/res/drawable/bg_hg_reserve_btn_on.xml
+app/src/main/res/drawable/bg_hg_follow_pill.xml
+app/src/main/res/drawable/bg_hg_follow_pill_on.xml
 app/src/main/res/drawable/bg_hg_top_scrim.xml
 app/src/main/res/drawable/bg_hg_tag_chip.xml
 app/src/main/res/drawable/bg_hg_dialog_dark.xml
@@ -139,6 +141,7 @@ app/src/main/res/drawable/bg_hg_episode_chip.xml
 app/src/main/res/drawable/bg_hg_ep_cell.xml
 app/src/main/res/drawable/bg_hg_ep_dot.xml
 app/src/main/res/drawable/bg_hg_ep_fav.xml
+app/src/main/res/drawable/bg_hg_ep_follow_pill.xml
 app/src/main/res/drawable/bg_hg_ep_fav_on.xml
 app/src/main/res/drawable/bg_hg_ep_grab.xml
 app/src/main/res/drawable/bg_hg_ep_sheet.xml
@@ -245,6 +248,7 @@ app/src/main/res/drawable/ic_hg_detail_heart_outline.xml
 app/src/main/res/drawable/ic_hg_detail_star_outline.xml
 app/src/main/res/drawable/ic_hg_follow_check.xml
 app/src/main/res/drawable/ic_hg_follow_plus.xml
+app/src/main/res/drawable/ic_hg_bell.xml
 app/src/main/res/drawable/ic_hg_login_chevron.xml
 app/src/main/res/drawable/ic_hg_login_close.xml
 app/src/main/res/drawable/ic_hg_login_phone.xml

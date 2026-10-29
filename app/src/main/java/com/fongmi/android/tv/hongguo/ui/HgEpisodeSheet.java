@@ -123,16 +123,32 @@ public final class HgEpisodeSheet {
         if (current.seriesId == null) {
             binding.hgEpDetailArrow.setVisibility(View.GONE);
             binding.hgEpFav.setVisibility(View.GONE);
+            binding.hgEpFollow.setVisibility(View.GONE);
         } else {
             binding.hgEpDetailArrow.setOnClickListener(v -> {
                 dialog.dismiss();
                 HongguoFeedActivity.startSeries(activity, current.seriesId, title, cover);
             });
-            bindFav(binding, session.interactions, current.seriesId);
-            binding.hgEpFav.setOnClickListener(v -> {
-                session.interactions.toggleFavorite(current.seriesId);
+            // 头部右槽同槽互斥（官方选集弹窗 aib/q7：品牌钮 dll 与追更
+            // 药丸 dlw 同槽）：咱家映射——已上线正剧亮追更药丸（走
+            // KIND_FOLLOW 管道，与播放页剧条药丸同一动作两态），未上线
+            // 剧维持收藏钮（预约在播放页剧条药丸里办，头部不并排两件）
+            if (current.reservable) {
+                binding.hgEpFollow.setVisibility(View.GONE);
+                binding.hgEpFav.setVisibility(View.VISIBLE);
                 bindFav(binding, session.interactions, current.seriesId);
-            });
+                binding.hgEpFav.setOnClickListener(v -> {
+                    session.interactions.toggleFavorite(current.seriesId);
+                    bindFav(binding, session.interactions, current.seriesId);
+                });
+            } else {
+                binding.hgEpFav.setVisibility(View.GONE);
+                bindFollowPill(binding, session.interactions, current.seriesId);
+                binding.hgEpFollow.setOnClickListener(v -> {
+                    session.interactions.toggleFollow(current.seriesId);
+                    bindFollowPill(binding, session.interactions, current.seriesId);
+                });
+            }
         }
 
         String author = detail != null && detail.getAuthorName() != null && !detail.getAuthorName().isEmpty()
@@ -150,6 +166,13 @@ public final class HgEpisodeSheet {
         binding.hgEpAuthorDot.setVisibility(hasAuthor && hasSub ? View.VISIBLE : View.GONE);
         binding.hgEpSub.setVisibility(hasSub ? View.VISIBLE : View.GONE);
         if (hasSub) binding.hgEpSub.setText(sub);
+    }
+
+    /** 追更药丸状态回显（官方 dlw 两态同底、只换字：追更/已追更）。 */
+    private static void bindFollowPill(DialogHongguoEpisodesBinding binding,
+                                       HgInteractions interactions, String seriesId) {
+        binding.hgEpFollow.setVisibility(View.VISIBLE);
+        binding.hgEpFollowText.setText(interactions.isFollowing(seriesId) ? "已追更" : "追更");
     }
 
     /** 收藏钮状态回显：已收藏＝灰底灰字（色板取官方已解值），未收藏＝橙底白字。 */

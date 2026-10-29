@@ -1295,6 +1295,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                 h.binding.hgRightRail.setVisibility(View.GONE);
                 h.binding.hgInfo.setVisibility(View.GONE);
                 h.binding.hgSeriesBar.setVisibility(View.GONE);
+                h.binding.hgDramaBar.setVisibility(View.GONE);
                 h.binding.hgDanmakuBox.setVisibility(View.GONE);
                 h.binding.hgFullscreenWatch.setVisibility(View.GONE);
             } else {
@@ -1310,6 +1311,13 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                 // 见 HgFeedAdapter.bindDanmakuState），不许在这里另立一份
                 if (hidden) h.binding.hgDanmakuBox.setVisibility(View.GONE);
                 else adapter.bindDanmakuState(h);
+                // 剧条（集流底行）：藏时一并收；重显走适配器绑定复判
+                // （显隐挂条目类型，发现流/UGC 不许在此无条件亮）
+                if (hidden) h.binding.hgDramaBar.setVisibility(View.GONE);
+                else if (mode == MODE_SERIES && currentPos >= 0
+                        && currentPos < session.items.size()) {
+                    adapter.bindDramaBarState(h, session.items.get(currentPos));
+                }
                 // 全屏观看钮非常驻件：隐藏时一并收；重显口径与适配器绑定一致
                 // （真实宽高判横屏或 cell 朝向预判，旧版重显只认真实宽高、与绑定
                 // 口径不一致，预判条目会把钮弄丢——审计实证）
@@ -1374,6 +1382,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         if (h != null) {
             h.binding.hgRightRail.setVisibility(View.GONE);
             h.binding.hgInfo.setVisibility(View.GONE);
+            h.binding.hgDramaBar.setVisibility(View.GONE);
             h.binding.hgSeriesBar.setVisibility(View.INVISIBLE);
             h.binding.hgDanmakuBox.setVisibility(View.GONE);
             h.binding.hgFullscreenWatch.setVisibility(View.GONE);

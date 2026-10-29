@@ -578,6 +578,7 @@ public class HongguoSeriesDetailActivity extends BaseActivity {
             @Override
             public void onSuccess(Void v) {
                 mainHandler.post(() -> {
+                    if (isFinishing()) return;
                     scoreBusy = false;
                     myScore = score;
                     pendingScore = 0;
@@ -591,6 +592,7 @@ public class HongguoSeriesDetailActivity extends BaseActivity {
             @Override
             public void onError(int code, String msg) {
                 mainHandler.post(() -> {
+                    if (isFinishing()) return;
                     scoreBusy = false;
                     paintScoreAction();
                     if (code == HgCommentClient.CODE_NOT_LOGIN) {
@@ -648,13 +650,17 @@ public class HongguoSeriesDetailActivity extends BaseActivity {
         HgFeedSession.get().fqClient.dislikeSeries(seriesId, vid, new HgCallback<Void>() {
             @Override
             public void onSuccess(Void v) {
-                mainHandler.post(() -> Toast.makeText(HongguoSeriesDetailActivity.this,
-                        "感谢反馈", Toast.LENGTH_SHORT).show());
+                mainHandler.post(() -> {
+                    if (isFinishing()) return;
+                    Toast.makeText(HongguoSeriesDetailActivity.this,
+                            "感谢反馈", Toast.LENGTH_SHORT).show();
+                });
             }
 
             @Override
             public void onError(int code, String msg) {
                 mainHandler.post(() -> {
+                    if (isFinishing()) return;
                     if (code == HgCommentClient.CODE_NOT_LOGIN) {
                         promptLogin();
                         return;
@@ -761,6 +767,7 @@ public class HongguoSeriesDetailActivity extends BaseActivity {
             @Override
             public void onError(int code, String msg) {
                 mainHandler.post(() -> {
+                    if (isFinishing()) return;
                     favBusy = false;
                     fav = !target;
                     paintFav();

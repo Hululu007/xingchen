@@ -13,7 +13,6 @@ import com.github.catvod.Proxy;
 import com.github.catvod.crawler.Spider;
 import com.github.catvod.crawler.SpiderDebug;
 import com.github.catvod.crawler.SpiderNull;
-import com.github.catvod.utils.RuntimeModule;
 import com.github.catvod.utils.Util;
 
 import org.json.JSONObject;
@@ -27,14 +26,12 @@ import dalvik.system.DexClassLoader;
 public class BaseLoader {
 
     private final JarLoader jarLoader;
-    private final NodeLoader nodeLoader;
     private final PyLoader pyLoader;
     private final JsLoader jsLoader;
     private final java.util.concurrent.ConcurrentHashMap<String, Spider> catSpiders;
 
     private BaseLoader() {
         jarLoader = new JarLoader();
-        nodeLoader = new NodeLoader();
         pyLoader = new PyLoader();
         jsLoader = new JsLoader();
         catSpiders = new java.util.concurrent.ConcurrentHashMap<>();
@@ -60,10 +57,6 @@ public class BaseLoader {
         return api.startsWith("csp_");
     }
 
-    private static boolean isNode(String api) {
-        return api.startsWith("node:");
-    }
-
     public void clear() {
         clear("unspecified");
     }
@@ -71,7 +64,6 @@ public class BaseLoader {
     /** 全清（配蜘蛛失效口径）：原因透传给 PyLoader 记日志，真机重建频率靠它看。\n     * 详情空计数同步清（换配置／恢复备份都走这里，旧一笔不算进“连续”）。 */
     public void clear(String reason) {
         Task.execute(() -> {
-            nodeLoader.clear();
             jarLoader.clear();
             pyLoader.clear(reason);
             jsLoader.clear();
@@ -138,10 +130,7 @@ public class BaseLoader {
     public Spider getSpider(String key, String api, String ext, String jar) {
         // 猫源站点 type 也是 3，但 api 指向本机 bundle 的 HTTP 路由，得走协议适配而非本地引擎
         if (CatSpider.matches(api)) return catSpiders.computeIfAbsent(key, k -> new CatSpider(api));
-        if (isNode(api)) {
-            RuntimeModule.NODEJS.require();
-            return nodeLoader.getSpider(key, api, ext);
-        } else if (isPy(api)) return pyLoader.getSpider(key, api, ext);
+        if (isPy(api)) return pyLoader.getSpider(key, api, ext);
         else if (isJs(api)) return jsLoader.getSpider(key, api, ext, jar);
         else if (isCsp(api)) return jarLoader.getSpider(key, api, ext, jar);
         else return new SpiderNull();
@@ -155,12 +144,7 @@ public class BaseLoader {
      */
     public Spider getSpiderQuiet(String key, String api, String ext, String jar) {
         if (CatSpider.matches(api)) return catSpiders.computeIfAbsent(key, k -> new CatSpider(api));
-        // node 不走静默口径：未装信号是 MissingException，必须上抛如实暴露
-        // （桥设计风险 5），吞成 SpiderNull 就是假装可用，故与 getSpider 同路。
-        if (isNode(api)) {
-            RuntimeModule.NODEJS.require();
-            return nodeLoader.getSpider(key, api, ext);
-        } else if (isPy(api)) return pyLoader.getSpiderQuiet(key, api, ext);
+        if (isPy(api)) return pyLoader.getSpiderQuiet(key, api, ext);
         else if (isJs(api)) return jsLoader.getSpider(key, api, ext, jar);
         else if (isCsp(api)) return jarLoader.getSpider(key, api, ext, jar);
         else return new SpiderNull();
@@ -175,7 +159,6 @@ public class BaseLoader {
     }
 
     public void setRecent(String key, String api, String jar) {
-        if (isNode(api)) return;
         if (isJs(api)) jsLoader.setRecent(key);
         else if (isPy(api)) pyLoader.setRecent(key);
         else if (isCsp(api)) jarLoader.setRecent(Util.md5(jar));
@@ -254,11 +237,9 @@ public class BaseLoader {
     // 上游原文口径（上游 BaseLoader.requireProxy :157、getProxyUri :166）：起播前
     // 对取到的地址做一次代理归属拉起——是 proxy:// 或本地 /proxy? 地址时，按
     // siteKey/do 找到对应运行时；非代理地址直接返回，不做任何事。
-    // fork 适配两处：① 上游 requireRuntime 调 RuntimeModule.{PYTHON,QUICKJS,NODEJS}
+    // fork 适配两处：① 上游 requireRuntime 调 RuntimeModule.{PYTHON,QUICKJS}
     // .require()（外置包形态）；本树 py/js 运行时已内置（本类构造时即建 pyLoader/
-    // jsLoader），故这两支是查表确认、不实例化蜘蛛、不抛外置包缺失错；node 随
-    // 桥内置后同走 require()，但其判据已在 RuntimeModule 内置分支改判实验室
-    // 在场（第 1 步），未装仍抛同一个 MissingException 如实暴露；② 上游无空串
+    // jsLoader），故这两支是查表确认、不实例化蜘蛛、不抛外置包缺失错；② 上游无空串
     // 保护，本树 fetch 路可递 null（sanitizer 对 null 原样返回），故 null 直接返回。
     // 本方法只做归属确认，不实例化蜘蛛，避免在播放线程上拉起蜘蛛。
     public void requireProxy(String url) {
@@ -285,10 +266,6 @@ public class BaseLoader {
 
     private void requireRuntime(String api) {
         if (api == null) return;
-        if (isNode(api)) {
-            RuntimeModule.NODEJS.require();
-            return;
-        }
         if (isPy(api) || isJs(api)) return;
     }
 

@@ -1,7 +1,7 @@
 package com.fongmi.android.tv.ui.lab;
 
 import com.fongmi.android.tv.App;
-import com.fongmi.android.tv.api.node.NodeLabInfo;
+import com.fongmi.android.tv.utils.NodeLabInfo;
 
 /**
  * NodeLabInfo 的实验室实现：类加载即自登记（靠 NodeLabInfo 按类名触发，

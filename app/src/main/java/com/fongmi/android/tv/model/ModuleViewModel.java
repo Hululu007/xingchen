@@ -4,9 +4,9 @@ package com.fongmi.android.tv.model;
 // catvod 没有 PythonRuntime/QuickJsRuntime，本树没有 player.mpv.MpvUtil，
 // 故删去这四个导入；PYTHON/QUICKJS 检测改走 RuntimePlugin 通用入口，
 // BDJ 检测如实抛未接入，MPV 改内联上游 loadRuntime() 本体，BDJ 重启标记走通用口径。
-// NODEJS 已随 Node 桥接线（api/node 三件＋NodeLabInfo 登记口）：检测走
-// NodeRuntime.client().check()（与上游 :236 一致），版本显示取实验室登记，
-// 安装动作跳实验室环境页，不再走插件 APK 的下载/安装链。
+// NODEJS 检测走 NodeLabInfo 登记口：实验室 nodejs 在场即通过、不在即
+// 未装失败，版本显示取实验室登记，安装动作跳实验室环境页，不再走插件
+// APK 的下载/安装链。
 import android.app.Application;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -28,9 +28,8 @@ import androidx.media3.exoplayer.offline.Downloader;
 
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.R;
-import com.fongmi.android.tv.api.node.NodeLabInfo;
-import com.fongmi.android.tv.api.node.NodeRuntime;
 import com.fongmi.android.tv.utils.ApkCache;
+import com.fongmi.android.tv.utils.NodeLabInfo;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.ResUtil;
 import com.fongmi.android.tv.utils.RuntimeInstaller;
@@ -238,17 +237,13 @@ public final class ModuleViewModel extends AndroidViewModel {
         return version;
     }
 
-    // 与上游 checkNodeRuntime 一致：检测走桥的 Client 健康检查（探针包真起
-    // 一次进程验 {42,pid,version}），取消信号转线程中断让阻塞的等待能退。
+    // 旧桥退场后口径：检测只认实验室登记——在场即无异常返回（调用方记
+    // PASSED），不在场抛未装失败（调用方按异常转 FAILED 并带此文案），
+    // 不许把没装吞成可用。登记查询不阻塞，无需旧桥的取消转中断接线；
+    // 取消仍由 runRuntimeCheck 前后的 throwIfCanceled 兜住。
     private void checkNodeRuntime(CancellationSignal signal) throws Exception {
-        Thread worker = Thread.currentThread();
-        signal.setOnCancelListener(worker::interrupt);
-        try {
-            signal.throwIfCanceled();
-            NodeRuntime.get().client().check();
-        } finally {
-            signal.setOnCancelListener(null);
-        }
+        signal.throwIfCanceled();
+        if (!NodeLabInfo.installed()) throw new IllegalStateException("Node 环境未安装");
     }
 
     // 树适配：上游 MpvUtil.loadRuntime() 本体原文内联（本树无该类）。

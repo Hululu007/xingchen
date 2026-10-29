@@ -99,7 +99,7 @@ public class HongguoSeriesDetailActivity extends BaseActivity {
     private int pendingScore;
     private int thresholdSec = -1;
     private boolean scoreBusy;
-    private final TextView[] starViews = new TextView[5];
+    private final ImageView[] starViews = new ImageView[5];
 
     @Override
     protected ViewBinding getBinding() {
@@ -127,7 +127,7 @@ public class HongguoSeriesDetailActivity extends BaseActivity {
             loadBlurredBg(cover);
         }
         HgStore.Progress p = HgStore.progressOf(seriesId);
-        binding.hgSdPlay.setText(p != null && p.episodeIndex > 0 ? "▶ 继续播放" : "▶ 开始播放");
+        binding.hgSdPlayText.setText(p != null && p.episodeIndex > 0 ? "继续播放" : "开始播放");
         binding.hgSdPlay.setOnClickListener(v ->
                 HongguoFeedActivity.startSeries(this, seriesId,
                         binding.hgSdTitle.getText().toString(),
@@ -153,12 +153,14 @@ public class HongguoSeriesDetailActivity extends BaseActivity {
             descExpanded = !descExpanded;
             paintDesc();
         });
-        // 评分卡五星逐颗建（点按分颗接）：整星，点第 i 颗＝(i+1)×2 十分制
+        // 评分卡五星逐颗建（点按分颗接）：整星，点第 i 颗＝(i+1)×2 十分制；
+        // 星面走矢量图（ic_hg_star 着色），不用 ★ 字形（字形图标清零口径）
         for (int i = 0; i < starViews.length; i++) {
-            TextView star = new TextView(this);
-            star.setText("★");
-            star.setTextSize(23);
-            star.setPadding(dp(2), 0, dp(2), 0);
+            ImageView star = new ImageView(this);
+            star.setImageResource(com.fongmi.android.tv.R.drawable.ic_hg_star);
+            star.setPadding(dp(2), dp(2), dp(2), dp(2));
+            android.widget.LinearLayout.LayoutParams slp = new android.widget.LinearLayout.LayoutParams(dp(27), dp(27));
+            star.setLayoutParams(slp);
             final int idx = i;
             star.setOnClickListener(v -> {
                 if (scoreBusy) return;
@@ -529,7 +531,7 @@ public class HongguoSeriesDetailActivity extends BaseActivity {
         int filled = Math.round(shown / 2f);
         for (int i = 0; i < starViews.length; i++) {
             if (starViews[i] == null) continue;
-            starViews[i].setTextColor(i < filled ? 0xFFFFC53D : 0x59FFFFFF);
+            starViews[i].setColorFilter(i < filled ? 0xFFFFC53D : 0x59FFFFFF);
         }
     }
 
@@ -689,10 +691,11 @@ public class HongguoSeriesDetailActivity extends BaseActivity {
                 b.hgSrAvatar.setVisibility(View.GONE);
             }
             b.hgSrAuthor.setText(c.author == null || c.author.isEmpty() ? "红果用户" : c.author);
-            b.hgSrStars.setTextColor(0xFFFFC53D);
-            b.hgSrStars.setText(starsText(c.score));
+            paintReviewStars(b.hgSrStars, c.score);
             b.hgSrContent.setText(c.content);
-            b.hgSrDigg.setText(c.likes > 0 ? "♡ " + HgFormat.countLine(c.likes) : "");
+            boolean hasDigg = c.likes > 0;
+            b.hgSrDiggIcon.setVisibility(hasDigg ? View.VISIBLE : View.GONE);
+            b.hgSrDigg.setText(hasDigg ? HgFormat.countLine(c.likes) : "");
             if (c.userId != null && !c.userId.isEmpty()) {
                 View.OnClickListener go = v -> HongguoAuthorActivity.start(
                         HongguoSeriesDetailActivity.this, c.userId, c.author, c.avatar, null);
@@ -706,13 +709,18 @@ public class HongguoSeriesDetailActivity extends BaseActivity {
             return items.size();
         }
 
-        private String starsText(int scoreTen) {
+        /** 剧评星级：五颗矢量星（11dp），亮颗金、灭颗白 35%，代原 ★☆ 字形串。 */
+        private void paintReviewStars(android.widget.LinearLayout box, int scoreTen) {
+            box.removeAllViews();
             int filled = Math.round(scoreTen / 2f);
             if (filled < 0) filled = 0;
             if (filled > 5) filled = 5;
-            StringBuilder sb = new StringBuilder();
-            for (int i = 0; i < 5; i++) sb.append(i < filled ? "★" : "☆");
-            return sb.toString();
+            for (int i = 0; i < 5; i++) {
+                ImageView s = new ImageView(box.getContext());
+                s.setImageResource(com.fongmi.android.tv.R.drawable.ic_hg_star);
+                s.setColorFilter(i < filled ? 0xFFFFC53D : 0x59FFFFFF);
+                box.addView(s, new android.widget.LinearLayout.LayoutParams(dp(11), dp(11)));
+            }
         }
 
         private final class Holder extends RecyclerView.ViewHolder {
@@ -728,8 +736,9 @@ public class HongguoSeriesDetailActivity extends BaseActivity {
     // ---------- 收藏 ----------
 
     private void paintFav() {
-        binding.hgSdFavStar.setText(fav ? "★" : "☆");
-        binding.hgSdFavStar.setTextColor(fav ? 0xFFFFC53D : 0xFFFFFFFF);
+        binding.hgSdFavStar.setImageResource(fav
+                ? com.fongmi.android.tv.R.drawable.ic_hg_star_fill
+                : com.fongmi.android.tv.R.drawable.ic_hg_detail_star_outline);
     }
 
     private void toggleFav() {

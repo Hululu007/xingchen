@@ -3,7 +3,7 @@
      （服务端 series_color_hex 定色＋虚化封面垫底）、封面小图＋剧名＋副标题段
      （series_sub_title_list：全X集·红果热度值）、简介（标签筹＋可展开）、
      剧集（分段页签＋集格、当前集金底）、剧评（评分卡＋剧评卡横滑）、
-     底栏☆收藏＋继续播放、顶右分享/更多。不放页面自带返回箭头（走系统返回）。 -->
+     底栏收藏＋继续播放、顶右分享/更多。不放页面自带返回箭头（走系统返回）。 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -375,13 +375,12 @@
             android:gravity="center"
             android:orientation="horizontal">
 
-            <TextView
+            <ImageView
                 android:id="@+id/hg_sd_fav_star"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="☆"
-                android:textColor="#FFFFFFFF"
-                android:textSize="22sp" />
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_hg_detail_star_outline" />
 
             <TextView
                 android:layout_width="wrap_content"
@@ -393,15 +392,29 @@
                 android:textStyle="bold" />
         </LinearLayout>
 
-        <TextView
+        <LinearLayout
             android:id="@+id/hg_sd_play"
             android:layout_width="190dp"
             android:layout_height="40dp"
             android:background="@drawable/bg_hg_detail_play"
             android:gravity="center"
-            android:text="▶ 继续播放"
-            android:textColor="#FFFFFFFF"
-            android:textSize="16sp"
-            android:textStyle="bold" />
+            android:orientation="horizontal">
+
+            <ImageView
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_hg_play" />
+
+            <TextView
+                android:id="@+id/hg_sd_play_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:text="继续播放"
+                android:textColor="#FFFFFFFF"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+        </LinearLayout>
     </LinearLayout>
 </FrameLayout>

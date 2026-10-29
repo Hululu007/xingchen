@@ -216,7 +216,8 @@
     </FrameLayout>
 
     <!-- 页签条（官方 qb3/f：标题 16sp 选中粗体；右端搜索图标 20dp）。
-         紧贴颜色框下沿之下（上接头部框、无额外留距），整行坐页底白面。
+         2026-10-30 他真机点名：字贴到颜色框上了——整行往下挪 10dp，
+         与框下沿留空，不再紧贴（本条按他当面令，不走官方抠值）。
          页签＝历史/收藏/点赞/预约/追更（短剧范围；追更原埋收藏子筛，他
          2026-10-29 亲点升一级页签，位置同日晚订正拍死在预约之后排最末
          （首落误记预约前一位已改）；国内版预约就是页内页签形态、与功能
@@ -225,6 +226,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginStart="8dp"
+        android:layout_marginTop="10dp"
         android:gravity="center_vertical"
         android:orientation="horizontal">
 

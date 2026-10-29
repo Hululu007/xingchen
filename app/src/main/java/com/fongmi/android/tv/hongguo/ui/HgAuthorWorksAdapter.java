@@ -41,15 +41,38 @@ public class HgAuthorWorksAdapter extends RecyclerView.Adapter<RecyclerView.View
 
     public void setItems(List<HgAuthorWork> list) {
         items.clear();
-        if (list != null) items.addAll(list);
+        if (list != null) {
+            java.util.HashSet<String> seen = new java.util.HashSet<>();
+            for (HgAuthorWork w : list) if (w != null && keep(seen, w)) items.add(w);
+        }
         notifyDataSetChanged();
     }
 
     public void addItems(List<HgAuthorWork> list) {
         if (list == null || list.isEmpty()) return;
+        java.util.HashSet<String> seen = new java.util.HashSet<>();
+        for (HgAuthorWork w : items) if (w != null && w.id != null && !w.id.isEmpty()) {
+            seen.add(w.kind + ":" + w.id);
+        }
         int at = items.size();
-        items.addAll(list);
-        notifyItemRangeInserted(at, list.size());
+        int added = 0;
+        for (HgAuthorWork w : list) {
+            if (w != null && keep(seen, w)) {
+                items.add(w);
+                added++;
+            }
+        }
+        if (added > 0) notifyItemRangeInserted(at, added);
+    }
+
+    /**
+     * 同签内去重（2026-10-29 去重专项）：同一条内容（kind＋id）只留首现，
+     * 防服务端分页重叠时同一 post 在同页签摆两遍。id 为空的条目不参与
+     * 去重（无从判同）；同剧多帖是不同 id、照常全摆，不在此列。
+     */
+    private static boolean keep(java.util.HashSet<String> seen, HgAuthorWork w) {
+        if (w.id == null || w.id.isEmpty()) return true;
+        return seen.add(w.kind + ":" + w.id);
     }
 
     public int size() {

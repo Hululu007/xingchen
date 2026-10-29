@@ -49,6 +49,10 @@ public final class HgUserProfile {
     public final String titleBadge;
     /** 头衔徽标图标地址（title_info.icon 的 icon_default_url）；无为 null。 */
     public final String titleBadgeIcon;
+    /** 头衔徽标图标宽（icon_width，dp，服务端定版 35；缺失为 0）。 */
+    public final int titleBadgeIconW;
+    /** 头衔徽标图标高（icon_height，dp，服务端定版 16；缺失为 0）。 */
+    public final int titleBadgeIconH;
     /** 页头底色（data.bg_color，如 #707070）；无为 null。 */
     public final String bgColor;
     /** 页头背景图（data.bg_covers 首张，柔光色场垫图）；无为 null。 */
@@ -83,6 +87,21 @@ public final class HgUserProfile {
                          String bgColor, String bgCover,
                          boolean shelfOpen, boolean diggOpen,
                          boolean blueVip, String vipIconUrl) {
+        this(userId, name, avatar, desc, followUserNum, fansNum, recvDiggedCount,
+                relationType, followedByMe, subTitleLine, hongguoId,
+                titleBadge, titleBadgeIcon, 0, 0,
+                bgColor, bgCover, shelfOpen, diggOpen, blueVip, vipIconUrl);
+    }
+
+    public HgUserProfile(String userId, String name, String avatar, String desc,
+                         int followUserNum, int fansNum, int recvDiggedCount,
+                         String relationType, Boolean followedByMe,
+                         String subTitleLine, String hongguoId,
+                         String titleBadge, String titleBadgeIcon,
+                         int titleBadgeIconW, int titleBadgeIconH,
+                         String bgColor, String bgCover,
+                         boolean shelfOpen, boolean diggOpen,
+                         boolean blueVip, String vipIconUrl) {
         this.userId = userId;
         this.name = name;
         this.avatar = avatar;
@@ -96,6 +115,8 @@ public final class HgUserProfile {
         this.hongguoId = hongguoId;
         this.titleBadge = titleBadge;
         this.titleBadgeIcon = titleBadgeIcon;
+        this.titleBadgeIconW = titleBadgeIconW;
+        this.titleBadgeIconH = titleBadgeIconH;
         this.bgColor = bgColor;
         this.bgCover = bgCover;
         this.shelfOpen = shelfOpen;

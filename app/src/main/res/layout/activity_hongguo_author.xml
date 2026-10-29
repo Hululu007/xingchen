@@ -1,15 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 红果·作者主页（官方 SeriesGuestProfile 构成，2026-10-29 质感返工）：
-     页头照官方 ax8/csp 定版——390dp 头图（en9：服务端 bg_covers 全幅垫底、
-     下沿渐隐入白，bg_color 作图下衬色）＋44dp 置顶 chip 行（ax8 的 c2c：
-     22dp 圆头像＋16sp 粗名）＋头像姓名列（csp：58dp 头像、名 20sp 粗、
-     名下副标题行 12sp #66000000、段间竖线、红果号段尾复制图标
-     skin_icon_copy_light）＋头衔徽标＋简介（iyq：12sp 灰70、行距 +4dp、
-     marginTop 16dp）＋数据行（ct0：数 14sp 粗、标签 12sp 灰70、组距
-     24dp）＋关注钮（csp 的 fox：66dp、白底圆角 8dp、14sp 粗橘字
-     #FA7705、左侧加号图标）；页签以下为白色圆顶层（实拍 113562）。
+<!-- 红果·作者主页（官方 SeriesGuestProfile 构成，照官方包 ax8/csp 定版）：
+     390dp 头图（en9：服务端 bg_covers 全幅垫底、下沿渐隐入白，bg_color
+     作图下衬色）＋折叠头（ax8：AppBarLayout/CollapsingToolbarLayout，
+     minHeight＝状态栏＋44dp）——大头区（csp：58dp 头像、名 20sp 粗、名旁
+     头衔徽标、副标题行 12sp #66000000＋红果号＋复制图标、简介、数据行
+     ＋关注钮 fox 66dp 白底圆角 8dp 橘字 #FA7705＋bd_ 加号）随列表上滑
+     折叠收起；钉住行（ax8 的 fc5，collapseMode=pin）里的小栏组 c2c
+     （22dp 圆头像＋16sp 粗名＋小关注钮 jvg）初始 alpha=0、随折叠进度
+     淡入。2026-10-29 更正：此前把小栏与大头区静止同显（咱家截图
+     113602 的样子）是咱家毛病——官方两层是折叠驱动、静止只显大头区，
+     他点名「顶上头像跟名字有两个」定根于此，已按 ax8 结构重做。
      不放页面自带返回箭头（走系统返回，与官方的偏差是潇洒哥站规矩）。 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#FFFFFF">
@@ -35,269 +38,334 @@
             android:background="@drawable/bg_hg_author_bg_fade" />
     </FrameLayout>
 
-    <LinearLayout
+    <androidx.coordinatorlayout.widget.CoordinatorLayout
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:orientation="vertical">
+        android:layout_height="match_parent">
 
-        <!-- 页头（内容压在头图上） -->
-        <FrameLayout
-            android:id="@+id/hg_author_header"
+        <com.google.android.material.appbar.AppBarLayout
+            android:id="@+id/hg_author_appbar"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content">
+            android:layout_height="wrap_content"
+            android:background="@android:color/transparent"
+            android:elevation="0dp"
+            app:elevation="0dp">
 
-            <LinearLayout
+               <com.google.android.material.appbar.CollapsingToolbarLayout
+                android:id="@+id/hg_author_collapsing"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:paddingStart="16dp"
-                android:paddingEnd="16dp"
-                android:paddingBottom="4dp">
+                app:contentScrim="@null"
+                app:layout_scrollFlags="scroll|exitUntilCollapsed"
+                app:statusBarScrim="@null"
+                app:titleEnabled="false">
 
-                <!-- 置顶 chip 行（ax8 的 c2c：44dp 行高、22dp 圆头像＋16sp 粗名） -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="44dp"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal">
-
-                    <ImageView
-                        android:id="@+id/hg_author_chip_avatar"
-                        android:layout_width="22dp"
-                        android:layout_height="22dp"
-                        android:contentDescription="@null" />
-
-                    <TextView
-                        android:id="@+id/hg_author_chip_name"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="8dp"
-                        android:textColor="#FF1D2129"
-                        android:textSize="16sp"
-                        android:textStyle="bold" />
-                </LinearLayout>
-
-                <!-- 头像姓名列（csp：58dp 头像 marginTop 10dp；名 20sp 粗、
-                     marginStart 16dp；副标题行在名下） -->
-                <LinearLayout
+                <!-- 大头区（csp 本体；顶距＝钉住行高，由代码按状态栏
+                     实际高度＋44dp 设置，XML 占位 44dp） -->
+                <FrameLayout
+                    android:id="@+id/hg_author_header"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:orientation="horizontal">
-
-                    <FrameLayout
-                        android:layout_width="58dp"
-                        android:layout_height="58dp">
-
-                        <ImageView
-                            android:id="@+id/hg_author_avatar"
-                            android:layout_width="match_parent"
-                            android:layout_height="match_parent"
-                            android:contentDescription="@null" />
-
-                        <!-- V 标（user_tag.is_blue_vip 为真且 vip_icon_url 有址
-                             才显，图为服务端 48×48 圆 V 图直用；实拍 113562
-                             头像右下角同位） -->
-                        <ImageView
-                            android:id="@+id/hg_author_vip_badge"
-                            android:layout_width="18dp"
-                            android:layout_height="18dp"
-                            android:layout_gravity="bottom|end"
-                            android:contentDescription="@null"
-                            android:visibility="gone" />
-                    </FrameLayout>
+                    android:layout_marginTop="44dp">
 
                     <LinearLayout
-                        android:layout_width="0dp"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginStart="16dp"
-                        android:layout_weight="1"
-                        android:orientation="vertical">
+                        android:orientation="vertical"
+                        android:paddingStart="16dp"
+                        android:paddingEnd="16dp"
+                        android:paddingBottom="4dp">
 
+                        <!-- 头像姓名列（csp：58dp 头像 marginTop 10dp；
+                             名 20sp 粗、marginStart 16dp；副标题行在名下） -->
                         <LinearLayout
-                            android:layout_width="wrap_content"
+                            android:layout_width="match_parent"
                             android:layout_height="wrap_content"
+                            android:layout_marginTop="10dp"
+                            android:orientation="horizontal">
+
+                            <FrameLayout
+                                android:layout_width="58dp"
+                                android:layout_height="58dp">
+
+                                <ImageView
+                                    android:id="@+id/hg_author_avatar"
+                                    android:layout_width="match_parent"
+                                    android:layout_height="match_parent"
+                                    android:contentDescription="@null" />
+
+                                <!-- V 标（user_tag.is_blue_vip 为真且
+                                     vip_icon_url 有址才显，图为服务端 48×48
+                                     圆 V 图直用） -->
+                                <ImageView
+                                    android:id="@+id/hg_author_vip_badge"
+                                    android:layout_width="18dp"
+                                    android:layout_height="18dp"
+                                    android:layout_gravity="bottom|end"
+                                    android:contentDescription="@null"
+                                    android:visibility="gone" />
+                            </FrameLayout>
+
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="16dp"
+                                android:layout_weight="1"
+                                android:orientation="vertical">
+
+                                <LinearLayout
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:gravity="center_vertical"
+                                    android:orientation="horizontal">
+
+                                    <!-- 名字占余宽、过长省略：名旁徽标恒
+                                         完整显示，不许被长名字挤出
+                                         （2026-10-29 他点名「已入驻都
+                                         显示不全」修复之一）。 -->
+                                    <TextView
+                                        android:id="@+id/hg_author_name"
+                                        android:layout_width="0dp"
+                                        android:layout_height="wrap_content"
+                                        android:layout_weight="1"
+                                        android:ellipsize="end"
+                                        android:maxLines="1"
+                                        android:textColor="#FF1D2129"
+                                        android:textSize="20sp"
+                                        android:textStyle="bold" />
+
+                                    <ImageView
+                                        android:id="@+id/hg_author_badge_icon"
+                                        android:layout_width="wrap_content"
+                                        android:layout_height="16dp"
+                                        android:layout_marginStart="6dp"
+                                        android:adjustViewBounds="true"
+                                        android:contentDescription="@null"
+                                        android:visibility="gone" />
+
+                                    <TextView
+                                        android:id="@+id/hg_author_badge"
+                                        android:layout_width="wrap_content"
+                                        android:layout_height="wrap_content"
+                                        android:layout_marginStart="6dp"
+                                        android:background="@drawable/bg_hg_title_badge"
+                                        android:paddingStart="5dp"
+                                        android:paddingTop="2dp"
+                                        android:paddingEnd="5dp"
+                                        android:paddingBottom="2dp"
+                                        android:textColor="#FF2E6BE6"
+                                        android:textSize="10sp"
+                                        android:textStyle="bold"
+                                        android:visibility="gone" />
+                                </LinearLayout>
+
+                                <!-- 副标题行（csp 的 kc：12sp、#66000000；
+                                     服务端 sub_title_list 段拼串＋末段
+                                     「红果号：…」，尾带复制图标；有才显，
+                                     点行复制红果号） -->
+                                <TextView
+                                    android:id="@+id/hg_author_subline"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginTop="6dp"
+                                    android:drawableEnd="@drawable/ic_hg_author_copy"
+                                    android:drawablePadding="2dp"
+                                    android:ellipsize="end"
+                                    android:maxLines="1"
+                                    android:textColor="#66000000"
+                                    android:textSize="12sp"
+                                    android:visibility="gone" />
+                            </LinearLayout>
+                        </LinearLayout>
+
+                        <!-- 简介（csp 的 iyq：12sp 灰70、行距 +4dp、
+                             marginTop 16dp；有才显） -->
+                        <TextView
+                            android:id="@+id/hg_author_desc"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="16dp"
+                            android:lineSpacingExtra="4dp"
+                            android:textColor="#B2000000"
+                            android:textSize="12sp"
+                            android:visibility="gone" />
+
+                        <!-- 数据行＋关注钮同带（ct0＋csp 的 fox） -->
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="16dp"
                             android:gravity="center_vertical"
                             android:orientation="horizontal">
 
-                            <TextView
-                                android:id="@+id/hg_author_name"
-                                android:layout_width="wrap_content"
+                            <LinearLayout
+                                android:id="@+id/hg_author_stats"
+                                android:layout_width="0dp"
                                 android:layout_height="wrap_content"
-                                android:ellipsize="end"
-                                android:maxLines="1"
-                                android:textColor="#FF1D2129"
-                                android:textSize="20sp"
+                                android:layout_weight="1"
+                                android:orientation="horizontal"
+                                android:visibility="gone">
+
+                                <LinearLayout
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginEnd="24dp"
+                                    android:orientation="vertical">
+
+                                    <TextView
+                                        android:id="@+id/hg_author_stat_follow"
+                                        android:layout_width="wrap_content"
+                                        android:layout_height="wrap_content"
+                                        android:textColor="#FF000000"
+                                        android:textSize="14sp"
+                                        android:textStyle="bold" />
+
+                                    <TextView
+                                        android:layout_width="wrap_content"
+                                        android:layout_height="wrap_content"
+                                        android:layout_marginTop="4dp"
+                                        android:text="关注"
+                                        android:textColor="#B2000000"
+                                        android:textSize="12sp" />
+                                </LinearLayout>
+
+                                <LinearLayout
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginEnd="24dp"
+                                    android:orientation="vertical">
+
+                                    <TextView
+                                        android:id="@+id/hg_author_stat_fans"
+                                        android:layout_width="wrap_content"
+                                        android:layout_height="wrap_content"
+                                        android:textColor="#FF000000"
+                                        android:textSize="14sp"
+                                        android:textStyle="bold" />
+
+                                    <TextView
+                                        android:layout_width="wrap_content"
+                                        android:layout_height="wrap_content"
+                                        android:layout_marginTop="4dp"
+                                        android:text="粉丝"
+                                        android:textColor="#B2000000"
+                                        android:textSize="12sp" />
+                                </LinearLayout>
+
+                                <LinearLayout
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:orientation="vertical">
+
+                                    <TextView
+                                        android:id="@+id/hg_author_stat_digg"
+                                        android:layout_width="wrap_content"
+                                        android:layout_height="wrap_content"
+                                        android:textColor="#FF000000"
+                                        android:textSize="14sp"
+                                        android:textStyle="bold" />
+
+                                    <TextView
+                                        android:layout_width="wrap_content"
+                                        android:layout_height="wrap_content"
+                                        android:layout_marginTop="4dp"
+                                        android:text="获赞"
+                                        android:textColor="#B2000000"
+                                        android:textSize="12sp" />
+                                </LinearLayout>
+                            </LinearLayout>
+
+                            <TextView
+                                android:id="@+id/hg_author_follow"
+                                android:layout_width="66dp"
+                                android:layout_height="wrap_content"
+                                android:background="@drawable/bg_hg_author_follow_btn"
+                                android:drawablePadding="2dp"
+                                android:gravity="center"
+                                android:includeFontPadding="false"
+                                android:paddingTop="7dp"
+                                android:paddingBottom="7dp"
+                                android:text="关注"
+                                android:textColor="#FFFA7705"
+                                android:textSize="14sp"
                                 android:textStyle="bold" />
-
-                            <ImageView
-                                android:id="@+id/hg_author_badge_icon"
-                                android:layout_width="wrap_content"
-                                android:layout_height="16dp"
-                                android:layout_marginStart="6dp"
-                                android:adjustViewBounds="true"
-                                android:contentDescription="@null"
-                                android:visibility="gone" />
-
-                            <TextView
-                                android:id="@+id/hg_author_badge"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:layout_marginStart="6dp"
-                                android:background="@drawable/bg_hg_title_badge"
-                                android:paddingStart="5dp"
-                                android:paddingTop="2dp"
-                                android:paddingEnd="5dp"
-                                android:paddingBottom="2dp"
-                                android:textColor="#FF2E6BE6"
-                                android:textSize="10sp"
-                                android:textStyle="bold"
-                                android:visibility="gone" />
                         </LinearLayout>
-
-                        <!-- 副标题行（csp 的 kc：12sp、#66000000；服务端
-                             sub_title_list 段拼串＋末段「红果号：…」，尾带
-                             复制图标；有才显，点行复制红果号） -->
-                        <TextView
-                            android:id="@+id/hg_author_subline"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="6dp"
-                            android:drawableEnd="@drawable/ic_hg_author_copy"
-                            android:drawablePadding="2dp"
-                            android:ellipsize="end"
-                            android:maxLines="1"
-                            android:textColor="#66000000"
-                            android:textSize="12sp"
-                            android:visibility="gone" />
                     </LinearLayout>
-                </LinearLayout>
+                </FrameLayout>
 
-                <!-- 简介（csp 的 iyq：12sp 灰70、行距 +4dp、marginTop 16dp；有才显） -->
-                <TextView
-                    android:id="@+id/hg_author_desc"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="16dp"
-                    android:lineSpacingExtra="4dp"
-                    android:textColor="#B2000000"
-                    android:textSize="12sp"
-                    android:visibility="gone" />
-
-                <!-- 数据行＋关注钮同带（ct0＋csp 的 fox） -->
+                <!-- 钉住行（ax8 的 fc5，折叠后留在顶上）：小栏组 c2c
+                     初始全透明，随折叠进度淡入（代码驱动 alpha）；
+                     左侧官方 jh 图标按潇洒哥站规矩不放（无自带返回）。 -->
                 <LinearLayout
+                    android:id="@+id/hg_author_pin_row"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="16dp"
                     android:gravity="center_vertical"
-                    android:orientation="horizontal">
+                    android:orientation="horizontal"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="16dp"
+                    app:layout_collapseMode="pin">
 
                     <LinearLayout
-                        android:id="@+id/hg_author_stats"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
+                        android:id="@+id/hg_author_chip_group"
+                        android:layout_width="wrap_content"
+                        android:layout_height="44dp"
+                        android:alpha="0"
+                        android:gravity="center_vertical"
                         android:orientation="horizontal"
-                        android:visibility="gone">
+                        android:visibility="invisible">
 
-                        <LinearLayout
+                        <ImageView
+                            android:id="@+id/hg_author_chip_avatar"
+                            android:layout_width="22dp"
+                            android:layout_height="22dp"
+                            android:contentDescription="@null" />
+
+                        <TextView
+                            android:id="@+id/hg_author_chip_name"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:layout_marginEnd="24dp"
-                            android:orientation="vertical">
+                            android:layout_marginStart="6dp"
+                            android:ellipsize="end"
+                            android:maxLines="1"
+                            android:maxWidth="180dp"
+                            android:textColor="#FF1D2129"
+                            android:textSize="16sp"
+                            android:textStyle="bold" />
 
-                            <TextView
-                                android:id="@+id/hg_author_stat_follow"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:textColor="#FF000000"
-                                android:textSize="14sp"
-                                android:textStyle="bold" />
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="4dp"
-                                android:text="关注"
-                                android:textColor="#B2000000"
-                                android:textSize="12sp" />
-                        </LinearLayout>
-
-                        <LinearLayout
+                        <!-- 小关注钮（ax8 的 jvg：12sp 粗、橘字 #FA7705、
+                             白底圆角 8dp 同 fox 的 yb、内距 横 11/竖 5、
+                             加号 bd_、drawablePadding 4dp） -->
+                        <TextView
+                            android:id="@+id/hg_author_chip_follow"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:layout_marginEnd="24dp"
-                            android:orientation="vertical">
-
-                            <TextView
-                                android:id="@+id/hg_author_stat_fans"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:textColor="#FF000000"
-                                android:textSize="14sp"
-                                android:textStyle="bold" />
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="4dp"
-                                android:text="粉丝"
-                                android:textColor="#B2000000"
-                                android:textSize="12sp" />
-                        </LinearLayout>
-
-                        <LinearLayout
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:orientation="vertical">
-
-                            <TextView
-                                android:id="@+id/hg_author_stat_digg"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:textColor="#FF000000"
-                                android:textSize="14sp"
-                                android:textStyle="bold" />
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="4dp"
-                                android:text="获赞"
-                                android:textColor="#B2000000"
-                                android:textSize="12sp" />
-                        </LinearLayout>
+                            android:layout_marginStart="10dp"
+                            android:background="@drawable/bg_hg_author_follow_btn"
+                            android:drawablePadding="4dp"
+                            android:gravity="center"
+                            android:includeFontPadding="false"
+                            android:paddingStart="11dp"
+                            android:paddingTop="5dp"
+                            android:paddingEnd="11dp"
+                            android:paddingBottom="5dp"
+                            android:text="关注"
+                            android:textColor="#FFFA7705"
+                            android:textSize="12sp"
+                            android:textStyle="bold" />
                     </LinearLayout>
-
-                    <TextView
-                        android:id="@+id/hg_author_follow"
-                        android:layout_width="66dp"
-                        android:layout_height="wrap_content"
-                        android:background="@drawable/bg_hg_author_follow_btn"
-                        android:drawablePadding="2dp"
-                        android:gravity="center"
-                        android:includeFontPadding="false"
-                        android:paddingTop="7dp"
-                        android:paddingBottom="7dp"
-                        android:text="关注"
-                        android:textColor="#FFFA7705"
-                        android:textSize="14sp"
-                        android:textStyle="bold" />
                 </LinearLayout>
-            </LinearLayout>
-        </FrameLayout>
+            </com.google.android.material.appbar.CollapsingToolbarLayout>
+        </com.google.android.material.appbar.AppBarLayout>
 
-        <!-- 内容白层（页签＋子档行＋列表；实拍 113562 的白色圆顶层） -->
+        <!-- 内容白层（页签＋子档行＋列表，白色圆顶层；随头部折叠上移） -->
         <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_marginTop="6dp"
-            android:layout_weight="1"
+            android:layout_height="match_parent"
             android:background="@drawable/bg_hg_author_sheet"
-            android:orientation="vertical">
+            android:orientation="vertical"
+            app:layout_behavior="@string/appbar_scrolling_view_behavior">
 
-            <!-- 三页签（作品/收藏/点赞；实拍口径：选中黑粗、未选灰，
-                 无下划线） -->
+            <!-- 三页签（作品/收藏/点赞；选中黑粗、未选灰，无下划线） -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -462,10 +530,10 @@
                     android:visibility="gone" />
             </FrameLayout>
         </LinearLayout>
-    </LinearLayout>
+    </androidx.coordinatorlayout.widget.CoordinatorLayout>
 
-    <!-- 底部浮动关注卡（实拍 113562：头像＋「已看TA很久了，加个关注吧」
-         ＋通知副行＋浅橘关注钮；未关注且非本人时出，关注后收） -->
+    <!-- 底部浮动关注卡（头像＋文案＋关注钮；未关注且非本人时出，
+         关注后收。文案与钮样式的官方包内定版未定位到，见完工账缺口） -->
     <LinearLayout
         android:id="@+id/hg_author_float"
         android:layout_width="match_parent"

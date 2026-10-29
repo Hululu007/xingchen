@@ -1561,6 +1561,8 @@ public final class HgParser {
         // 本机实拉出品方作者验通：「已入驻」＋35×16 图标）
         String titleBadge = null;
         String titleBadgeIcon = null;
+        int titleBadgeIconW = 0;
+        int titleBadgeIconH = 0;
         JsonArray titles = tag == null ? null : arr(tag, "user_title_info");
         if (titles != null && titles.size() > 0 && titles.get(0).isJsonObject()) {
             JsonObject t0 = titles.get(0).getAsJsonObject();
@@ -1570,7 +1572,12 @@ public final class HgParser {
                 try {
                     JsonElement ip = JsonParser.parseString(iconRaw);
                     if (ip.isJsonObject()) {
-                        titleBadgeIcon = str(ip.getAsJsonObject(), "icon_default_url");
+                        JsonObject ipo = ip.getAsJsonObject();
+                        titleBadgeIcon = str(ipo, "icon_default_url");
+                        // 图标定版尺寸（icon_width/icon_height，dp）：页面按此
+                        // 尺寸定框整图显示，不许裁（实拉已入驻图标 35×16）。
+                        titleBadgeIconW = intOf(ipo, "icon_width", 0);
+                        titleBadgeIconH = intOf(ipo, "icon_height", 0);
                     }
                 } catch (Exception ignored) {
                 }
@@ -1610,7 +1617,7 @@ public final class HgParser {
                 rel == null ? -1 : intOf(rel, "fans_num", -1),
                 rel == null ? -1 : intOf(rel, "recv_digged_count", -1),
                 relationRaw, followed, subTitleLine, hongguoId,
-                titleBadge, titleBadgeIcon,
+                titleBadge, titleBadgeIcon, titleBadgeIconW, titleBadgeIconH,
                 bgColor == null || bgColor.isEmpty() ? null : bgColor,
                 bgCover == null || bgCover.isEmpty() ? null : bgCover,
                 shelfOpen, diggOpen, blueVip, vipIconUrl);

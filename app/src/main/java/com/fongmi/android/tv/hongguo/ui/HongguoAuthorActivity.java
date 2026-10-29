@@ -9,6 +9,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -24,6 +25,7 @@ import com.fongmi.android.tv.hongguo.model.HgAuthorWork;
 import com.fongmi.android.tv.hongguo.model.HgUserProfile;
 import com.fongmi.android.tv.ui.base.BaseActivity;
 import com.fongmi.android.tv.utils.ImgUtil;
+import com.fongmi.android.tv.utils.ResUtil;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -32,7 +34,8 @@ import java.util.List;
  * 红果·作者主页（官方 SeriesGuestProfile 构成，2026-10-29 按实拍 113562
  * ＋本机实拉补全）。
  *
- * <p>页头：置顶 chip 行＋头像姓名行（58dp／20sp 粗）＋头衔徽标
+ * <p>页头：折叠头（照官方 ax8：大头区随上滑折叠、钉住小栏组随折叠
+ * 淡入，静止只显大头区）＋头像姓名行（58dp／20sp 粗）＋头衔徽标
  * （user_title_info 的 zh_title/图标，如「已入驻」）＋副标题行
  * （user_tag.sub_title_list 段拼串＋末段「红果号：biz_user_id」，
  * 点行复制红果号原值；2026-10-29 再挖定版，见 HgUserProfile 类注）
@@ -168,16 +171,32 @@ public class HongguoAuthorActivity extends BaseActivity {
 
     @Override
     protected void initView(Bundle savedInstanceState) {
-        // 顶部避让（与搜索页同口径，2026-10-29 补）：头图全幅垫到状态栏底下
-        // 连续不断层，但压在图上的置顶 chip 行原从 y=0 起排、会钻进状态栏区
-        // 与系统图标相撞——按状态栏真实高度给页头加顶内距，图不动、内容让开。
+        // 顶部避让（照官方 ax8 的 91dp 钉住高口径）：钉住行（折叠后留在
+        // 顶上的小栏行）高＝状态栏真实高度＋44dp——按状态栏高度给钉住行
+        // 加顶内距、设折叠布局最小高、大头区顶距同值，头图不动、内容让开。
         androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(getWindow().getDecorView(), (v, insets) -> {
             int top = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.statusBars()).top;
-            if (binding.hgAuthorHeader.getPaddingTop() != top) {
-                binding.hgAuthorHeader.setPadding(binding.hgAuthorHeader.getPaddingLeft(), top,
-                        binding.hgAuthorHeader.getPaddingRight(), binding.hgAuthorHeader.getPaddingBottom());
+            int pin = top + ResUtil.dp2px(44);
+            if (binding.hgAuthorPinRow.getPaddingTop() != top) {
+                binding.hgAuthorPinRow.setPadding(binding.hgAuthorPinRow.getPaddingLeft(), top,
+                        binding.hgAuthorPinRow.getPaddingRight(), binding.hgAuthorPinRow.getPaddingBottom());
+                binding.hgAuthorCollapsing.setMinimumHeight(pin);
+                ViewGroup.MarginLayoutParams hlp =
+                        (ViewGroup.MarginLayoutParams) binding.hgAuthorHeader.getLayoutParams();
+                if (hlp.topMargin != pin) {
+                    hlp.topMargin = pin;
+                    binding.hgAuthorHeader.setLayoutParams(hlp);
+                }
             }
             return insets;
+        });
+        // 小栏组淡入（官方 ax8 的 c2c 初始 alpha=0，随大头区折叠淡入）：
+        // 折叠进度 0→1 线性映射 alpha，近 0 时置不可见防误触。
+        binding.hgAuthorAppbar.addOnOffsetChangedListener((appBarLayout, verticalOffset) -> {
+            int range = appBarLayout.getTotalScrollRange();
+            float f = range <= 0 ? 0f : Math.min(1f, Math.abs(verticalOffset) / (float) range);
+            binding.hgAuthorChipGroup.setAlpha(f);
+            binding.hgAuthorChipGroup.setVisibility(f > 0.02f ? View.VISIBLE : View.INVISIBLE);
         });
         uid = getIntent().getStringExtra(EXTRA_UID);
         String name = getIntent().getStringExtra(EXTRA_NAME);
@@ -196,9 +215,14 @@ public class HongguoAuthorActivity extends BaseActivity {
             binding.hgAuthorDesc.setText(desc);
             binding.hgAuthorDesc.setVisibility(View.VISIBLE);
         }
-        // 本人门禁的页内侧：自己看自己不亮关注钮（入口侧已拦，这里兜底）
-        if (uid.equals(HgStore.profileUid())) binding.hgAuthorFollow.setVisibility(View.GONE);
+        // 本人门禁的页内侧：自己看自己不亮关注钮（入口侧已拦，这里兜底；
+        // 大头区钮与折叠小栏钮同门）
+        if (uid.equals(HgStore.profileUid())) {
+            binding.hgAuthorFollow.setVisibility(View.GONE);
+            binding.hgAuthorChipFollow.setVisibility(View.GONE);
+        }
         binding.hgAuthorFollow.setOnClickListener(v -> onFollowClicked());
+        binding.hgAuthorChipFollow.setOnClickListener(v -> onFollowClicked());
         binding.hgAuthorFloatFollow.setOnClickListener(v -> onFollowClicked());
         binding.hgAuthorSubline.setOnClickListener(v -> copyHongguoId());
 
@@ -290,11 +314,20 @@ public class HongguoAuthorActivity extends BaseActivity {
                         binding.hgAuthorStatDigg.setText(formatStat(p.recvDiggedCount));
                         binding.hgAuthorStats.setVisibility(View.VISIBLE);
                     }
-                    // 头衔徽标：有图标图优先摆图，否则摆文字筹
+                    // 头衔徽标：有图标图优先摆图，否则摆文字筹。图标按
+                    // 服务端定版尺寸（icon_width/icon_height，实拉 35×16）
+                    // 定框＋整图显示：旧法走 ImgUtil 默认 CENTER_CROP 塞
+                    // wrap_content 窄框，宽图标被裁成中间一片（2026-10-29
+                    // 他点名「已入驻都显示不全」定根＝此裁剪，咱家截图
+                    // 113602 实证）。
                     if (p.titleBadgeIcon != null && !p.titleBadgeIcon.isEmpty()) {
+                        ViewGroup.LayoutParams blp = binding.hgAuthorBadgeIcon.getLayoutParams();
+                        if (p.titleBadgeIconW > 0) blp.width = ResUtil.dp2px(p.titleBadgeIconW);
+                        if (p.titleBadgeIconH > 0) blp.height = ResUtil.dp2px(p.titleBadgeIconH);
+                        binding.hgAuthorBadgeIcon.setLayoutParams(blp);
                         binding.hgAuthorBadgeIcon.setVisibility(View.VISIBLE);
                         binding.hgAuthorBadge.setVisibility(View.GONE);
-                        ImgUtil.load(displayName, p.titleBadgeIcon, binding.hgAuthorBadgeIcon);
+                        ImgUtil.load(displayName, p.titleBadgeIcon, binding.hgAuthorBadgeIcon, false);
                     } else if (p.titleBadge != null && !p.titleBadge.isEmpty()) {
                         binding.hgAuthorBadge.setText(p.titleBadge);
                         binding.hgAuthorBadge.setVisibility(View.VISIBLE);
@@ -365,17 +398,25 @@ public class HongguoAuthorActivity extends BaseActivity {
 
     private void refreshFollowButton() {
         boolean followed = HgStore.isAuthorFollowed(uid);
-        binding.hgAuthorFollow.setText(followed ? "已关注" : "关注");
-        // 官方 csp 的 fox 定版：未关注＝白底圆角 8dp＋橘字 #FA7705＋加号图标；
-        // 已关注＝半透明白底＋白字、无加号
-        binding.hgAuthorFollow.setBackgroundResource(followed
+        // 官方 csp 的 fox 定版：未关注＝白底圆角 8dp＋橘字 #FA7705＋加号图标
+        // bd_（满幅粗杆 #FA6725，图标已按实测复刻）；已关注＝半透明白底＋
+        // 白字、无加号。折叠小栏钮 jvg 与 fox 同底同字色、尺寸小一档，
+        // 两态与大钮同步（官方小钮已关注态未单独定位到，镜像大钮口径）。
+        android.graphics.drawable.Drawable plus = followed ? null
+                : androidx.core.content.ContextCompat.getDrawable(
+                        this, com.fongmi.android.tv.R.drawable.ic_hg_author_plus);
+        int bg = followed
                 ? com.fongmi.android.tv.R.drawable.bg_hg_author_followed_btn
-                : com.fongmi.android.tv.R.drawable.bg_hg_author_follow_btn);
-        binding.hgAuthorFollow.setTextColor(followed ? 0xFFFFFFFF : 0xFFFA7705);
-        binding.hgAuthorFollow.setCompoundDrawablesWithIntrinsicBounds(
-                followed ? null : androidx.core.content.ContextCompat.getDrawable(
-                        this, com.fongmi.android.tv.R.drawable.ic_hg_author_plus),
-                null, null, null);
+                : com.fongmi.android.tv.R.drawable.bg_hg_author_follow_btn;
+        int tc = followed ? 0xFFFFFFFF : 0xFFFA7705;
+        binding.hgAuthorFollow.setText(followed ? "已关注" : "关注");
+        binding.hgAuthorFollow.setBackgroundResource(bg);
+        binding.hgAuthorFollow.setTextColor(tc);
+        binding.hgAuthorFollow.setCompoundDrawablesWithIntrinsicBounds(plus, null, null, null);
+        binding.hgAuthorChipFollow.setText(followed ? "已关注" : "关注");
+        binding.hgAuthorChipFollow.setBackgroundResource(bg);
+        binding.hgAuthorChipFollow.setTextColor(tc);
+        binding.hgAuthorChipFollow.setCompoundDrawablesWithIntrinsicBounds(plus, null, null, null);
         refreshFloatCard();
     }
 

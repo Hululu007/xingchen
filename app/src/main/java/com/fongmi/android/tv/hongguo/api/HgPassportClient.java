@@ -58,6 +58,15 @@ public final class HgPassportClient {
     /** 只借它的设备注册门（ensureDevice），注册身份与全 App 红果链同一份 HgDevice 档案。 */
     private final HgApiClient deviceGate = new HgApiClient();
 
+    /**
+     * 本登录会话内服务端 Set-Cookie 的回带（对齐官方 TTNet Cookie 罐行为）：
+     * 发码回包实测下发 passport_csrf_token 等对（探针 2026-10-29 本机实拉），
+     * 官方客户端后续请求会自动带上；此前本客户端把发码的 Set-Cookie 扔掉、
+     * 验码裸发。探针已证无 Cookie 也能走到验证码校验（1202），此项是会话
+     * 连续性的形态对齐、不是解闸件（login-close-loop-20261029.md）。
+     */
+    private volatile String sessionCookies;
+
     public HgPassportClient() {
     }
 
@@ -245,6 +254,8 @@ public final class HgPassportClient {
                 // Content-Type 由 RequestBody 承载（表单口径），签名头里的 JSON 值摘掉（与 postSigned 同处理）。
                 headers.remove("Content-Type");
                 headers.put("x-ss-dp", "8662");
+                String cookies = sessionCookies;
+                if (cookies != null && !cookies.isEmpty()) headers.put("Cookie", cookies);
                 String url = HgRequests.PASSPORT_HOST + path + "?" + signed.query;
                 RequestBody rb = RequestBody.create(FORM, body.toString());
                 Call call = OkHttp.newCall(url, headers, rb);
@@ -270,7 +281,9 @@ public final class HgPassportClient {
                                 android.util.Log.w(TAG, path + " passport HTTP " + r.code());
                                 fail.fail(r.code(), "服务暂时不可用，请稍后再试");
                             } else {
-                                ok.handle(text, cookiePairs(r));
+                                String pairs = cookiePairs(r);
+                                if (pairs != null) sessionCookies = pairs;
+                                ok.handle(text, pairs);
                             }
                         } catch (Exception e) {
                             fail.fail(-1, "网络不太顺，请检查网络后再试");

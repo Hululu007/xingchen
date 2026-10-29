@@ -795,18 +795,42 @@
                 android:textSize="12sp" />
         </LinearLayout>
 
-        <TextView
+        <!-- 品牌药丸（官方 FollowUpdateLottieView 布局 cjw 定版：
+             横排、总高 32dp＝铃铛 e63（图框 24 宽含左内距 8、字形
+             16×16）＋文案 12sp（文案左距图框 2、容器右内距 10）；
+             咱家构成同形：铃铛 ic_hg_bell 16dp＋文字 hg_drama_act
+             _text 12sp、容器高 32dp、左内距 8/右内距 10。底图两态
+             由适配器按镜像态换：未追 bg_hg_follow_pill（品牌橘
+             全圆）、已追 bg_hg_follow_pill_on（透明白全圆）。
+             显隐：整条的闸在适配器（集流+正剧型+有 series_id）；
+             药丸自身再吃一条官方否定支——完结漫剧不显（见
+             HgFeedItem.dramaPillVisible），预约态恒显。 -->
+        <LinearLayout
             android:id="@+id/hg_drama_act"
-            android:layout_width="48dp"
-            android:layout_height="wrap_content"
+            android:layout_width="wrap_content"
+            android:layout_height="32dp"
             android:layout_marginStart="10dp"
             android:background="@drawable/bg_hg_follow_pill"
-            android:gravity="center"
-            android:paddingTop="5dp"
-            android:paddingBottom="5dp"
-            android:text="追更"
-            android:textColor="#FFFFFF"
-            android:textSize="12sp" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="8dp"
+            android:paddingEnd="10dp">
+
+            <ImageView
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_hg_bell" />
+
+            <TextView
+                android:id="@+id/hg_drama_act_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="2dp"
+                android:text="追更"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp" />
+        </LinearLayout>
     </LinearLayout>
 
     <!-- 底部行：选集条＋全屏方钮。材料/几何按模式分工（适配器 bind 时切换，

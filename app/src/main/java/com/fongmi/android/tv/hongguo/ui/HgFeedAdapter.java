@@ -533,12 +533,16 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
      * 剧条（集流专款，官方单剧播放页实拍 113630 定版排布）：信息摞之下、
      * 选集条之上的一整行——小封面＋剧名＋副行＋右端品牌药丸。药丸同槽
      * 互斥：未上线剧＝预约（副行＝上线文案）、已上线剧＝追更（副行＝
-     * 更新至N集）；显隐按他实看官方定证——正剧条目就显，不按更新中/
-     * 已完结过滤（官方包显隐链同向：挂专辑条目＋实验开关、无完结条件，
-     * 核查账 official-follow-where §4）。两态色对走 ks3（未＝橘底白字、
-     * 已＝透明白底灰字），药丸点击走既有 KIND_FOLLOW／预约管道（本地
-     * 镜像＋服务端同步、失败回滚在互动层）。发现流恒藏（流页追剧是
-     * 右列星钮本体、无药丸）；横屏实例恒藏（自有 chrome）。
+     * 更新至N集）。整条显隐：正剧条目就显。药丸自身另有官方公式
+     * （FollowUpdateLottieView.getHasEntry，抠查账 manju-follow-dig
+     * 件 3）：(漫剧∧连载中) ∨ (专辑装配∧实验开)——咱家数据面只有
+     * 前支的否定形可判：完结漫剧（1004∧status＝1）不显药丸、整条
+     * 照显（2026-10-30 落，见 HgFeedItem.dramaPillVisible）；旧注
+     * 「不按完结过滤」是只读了 A 路装配的旧结论，对漫剧不成立
+     * （他真机 113642 点名错显），以本注为准。两态色对走 ks3（未＝
+     * 橘底白字、已＝透明白底灰字），药丸点击走既有 KIND_FOLLOW／
+     * 预约管道（本地镜像＋服务端同步、失败回滚在互动层）。发现流
+     * 恒藏（流页追剧是右列星钮本体、无药丸）；横屏实例恒藏（自有 chrome）。
      * 旧版同位是摞内 54dp 追更/预约大卡，卡底距选集条只 2dp、进度线
      * 横穿卡面、剧名集数重复——本批整卡废除（账 series-play-layout）。
      */
@@ -558,17 +562,25 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
             String due = item.dueStartText;
             sub = due != null && !due.isEmpty() ? due : "即将上线";
             acted = session.interactions.isReserved(item.seriesId);
-            b.hgDramaAct.setText(acted ? "已预约" : "预约");
+            b.hgDramaActText.setText(acted ? "已预约" : "预约");
+            // 预约药丸无官方抑制支：恒显（Holder 复用，须显式复位）
+            b.hgDramaAct.setVisibility(View.VISIBLE);
         } else {
             sub = barSubText(item);
             acted = session.interactions.isFollowing(item.seriesId);
-            b.hgDramaAct.setText(acted ? "已追更" : "追更");
+            b.hgDramaActText.setText(acted ? "已追更" : "追更");
+            // 追更药丸显隐吃官方否定支：完结漫剧不显（HgFeedItem
+            // .dramaPillVisible——官方 B 路对完结漫剧判不亮＋他真机
+            // 点名 113642 咱家错显）；剧条整条照显，官方药丸本就是
+            // 独立件、条与药丸不是同生同灭
+            b.hgDramaAct.setVisibility(HgFeedItem.dramaPillVisible(
+                    item.contentType, item.seriesStatus) ? View.VISIBLE : View.GONE);
         }
         b.hgDramaSub.setText(sub);
         b.hgDramaSub.setVisibility(sub == null || sub.isEmpty() ? View.GONE : View.VISIBLE);
         b.hgDramaAct.setBackgroundResource(acted
                 ? R.drawable.bg_hg_follow_pill_on : R.drawable.bg_hg_follow_pill);
-        b.hgDramaAct.setTextColor(acted ? 0x66FFFFFF : 0xFFFFFFFF);
+        b.hgDramaActText.setTextColor(acted ? 0x66FFFFFF : 0xFFFFFFFF);
     }
 
     /** 剧条副行（追更态）：只用条目真数据——有集数一律「更新至N集」

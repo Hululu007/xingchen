@@ -69,6 +69,17 @@ public final class HgFeedItem {
     /** 完结态（cell series_status，频道存档实证）；没带为 null。 */
     public final Integer seriesStatus;
     /**
+     * 内容类型原值（HgSeriesItem.contentType 携带，官方
+     * VideoContentType：1004＝漫剧 MotionComic）；没带为 -1。
+     * 与 kind 的分工同 HgSeriesItem：kind 是三型分发结论、本字段是
+     * 原值留底，真消费只有追更药丸 B 路径的漫剧判别（见
+     * {@link #dramaPillVisible}）。旧注释里「content_type 原值已删」
+     * 指的是批五当时的零消费状态，本次按抠查账 manju-follow-dig
+     * 件 1 规格复置、消费方明确，不与批一分家口径冲突（账
+     * hongguo-rework-p1-feedplay-20261030）。
+     */
+    public final int contentType;
+    /**
      * 条目类型（普查卡 6/7/8 三型）：解析入口按协议字段定型后经
      * fromSeries 携带进来（见 HgParser 的定型口径），定下不再变——
      * 消费端（适配器/Activity）只按本字段分发右列顶动作/底栏形态/
@@ -171,7 +182,7 @@ public final class HgFeedItem {
                        List<String> tags, boolean multiSeason, String albumId,
                        int albumSerialCount, List<HgSeriesItem> siblings,
                        String likeCount, String commentCount, Integer seriesStatus,
-                       HgItemKind kind) {
+                       int contentType, HgItemKind kind) {
         this.seriesId = seriesId;
         this.videoId = videoId;
         this.episodeIndex = episodeIndex;
@@ -197,6 +208,7 @@ public final class HgFeedItem {
         this.albumSerialCount = albumSerialCount;
         this.siblings = siblings == null ? Collections.emptyList() : siblings;
         this.seriesStatus = seriesStatus;
+        this.contentType = contentType;
         this.kind = kind == null ? HgItemKind.SERIES : kind;
     }
 
@@ -204,16 +216,24 @@ public final class HgFeedItem {
                                   String desc, String coverUrl, int episodeCount) {
         return new HgFeedItem(seriesId, null, -1, episodeCount, title, category,
                 null, null, desc, coverUrl, 0, 0, true, false,
-                null, null, null, false, null, -1, null, null, null, null, HgItemKind.SERIES);
+                null, null, null, false, null, -1, null, null, null, null, -1, HgItemKind.SERIES);
     }
 
+    /**
+     * 集流逐集页工厂：seriesStatus/contentType 由会话层从详情
+     * （HgSeriesDetail）或剧头条目继承后传入——剧条追更药丸的
+     * 完结漫剧判别就吃这两件，缺了它们逐集页永远判不出（1.4.61
+     * 真机 113642 完结漫剧错显药丸的一半根子在此：旧工厂把
+     * seriesStatus 恒置 null、详情的完结态到不了页上）。
+     */
     public static HgFeedItem episode(String seriesId, String videoId, int episodeIndex,
                                      int episodeCount, String title, String category,
                                      String authorName, String authorAvatar, String desc,
-                                     String coverUrl) {
+                                     String coverUrl, Integer seriesStatus, int contentType) {
         return new HgFeedItem(seriesId, videoId, episodeIndex, episodeCount, title, category,
                 authorName, authorAvatar, desc, coverUrl, 0, 0, false, false,
-                null, null, null, false, null, -1, null, null, null, null, HgItemKind.SERIES);
+                null, null, null, false, null, -1, null, null, null, seriesStatus,
+                contentType, HgItemKind.SERIES);
     }
 
     /**
@@ -239,7 +259,8 @@ public final class HgFeedItem {
                 s.getVid() == null, s.getVid() != null,
                 s.getBadge(), s.getRecText(), s.getTags(), s.isMultiSeason(),
                 s.getAlbumId(), s.getAlbumSerialCount(), s.getSiblings(),
-                formatCount(s.getDiggCount()), formatCount(s.getCommentCount()), s.getSeriesStatus(), s.kind);
+                formatCount(s.getDiggCount()), formatCount(s.getCommentCount()), s.getSeriesStatus(),
+                s.contentType, s.kind);
         if (s.hasAppointment()) {
             item.reservable = true;
             item.dueStartText = s.getDueStartText();
@@ -267,7 +288,7 @@ public final class HgFeedItem {
         HgFeedItem copy = new HgFeedItem(seriesId, videoId, episodeIndex, episodeCount, title,
                 category, authorName, authorAvatar, desc, coverUrl, width, height,
                 seriesHead, clip, badge, recText, tags, multiSeason, albumId,
-                albumSerialCount, siblings, likeCount, commentCount, seriesStatus, kind);
+                albumSerialCount, siblings, likeCount, commentCount, seriesStatus, contentType, kind);
         copy.expandTried = expandTried;
         copy.reservable = reservable;
         copy.dueStartText = dueStartText;
@@ -298,7 +319,7 @@ public final class HgFeedItem {
         HgFeedItem copy = new HgFeedItem(seriesId, videoId, episodeIndex, episodeCount, seriesTitle,
                 category, authorName, authorAvatar, desc, coverUrl, videoWidth, videoHeight,
                 seriesHead, clip, badge, recText, tags, multiSeason, albumId,
-                albumSerialCount, siblings, likeCount, commentCount, seriesStatus, kind);
+                albumSerialCount, siblings, likeCount, commentCount, seriesStatus, contentType, kind);
         copy.expandTried = expandTried;
         copy.reservable = reservable;
         copy.dueStartText = dueStartText;
@@ -339,7 +360,7 @@ public final class HgFeedItem {
                 detailDesc != null ? detailDesc : desc,
                 coverUrl, videoWidth, videoHeight, false, true,
                 badge, recText, tags, multiSeason, albumId, albumSerialCount, siblings,
-                likeCount, commentCount, seriesStatus, kind);
+                likeCount, commentCount, seriesStatus, contentType, kind);
         copy.expandTried = true;
         copy.reservable = reservable;
         copy.dueStartText = dueStartText;
@@ -375,7 +396,7 @@ public final class HgFeedItem {
                 avatar != null ? avatar : authorAvatar, desc, coverUrl,
                 videoWidth, videoHeight, seriesHead, clip,
                 badge, recText, tags, multiSeason, albumId, albumSerialCount, siblings,
-                likeCount, commentCount, seriesStatus, kind);
+                likeCount, commentCount, seriesStatus, contentType, kind);
         copy.expandTried = expandTried;
         copy.reservable = reservable;
         copy.dueStartText = dueStartText;
@@ -398,6 +419,29 @@ public final class HgFeedItem {
         copy.rankIconUrl = rankIconUrl;
         copy.pushIndex = pushIndex;
         return copy;
+    }
+
+    /** 是否漫剧（content_type＝1004，官方 VideoContentType.MotionComic）。 */
+    public boolean isMotionComic() {
+        return contentType == 1004;
+    }
+
+    /**
+     * 集流剧条追更药丸显隐（官方 FollowUpdateLottieView 的显隐入口
+     * getHasEntry 全公式见抠查账 hongguo-manju-follow-dig-20261030
+     * 件 3：(漫剧模板门∧剧状态＝连载中∧漫剧) ∨ (专辑 albumId&gt;0
+     * ∧albumSerialCount≥2∧实验开)）：A 路的专辑装配数据（官方
+     * BookGroup.albumInfo）不在咱家任何回包/模型里、无从判定，
+     * 本判定只落全公式里有据的一条否定支——完结漫剧（content_type
+     * ＝1004∧series_status＝1）：B 路三要件缺了「连载中」判不亮，
+     * 而潇洒哥 1.4.61 真机点名咱家在此情形错显（截图 113642 完结
+     * 漫剧剧条挂「追更」）。其余情形（正剧含完结——官方实拍
+     * 113630 完结正剧照显；漫剧连载中/状态缺失；类型没带）一律
+     * 维持现行显，不许扩大抑制面。纯判定、状态全入参，供适配器
+     * 绑定与离线断言共用同一份逻辑。
+     */
+    public static boolean dramaPillVisible(int contentType, Integer seriesStatus) {
+        return !(contentType == 1004 && seriesStatus != null && seriesStatus == 1);
     }
 
     /**

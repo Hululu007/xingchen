@@ -738,10 +738,19 @@ public final class HgFeedSession {
                 b.getIndex() < 0 ? Integer.MAX_VALUE : b.getIndex()));
         List<HgFeedItem> pages = new ArrayList<>();
         int i = 0;
+        // 完结态/内容类型逐集页继承：详情带的优先（详情是剧级权威），
+        // 详情没带时回落剧头条目自带的（cell 层）——剧条追更药丸的
+        // 完结漫剧判别吃这两件，展开时丢了就永远判不出（账
+        // hongguo-rework-p1-feedplay-20261030）
+        Integer pageStatus = detail.getSeriesStatus() != null
+                ? detail.getSeriesStatus() : head.seriesStatus;
+        int pageType = detail.getContentType() > 0
+                ? detail.getContentType() : head.contentType;
         for (HgSeriesDetail.Episode ep : sorted) {
             int idx = ep.getIndex() > 0 ? ep.getIndex() : i + 1;
             HgFeedItem page = HgFeedItem.episode(head.seriesId, ep.getVideoId(), idx,
-                    count > 0 ? count : sorted.size(), title, head.category, author, avatar, desc, cover);
+                    count > 0 ? count : sorted.size(), title, head.category, author, avatar, desc, cover,
+                    pageStatus, pageType);
             if (detail.getStatement() != null) page.statement = detail.getStatement();
             // 作者 uid：详情抬升到的优先（HgSeriesDetail.getAuthorUid，
             // 现行回包恒不下发、口先建对），没有再从进剧条目继承（流条目

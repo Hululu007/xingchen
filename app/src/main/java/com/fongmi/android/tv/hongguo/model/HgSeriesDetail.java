@@ -109,6 +109,31 @@ public final class HgSeriesDetail {
      */
     private String authorUid;
 
+    /**
+     * 内容类型原值（详情回包 data.video_data.content_type，官方
+     * VideoContentType：1004＝漫剧 MotionComic；抠查账
+     * hongguo-manju-follow-dig-20261030 件 1 定版——e1 详情回包
+     * 实值 1004 逐字实证）。解析期回填（与 ugcVideoModel 的
+     * attach 同惯例），回包没带为 -1。消费方：集流展开时随
+     * seriesStatus 一起传给逐集页（追更药丸 B 路径判别）。
+     */
+    private int contentType = -1;
+
+    /** 解析期回填内容类型（仅 HgParser 调用，构造后一次性）。 */
+    void attachContentType(int contentType) {
+        this.contentType = contentType;
+    }
+
+    /** 内容类型原值（content_type）；回包没带为 -1。 */
+    public int getContentType() {
+        return contentType;
+    }
+
+    /** 是否漫剧（content_type＝1004，官方 VideoContentType.MotionComic）。 */
+    public boolean isMotionComic() {
+        return contentType == 1004;
+    }
+
     /** 解析期回填 UGC 播放模型（仅 HgParser 调用，构造后一次性）。 */
     void attachUgcModel(String model, int width, int height) {
         this.ugcVideoModel = model;

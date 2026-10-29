@@ -300,6 +300,10 @@ public final class HgParser {
                 longOf(d, "followed_cnt", -1),
                 colorHex == null || colorHex.isEmpty() ? null : colorHex,
                 subTitleList(d), tags);
+        // 内容类型与 series_status 同在 video_data 本体（官方
+        // VideoDetailInfo 两键并列，抠查账 manju-follow-dig 件 1）：
+        // 构造器没带此参，照 ugcVideoModel 的 attach 惯例回填
+        detail.attachContentType(intOf(d, "content_type", -1));
         if (ugcShape) {
             detail.attachUgcModel(ugcModel, intOf(d, "video_width", 0), intOf(d, "video_height", 0));
         }
@@ -1278,6 +1282,13 @@ public final class HgParser {
             // 实证），归一到条目顶层；条目自身带同名键时下方覆盖循环以自身为准
             Integer status = intOrNull(vd, "series_status");
             if (status != null) merged.addProperty("series_status", status);
+            // 内容类型同在 video_detail 本体（官方 VideoDetailInfo
+            // .contentType 的键位，抠查账 manju-follow-dig 件 1 定版）：
+            // 与 series_status 同处抬到顶层——上方 video_list[0] 抬的是
+            // 逐集层同名键，只供 kindOf 在条目自带键缺失时回落；剧级
+            // 判别（漫剧）以本体键为准，两处冲突以本体覆写为准
+            Integer cType = intOrNull(vd, "content_type");
+            if (cType != null) merged.addProperty("content_type", cType);
             Integer aiUsage = intOrNull(vd, "ai_usage_type");
             if (aiUsage != null) merged.addProperty("ai_usage_type", aiUsage);
             // 信息摞数据同在 video_detail 里（存档频道回包逐字实证）：
@@ -1705,6 +1716,7 @@ public final class HgParser {
         item.authorRelationType = authorRelationType;
         item.authorCanFollow = authorCanFollow;
         item.kind = kindOf(o, albumInfo);
+        item.contentType = contentTypeOf(o);
         item.bottomBarText = bottomBarTextOf(o);
         fillInfoStack(item, o, rrl);
         // 合集条的追更数挂 album_info（fillInfoStack 只读本体 followed_cnt）
@@ -1740,6 +1752,26 @@ public final class HgParser {
         }
         if (ct == 1001) return HgItemKind.UGC_CLIP;
         return HgItemKind.SERIES;
+    }
+
+    /**
+     * 内容类型原值收口（抠查账 manju-follow-dig 件 1 规格 2，账
+     * hongguo-rework-p1-feedplay-20261030 落码）：归一后的顶层优先；
+     * 0 与缺失同作未下发（tab30 UGC 存根形 video_detail.content_type
+     * ＝0 是实证坑），顶层无效再回落 video_detail 本体同名键
+     * （cell 没走归一的出口兜底）；都没有返回 -1。与 kindOf 的分工：
+     * kindOf 是三型分发判别（读顶层、含 0 回落 video_list 的旧链），
+     * 本助手是剧级原值留底，两者不互相调用。
+     */
+    private static int contentTypeOf(JsonObject o) {
+        int ct = intOf(o, "content_type", -1);
+        if (ct > 0) return ct;
+        JsonObject vd = obj(o, "video_detail");
+        if (vd != null) {
+            int vct = intOf(vd, "content_type", -1);
+            if (vct > 0) return vct;
+        }
+        return -1;
     }
 
     /** 字符串化 JSON 对象（recommend_reason_list 形态）；解不开返回 null。 */

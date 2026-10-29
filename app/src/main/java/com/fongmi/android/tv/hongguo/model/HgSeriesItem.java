@@ -110,6 +110,25 @@ public final class HgSeriesItem {
      */
     public HgItemKind kind = HgItemKind.SERIES;
     /**
+     * 内容类型原值（官方 VideoContentType：1＝正剧短片、1001＝UGC、
+     * 1003＝合集、1004＝漫剧 MotionComic、1007＝虚构漫剧；协议键
+     * content_type，所在层是剧级对象——频道回包 video_detail 本体、
+     * 详情回包 video_data 本体，抠查账 hongguo-manju-follow-dig
+     * -20261030 件 1 定版）：解析器后置填充（不进构造器，与 kind
+     * 同惯例），回包没带为 -1。与 kind 的分工：kind 是解析入口定完
+     * 的三型分发结论、消费端只读它分发；本字段是原值留底，真消费
+     * 只有漫剧判别（追更药丸 B 路径）一处等值判，不许拿它在消费端
+     * 反推类型（批一分家口径不破）。旧 contentType 字段曾于批五以
+     * 「零真消费」删除，本次因药丸 B 路径成为真消费方而按规格复置，
+     * 不是把批五的删除翻案（账 hongguo-rework-p1-feedplay-20261030）。
+     */
+    public int contentType = -1;
+
+    /** 是否漫剧（content_type＝1004，官方 VideoContentType.MotionComic）。 */
+    public boolean isMotionComic() {
+        return contentType == 1004;
+    }
+    /**
      * 作者关系态（ugc_user_info.user_relation.relation_type，官方
      * UserRelationType 原值：1=None 未关注、2=Follow 我已关注他、
      * 3=Followed 他关注我、4=MutualFollow 互关）；解析器后置填充
@@ -181,6 +200,7 @@ public final class HgSeriesItem {
                 albumSerialCount, siblings, commentCount, diggCount, status, statement,
                 authorName, authorAvatar, authorUid, authorDesc, publisher);
         copy.kind = kind;
+        copy.contentType = contentType;
         copy.authorRelationType = authorRelationType;
         copy.authorCanFollow = authorCanFollow;
         return copy;

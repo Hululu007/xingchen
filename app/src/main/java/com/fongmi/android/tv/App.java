@@ -214,7 +214,7 @@ public class App extends Application implements Application.ActivityLifecycleCal
         // 并把模块更新提示（Updater.checkModules 攒下的）投出来
         RuntimeInstaller.resumeUpdate(activity);
         Updater.create().notifyModules();
-        // 听书迷你条：跟人走（贴各页底部、全局底栏上方）
+        // 迷你条：页恢复时按白名单收口刷新（音乐只在音乐首页、听书只在阅读页）
         try {
             com.fongmi.android.tv.ui.minibar.ListenMiniBar.get(this)
                     .onActivityResumed(activity);

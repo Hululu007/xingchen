@@ -40,7 +40,8 @@ import java.util.Map;
 
 /**
  * 听书迷你条总控（单例，常驻应用级）：
- * 一条悬浮条跟人走（贴各页底部、全局底栏上方）；槽位仲裁同一时刻只露一条；
+ * 露条范围按页白名单收口（潇洒哥亲定）：音乐条只在音乐首页、听书条只在
+ * 阅读页（ReadingShelfActivity），别处一律不挂；槽位仲裁同一时刻只露一条；
  * 「消失＝关闭」三条真关闭路径；暂停超 10 秒自动关；声音绝不能没主。
  *
  * 纯加法：不改任何现有播放逻辑，只在外层包一层条。
@@ -324,7 +325,8 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
         String visible = policy.visibleId();
         Activity host = currentHost();
         if (visible == null || host == null || isSessionPage(host, visible)
-                || isMusicOffHomePage(host, visible)) {
+                || isMusicOffHomePage(host, visible)
+                || isListenOffReadingPage(host, visible)) {
             hideBar();
             return;
         }
@@ -365,6 +367,24 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
     private boolean isMusicOffHomePage(Activity host, String visibleId) {
         return "music".equals(visibleId)
                 && !"com.fongmi.android.tv.ui.activity.MusicActivity"
+                        .equals(host.getClass().getName());
+    }
+
+    /**
+     * 听书条白名单（潇洒哥 2026-10-29 亲定「只在阅读页显示，别处一律不挂」）：
+     * 听书会话（audiobook／tts）只许在阅读页（ui.activity.ReadingShelfActivity，
+     * 底栏「阅读」的落点、阅读模块主页面）露条，其它任何页面——视频首页/点播
+     * 各页、搜索、设置、红果、小说/漫画阅读器页——一律不露。会话页（听书播放页
+     * AudioBookActivity、朗读页 TtsReadActivity）本就被 isSessionPage 先挡，条在
+     * 播放页上面是多余的，不在此白名单内。
+     * 与音乐白名单同型：判定挂在 refreshBar 必经之路上，进阅读页时新页 resume
+     * 必触发 refreshBar 把条挂上，离开阅读页同样必经 refreshBar 把条收掉。
+     * 收/挂只是摘挂视图，会话与播放状态（队列、断点、播放/暂停）全在策略层与
+     * 会话对象里不动，回阅读页 bindSession 现读现绑，不丢状态。
+     */
+    private boolean isListenOffReadingPage(Activity host, String visibleId) {
+        return !"music".equals(visibleId)
+                && !"com.fongmi.android.tv.ui.activity.ReadingShelfActivity"
                         .equals(host.getClass().getName());
     }
 

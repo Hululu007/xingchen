@@ -56,24 +56,21 @@ public class WvHost {
     }
 
     public void bind(QuickJSContext ctx) {
-        // 全局包装只取一份、注册完 release 本地这一份（属性由全局对象自持），
-        // 与 Global.setProperty 的收口口径一致；bind 由 WvSpider 在其 ctx
-        // 属主线程上调用，release 线程合规。
+        // 全局包装只取一份走完注册：它是上下文内部缓存的同一份，只取来
+        // 注册，绝不 release（放掉即打死全上下文共用包装，WvSpider 后续
+        // 任何经包装的调用都会踩已死对象；批五 5eab204f4 误加、本注随
+        // 撤销一并改回，定根见 home-searchbox-jitter-20261029.md 闪退节）。
         JSObject globalObj = ctx.getGlobalObject();
-        try {
-            globalObj.setProperty("__wvHttp", args -> http(arg(args, 0)));
-            globalObj.setProperty("__wvCacheGet", args -> cacheGet(arg(args, 0)));
-            globalObj.setProperty("__wvCacheSet", args -> {
-                cacheSet(arg(args, 0), arg(args, 1));
-                return null;
-            });
-            globalObj.setProperty("__wvCookies", args -> cookies(arg(args, 0)));
-            globalObj.setProperty("__wvDomParse", args -> domParse(arg(args, 0), arg(args, 1)));
-            globalObj.setProperty("__wvDomQuery", args -> domQuery(arg(args, 0), arg(args, 1)));
-            globalObj.setProperty("__wvDomQueryIn", args -> domQueryIn(arg(args, 0), arg(args, 1), arg(args, 2)));
-        } finally {
-            globalObj.release();
-        }
+        globalObj.setProperty("__wvHttp", args -> http(arg(args, 0)));
+        globalObj.setProperty("__wvCacheGet", args -> cacheGet(arg(args, 0)));
+        globalObj.setProperty("__wvCacheSet", args -> {
+            cacheSet(arg(args, 0), arg(args, 1));
+            return null;
+        });
+        globalObj.setProperty("__wvCookies", args -> cookies(arg(args, 0)));
+        globalObj.setProperty("__wvDomParse", args -> domParse(arg(args, 0), arg(args, 1)));
+        globalObj.setProperty("__wvDomQuery", args -> domQuery(arg(args, 0), arg(args, 1)));
+        globalObj.setProperty("__wvDomQueryIn", args -> domQueryIn(arg(args, 0), arg(args, 1), arg(args, 2)));
     }
 
     public void destroy() {

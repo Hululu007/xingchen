@@ -71,32 +71,28 @@ public class Global {
     }
 
     private void setProperty() {
-        // 全局包装只取一份：逐方法各取一份用完不放，每建一只蜘蛛漏二十余个。
-        // 注册全走这一份，完事 release 本地包装（JS 侧属性由全局对象自持）。
-        // 本方法在构造内调用、构造跑在 ctx 属主线程，release 线程口径合规。
+        // 全局包装只取一份走完注册：它是上下文内部缓存的同一份，只取来
+        // 注册，绝不 release（放掉即打死全上下文共用包装，见 Spider
+        // createCtx 注；批五 5eab204f4 误加、本注随撤销一并改回）。
         JSObject globalObj = ctx.getGlobalObject();
-        try {
-            for (Method method : getClass().getMethods()) {
-                if (!method.isAnnotationPresent(JSMethod.class)) continue;
-                globalObj.setProperty(method.getName(), args -> {
-                    try {
-                        return method.invoke(this, args);
-                    } catch (Exception e) {
-                        // JS 侧口径不变（仍回 null），但真因必须留痕：旧写法静默
-                        // 吞掉，req/md5/aes 等方法坏掉时 JS 侧只见 null、无从排查。
-                        Throwable cause = e.getCause() != null ? e.getCause() : e;
-                        SpiderDebug.log("quickjs", "js method %s failed error=%s", method.getName(), cause);
-                        return null;
-                    }
-                });
-            }
-            globalObj.setProperty("pd", args -> {
-                if (args == null || args.length < 2) return "";
-                return pd(String.valueOf(args[0]), String.valueOf(args[1]), args.length > 2 ? String.valueOf(args[2]) : "");
+        for (Method method : getClass().getMethods()) {
+            if (!method.isAnnotationPresent(JSMethod.class)) continue;
+            globalObj.setProperty(method.getName(), args -> {
+                try {
+                    return method.invoke(this, args);
+                } catch (Exception e) {
+                    // JS 侧口径不变（仍回 null），但真因必须留痕：旧写法静默
+                    // 吞掉，req/md5/aes 等方法坏掉时 JS 侧只见 null、无从排查。
+                    Throwable cause = e.getCause() != null ? e.getCause() : e;
+                    SpiderDebug.log("quickjs", "js method %s failed error=%s", method.getName(), cause);
+                    return null;
+                }
             });
-        } finally {
-            globalObj.release();
         }
+        globalObj.setProperty("pd", args -> {
+            if (args == null || args.length < 2) return "";
+            return pd(String.valueOf(args[0]), String.valueOf(args[1]), args.length > 2 ? String.valueOf(args[2]) : "");
+        });
     }
 
     private boolean submit(Runnable runnable) {

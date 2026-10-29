@@ -249,14 +249,12 @@ public class Spider extends com.github.catvod.crawler.Spider {
         ctx = QuickJSContext.create();
         ctx.setConsole(new Console());
         ctx.evaluate(Asset.read("js/lib/http.js"));
-        // getGlobalObject 的包装取完即弃：设完属性就 release 本地这一份，
-        // 不靠 ctx.destroy 兜底（与 releaseJS 的释放纪律对齐）。
-        JSObject globalObj = ctx.getGlobalObject();
-        try {
-            globalObj.setProperty("local", Local.class);
-        } finally {
-            globalObj.release();
-        }
+        // 全局包装是上下文内部缓存的同一份（QuickJSContext 自持），不是每次
+        // 新取的临时副本：只取来注册，绝不 release——放掉会把全上下文共用的
+        // 包装 refCount 打到 0 并 native 多 free 一次，紧接着的 Global 注册
+        // 会踩已死包装（批五 5eab204f4 误加，音乐桥同型已于 1.4.58 撤销，
+        // 定根见 home-searchbox-jitter-20261029.md 闪退节）。
+        ctx.getGlobalObject().setProperty("local", Local.class);
         ctx.setModuleLoader(new QuickJSContext.BytecodeModuleLoader() {
             @Override
             public String moduleNormalizeName(String baseModuleName, String moduleName) {
@@ -290,15 +288,9 @@ public class Spider extends com.github.catvod.crawler.Spider {
         cat = content.contains("__jsEvalReturn");
         ctx.evaluateModule(content.replace(spider, global), api);
         ctx.evaluateModule(String.format(Asset.read("js/lib/spider.js"), api, JSONObject.quote(siteKey)));
-        // 临时全局包装用完即 release；取到的 created 本体由 jsObject 持有、
-        // releaseJS 收口，两份包装分开管。
-        JSObject globalObj = ctx.getGlobalObject();
-        Object created;
-        try {
-            created = ctx.getProperty(globalObj, spider);
-        } finally {
-            globalObj.release();
-        }
+        // 全局包装是上下文缓存的同一份，只取来读属性，绝不 release（见
+        // createCtx 注）；取到的 created 本体由 jsObject 持有、releaseJS 收口。
+        Object created = ctx.getProperty(ctx.getGlobalObject(), spider);
         jsObject = created instanceof JSObject ? (JSObject) created : null;
     }
 

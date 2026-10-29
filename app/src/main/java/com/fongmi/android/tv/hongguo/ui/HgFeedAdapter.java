@@ -263,7 +263,7 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         } else {
             b.hgDesc.setVisibility(View.VISIBLE);
             b.hgDesc.setText(item.desc);
-            b.hgDesc.setMaxLines(expanded ? Integer.MAX_VALUE : 2);
+            b.hgDesc.setMaxLines(expanded ? Integer.MAX_VALUE : 1);
             b.hgDescMore.setVisibility(item.desc.length() > 40 ? View.VISIBLE : View.GONE);
             b.hgDescMore.setText(expanded ? "收起" : "展开");
         }
@@ -298,6 +298,7 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         } else {
             b.hgFeedTitleRow.setVisibility(View.GONE);
         }
+        bindRankStrip(b, item);
         bindHotRow(holder, item);
         // 次级信息行（官方 recommendReason）：数据一直在条目里、此前从未上屏
         if (item.recText != null && !item.recText.isEmpty()) {
@@ -573,15 +574,70 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         fillTags(b.hgTagsRow, item);
     }
 
-    /** 标签筹填充（系列款行与普通款通行行共用）：最多 4 枚，数据空整行藏。 */
+    /**
+     * 榜单徽章条绑定（官方上榜形态）：文案/奖杯图标/渐变色全由回包
+     * rec_tags 榜单条目下发（HgFeedItem.rank*），渐变底程序化生成；
+     * 没上榜整条藏。条本身在官方是榜单页入口，咱家没有榜单页——只做
+     * 展示、不挂点击（点了没去处比不点更差，账里记明）。
+     */
+    private void bindRankStrip(ItemHongguoFeedBinding b, HgFeedItem item) {
+        if (item.rankText == null || item.rankText.isEmpty()) {
+            b.hgRankStrip.setVisibility(View.GONE);
+            return;
+        }
+        b.hgRankStrip.setVisibility(View.VISIBLE);
+        b.hgRankText.setText(item.rankText);
+        if (item.rankIconUrl != null && !item.rankIconUrl.isEmpty()) {
+            b.hgRankIcon.setVisibility(View.VISIBLE);
+            ImgUtil.load("", item.rankIconUrl, b.hgRankIcon, false);
+        } else {
+            b.hgRankIcon.setVisibility(View.GONE);
+        }
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
+        bg.setCornerRadius(6 * b.hgRankStrip.getResources().getDisplayMetrics().density);
+        int[] colors = parseRankColors(item.rankColors);
+        if (colors.length >= 2) {
+            bg.setOrientation(android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT);
+            bg.setColors(colors);
+        } else if (colors.length == 1) {
+            bg.setColor(colors[0]);
+        } else {
+            bg.setColor(0xB33A3A3A);
+        }
+        b.hgRankStrip.setBackground(bg);
+    }
+
+    private static int[] parseRankColors(List<String> raw) {
+        if (raw == null) return new int[0];
+        List<Integer> out = new java.util.ArrayList<>();
+        for (String s : raw) {
+            try {
+                out.add(android.graphics.Color.parseColor(s));
+            } catch (Exception ignored) {
+                // 回包色串解不开就跳过这一档，不整条丢
+            }
+        }
+        int[] r = new int[out.size()];
+        for (int i = 0; i < r.length; i++) r[i] = out.get(i);
+        return r;
+    }
+
+    /**
+     * 标签筹填充（系列款行与普通款通行行共用）：最多 4 枚，数据空整行藏。
+     * 数据优先官方筹行 infoChips（评分/季/题材/演员全集，评分筹带星标），
+     * 没带才退回 category_schema 的 tags——旧版只有 tags，官方筹里的
+     * 评分/季/演员永远出不来（2026-10-29 他真机对比点名）。
+     */
     private void fillTags(LinearLayout row, HgFeedItem item) {
         row.removeAllViews();
         float density = row.getResources().getDisplayMetrics().density;
         int shown = 0;
-        for (String tag : item.tags) {
+        List<String> chipsData = item.infoChips != null && !item.infoChips.isEmpty() ? item.infoChips : item.tags;
+        for (String tag : chipsData) {
             if (shown >= 4) break;
             android.widget.TextView chip = new android.widget.TextView(row.getContext());
-            chip.setText(tag);
+            chip.setText(item.scoreChipPos == shown && chipsData == item.infoChips ? "★" + tag : tag);
             chip.setTextSize(12);
             chip.setTextColor(0xFFFFFFFF);
             chip.setBackgroundResource(R.drawable.bg_hg_chip);

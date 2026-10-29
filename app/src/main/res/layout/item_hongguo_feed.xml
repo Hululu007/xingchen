@@ -243,6 +243,44 @@
         android:layout_marginBottom="50dp"
         android:orientation="vertical">
 
+        <!-- 榜单徽章条（官方上榜形态，实拍 113598：奖杯图标＋「喜剧·
+             真人剧榜 No.4」＋尾箭头，整条橙青渐变——渐变色由回包
+             rec_reason_style 下发、绑定时程序化生成；没上榜整条藏） -->
+        <LinearLayout
+            android:id="@+id/hg_rank_strip"
+            android:layout_width="wrap_content"
+            android:layout_height="28dp"
+            android:layout_marginBottom="8dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="10dp"
+            android:paddingEnd="8dp"
+            android:visibility="gone">
+
+            <ImageView
+                android:id="@+id/hg_rank_icon"
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:contentDescription="@null" />
+
+            <TextView
+                android:id="@+id/hg_rank_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="5dp"
+                android:textColor="#FFFFFF"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:text="›"
+                android:textColor="#E6FFFFFF"
+                android:textSize="14sp" />
+        </LinearLayout>
+
         <!-- 返回指定集引导筹（官方 ctm 定版：高 24dp、底 #33FFFFFF 圆角
              8dp、图标 16dp、文案 12sp 白、尾箭头 10dp）：本剧有断点且断点
              集不在第一集时才出（官方触发链定版），文案串「从第1集开始看」，
@@ -563,29 +601,40 @@
                 android:visibility="gone" />
         </LinearLayout>
 
-        <TextView
-            android:id="@+id/hg_desc"
+        <!-- 简介行（官方形态：简介单行＋「展开」同行右侧，实拍
+             113476/113592；旧版展开独占一行、简介两行，与官方摞形不符） -->
+        <LinearLayout
+            android:id="@+id/hg_desc_row"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
-            android:ellipsize="end"
-            android:maxLines="2"
-            android:shadowColor="#80000000"
-            android:shadowDx="0"
-            android:shadowDy="1"
-            android:shadowRadius="3"
-            android:textColor="#E6FFFFFF"
-            android:textSize="13sp" />
+            android:gravity="top"
+            android:orientation="horizontal">
 
-        <TextView
-            android:id="@+id/hg_desc_more"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:text="展开"
-            android:textColor="#CCFFFFFF"
-            android:textSize="13sp"
-            android:visibility="gone" />
+            <TextView
+                android:id="@+id/hg_desc"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:shadowColor="#80000000"
+                android:shadowDx="0"
+                android:shadowDy="1"
+                android:shadowRadius="3"
+                android:textColor="#E6FFFFFF"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/hg_desc_more"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="展开"
+                android:textColor="#CCFFFFFF"
+                android:textSize="13sp"
+                android:visibility="gone" />
+        </LinearLayout>
 
         <!-- 次级信息行（官方 InfoHeader 的 recommendReason）：数据一直在
              条目里（recText）但此前从未绑上屏——本批补行。官方承载布局

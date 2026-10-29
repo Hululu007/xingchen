@@ -46,7 +46,9 @@ public final class HgFeedItem {
      */
     public final String likeCount;
     public final String commentCount;
-    public final String favCount;
+    /** 收藏/追更数（已格式化）：cell followed_cnt 由 fromSeries 后置填入；
+     * 旧注「cell 不下发」已被存档回包推翻（video_detail.followed_cnt）。 */
+    public String favCount;
     /** 短片标记（首页流的页）；集流的页为 false。 */
     public final boolean clip;
     /** 角标文案（cell tag_info.text，账 §2.5）；没带为 null。 */
@@ -104,6 +106,19 @@ public final class HgFeedItem {
      * 兜底）；后置字段同 authorUid 惯例，没带为 null。
      */
     public String publisher;
+    /**
+     * 信息摞筹行（HgSeriesItem.infoChips 携带）：官方 secondary_infos
+     * 全集（评分/季/题材/演员），已按 KeepPriority 排好；没带为 null，
+     * 适配器退回 tags（category_schema）。
+     */
+    public List<String> infoChips;
+    /** 评分筹在 infoChips 里的下标；没有为 -1。 */
+    public int scoreChipPos = -1;
+    /** 榜单徽章条文案/渐变色/奖杯图标（rec_tags 榜单条目）；没上榜为 null。 */
+    public String rankText;
+    public List<String> rankColors;
+    public String rankIconUrl;
+
     /** 横屏预判（cell vertical=false，账 §3.8）：取模型宽高到手前先据此给全屏观看钮。 */
     public boolean landscapeHint;
 
@@ -185,6 +200,12 @@ public final class HgFeedItem {
             item.reservable = true;
             item.dueStartText = s.getDueStartText();
         }
+        item.favCount = formatCount(s.followedCnt);
+        item.infoChips = s.infoChips;
+        item.scoreChipPos = s.scoreChipPos;
+        item.rankText = s.rankText;
+        item.rankColors = s.rankColors;
+        item.rankIconUrl = s.rankIconUrl;
         item.authorUid = s.getAuthorUid();
         item.authorDesc = s.getAuthorDesc();
         item.contentType = s.getContentType();
@@ -211,6 +232,12 @@ public final class HgFeedItem {
         copy.contentType = contentType;
         copy.publisher = publisher;
         copy.landscapeHint = landscapeHint;
+        copy.favCount = favCount;
+        copy.infoChips = infoChips;
+        copy.scoreChipPos = scoreChipPos;
+        copy.rankText = rankText;
+        copy.rankColors = rankColors;
+        copy.rankIconUrl = rankIconUrl;
         return copy;
     }
 
@@ -232,6 +259,12 @@ public final class HgFeedItem {
         copy.contentType = contentType;
         copy.publisher = publisher;
         copy.landscapeHint = landscapeHint;
+        copy.favCount = favCount;
+        copy.infoChips = infoChips;
+        copy.scoreChipPos = scoreChipPos;
+        copy.rankText = rankText;
+        copy.rankColors = rankColors;
+        copy.rankIconUrl = rankIconUrl;
         return copy;
     }
 
@@ -263,6 +296,12 @@ public final class HgFeedItem {
         copy.contentType = contentType;
         copy.publisher = publisher;
         copy.landscapeHint = landscapeHint;
+        copy.favCount = favCount;
+        copy.infoChips = infoChips;
+        copy.scoreChipPos = scoreChipPos;
+        copy.rankText = rankText;
+        copy.rankColors = rankColors;
+        copy.rankIconUrl = rankIconUrl;
         return copy;
     }
 
@@ -289,6 +328,12 @@ public final class HgFeedItem {
         copy.contentType = contentType;
         copy.publisher = publisher;
         copy.landscapeHint = landscapeHint;
+        copy.favCount = favCount;
+        copy.infoChips = infoChips;
+        copy.scoreChipPos = scoreChipPos;
+        copy.rankText = rankText;
+        copy.rankColors = rankColors;
+        copy.rankIconUrl = rankIconUrl;
         return copy;
     }
 

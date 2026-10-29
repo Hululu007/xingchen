@@ -72,6 +72,26 @@ public final class HgSeriesItem {
      */
     private final String publisher;
 
+    /**
+     * 信息摞筹行（cell secondary_infos／recommend_reason_list 的
+     * secondary_info_list，存档频道回包逐字实证）：已按 KeepPriority
+     * 降序排好的展示文案（评分 data_type=4、季 highlight、第N季、题材
+     * data_type=3、演员 data_type=33 全在这一列里，官方筹行就是它）；
+     * 解析器后置填充（不进构造器，与流页 HgFeedItem 的后置字段同
+     * 惯例），没带为 null（适配器退回 category_schema 标签）。
+     */
+    public List<String> infoChips;
+    /** 评分筹在 infoChips 里的下标（data_type=4）；没有为 -1。 */
+    public int scoreChipPos = -1;
+    /** 榜单徽章条文案（rec_tags 中 rec_type=9 的一条，如「喜剧·真人剧榜 No.4」）；没上榜为 null。 */
+    public String rankText;
+    /** 榜单条渐变色（rec_reason_style 的背景色组，原样 #AARRGGBB 串）；没带为 null。 */
+    public List<String> rankColors;
+    /** 榜单条奖杯图标址（rec_icon_url）；没带为 null。 */
+    public String rankIconUrl;
+    /** 追更/收藏人数原值（cell video_detail.followed_cnt）；没带为 -1。 */
+    public long followedCnt = -1;
+
     HgSeriesItem(String seriesId, String title, String coverUrl, String desc, int episodeCount) {
         this(seriesId, title, coverUrl, desc, episodeCount, false, false, null);
     }

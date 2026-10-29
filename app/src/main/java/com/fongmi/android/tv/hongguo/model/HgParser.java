@@ -689,7 +689,27 @@ public final class HgParser {
             }
             JsonArray cards = arr(detail, "video_detail_list");
             if (cards != null) {
-                for (JsonElement card : cards) addDiscoverItem(card, out);
+                for (JsonElement card : cards) {
+                    // 卡自身不带信息摞数据（筹行/追更数挂在父 video_detail
+                    // 上，是本 cell 同剧的数据）——卡没自带 video_detail 时
+                    // 借道塞进合成载体，让 normalize 照常抬升（与上方本体
+                    // 短片的 ugc 借道同法；作者信息不借道，那是本 cell
+                    // 短片自己的、不属于跨推卡）
+                    if (card != null && card.isJsonObject() && obj(card.getAsJsonObject(), "video_detail") == null
+                            && (arr(detail, "secondary_infos") != null || longOf(detail, "followed_cnt", -1) >= 0)) {
+                        JsonObject wrapped = card.getAsJsonObject().deepCopy();
+                        JsonObject carrier = new JsonObject();
+                        JsonArray si = arr(detail, "secondary_infos");
+                        if (si != null) carrier.add("secondary_infos", si.deepCopy());
+                        if (longOf(detail, "followed_cnt", -1) >= 0) {
+                            carrier.addProperty("followed_cnt", longOf(detail, "followed_cnt", -1));
+                        }
+                        wrapped.add("video_detail", carrier);
+                        addDiscoverItem(wrapped, out);
+                        continue;
+                    }
+                    addDiscoverItem(card, out);
+                }
             }
         }
         JsonElement inner = cell.get("cell_data");
@@ -752,6 +772,15 @@ public final class HgParser {
             if (status != null) merged.addProperty("series_status", status);
             Integer aiUsage = intOrNull(vd, "ai_usage_type");
             if (aiUsage != null) merged.addProperty("ai_usage_type", aiUsage);
+            // 信息摞数据同在 video_detail 里（存档频道回包逐字实证）：
+            // followed_cnt＝追更/收藏人数（官方右列星数来源）、
+            // secondary_infos＝筹行全集（评分/季/题材/演员）——不抬到
+            // 条目顶层，流页这两件永远空（2026-10-29 他真机对比点名）
+            if (longOf(vd, "followed_cnt", -1) >= 0) {
+                merged.addProperty("followed_cnt", longOf(vd, "followed_cnt", -1));
+            }
+            JsonArray secInfos = arr(vd, "secondary_infos");
+            if (secInfos != null) merged.add("secondary_infos", secInfos.deepCopy());
             // 专辑关系与 UGC 作者同在 video_detail 里（存档逐层实证：详情面
             // is_multi_season/related_album_id、cell 面 ugc_user_info）——不抬
             // 到条目顶层，asSeriesItem 读不到：多季剧在流里永远认不出、
@@ -924,6 +953,29 @@ public final class HgParser {
                 badge = str(ctl.get(0).getAsJsonObject(), "text");
             }
         }
+        // video_data 条目的角标/筹行还藏在 recommend_reason_list（字符串化
+        // JSON）里：tag_info 是角标（「爆剧」）、secondary_info_list 是筹行
+        JsonObject rrl = parseStringifiedObj(o.get("recommend_reason_list"));
+        if (badge == null && rrl != null) {
+            JsonObject rti = obj(rrl, "tag_info");
+            if (rti != null) badge = str(rti, "text");
+        }
+        // 热度文案：rec_text 直字段没带时退 rec_tags 的非榜单条目
+        // （「共X万人在追」「X万热度」，存档回包实证）
+        String recText = str(o, "rec_text");
+        if (recText == null) {
+            JsonArray rts = arr(o, "rec_tags");
+            if (rts != null) {
+                for (JsonElement te : rts) {
+                    if (!te.isJsonObject()) continue;
+                    String c = str(te.getAsJsonObject(), "content");
+                    if (c != null && !isRankText(c)) {
+                        recText = c;
+                        break;
+                    }
+                }
+            }
+        }
         List<String> tags = new ArrayList<>();
         JsonArray schema = asArray(o.get("category_schema"));
         if (schema != null) {
@@ -951,10 +1003,10 @@ public final class HgParser {
                 }
             }
         }
-        return new HgSeriesItem(id, title, cover, desc, count,
+        HgSeriesItem item = new HgSeriesItem(id, title, cover, desc, count,
                 appt != null, appt != null && boolOf(appt, "is_subscribed"),
                 appt == null ? null : str(appt, "due_start_text"),
-                vid, badge, str(o, "rec_text"), tags, vertical,
+                vid, badge, recText, tags, vertical,
                 boolOf(o, "is_multi_season"),
                 firstStr(o, "album_id_str", "album_id"),
                 intOf(o, "album_serial_count", -1), siblings,
@@ -964,6 +1016,94 @@ public final class HgParser {
                 str(o, "author_uid"), str(o, "author_desc"),
                 intOf(o, "content_type", -1),
                 firstStr(o, "publisher", "copyright"));
+        fillInfoStack(item, o, rrl);
+        return item;
+    }
+
+    /** 字符串化 JSON 对象（recommend_reason_list 形态）；解不开返回 null。 */
+    private static JsonObject parseStringifiedObj(JsonElement el) {
+        if (el == null || !el.isJsonPrimitive() || !el.getAsJsonPrimitive().isString()) return null;
+        try {
+            JsonElement parsed = JsonParser.parseString(el.getAsString());
+            return parsed != null && parsed.isJsonObject() ? parsed.getAsJsonObject() : null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * 榜单文案判别：「…榜 No.N」形。注意 rec_type=9 不是判别条件——
+     * 热度条目（「8686万热度」）同样带 rec_type=9 与渐变色组，它是
+     * 榜单条的载体条目：条面文案取它的 recommend_reason（榜单形时），
+     * content 的热度文案归次级信息行（存档回包两形逐字实证）。
+     */
+    private static boolean isRankText(String text) {
+        return text != null && text.contains("榜") && text.contains("No.");
+    }
+
+    /**
+     * 信息摞后置填充（筹行/榜单条/追更数，存档频道回包逐字实证）：
+     * 筹行＝secondary_infos（直数组优先，其次 recommend_reason_list 的
+     * secondary_info_list），条目形 {content, data_type, KeepPriority}——
+     * data_type 4＝评分（KeepPriority 100）、无 type＋highlight＝季
+     * （99）、3＝题材、33＝演员；官方筹行按 KeepPriority 降序（稳定
+     * 排序，同级保回包序）：实拍两例（评分/季/题材/演员 与 题材组/演员）
+     * 都与此序一致。榜单条＝rec_tags 的榜单条目，渐变色与图标随条目
+     * 下发、原样带走。followed_cnt＝官方右列星数（追更/收藏人数）。
+     */
+    private static void fillInfoStack(HgSeriesItem item, JsonObject o, JsonObject rrl) {
+        JsonArray infos = arr(o, "secondary_infos");
+        if (infos == null && rrl != null) infos = arr(rrl, "secondary_info_list");
+        if (infos != null) {
+            List<JsonObject> entries = new ArrayList<>();
+            for (JsonElement e : infos) {
+                if (e.isJsonObject() && str(e.getAsJsonObject(), "content") != null) {
+                    entries.add(e.getAsJsonObject());
+                }
+            }
+            entries.sort((a, b) -> Integer.compare(
+                    intOf(b, "KeepPriority", 0), intOf(a, "KeepPriority", 0)));
+            List<String> chips = new ArrayList<>();
+            int scorePos = -1;
+            for (JsonObject e : entries) {
+                if (intOf(e, "data_type", -1) == 4 && scorePos < 0) scorePos = chips.size();
+                chips.add(str(e, "content"));
+            }
+            if (!chips.isEmpty()) {
+                item.infoChips = chips;
+                item.scoreChipPos = scorePos;
+            }
+        }
+        JsonArray recTags = arr(o, "rec_tags");
+        if (recTags != null) {
+            for (JsonElement te : recTags) {
+                if (!te.isJsonObject()) continue;
+                JsonObject t = te.getAsJsonObject();
+                // 条面文案两形：content 直接是榜单形，或 recommend_reason
+                // 是榜单形（此时 content 是热度文案、已归 recText）
+                String rankStr = null;
+                if (isRankText(str(t, "content"))) rankStr = str(t, "content");
+                else if (isRankText(str(t, "recommend_reason"))) rankStr = str(t, "recommend_reason");
+                if (rankStr == null || item.rankText != null) continue;
+                item.rankText = rankStr;
+                item.rankIconUrl = str(t, "rec_icon_url");
+                JsonObject style = obj(t, "rec_reason_style");
+                if (style != null) {
+                    JsonArray cols = asArray(style.get("rec_style_background_colors"));
+                    if (cols == null) cols = asArray(style.get("rec_style_dark_background_colors"));
+                    if (cols != null) {
+                        List<String> colors = new ArrayList<>();
+                        for (JsonElement ce : cols) {
+                            if (ce.isJsonPrimitive() && ce.getAsJsonPrimitive().isString()) {
+                                colors.add(ce.getAsString());
+                            }
+                        }
+                        if (!colors.isEmpty()) item.rankColors = colors;
+                    }
+                }
+            }
+        }
+        item.followedCnt = longOf(o, "followed_cnt", -1);
     }
 
     /**

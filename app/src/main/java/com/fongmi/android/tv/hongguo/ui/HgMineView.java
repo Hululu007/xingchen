@@ -45,6 +45,14 @@ import java.util.Set;
  * 样式档。收藏读本地镜像＋服务端追剧架刷新；点赞读本地镜像＋本人点赞
  * 列表（mget 本人维度）并集刷新；历史读本地断点＋服务端观看历史
  * （read_history/list）同步补缺（本地断点为准）；点格子回刷剧页续播。</p>
+ *
+ * <p>历史面尾段另有自家小说历史格（官方「我的」无此格，2026-10-30 补）：
+ * 只读 HgStore 小说命名空间（hongguo_novel_hist_/index/meta，与短剧分家），
+ * 「小说」分段头＋同形书架卡（副行＝上次读到第 N 章、角标「小说」），按
+ * 断点时刻倒序；只在历史「全部」档露出（已看完/未看完是短剧集数口径，
+ * 小说无总章数落盘、不冒充分档）。点小说行按类名字符串拉小说详情页续读
+ * （详情页在 mobile 源集，主源集不直引；法照 HongguoSearchActivity）。
+ * 小说行不进编辑多选（短剧删除口径不套小说）。五签签序/结构/数据源不动。</p>
  */
 public final class HgMineView extends LinearLayout {
 
@@ -151,7 +159,15 @@ public final class HgMineView extends LinearLayout {
         tabViews[TAB_RESERVE] = findViewById(R.id.hg_mine_tab_reserve);
         tabViews[TAB_FOLLOW] = findViewById(R.id.hg_mine_tab_follow);
         RecyclerView grid = findViewById(R.id.hg_mine_grid);
-        grid.setLayoutManager(new GridLayoutManager(getContext(), 3));
+        GridLayoutManager gridLm = new GridLayoutManager(getContext(), 3);
+        // 小说分段头占满整行（3 列），其余格子一列（短剧行为不变）
+        gridLm.setSpanSizeLookup(new GridLayoutManager.SpanSizeLookup() {
+            @Override
+            public int getSpanSize(int position) {
+                return adapter.isHeader(position) ? 3 : 1;
+            }
+        });
+        grid.setLayoutManager(gridLm);
         grid.setAdapter(adapter);
         grid.addItemDecoration(new MineGridSpacing());
         findViewById(R.id.hg_mine_login_btn).setOnClickListener(v -> onAccountClick());
@@ -369,6 +385,14 @@ public final class HgMineView extends LinearLayout {
                                    @NonNull RecyclerView parent, @NonNull RecyclerView.State state) {
             int pos = parent.getChildAdapterPosition(view);
             if (pos < 0) return;
+            if (adapter.isHeader(pos)) {
+                // 分段头整行：左右贴列、上下收紧（短剧格公式不经此路）
+                outRect.left = 0;
+                outRect.right = 0;
+                outRect.top = pos == 0 ? dp(11) : dp(4);
+                outRect.bottom = dp(6);
+                return;
+            }
             int unit = dp(8);
             int col = pos % 3;
             outRect.left = col * unit / 3;
@@ -644,6 +668,14 @@ public final class HgMineView extends LinearLayout {
                 String[] m = HgStore.metaOf(r.seriesId);
                 rows.add(new Row(r.seriesId, r.title, r.cover, r.episodeCount, meta,
                         m != null && m.length > 3 ? m[3] : null));
+            }
+            if (histFilter == HIST_ALL) {
+                // 小说历史段（自家露出）：分段头＋小说行，只读小说命名空间
+                List<Row> novelRows = novelHistoryRows();
+                if (!novelRows.isEmpty()) {
+                    rows.add(Row.header());
+                    rows.addAll(novelRows);
+                }
             }
         } else if (currentTab == TAB_FOLLOW) {
             for (String id : HgStore.followedIds()) {
@@ -1016,6 +1048,56 @@ public final class HgMineView extends LinearLayout {
         return sb == null ? title : sb.toString();
     }
 
+    /** 小说副行：断点章下标（0 起）换算成第 N 章（1 起），字段只用落盘实有的章下标。 */
+    static String novelSubtitle(int chapterIndex) {
+        return "上次读到第 " + (Math.max(0, chapterIndex) + 1) + " 章";
+    }
+
+    /**
+     * 小说历史行组装（只读 HgStore 小说命名空间，不碰短剧 hist/meta 键）：
+     * 索引序为近读在前，再按断点时刻（NovelMark.updatedMs）倒序稳定重排；
+     * 无元信息/标题空/无断点的条目跳过（与短剧行「标题空跳过」同口径）。
+     * meta＝{标题, 作者, 封面}，行封面取封面、标题取标题，作者不在本面
+     * 落点字段内故不入行（详情页自会显）。
+     */
+    static List<Row> novelHistoryRows() {
+        List<Row> out = new ArrayList<>();
+        for (String bookId : HgStore.novelHistoryIds()) {
+            String[] meta = HgStore.novelMetaOf(bookId);
+            if (meta == null || meta[0] == null || meta[0].isEmpty()) continue;
+            HgStore.NovelMark mark = HgStore.novelMarkOf(bookId);
+            if (mark == null) continue;
+            out.add(Row.novel(bookId, meta[0], meta[2], mark.chapterIndex, mark.updatedMs));
+        }
+        out.sort((a, b) -> Long.compare(b.updatedMs, a.updatedMs));
+        return out;
+    }
+
+    /**
+     * 小说行落点：进小说详情页 HongguoNovelDetailActivity 续读（mobile 源集
+     * 的红果页，主源集按类名字符串拉起——逐字照 HongguoSearchActivity
+     * .openNovel 同法，extras 键同详情页 EXTRA_BOOK_ID/EXTRA_TITLE 实值）。
+     * 类不在（朋友版整套剥离/异味构建）时才回落诚实提示，不假跳。
+     */
+    private void openNovelDetail(Row row) {
+        if (row.seriesId == null || row.seriesId.isEmpty()) {
+            android.widget.Toast.makeText(getContext(),
+                    "这本书的信息不完整，打不开", android.widget.Toast.LENGTH_SHORT).show();
+            return;
+        }
+        try {
+            android.content.Intent intent = new android.content.Intent();
+            intent.setClassName(getContext(),
+                    "com.fongmi.android.tv.hongguo.ui.HongguoNovelDetailActivity");
+            intent.putExtra("hg_novel_book_id", row.seriesId);
+            intent.putExtra("hg_novel_title", row.title);
+            getContext().startActivity(intent);
+        } catch (Throwable e) {
+            android.widget.Toast.makeText(getContext(),
+                    "红果里暂不能打开小说", android.widget.Toast.LENGTH_SHORT).show();
+        }
+    }
+
     /** 书架副行样式档（官方 c3()）：有断点＝「X集/Y集」，没看过＝「未看过」。 */
     private static String shelfMeta(String seriesId, int total) {
         HgStore.Progress p = HgStore.progressOf(seriesId);
@@ -1025,22 +1107,47 @@ public final class HgMineView extends LinearLayout {
         return "看到第" + idx + "集";
     }
 
-    private static final class Row {
+    static final class Row {
+        static final int KIND_SERIES = 0;
+        static final int KIND_HEADER = 1;
+        static final int KIND_NOVEL = 2;
+
         final String seriesId;
         final String title;
         final String cover;
         final int episodeCount;
         final String meta;
         final String badge;
+        final int kind;
+        final int chapterIndex;
+        final long updatedMs;
 
         Row(String seriesId, String title, String cover, int episodeCount, String meta,
             String badge) {
+            this(seriesId, title, cover, episodeCount, meta, badge, KIND_SERIES, -1, 0);
+        }
+
+        private Row(String seriesId, String title, String cover, int episodeCount,
+                    String meta, String badge, int kind, int chapterIndex, long updatedMs) {
             this.seriesId = seriesId;
             this.title = title;
             this.cover = cover;
             this.episodeCount = episodeCount;
             this.meta = meta;
             this.badge = badge;
+            this.kind = kind;
+            this.chapterIndex = chapterIndex;
+            this.updatedMs = updatedMs;
+        }
+
+        static Row header() {
+            return new Row(null, null, null, -1, null, null, KIND_HEADER, -1, 0);
+        }
+
+        static Row novel(String bookId, String title, String cover, int chapterIndex,
+                         long updatedMs) {
+            return new Row(bookId, title, cover, -1, novelSubtitle(chapterIndex),
+                    "小说", KIND_NOVEL, chapterIndex, updatedMs);
         }
     }
 
@@ -1053,9 +1160,31 @@ public final class HgMineView extends LinearLayout {
             notifyDataSetChanged();
         }
 
+        boolean isHeader(int position) {
+            return position >= 0 && position < rows.size()
+                    && rows.get(position).kind == Row.KIND_HEADER;
+        }
+
+        @Override
+        public int getItemViewType(int position) {
+            return rows.get(position).kind;
+        }
+
         @NonNull
         @Override
         public Holder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+            if (viewType == Row.KIND_HEADER) {
+                // 分段头纯代码建（零新 res）：16sp 粗黑，与页签标题同档
+                TextView head = new TextView(parent.getContext());
+                head.setLayoutParams(new ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT));
+                head.setTextSize(16);
+                head.setTypeface(null, android.graphics.Typeface.BOLD);
+                head.setTextColor(0xFF000000);
+                head.setPadding(dp(8), dp(2), dp(8), dp(2));
+                return new Holder(head, true);
+            }
             View v = LayoutInflater.from(parent.getContext())
                     .inflate(R.layout.item_hongguo_mine_card, parent, false);
             return new Holder(v);
@@ -1064,6 +1193,25 @@ public final class HgMineView extends LinearLayout {
         @Override
         public void onBindViewHolder(@NonNull Holder h, int position) {
             Row row = rows.get(position);
+            if (row.kind == Row.KIND_HEADER) {
+                if (h.header != null) h.header.setText("小说");
+                h.itemView.setOnClickListener(null);
+                return;
+            }
+            if (row.kind == Row.KIND_NOVEL) {
+                ImgUtil.load(row.title == null ? "" : row.title, row.cover, h.cover);
+                h.title.setText(shapeGridTitle(row.title));
+                h.meta.setText(row.meta == null ? "" : row.meta);
+                h.badge.setVisibility(VISIBLE);
+                h.badge.setText(row.badge);
+                h.check.setVisibility(GONE);
+                h.itemView.setOnClickListener(v -> {
+                    // 小说行不进编辑多选（短剧删除口径不套小说）
+                    if (editing) return;
+                    openNovelDetail(row);
+                });
+                return;
+            }
             ImgUtil.load(row.title == null ? "" : row.title, row.cover, h.cover);
             h.title.setText(shapeGridTitle(row.title));
             h.meta.setText(row.meta == null ? "" : row.meta);
@@ -1102,9 +1250,24 @@ public final class HgMineView extends LinearLayout {
             final TextView meta;
             final TextView badge;
             final ImageView check;
+            final TextView header;
 
             Holder(View itemView) {
+                this(itemView, false);
+            }
+
+            Holder(View itemView, boolean isHeader) {
                 super(itemView);
+                if (isHeader) {
+                    header = (TextView) itemView;
+                    cover = null;
+                    title = null;
+                    meta = null;
+                    badge = null;
+                    check = null;
+                    return;
+                }
+                header = null;
                 cover = itemView.findViewById(R.id.hg_m_cover);
                 title = itemView.findViewById(R.id.hg_m_title);
                 meta = itemView.findViewById(R.id.hg_m_meta);

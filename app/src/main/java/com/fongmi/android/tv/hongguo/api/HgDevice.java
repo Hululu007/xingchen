@@ -48,8 +48,11 @@ public final class HgDevice {
     /** bookmall 频道续页（openhongguo app.go PathCellChange 实证）。 */
     public static final String PATH_BOOKMALL_CELL_CHANGE = "/reading/bookapi/bookmall/cell/change/v";
 
-    // 注册档案描述的设备（openhongguo sdk/model DefaultDevice，与 medusa 内的
-    // 写死设备串是两台，勿混）：Xiaomi 23127PN0CC / Android 14。
+    // 注册档案描述的设备（openhongguo sdk/model DefaultDevice）：Xiaomi
+    // 23127PN0CC / Android 14。medusa 的设备描述自 2026-10-29 起对齐本档案
+    // （HgSign.deviceProto 经下面 deviceModel/deviceBrand/deviceOsVersion
+    // 现取同一组常量，不许再各写一份），定根与预案见
+    // login-medusa-align-20261029.md。
     private static final String BRAND = "Xiaomi";
     private static final String MODEL = "23127PN0CC";
     private static final String OS_VERSION = "14";
@@ -62,6 +65,21 @@ public final class HgDevice {
     private static final String PREF_KEY = "hongguo_device_profile_v1";
 
     private HgDevice() {
+    }
+
+    /** 注册档案的机型（注册体 device_model、公参 device_type 与 medusa 机型字段同源）。 */
+    public static String deviceModel() {
+        return MODEL;
+    }
+
+    /** 注册档案的品牌（注册体 device_brand 与 device_manufacturer 同用此值，medusa 品牌/厂商字段同源）。 */
+    public static String deviceBrand() {
+        return BRAND;
+    }
+
+    /** 注册档案的系统版本（注册体/公参 os_version 与 UA 同值，medusa 系统版本字段同源）。 */
+    public static String deviceOsVersion() {
+        return OS_VERSION;
     }
 
     /** 设备档案：本地派生标识＋注册回的真 id＋注册回包的游客 Cookie 材料。 */

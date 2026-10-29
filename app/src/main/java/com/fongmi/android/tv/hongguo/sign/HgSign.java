@@ -929,8 +929,29 @@ public final class HgSign {
         return new byte[][]{hash, le32(d2)};
     }
 
-    private static byte[] deviceProto(String deviceId) {
-        // 设备串写死（机型 25053RT47C/Redmi），与注册用的设备档案是两台，照原码勿改。
+    /**
+     * medusa 的设备描述（assembleMedusa env 段字段 12 的内嵌 proto）。
+     *
+     * <p>设备串自 2026-10-29 起对齐注册档案：机型/品牌/系统版本经
+     * {@link HgDevice} 的 deviceModel/deviceBrand/deviceOsVersion 现取，
+     * 与同一请求的注册体、公参、UA 是同一台（Xiaomi 23127PN0CC /
+     * Android 14）。此前照 openhongguo 抓样写死 Redmi 25053RT47C /
+     * Android 16——三层三台是源码可证的矛盾：x-tt-dt 补齐后真机短信
+     * 登录仍被风控以「为保证账号安全，暂不支持此操作」拒，按预案第一
+     * 刀只切这组矛盾（login-ticket-dig-20261029.md 第六节、
+     * login-medusa-align-20261029.md）。字段 34（厂商位）照注册体
+     * device_manufacturer=BRAND 的口径同取品牌常量。</p>
+     *
+     * <p>字段 25–28（装机/首启族时间戳）同刀处理：此前冻结在抓样时刻
+     * 1728388016635（2024-10-07），与「刚注册、new_user=1」的档案正面
+     * 冲突；现取签名时刻 nowMillis（调用方以 khronos 秒 ×1000 传入），
+     * 字段 28 照样本形态 +2ms。</p>
+     *
+     * <p>本刀不动的：字段 5 的 token 串、字段 16–21 的传感器浮点、
+     * 消息字段 24 JSON 的环境哈希（抓样指纹族，生成规则未抠，牵连面
+     * 评估在账内）；字段 23/24/38 的整数语义未证，同列不动。</p>
+     */
+    public static byte[] deviceProto(String deviceId, long nowMillis) {
         return concat(
                 protoSInt(1, 1),
                 protoSInt(2, 2),
@@ -952,21 +973,21 @@ public final class HgSign {
                 protoFloat(19, 3.467449188232422f),
                 protoFloat(20, 255.1754913330078f),
                 protoFloat(21, 42.17544174194336f),
-                protoString(22, "16"),
+                protoString(22, HgDevice.deviceOsVersion()),
                 protoSInt(23, 41),
                 protoSInt(24, 36),
-                protoSInt(25, 1728388016635L),
-                protoSInt(26, 1728388016635L),
-                protoSInt(27, 1728388016635L),
-                protoSInt(28, 1728388016637L),
+                protoSInt(25, nowMillis),
+                protoSInt(26, nowMillis),
+                protoSInt(27, nowMillis),
+                protoSInt(28, nowMillis + 2),
                 protoSInt(29, -1),
-                protoString(30, "25053RT47C"),
-                protoString(31, "Redmi"),
-                protoString(32, "25053RT47C"),
-                protoString(33, "25053RT47C"),
-                protoString(34, "Xiaomi"),
-                protoString(35, "Redmi"),
-                protoString(36, "Redmi"),
+                protoString(30, HgDevice.deviceModel()),
+                protoString(31, HgDevice.deviceBrand()),
+                protoString(32, HgDevice.deviceModel()),
+                protoString(33, HgDevice.deviceModel()),
+                protoString(34, HgDevice.deviceBrand()),
+                protoString(35, HgDevice.deviceBrand()),
+                protoString(36, HgDevice.deviceBrand()),
                 protoSInt(38, 31));
     }
 
@@ -991,7 +1012,7 @@ public final class HgSign {
                 protoSInt(5, 7),
                 protoString(6, "v04.06.04.03-bugfix"),
                 protoSInt(7, entropy.envPid),
-                protoBytes(12, deviceProto(deviceId)),
+                protoBytes(12, deviceProto(deviceId, (khronos & 0xFFFFFFFFL) * 1000L)),
                 protoBytes(13, nested13),
                 protoString(14, versionName));
 

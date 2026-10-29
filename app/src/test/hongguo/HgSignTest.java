@@ -10,6 +10,7 @@ import com.fongmi.android.tv.hongguo.sign.HgSm3;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -72,9 +73,44 @@ public class HgSignTest {
                 "https://api5-normal-sinfonlineb.fqnovel.com/x/v1?aid=8662&device_id=7100000000000011&ts=1700000000",
                 "{\"a\":1}".getBytes(StandardCharsets.UTF_8), true, 1700000000,
                 "7100000000000011", "7.1.3.32", ent);
-        check("medusa 向量（整串，与 Go 参考值逐字全等）",
-                "A/FTZfcZDJ/XJo9e1tubFVc+Mn3NSAABthXCoU+OAdYPONbwm9+RyUZ1cbOs05Yl1aeIPCOGtW+GK2b4gMoFqK69oa1CtJNpHvFQ90KOznW75N3Iac3SIC2SIL/AEUa1LqRKHJc0OVAOzCUSF1PpwjNvKQMxteguS4MtQqRWQiRv25xZVCxPuR4K155Yu2XGsfoblNT6sUx3M9mDqh8WhMpoRbPjSwAij42sVoYMhYUMcyYL73j0agwgsSu/bMNgpLXppp9Hd7KwpiRPFCyDMGP892DPSagFV+ndwVa0M9GGxB3ksAgAUUr91XV5uEUA6/MJpv7AUUEpFfk101bKFHLmflVjL4B9K4OEos6OgkIx2gloIAOULcEBroYDODhlyRqqKT7TX53G09xaFF/YpqtuOC6ZkfG6MOBtYCrCeqgLtoubTaE/xh0VOVRVS/mQWvXYhS00Tqcb/ywQaQzDm1eBAxc1SgDLnzwzLAPLrmDI4rDLqaAWcL6yhsqXydzBShsdZOwreQE9pHzhm3Kaw1ZdV/FLHMqIKnuGoGOOAv19acvxPext43+ckznl5fV5pIj1txHIxcgg8/fQMx0xYM9ubLBnL3lZr+x7226u1kUngjM/IFDSCsVcs3QRzyjAGo+2SWLa8Sicyiq1QsQB5Xw0KWMNlA7lA8dRmxrs2ANytt9GeELT6TZqAWwwoCRbae6aXm+j2qgybmCrmffHBE3gZWgQ8pTjpWWRedesWrwwfioLmyWqRmZRl9TgaWiJpFQZwLFz9WnDhbk8/rFeQjtPH+/my02pcdEXl2Onwwg7/iS5nhWwmKn/k378VIdufE0rFeIAKs9npH8SwAuxaT0GEiWv0AZuXppB6clslZlunKcJHHZK2g/UtbSWEodVLcYPhnFt7cZe46GeFxdSUxNb26BpkjTtwLQGqVFFlFqGb5ijjxz6BVEBpXbZVpLW0+OKFDlfKj166UTiQdk4GfWp28mwvGYFiVqlBOew//nfsP/4n8SN".equals(medusa),
+        String medusa2 = HgSign.assembleMedusa(
+                "https://api5-normal-sinfonlineb.fqnovel.com/x/v1?aid=8662&device_id=7100000000000011&ts=1700000000",
+                "{\"a\":1}".getBytes(StandardCharsets.UTF_8), true, 1700000000,
+                "7100000000000011", "7.1.3.32", ent);
+        // medusa 整串 Go 向量退役（2026-10-29）：向量里的设备描述是抓样那台
+        // Redmi 的冻结快照，deviceProto 已对齐注册档案＋时间戳取签名时刻，
+        // 整串不再有固定值可对（login-medusa-align-20261029.md）。算法锚点
+        // 靠上面的 keyHash/xmxor 向量；此处断言同输入确定性＋字段级对齐。
+        check("medusa 同熵同刻确定性（整串两产一致）",
+                medusa.equals(medusa2) && medusa.length() > 100,
                 "实际长度=" + medusa.length());
+        Map<Integer, Object> dp = decodeProto(HgSign.deviceProto("7100000000000011", 1700000000123L));
+        check("deviceProto 身份号=入参 deviceId 且指纹 f5 未动",
+                "7100000000000011".equals(dp.get(4))
+                        && "Ai6svO3PyrwDOUSmO6ZcResxu".equals(dp.get(5)),
+                "实际 f4=" + dp.get(4));
+        check("deviceProto 机型对齐注册档案（f30/32/33=HgDevice 机型）",
+                "23127PN0CC".equals(dp.get(30)) && "23127PN0CC".equals(dp.get(32))
+                        && "23127PN0CC".equals(dp.get(33))
+                        && HgDevice.deviceModel().equals(dp.get(30)),
+                "实际 f30=" + dp.get(30));
+        check("deviceProto 品牌/厂商对齐注册档案（f31/34/35/36=HgDevice 品牌）",
+                "Xiaomi".equals(dp.get(31)) && "Xiaomi".equals(dp.get(34))
+                        && "Xiaomi".equals(dp.get(35)) && "Xiaomi".equals(dp.get(36))
+                        && HgDevice.deviceBrand().equals(dp.get(31)),
+                "实际 f31=" + dp.get(31));
+        check("deviceProto 系统版本对齐注册档案（f22=HgDevice 系统版本）",
+                "14".equals(dp.get(22)) && HgDevice.deviceOsVersion().equals(dp.get(22)),
+                "实际 f22=" + dp.get(22));
+        check("deviceProto 时间戳=入参时刻（f25/26/27 同值、f28 +2ms）",
+                Long.valueOf(1700000000123L).equals(dp.get(25))
+                        && Long.valueOf(1700000000123L).equals(dp.get(26))
+                        && Long.valueOf(1700000000123L).equals(dp.get(27))
+                        && Long.valueOf(1700000000125L).equals(dp.get(28)),
+                "实际 f25=" + dp.get(25) + " f28=" + dp.get(28));
+        check("deviceProto 指纹浮点未动（f16=抓样值）",
+                Float.valueOf(255.24993896484375f).equals(dp.get(16)),
+                "实际 f16=" + dp.get(16));
 
         // 2) 签名确定性：同熵同刻同体 → 两次产出逐字一致；stub 与 body MD5 对齐；
         //    查询串尾 ts/_rticket 齐。
@@ -221,5 +257,45 @@ public class HgSignTest {
 
         System.out.println(fail == 0 ? "ALL PASS" : ("FAILURES=" + fail));
         if (fail > 0) System.exit(1);
+    }
+
+    /** 最小 proto 解码（SInt 的 varint 先 zigzag 解码→Long、LEN→String、fixed32→Float），只供字段级断言。 */
+    static Map<Integer, Object> decodeProto(byte[] data) {
+        Map<Integer, Object> out = new HashMap<>();
+        int[] pos = {0};
+        while (pos[0] < data.length) {
+            long key = readVarint(data, pos);
+            int field = (int) (key >>> 3);
+            int wire = (int) (key & 7);
+            if (wire == 0) {
+                long raw = readVarint(data, pos);
+                out.put(field, (raw >>> 1) ^ -(raw & 1L));
+            } else if (wire == 2) {
+                int len = (int) readVarint(data, pos);
+                out.put(field, new String(data, pos[0], len, StandardCharsets.UTF_8));
+                pos[0] += len;
+            } else if (wire == 5) {
+                int bits = (data[pos[0]] & 0xFF) | ((data[pos[0] + 1] & 0xFF) << 8)
+                        | ((data[pos[0] + 2] & 0xFF) << 16) | ((data[pos[0] + 3] & 0xFF) << 24);
+                out.put(field, Float.intBitsToFloat(bits));
+                pos[0] += 4;
+            } else if (wire == 1) {
+                pos[0] += 8;
+            } else {
+                break;
+            }
+        }
+        return out;
+    }
+
+    static long readVarint(byte[] data, int[] pos) {
+        long v = 0;
+        int shift = 0;
+        while (true) {
+            int b = data[pos[0]++] & 0xFF;
+            v |= (long) (b & 0x7F) << shift;
+            if ((b & 0x80) == 0) return v;
+            shift += 7;
+        }
     }
 }

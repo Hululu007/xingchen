@@ -758,6 +758,28 @@ public final class HgApiClient {
         });
     }
 
+    /**
+     * 搜索落地页热搜面 GET /reading/bookapi/plan/v1/（已签名，fqnovel
+     * 宿主）：plan 通用 feed 口换 from=search_input_page 场景（账
+     * hongguo-hotsearch-dig-20261030 §1/§4.2），与 searchCues/
+     * searchSuggest 逐形同构走 getSigned＋hotSearchPairs（ohg 抓样
+     * 13 参 wire），解析见 HgParser.parseHotSearch。失败/空面由消费
+     * 侧静默不显（落地态只显历史，与联想失败同口径）。
+     */
+    public void fetchHotSearch(HgCallback<com.fongmi.android.tv.hongguo.model.HgHotSearch> cb) {
+        getSigned(HgDevice.PATH_PLAN, HgRequests.hotSearchPairs(), new BodyCallback() {
+            @Override
+            void onBody(String text) {
+                cb.onSuccess(HgParser.parseHotSearch(text));
+            }
+
+            @Override
+            void onFail(int code, String msg) {
+                cb.onError(code, msg);
+            }
+        });
+    }
+
     /** 搜索翻页：同 searchTab，offset 为服务端回包下发的 next_offset 游标（消费侧未拿到下发值时回落已取条数）。 */
     public void searchTab(String keyword, int offset, HgCallback<HgCellPage> cb) {
         searchTab(keyword, offset, 11, cb);

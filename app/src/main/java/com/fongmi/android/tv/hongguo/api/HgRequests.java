@@ -305,6 +305,37 @@ public final class HgRequests {
     }
 
     /**
+     * 搜索落地页热搜面有序参数（openhongguo SignedHotSearchPairs 逐字，
+     * request.go:379-395）：设备公共参后依次追加 13 对——user_is_login=0／
+     * bookstore_tab=16／bookstore_tab_type=16／scene=10／limit=0／
+     * tab_name=feed／from=search_input_page／query_history_removed=false／
+     * offset=0／search_middle_page_version=4／search_source=1／
+     * new_search_middle_page=true／hot_word_exchange=false（账
+     * hongguo-hotsearch-dig-20261030 §1.2）。limit=0／offset=0 一发全量、
+     * 无 session/cursor 回传件；官方 presenter B() 的 ecom 字段
+     * （searchSource=ECommerce 等）与抓样 wire 不一致且未闭环，不带入
+     * （账 §1.2 第 7 行注／§4.6-6）。user_is_login 恒 0 与 searchPairs
+     * 同口径，登录态另由 getSigned 的 headers() Cookie 通道带。
+     */
+    public static java.util.List<String[]> hotSearchPairs() {
+        java.util.List<String[]> pairs = HgDevice.deviceQueryPairs();
+        pairs.add(new String[]{"user_is_login", "0"});
+        pairs.add(new String[]{"bookstore_tab", "16"});
+        pairs.add(new String[]{"bookstore_tab_type", "16"});
+        pairs.add(new String[]{"scene", "10"});
+        pairs.add(new String[]{"limit", "0"});
+        pairs.add(new String[]{"tab_name", "feed"});
+        pairs.add(new String[]{"from", "search_input_page"});
+        pairs.add(new String[]{"query_history_removed", "false"});
+        pairs.add(new String[]{"offset", "0"});
+        pairs.add(new String[]{"search_middle_page_version", "4"});
+        pairs.add(new String[]{"search_source", "1"});
+        pairs.add(new String[]{"new_search_middle_page", "true"});
+        pairs.add(new String[]{"hot_word_exchange", "false"});
+        return pairs;
+    }
+
+    /**
      * 搜索联想有序参数（openhongguo SignedSuggestPairs 逐字）：
      * 设备公共参 ＋ query/count=10/search_source=1（SearchSourceHome）/
      * user_is_login=0。

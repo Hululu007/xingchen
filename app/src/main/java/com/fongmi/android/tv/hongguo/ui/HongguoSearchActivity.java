@@ -29,6 +29,10 @@ import com.fongmi.android.tv.hongguo.api.HgCallback;
 import com.fongmi.android.tv.hongguo.model.HgAuthorHit;
 import com.fongmi.android.tv.hongguo.model.HgAuthorWork;
 import com.fongmi.android.tv.hongguo.model.HgCellPage;
+import com.fongmi.android.tv.hongguo.model.HgHotBoard;
+import com.fongmi.android.tv.hongguo.model.HgHotItem;
+import com.fongmi.android.tv.hongguo.model.HgHotSearch;
+import com.fongmi.android.tv.hongguo.model.HgHotTopic;
 import com.fongmi.android.tv.hongguo.model.HgSearchRow;
 import com.fongmi.android.tv.hongguo.model.HgSearchTab;
 import com.fongmi.android.tv.hongguo.model.HgSeriesItem;
@@ -41,7 +45,9 @@ import java.util.List;
 
 /**
  * 红果搜索面：三态——落地/清空时显搜索历史（本地 HgStore，最近在前，
- * 块头带清除位）；输入中 300ms 防抖拉联想（search/suggest 已签名口，
+ * 块头带清除位）＋热搜面（plan/v1 search_input_page：猜你想搜行＋
+ * 热搜榜逐板，历史段之后同列续排，有数据才显、取数失败静默不显，
+ * 账 hongguo-hotsearch-dig-20261030）；输入中 300ms 防抖拉联想（search/suggest 已签名口，
  * word_type=2 的词条带剧 id 可直达进剧，其余回填再搜）；提交后走
  * search/tab 结果（offset 翻页，滑到底续拉）。
  * 2026-10-28 逐项重对补全：此前联想接口在客户端里是旧无签名死形、
@@ -68,6 +74,15 @@ public class HongguoSearchActivity extends BaseActivity {
     private static final int TYPE_USER = 4;
     private static final int TYPE_POST = 5;
     private static final int TYPE_BOOK = 6;
+    // 落地态热搜行（猜行/板行/话题行同布局，账 hongguo-hotsearch-dig §4.4）
+    private static final int TYPE_HOT = 7;
+
+    // 落地态段表行型（MODE_HISTORY 专用：历史段＋猜段＋板段扁平化）
+    private static final int SEC_HISTORY_HEADER = 0;
+    private static final int SEC_HISTORY_WORD = 1;
+    private static final int SEC_HOT_HEADER = 2;
+    private static final int SEC_HOT_ITEM = 3;
+    private static final int SEC_HOT_TOPIC = 4;
 
     private ActivityHongguoSearchBinding binding;
     private HgFeedSession session;
@@ -80,6 +95,13 @@ public class HongguoSearchActivity extends BaseActivity {
     private final List<HgSearchRow> rows = new ArrayList<>();
     private final List<HgSuggestion> suggestions = new ArrayList<>();
     private final List<String> history = new ArrayList<>();
+    /** 落地态段表（MODE_HISTORY 的唯一数据源）：历史段（头＋词行，
+     * 无历史整段不出）之后接热搜面猜段与逐板段，构成照回包原序。 */
+    private final List<LandingRow> landingRows = new ArrayList<>();
+    /** 热搜面整包（plan/v1 回包）；未拉到/空面为 null，落地态只显历史。 */
+    private HgHotSearch hotSearch;
+    private boolean hotLoaded;
+    private int hotSeq;
     private RecyclerView.Adapter<RecyclerView.ViewHolder> adapter;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private Runnable pendingSuggest;
@@ -162,8 +184,17 @@ public class HongguoSearchActivity extends BaseActivity {
                     return TYPE_RESULT;
                 }
                 if (mode == MODE_SUGGEST) return TYPE_SUG;
-                if (position == 0) return TYPE_HEADER;
-                return TYPE_TEXT;
+                // 落地态按段表分发（历史头/热搜段头同 TYPE_HEADER，靠段型分清清除位）
+                switch (landingRows.get(position).sec) {
+                    case SEC_HISTORY_HEADER:
+                    case SEC_HOT_HEADER:
+                        return TYPE_HEADER;
+                    case SEC_HOT_ITEM:
+                    case SEC_HOT_TOPIC:
+                        return TYPE_HOT;
+                    default:
+                        return TYPE_TEXT;
+                }
             }
 
             @NonNull
@@ -187,6 +218,9 @@ public class HongguoSearchActivity extends BaseActivity {
                 }
                 if (viewType == TYPE_SUG) {
                     return new SugHolder(inflater.inflate(R.layout.item_hongguo_search_sug, parent, false));
+                }
+                if (viewType == TYPE_HOT) {
+                    return new HotHolder(inflater.inflate(R.layout.item_hongguo_search_hot, parent, false));
                 }
                 TextView tv = (TextView) inflater.inflate(R.layout.item_hongguo_search_text, parent, false);
                 return new TextHolder(tv);
@@ -261,10 +295,18 @@ public class HongguoSearchActivity extends BaseActivity {
                 }
                 int type = getItemViewType(position);
                 if (type == TYPE_HEADER) {
-                    ((HeaderHolder) holder).clear.setOnClickListener(v -> {
+                    HeaderHolder hh = (HeaderHolder) holder;
+                    LandingRow r = landingRows.get(position);
+                    hh.title.setText(r.headerText == null ? "" : r.headerText);
+                    // 清除位只属历史头；热搜段头同布局复用、此位隐去且不挂点击
+                    boolean hist = r.sec == SEC_HISTORY_HEADER;
+                    hh.clear.setVisibility(hist ? View.VISIBLE : View.GONE);
+                    hh.clear.setOnClickListener(hist ? v -> {
                         HgStore.clearSearchHistory();
                         showHistory();
-                    });
+                    } : null);
+                } else if (type == TYPE_HOT) {
+                    bindHotRow((HotHolder) holder, landingRows.get(position));
                 } else if (type == TYPE_SUG) {
                     HgSuggestion s = suggestions.get(position);
                     SugHolder h = (SugHolder) holder;
@@ -277,7 +319,7 @@ public class HongguoSearchActivity extends BaseActivity {
                     });
                 } else {
                     TextView tv = ((TextHolder) holder).text;
-                    String word = history.get(position - 1);
+                    String word = landingRows.get(position).word;
                     tv.setText(word);
                     tv.setTextColor(0xFF303030);
                     tv.setOnClickListener(v -> {
@@ -292,7 +334,7 @@ public class HongguoSearchActivity extends BaseActivity {
             public int getItemCount() {
                 if (mode == MODE_RESULT) return useRows() ? rows.size() : results.size();
                 if (mode == MODE_SUGGEST) return suggestions.size();
-                return history.isEmpty() ? 0 : history.size() + 1;
+                return landingRows.size();
             }
         };
         linearManager = new LinearLayoutManager(this);
@@ -406,7 +448,166 @@ public class HongguoSearchActivity extends BaseActivity {
         history.clear();
         history.addAll(HgStore.searchHistory());
         binding.hgSearchState.setVisibility(View.GONE);
+        rebuildLandingRows();
         adapter.notifyDataSetChanged();
+        loadHotSearch();
+    }
+
+    /**
+     * 落地态段表组装（构成照账 §2/§4.4，同一列表线性单列、序照回包）：
+     * 历史头＋历史词行（无历史整段不出，维持原口径）→ 猜你想搜头
+     * （文案取回包 cell_name 原文）＋猜行 → 逐板（板头取 cell_name
+     * 原文＋板行／话题行）。热搜面没拉到/空面时段表只有历史段。
+     */
+    private void rebuildLandingRows() {
+        landingRows.clear();
+        if (!history.isEmpty()) {
+            landingRows.add(LandingRow.historyHeader());
+            for (String w : history) landingRows.add(LandingRow.historyWord(w));
+        }
+        if (hotSearch == null) return;
+        if (!hotSearch.getGuesses().isEmpty()) {
+            String name = hotSearch.getGuessName();
+            landingRows.add(LandingRow.hotHeader(
+                    name == null || name.isEmpty() ? "猜你想搜" : name));
+            for (HgHotItem it : hotSearch.getGuesses()) {
+                landingRows.add(LandingRow.hotItem(it, false));
+            }
+        }
+        for (HgHotBoard board : hotSearch.getBoards()) {
+            if (board.getName() != null && !board.getName().isEmpty()) {
+                landingRows.add(LandingRow.hotHeader(board.getName()));
+            }
+            for (HgHotItem it : board.getItems()) {
+                landingRows.add(LandingRow.hotItem(it, true));
+            }
+            for (HgHotTopic t : board.getTopics()) {
+                landingRows.add(LandingRow.hotTopic(t));
+            }
+        }
+    }
+
+    /**
+     * 热搜面拉取（进页/清空输入回到落地态触发，本页只拉一次）：成功且
+     * 非空才并进段表；失败或两面皆空静默只显历史（与 fetchSuggest
+     * 失败「不打扰」同口径，不摆假行、不弹错）。失败不置已拉旗，
+     * 下次回到落地态再试。
+     */
+    private void loadHotSearch() {
+        if (hotLoaded) return;
+        final int seq = ++hotSeq;
+        session.client.fetchHotSearch(new HgCallback<HgHotSearch>() {
+            @Override
+            public void onSuccess(HgHotSearch page) {
+                hotLoaded = true;
+                runOnUiThread(() -> {
+                    if (seq != hotSeq || page == null || page.isEmpty()) return;
+                    hotSearch = page;
+                    if (mode != MODE_HISTORY) return;
+                    rebuildLandingRows();
+                    adapter.notifyDataSetChanged();
+                });
+            }
+
+            @Override
+            public void onError(int httpCode, String message) {
+                // 静默：落地态保持只有历史
+            }
+        });
+    }
+
+    /**
+     * 热搜行绑卡（照官方 bi0 构成，账 §4.4）：序号=position（仅板行
+     * 显，猜行/话题行隐序号位）、标题=title、角标=tag_info.text（有才
+     * 显，底色取 tag_info.bg_color[0]）、副行=card_tips 为空回落
+     * rec_text（§4.6-1 适配口径：card_tips 是榜单自身数值、语义近
+     * 副行，非定版，待真机对照官方图再校）；话题行副行装 heat。
+     * 猜行专属布局未抠到，与板行同布局隐序号位承接（§4.6-2 适配）。
+     */
+    private void bindHotRow(HotHolder h, LandingRow r) {
+        if (r.sec == SEC_HOT_TOPIC) {
+            HgHotTopic t = r.topic;
+            h.pos.setVisibility(View.INVISIBLE);
+            h.pos.setText("");
+            h.title.setText(t.getTitle() == null ? "" : t.getTitle());
+            h.tag.setVisibility(View.GONE);
+            setHotSub(h, t.getHeat());
+            h.itemView.setOnClickListener(v -> onHotTopicClick(t));
+            return;
+        }
+        HgHotItem it = r.item;
+        if (r.showPos) {
+            h.pos.setVisibility(View.VISIBLE);
+            h.pos.setText(String.valueOf(it.getPosition()));
+        } else {
+            h.pos.setVisibility(View.INVISIBLE);
+            h.pos.setText("");
+        }
+        h.title.setText(it.getTitle() == null ? "" : it.getTitle());
+        if (it.getTag() != null && !it.getTag().isEmpty()) {
+            h.tag.setVisibility(View.VISIBLE);
+            h.tag.setText(it.getTag());
+            android.graphics.drawable.Drawable bg = h.tag.getBackground();
+            if (bg instanceof android.graphics.drawable.GradientDrawable) {
+                android.graphics.drawable.GradientDrawable gd =
+                        (android.graphics.drawable.GradientDrawable) bg.mutate();
+                gd.setColor(parseTagColor(it.getTagBg()));
+            }
+        } else {
+            h.tag.setVisibility(View.GONE);
+        }
+        String sub = it.getSearchScore();
+        if (sub == null || sub.isEmpty()) sub = it.getHeat();
+        setHotSub(h, sub);
+        h.itemView.setOnClickListener(v -> onHotItemClick(it));
+    }
+
+    private void setHotSub(HotHolder h, String text) {
+        if (text != null && !text.isEmpty()) {
+            h.sub.setVisibility(View.VISIBLE);
+            h.sub.setText(text);
+        } else {
+            h.sub.setVisibility(View.GONE);
+        }
+    }
+
+    /** 角标底色解析（tag_info.bg_color 原文如「#00AE83」）；解不出回落布局缺省同值。 */
+    private static int parseTagColor(String raw) {
+        if (raw != null && !raw.isEmpty()) {
+            try {
+                return android.graphics.Color.parseColor(raw);
+            } catch (Exception ignored) {
+            }
+        }
+        return 0xFF00AE83;
+    }
+
+    /**
+     * 热搜作品行点击分发（复用现行落点，账 §4.5）：组 HgSeriesItem 走
+     * 现行 onResultClick（其余型→集流 startSeries）。一个新增分支：
+     * content_type＝1003 合集行——热搜行无 album_info/album_id_str，
+     * 以 series_id 直作 albumId 进合集详情页（ohg 模型里该行唯一身份
+     * 就是 series_id；此分支属推定、列首验项 §4.6-3，验不过回落
+     * startSeries 并记账）。
+     */
+    private void onHotItemClick(HgHotItem item) {
+        if (item == null || item.getSeriesId() == null || item.getSeriesId().isEmpty()) return;
+        if (item.getContentType() == 1003) {
+            HongguoAlbumActivity.start(this, item.getSeriesId(), item.getTitle(), item.getCoverUrl());
+            return;
+        }
+        onResultClick(HgSeriesItem.of(item.getSeriesId(), item.getTitle(), item.getCoverUrl(),
+                null, item.getEpisodeCount(), false, false, null));
+    }
+
+    /** 话题行点击：以 query 发起一次搜索（与历史词点击同形，doSearch 自带记历史）；query 解不出时用标题兜底。 */
+    private void onHotTopicClick(HgHotTopic topic) {
+        String q = topic.getQuery();
+        if (q == null || q.isEmpty()) q = topic.getTitle();
+        if (q == null || q.isEmpty()) return;
+        binding.hgSearchInput.setText(q);
+        binding.hgSearchInput.setSelection(q.length());
+        doSearch();
     }
 
     private void fetchSuggest(String prefix) {
@@ -836,10 +1037,67 @@ public class HongguoSearchActivity extends BaseActivity {
 
     private static final class HeaderHolder extends RecyclerView.ViewHolder {
         final View clear;
+        final TextView title;
 
         HeaderHolder(View root) {
             super(root);
             this.clear = root.findViewById(R.id.hg_hist_clear);
+            this.title = root.findViewById(R.id.hg_section_title);
+        }
+    }
+
+    private static final class HotHolder extends RecyclerView.ViewHolder {
+        final TextView pos;
+        final TextView title;
+        final TextView tag;
+        final TextView sub;
+
+        HotHolder(View root) {
+            super(root);
+            this.pos = root.findViewById(R.id.hg_hot_pos);
+            this.title = root.findViewById(R.id.hg_hot_title);
+            this.tag = root.findViewById(R.id.hg_hot_tag);
+            this.sub = root.findViewById(R.id.hg_hot_sub);
+        }
+    }
+
+    /** 落地态段表一行（段型＋该行料，见 rebuildLandingRows）。 */
+    private static final class LandingRow {
+        final int sec;
+        final String headerText;
+        final String word;
+        final HgHotItem item;
+        final HgHotTopic topic;
+        final boolean showPos;
+
+        private LandingRow(int sec, String headerText, String word,
+                           HgHotItem item, HgHotTopic topic, boolean showPos) {
+            this.sec = sec;
+            this.headerText = headerText;
+            this.word = word;
+            this.item = item;
+            this.topic = topic;
+            this.showPos = showPos;
+        }
+
+        static LandingRow historyHeader() {
+            return new LandingRow(SEC_HISTORY_HEADER, "搜索历史", null, null, null, false);
+        }
+
+        static LandingRow historyWord(String word) {
+            return new LandingRow(SEC_HISTORY_WORD, null, word, null, null, false);
+        }
+
+        static LandingRow hotHeader(String name) {
+            return new LandingRow(SEC_HOT_HEADER, name, null, null, null, false);
+        }
+
+        static LandingRow hotItem(HgHotItem item, boolean showPos) {
+            return new LandingRow(SEC_HOT_ITEM, null, null, item, null, showPos);
+        }
+
+        static LandingRow hotTopic(HgHotTopic topic) {
+            return new LandingRow(SEC_HOT_TOPIC, null, null, null, topic, false);
         }
     }
 

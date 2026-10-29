@@ -514,6 +514,167 @@ public final class HgParser {
         return out;
     }
 
+    // ---------- 热搜面（plan/v1 search_input_page，openhongguo ParseHotSearch 逐步译） ----------
+
+    /**
+     * 热搜面回包 → 猜你想搜行＋热搜榜板（照 openhongguo ParseHotSearch，
+     * 账 hongguo-hotsearch-dig-20261030 §2）：顶层 code 非 0/回包坏回
+     * 空面；遍历 data[] 取 lynx_data（字符串化的 JSON 数组、内联数组
+     * 亦容忍），cells 里自带 video_data 的 cell 进 guesses（段名取该
+     * cell 的 cell_name 原文）、带 cell_data 的容器 cell 逐板收
+     * items（video_data）／topics（video_topic），空板丢弃。行字段
+     * 逐字照 §2.3 收（series_id/title/cover/episode_cnt/content_type/
+     * card_tips→searchScore/rec_text→heat/tag_info.text→tag，另收
+     * tag_info.bg_color[0] 与 vid）；series_id 为空的行丢弃，position
+     * 按各面收录序自算。本机首发探针实证（2026-10-30）：同口两次回包
+     * 猜面 cell 一次为 483/video_data 形、一次为 620/search_tag_data
+     * 词标形——后者不在 ohg 模型与 fixture 内，本解析按定版只认
+     * video_data 形，那次回包即只出榜面（猜面静默不出），如实记账。
+     */
+    public static HgHotSearch parseHotSearch(String json) {
+        HgHotSearch empty = new HgHotSearch(null, null, null);
+        if (json == null || json.isEmpty()) return empty;
+        JsonObject root;
+        try {
+            root = JsonParser.parseString(json).getAsJsonObject();
+        } catch (Exception e) {
+            return empty;
+        }
+        // code 容忍判定与 ohg/parseSuggest 同口径：带了且非 0 才算错
+        // （str 对数字形 code 同样返回 "0" 文本，两形都认）
+        String code = str(root, "code");
+        if (code != null && !"0".equals(code)) return empty;
+        JsonArray data = arr(root, "data");
+        if (data == null) return empty;
+        List<HgHotItem> guesses = new ArrayList<>();
+        List<HgHotBoard> boards = new ArrayList<>();
+        String guessName = null;
+        for (JsonElement cellEl : data) {
+            if (cellEl == null || !cellEl.isJsonObject()) continue;
+            JsonArray cells = lynxCells(cellEl.getAsJsonObject().get("lynx_data"));
+            if (cells == null) continue;
+            for (JsonElement ce : cells) {
+                if (ce == null || !ce.isJsonObject()) continue;
+                JsonObject cell = ce.getAsJsonObject();
+                JsonArray vd = arr(cell, "video_data");
+                if (vd != null && vd.size() > 0) {
+                    List<HgHotItem> rows = hotItems(vd);
+                    if (!rows.isEmpty()) {
+                        if (guessName == null) guessName = str(cell, "cell_name");
+                        guesses.addAll(rows);
+                    }
+                }
+                JsonArray boardCells = arr(cell, "cell_data");
+                if (boardCells == null) continue;
+                for (JsonElement be : boardCells) {
+                    if (be == null || !be.isJsonObject()) continue;
+                    JsonObject b = be.getAsJsonObject();
+                    List<HgHotItem> items = hotItems(arr(b, "video_data"));
+                    List<HgHotTopic> topics = hotTopics(arr(b, "video_topic"));
+                    if (items.isEmpty() && topics.isEmpty()) continue;
+                    boards.add(new HgHotBoard(str(b, "cell_name"), items, topics));
+                }
+            }
+        }
+        return new HgHotSearch(guessName, guesses, boards);
+    }
+
+    /** lynx_data 解开：字符串先解串成数组、内联数组直用、对象包一层；解不开返回 null。 */
+    private static JsonArray lynxCells(JsonElement el) {
+        if (el == null) return null;
+        if (el.isJsonArray()) return el.getAsJsonArray();
+        if (el.isJsonObject()) {
+            JsonArray one = new JsonArray();
+            one.add(el);
+            return one;
+        }
+        if (el.isJsonPrimitive() && el.getAsJsonPrimitive().isString()) {
+            String s = el.getAsString();
+            if (s == null || s.trim().isEmpty()) return null;
+            try {
+                JsonElement parsed = JsonParser.parseString(s);
+                if (parsed != null && parsed.isJsonArray()) return parsed.getAsJsonArray();
+                if (parsed != null && parsed.isJsonObject()) {
+                    JsonArray one = new JsonArray();
+                    one.add(parsed);
+                    return one;
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return null;
+    }
+
+    /** video_data 行表 → 热搜行（series_id 为空丢弃，position 按收录序自算）。 */
+    private static List<HgHotItem> hotItems(JsonArray rows) {
+        List<HgHotItem> out = new ArrayList<>();
+        if (rows == null) return out;
+        for (JsonElement el : rows) {
+            if (el == null || !el.isJsonObject()) continue;
+            JsonObject r = el.getAsJsonObject();
+            String id = firstStr(r, "series_id");
+            if (id == null) id = longStr(r, "series_id");
+            if (id == null) continue;
+            JsonObject tagInfo = obj(r, "tag_info");
+            String tagBg = null;
+            if (tagInfo != null) {
+                JsonArray bg = arr(tagInfo, "bg_color");
+                if (bg != null && bg.size() > 0 && bg.get(0).isJsonPrimitive()) {
+                    tagBg = bg.get(0).getAsString();
+                }
+            }
+            out.add(new HgHotItem(out.size() + 1, id, str(r, "title"), str(r, "cover"),
+                    intOf(r, "episode_cnt", -1), intOf(r, "content_type", -1),
+                    str(r, "card_tips"), str(r, "rec_text"),
+                    tagInfo == null ? null : str(tagInfo, "text"), tagBg,
+                    firstStr(r, "vid")));
+        }
+        return out;
+    }
+
+    /** video_topic 行表 → 话题行（heat 取 secondary_info_list[0].content，query 从 url 解 directQueryWord）。 */
+    private static List<HgHotTopic> hotTopics(JsonArray rows) {
+        List<HgHotTopic> out = new ArrayList<>();
+        if (rows == null) return out;
+        for (JsonElement el : rows) {
+            if (el == null || !el.isJsonObject()) continue;
+            JsonObject t = el.getAsJsonObject();
+            String id = firstStr(t, "topic_id");
+            if (id == null) id = longStr(t, "topic_id");
+            String title = str(t, "title");
+            if (title == null || title.isEmpty()) continue;
+            String heat = null;
+            JsonArray infos = arr(t, "secondary_info_list");
+            if (infos != null && infos.size() > 0 && infos.get(0).isJsonObject()) {
+                heat = str(infos.get(0).getAsJsonObject(), "content");
+            }
+            out.add(new HgHotTopic(id, title, topicQuery(str(t, "url")), heat));
+        }
+        return out;
+    }
+
+    /** 话题 url 里解 directQueryWord（dragon8662://search?…&directQueryWord=…&…#…），解不出返回 null。 */
+    private static String topicQuery(String url) {
+        if (url == null) return null;
+        String key = "directQueryWord=";
+        int at = url.indexOf(key);
+        if (at < 0) return null;
+        String rest = url.substring(at + key.length());
+        int end = rest.length();
+        int amp = rest.indexOf('&');
+        if (amp >= 0) end = Math.min(end, amp);
+        int hash = rest.indexOf('#');
+        if (hash >= 0) end = Math.min(end, hash);
+        String raw = rest.substring(0, end);
+        if (raw.isEmpty()) return null;
+        try {
+            String decoded = java.net.URLDecoder.decode(raw, "UTF-8");
+            return decoded.isEmpty() ? null : decoded;
+        } catch (Exception e) {
+            return raw;
+        }
+    }
+
     /** 数字字段取值：没带或非数字为 null（区别于 intOf 的 -1 哨兵，状态类字段用）。 */
     private static Integer intOrNull(JsonObject o, String key) {
         JsonElement e = o == null ? null : o.get(key);

@@ -101,6 +101,7 @@ app/src/main/res/layout/item_hongguo_search_text.xml
 app/src/main/res/layout/item_hongguo_search_user.xml
 app/src/main/res/layout/item_hongguo_search_post.xml
 app/src/main/res/layout/item_hongguo_search_book.xml
+app/src/main/res/layout/item_hongguo_search_hot.xml
 app/src/main/res/layout/activity_hongguo_album.xml
 app/src/main/res/layout/item_hongguo_album_episode.xml
 app/src/main/res/layout/view_hongguo_detail_panel.xml
@@ -117,6 +118,7 @@ app/src/main/res/drawable/bg_hg_refresh_pill.xml
 app/src/main/res/drawable/bg_hg_bottom_scrim.xml
 app/src/main/res/drawable/bg_hg_chip.xml
 app/src/main/res/drawable/bg_hg_tag.xml
+app/src/main/res/drawable/bg_hg_hot_tag.xml
 app/src/main/res/drawable/bg_hg_cover_r6.xml
 app/src/main/res/drawable/bg_hg_cover_r12.xml
 app/src/main/res/drawable/bg_hg_detail_card.xml

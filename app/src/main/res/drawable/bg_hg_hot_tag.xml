@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 热搜行角标底（官方 bi0 的 gqb 角标位）：底色由代码按回包
+     tag_info.bg_color[0] 覆盖（GradientDrawable.setColor），本文件
+     只给形状与缺省色；圆角 4dp 与树内同族标签底（bg_hg_tag）同值。
+     缺省色取 fixture/真回包 tag_info.bg_color 的实有值 #00AE83。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="4dp" />
+    <solid android:color="#FF00AE83" />
+</shape>

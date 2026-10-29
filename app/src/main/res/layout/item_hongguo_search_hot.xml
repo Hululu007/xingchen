@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 红果搜索热搜行：照官方 bi0（item_rank_hot_search）定版数值落——
+     序号 23dp 宽、14sp 粗、居中、黑；标题 14sp 黑、单行省略；副行
+     12sp、#66000000（skin_color_gray_40）；角标 9sp 粗、左右 padding
+     4dp／上下 2dp，文与底色由代码按 tag_info 填。行宽：官方 bi0 的
+     @dimen/wn（276dp）是 Lynx 面内行宽，咱家整宽列表取 match_parent
+     （适配项，账 hongguo-hotsearch-dig-20261030 §4.4）；行上下
+     padding 与标题列 marginStart 是 Lynx 面间距未抠到时的列表适配值，
+     非官方定版（残项记 impl 账）。话题行与猜行同复用本布局（话题行
+     隐序号/角标、副行装 heat；猜行隐序号位，账 §4.4 适配口径）。 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="?attr/selectableItemBackground"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingStart="16dp"
+    android:paddingTop="8dp"
+    android:paddingEnd="16dp"
+    android:paddingBottom="8dp">
+
+    <TextView
+        android:id="@+id/hg_hot_pos"
+        android:layout_width="23dp"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:includeFontPadding="false"
+        android:maxLines="1"
+        android:textColor="#FF000000"
+        android:textSize="14sp"
+        android:textStyle="bold" />
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/hg_hot_title"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textColor="#FF000000"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/hg_hot_tag"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:background="@drawable/bg_hg_hot_tag"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:paddingStart="4dp"
+                android:paddingTop="2dp"
+                android:paddingEnd="4dp"
+                android:paddingBottom="2dp"
+                android:textColor="#FFFFFFFF"
+                android:textSize="9sp"
+                android:textStyle="bold"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/hg_hot_sub"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:ellipsize="end"
+            android:includeFontPadding="false"
+            android:maxLines="1"
+            android:textColor="#66000000"
+            android:textSize="12sp"
+            android:visibility="gone" />
+    </LinearLayout>
+</LinearLayout>

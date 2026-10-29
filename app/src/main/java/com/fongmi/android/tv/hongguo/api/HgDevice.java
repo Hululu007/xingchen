@@ -47,6 +47,11 @@ public final class HgDevice {
     public static final String PATH_BOOKMALL_TAB = "/reading/bookapi/bookmall/tab/v";
     /** bookmall 频道续页（openhongguo app.go PathCellChange 实证）。 */
     public static final String PATH_BOOKMALL_CELL_CHANGE = "/reading/bookapi/bookmall/cell/change/v";
+    /** plan 通用 feed 口（尾斜杠、字面 v1，openhongguo app.go PathPlan 实证）：
+     * 搜索落地页热搜面 from=search_input_page 走此口（账
+     * hongguo-hotsearch-dig-20261030 §1.1，官方模板 a45/c 的
+     * $GET /reading/bookapi/plan/v:version/ 互证）。 */
+    public static final String PATH_PLAN = "/reading/bookapi/plan/v1/";
 
     // ---------- 设备 persona（档案随身携带，openhongguo sdk/model.Device 同构） ----------
     //

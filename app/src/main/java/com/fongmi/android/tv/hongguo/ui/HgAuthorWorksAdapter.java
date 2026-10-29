@@ -131,7 +131,7 @@ public class HgAuthorWorksAdapter extends RecyclerView.Adapter<RecyclerView.View
         b.hgArDigg.setText(w.diggCount > 0 ? HgFormat.countLine(w.diggCount) : "");
     }
 
-    /** 十分制折五星（满星橘、空星灰，真矢量星取代旧 ★ 字形串）。 */
+    /** 十分制折五星（满星橘、空星灰，真矢量星取代旧字形星串）。 */
     private static void paintStars(LinearLayout row, int scoreTen) {
         int filled = Math.round(scoreTen / 2f);
         if (filled < 0) filled = 0;

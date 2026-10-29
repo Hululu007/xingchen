@@ -326,6 +326,70 @@ public final class HgFeedSession {
         });
     }
 
+    /** UGC 起播准备的在途等待表（按 vid 合并同条多次落定，只发一次详情请求）。 */
+    private final Map<String, List<java.util.function.Consumer<Boolean>>> ugcWaiters = new HashMap<>();
+
+    /**
+     * UGC 短片落定起播准备（推荐流落定链，定根账 feed-item-fetch-fail
+     * -20261029 §2/§4）：UGC vid 在单集取模型口恒回 101000，模型只随
+     * UGC 批量详情（source=17，即 {@link HgApiClient#fetchUgcVideoDetail}）
+     * 下发——起播前先拉详情把 model 灌进缓存，灌到才放行起播（done
+     * 回 true）；回包没带 model／拉不到按取数失败收口（done 回 false），
+     * 不灌空、不许退回单集口假播。缓存已有（含作者页预灌、展开定形态
+     * 灌过的）直接放行，不重复发请求。回调在主线程执行。
+     */
+    public void prepareUgcClip(int position, java.util.function.Consumer<Boolean> done) {
+        if (position < 0 || position >= items.size()) {
+            done.accept(false);
+            return;
+        }
+        HgFeedItem item = items.get(position);
+        String vid = item.videoId;
+        if (vid == null) {
+            done.accept(false);
+            return;
+        }
+        if (cache.hasFresh(vid)) {
+            done.accept(true);
+            return;
+        }
+        synchronized (ugcWaiters) {
+            List<java.util.function.Consumer<Boolean>> ws = ugcWaiters.get(vid);
+            if (ws != null) {
+                ws.add(done);
+                return;
+            }
+            ws = new ArrayList<>();
+            ws.add(done);
+            ugcWaiters.put(vid, ws);
+        }
+        client.fetchUgcVideoDetail(vid, new HgCallback<HgSeriesDetail>() {
+            @Override
+            public void onSuccess(HgSeriesDetail detail) {
+                main.post(() -> {
+                    seedUgcModel(detail);
+                    // 以缓存复核定成败：详情没带 model 时 seedUgcModel
+                    // 静默不灌，hasFresh 仍为假——按取数失败收口
+                    finishUgcPrepare(vid, cache.hasFresh(vid));
+                });
+            }
+
+            @Override
+            public void onError(int httpCode, String message) {
+                main.post(() -> finishUgcPrepare(vid, false));
+            }
+        });
+    }
+
+    private void finishUgcPrepare(String vid, boolean ready) {
+        List<java.util.function.Consumer<Boolean>> ws;
+        synchronized (ugcWaiters) {
+            ws = ugcWaiters.remove(vid);
+        }
+        if (ws == null) return;
+        for (java.util.function.Consumer<Boolean> c : ws) c.accept(ready);
+    }
+
     /**
      * UGC 单条视频的随详情 model 灌缓存：动态视频的 model 装在详情里
      * （UgcVideoDetail.video_model）、单集取模型口对它回 101000——展开

@@ -92,6 +92,12 @@ public final class HgFeedItem {
     public String authorUid;
     /** 作者简介（ugc base_info.description；样本恒空，有才带）。 */
     public String authorDesc;
+    /**
+     * 内容类型（cell content_type 抬升，存档频道回包实证：1001＝UGC
+     * 短片、1004＝正剧短片）；没带为 -1。后置字段（与 authorUid 同
+     * 惯例，不进构造器），fromSeries 负责携带、各 with* 副本负责抄。
+     */
+    public int contentType = -1;
     /** 横屏预判（cell vertical=false，账 §3.8）：取模型宽高到手前先据此给全屏观看钮。 */
     public boolean landscapeHint;
 
@@ -175,6 +181,7 @@ public final class HgFeedItem {
         }
         item.authorUid = s.getAuthorUid();
         item.authorDesc = s.getAuthorDesc();
+        item.contentType = s.getContentType();
         item.statement = s.getStatement();
         if (s.getVertical() != null) item.landscapeHint = !s.getVertical();
         return item;
@@ -194,6 +201,7 @@ public final class HgFeedItem {
         copy.statement = statement;
         copy.authorUid = authorUid;
         copy.authorDesc = authorDesc;
+        copy.contentType = contentType;
         copy.landscapeHint = landscapeHint;
         return copy;
     }
@@ -213,6 +221,7 @@ public final class HgFeedItem {
         copy.statement = statement;
         copy.authorUid = authorUid;
         copy.authorDesc = authorDesc;
+        copy.contentType = contentType;
         copy.landscapeHint = landscapeHint;
         return copy;
     }
@@ -242,8 +251,19 @@ public final class HgFeedItem {
         copy.statement = statement;
         copy.authorUid = authorUid;
         copy.authorDesc = authorDesc;
+        copy.contentType = contentType;
         copy.landscapeHint = landscapeHint;
         return copy;
+    }
+
+    /**
+     * UGC 短片（剧评/推剧短片，content_type＝1001）：它的 vid 在单集
+     * 取模型口恒回 101000，模型只能先经 UGC 批量详情（source=17）
+     * 灌进缓存再起播——会话层落定起播链靠此分流（定根账
+     * feed-item-fetch-fail-20261029 §2/§4）。
+     */
+    public boolean isUgcClip() {
+        return clip && contentType == 1001;
     }
 
     /** 是否横屏剧（宽大于高）；尺寸未知时 cell 的 vertical 预判由 fromSeries 侧补（见适配器）。 */

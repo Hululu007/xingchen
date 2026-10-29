@@ -2779,7 +2779,8 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             h.binding.hgError.setVisibility(View.GONE);
             h.binding.hgCover.setVisibility(View.VISIBLE);
         }
-        startCurrentPlayback();
+        // UGC 短片重试同样先灌模型（灌不到的那次失败多半是详情没带模型）
+        startSettledPlayback(position);
     }
 
     // ---------- 生命周期 ----------
@@ -2808,7 +2809,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         if (player != null && playingVideoId != null) {
             player.play();
         } else if (currentPos >= 0 && currentPos < session.items.size()) {
-            startCurrentPlayback();
+            startSettledPlayback(currentPos);
         }
     }
 

@@ -324,7 +324,7 @@ public final class HgParser {
                     null, null, null, subTitleList(r), null, false,
                     firstStr(album, "album_id_str", "album_id"), intOf(album, "season_cnt", -1),
                     Collections.emptyList(), -1, -1, intOrNull(r, "series_status"), null, null, null,
-                    null, null));
+                    null, null, -1));
         }
         final JsonArray seasonRows = rows;
         seasons.sort((a, b) -> Integer.compare(seasonIndex(seasonRows, a.getSeriesId()),
@@ -697,6 +697,13 @@ public final class HgParser {
                 if (longOf(v0, "digged_count", -1) >= 0) {
                     merged.addProperty("digged_count", longOf(v0, "digged_count", -1));
                 }
+                // 内容类型同在这条上（存档频道回包实证：1001＝UGC 短片、
+                // 1004＝正剧短片）——UGC 判别靠它，漏抬则流里 UGC 永远
+                // 认不出、起播只能撞单集口的 101000（定根账
+                // feed-item-fetch-fail-20261029 §1）
+                if (intOf(v0, "content_type", -1) >= 0) {
+                    merged.addProperty("content_type", intOf(v0, "content_type", -1));
+                }
             }
             putIfPresent(merged, "series_id", firstStr(vd, "series_id", "series_id_str"));
             // 完结态在 video_data 条目的 video_detail 子对象上（频道存档逐层
@@ -914,7 +921,8 @@ public final class HgParser {
                 longOf(o, "comment_count", -1), longOf(o, "digged_count", -1),
                 intOrNull(o, "series_status"), statementOf(intOrNull(o, "ai_usage_type")),
                 str(o, "author_name"), str(o, "author_avatar"),
-                str(o, "author_uid"), str(o, "author_desc"));
+                str(o, "author_uid"), str(o, "author_desc"),
+                intOf(o, "content_type", -1));
     }
 
     /**

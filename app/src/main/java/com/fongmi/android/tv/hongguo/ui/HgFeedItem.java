@@ -311,6 +311,25 @@ public final class HgFeedItem {
      * 集流里当前页就是这部剧，剧名在标题行另有位置）。状态段次序与
      * catalogTitleText 同口径：完结段在全N集之前；集数未知不编全0集。
      */
+    /**
+     * 流页剧条文案（官方流页实拍 113482 定版形态：[类目] 剧名 · 全N集）：
+     * 没有「选集」前缀、没有「已完结」状态段——那是集流 CatalogView 的
+     * 拼法，旧版流页借用了它（seriesBarText），与官方流页构成对不上。
+     * 无剧名时退「观看完整短剧 · 全N集」（官方实拍 113476 同形态）。
+     */
+    public String feedBarText() {
+        StringBuilder sb = new StringBuilder();
+        String name = title == null ? "" : title.trim();
+        if (!name.isEmpty()) {
+            if (category != null && !category.isEmpty()) sb.append(category).append(' ');
+            sb.append(name);
+        } else {
+            sb.append("观看完整短剧");
+        }
+        if (episodeCount > 0) sb.append(" · 全").append(episodeCount).append("集");
+        return sb.toString();
+    }
+
     public String seriesCatalogText() {
         boolean album = multiSeason || albumId != null || !siblings.isEmpty();
         boolean finished = seriesStatus != null && seriesStatus == 1;

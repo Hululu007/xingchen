@@ -165,6 +165,7 @@ app/src/main/res/drawable/ic_hg_menu.xml
 app/src/main/res/drawable/ic_hg_more.xml
 app/src/main/res/drawable/ic_hg_pause.xml
 app/src/main/res/drawable/ic_hg_play.xml
+app/src/main/res/drawable/ic_hg_bar_play.xml
 app/src/main/res/drawable/ic_hg_playing_orange.xml
 app/src/main/res/drawable/ic_hg_search.xml
 app/src/main/res/drawable/bg_hg_search_input.xml

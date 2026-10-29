@@ -312,7 +312,7 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
             b.hgGuideChip.setVisibility(View.GONE);
         }
         applyCatalogMode(b);
-        b.hgSeriesText.setText(seriesMode ? item.seriesCatalogText() : item.seriesBarText());
+        b.hgSeriesText.setText(seriesMode ? item.seriesCatalogText() : item.feedBarText());
         // 全屏方钮：只集流竖屏出（用户亲点件：清屏开关——按下界面全隐、
         // 只剩此钮且变淡，再按恢复；与全屏观看筹的横屏跳转分开，见
         // Host.onFsButton）；回收复用先把透明度归位（清屏态的变淡不许串页）
@@ -440,16 +440,30 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
             b.hgSeriesBar.setMinimumHeight(0);
             b.hgSeriesPlayIcon.setVisibility(View.GONE);
             textLp.setMarginStart(Math.round(16 * density));
+            b.hgSeriesText.setTextSize(14);
+            b.hgSeriesText.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
             b.hgSeriesArrow.setVisibility(View.VISIBLE);
             b.hgSeriesArrowTxt.setVisibility(View.GONE);
         } else {
+            // 流页剧条照官方流页实拍（113482/113476）重对：左标＝白圆角
+            // 方块＋深三角的视频标 20dp（左边距 14dp）、文案 15sp 常规
+            // 字重（官方非粗体）、尾箭头细「›」；旧版裸三角 14dp＋14sp
+            // 粗体＋集流文案拼法是整条借了集流的面孔
             rowLp.setMargins(0, 0, 0, 0);
             progressLp.bottomMargin = 0;
             b.hgSeriesBar.setBackgroundResource(R.drawable.bg_hg_series_bar);
             barLp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
             b.hgSeriesBar.setMinimumHeight(Math.round(44 * density));
             b.hgSeriesPlayIcon.setVisibility(View.VISIBLE);
+            b.hgSeriesPlayIcon.setImageResource(R.drawable.ic_hg_bar_play);
+            LinearLayout.LayoutParams iconLp = (LinearLayout.LayoutParams) b.hgSeriesPlayIcon.getLayoutParams();
+            iconLp.width = Math.round(20 * density);
+            iconLp.height = Math.round(20 * density);
+            iconLp.setMarginStart(Math.round(14 * density));
+            b.hgSeriesPlayIcon.setLayoutParams(iconLp);
             textLp.setMarginStart(Math.round(8 * density));
+            b.hgSeriesText.setTextSize(15);
+            b.hgSeriesText.setTypeface(android.graphics.Typeface.DEFAULT);
             b.hgSeriesArrow.setVisibility(View.GONE);
             b.hgSeriesArrowTxt.setVisibility(View.VISIBLE);
         }

@@ -3,7 +3,6 @@ package com.fongmi.android.tv.hongguo.ui;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Typeface;
-import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.view.View;
 import android.view.ViewGroup;
@@ -119,7 +118,7 @@ public class HongguoPreferenceActivity extends BaseActivity {
                 TextView sub = new TextView(this);
                 sub.setText(section.subText);
                 sub.setTextSize(12);
-                sub.setTextColor(0xFF999999);
+                sub.setTextColor(0x66000000);
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
                 lp.topMargin = dp(4);
@@ -146,6 +145,9 @@ public class HongguoPreferenceActivity extends BaseActivity {
         chip.setText(option.text);
         chip.setTextSize(14);
         chip.setPadding(dp(14), dp(5), dp(14), dp(5));
+        chip.setMinWidth(dp(56));
+        chip.setMinimumHeight(dp(32));
+        chip.setGravity(android.view.Gravity.CENTER);
         FlowLayout.LayoutParams lp = new FlowLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         lp.rightMargin = dp(8);
@@ -171,12 +173,13 @@ public class HongguoPreferenceActivity extends BaseActivity {
     }
 
     private void bindChip(TextView chip, boolean on) {
-        chip.setTextColor(on ? 0xFFFF7A1A : 0xFF333333);
+        // 与「我的」子筛筹同一定版（bb8＋selector）：选中字 #FFFA7705、
+        // 未选字 #66000000，底 bg_hg_mine_chip_on/off（圆角 8dp、
+        // #1AFA7705／#08000000）
+        chip.setTextColor(on ? 0xFFFA7705 : 0x66000000);
         chip.setTypeface(null, on ? Typeface.BOLD : Typeface.NORMAL);
-        GradientDrawable bg = new GradientDrawable();
-        bg.setCornerRadius(dp(10));
-        bg.setColor(on ? 0xFFFFF3E8 : 0xFFF5F5F5);
-        chip.setBackground(bg);
+        chip.setBackgroundResource(on ? com.fongmi.android.tv.R.drawable.bg_hg_mine_chip_on
+                : com.fongmi.android.tv.R.drawable.bg_hg_mine_chip_off);
     }
 
     private void refreshSaveState() {

@@ -65,6 +65,21 @@ public final class HgParser {
         return buildModel(requestedId, vm, vw, vh);
     }
 
+    /**
+     * 回包顶层业务码（结构化拒绝，如 UGC vid 的 101000「服务异常」）；
+     * 空体、无 code 字段、解析不了都返回 0——与限流空体区分开，供
+     * 取链层判定「是该条目被口径拒绝、不是档案被限流」。
+     */
+    public static int businessCodeOf(String json) {
+        if (json == null || json.isEmpty()) return 0;
+        try {
+            JsonObject root = JsonParser.parseString(json).getAsJsonObject();
+            return root == null ? 0 : intOf(root, "code", 0);
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
     /** fplay 回包（fallback_api 的返回）→ 单集模型。 */
     public static HgVideoModel parseFplay(String json) {
         JsonObject root = JsonParser.parseString(json).getAsJsonObject();

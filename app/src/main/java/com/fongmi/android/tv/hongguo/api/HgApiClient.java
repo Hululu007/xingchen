@@ -135,10 +135,18 @@ public final class HgApiClient {
             @Override
             void onBody(String text) {
                 HgVideoModel m = HgParser.parseSingleVideoModel(text, videoId);
-                // 错误码 -2 专表「回包无 video_model」：网关限流回 200 空体与
-                // 结构化无模型回包在解链层同形，HgPlayResolver 靠它判定进冷却
-                if (m == null) cb.onError(-2, "回包无 video_model");
-                else cb.onSuccess(m);
+                if (m != null) {
+                    cb.onSuccess(m);
+                    return;
+                }
+                // 无 model 分两形：带顶层业务码的是结构化拒绝（如 UGC vid
+                // 的 101000「服务异常」）——原样回业务码，它是该条目自身
+                // 被口径拒绝、不是档案被限流，不许与空体同口径进取模型
+                // 冷却连坐后续条目（定根账 feed-item-fetch-fail-20261029
+                // §5）；空体/无码才是限流形状，回 -2 交解链层判定冷却。
+                int biz = HgParser.businessCodeOf(text);
+                if (biz > 0) cb.onError(biz, "服务端拒绝 code=" + biz);
+                else cb.onError(-2, "回包无 video_model");
             }
 
             @Override

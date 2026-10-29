@@ -277,7 +277,12 @@ public final class HgPlayResolver {
     private static final Object FETCH_GATE = new Object();
     private static long lastFetchStartMs = 0;
 
-    /** HgApiClient 对「回包无 video_model」的错误码（限流空体与结构化无模型同口）。 */
+    /**
+     * HgApiClient 对「回包无 video_model 且无业务码」的错误码：只表限流
+     * 空体这一形。结构化拒绝（如 101000）由客户端原样回业务码（正数），
+     * 在 fetchModel 的整轮判定里不算「无模型」——它是该条目被口径拒绝，
+     * 不是档案被限流，不许触发全域冷却连坐后续正常条目。
+     */
     private static final int ERR_NO_MODEL = -2;
     /**
      * 取模型冷却时长（保守值）：定根报告（feed-all-placeholder §E）只实证
@@ -305,10 +310,14 @@ public final class HgPlayResolver {
             int[] errCode = {0};
             HgVideoModel m = fetchSigned(videoId, errCode);
             if (m != null) return m;
+            // 任一试拿到业务码（结构化拒绝，如 101000）或真 HTTP 错误，
+            // 整轮即不是限流形状：101000 是该条目自身被口径拒绝，混进
+            // 冷却判定会让一条 UGC 把 60 秒全域冷却扣到后续所有正常
+            // 条目头上（定根账 feed-item-fetch-fail-20261029 §5）
             if (errCode[0] != ERR_NO_MODEL) allNoModel = false;
         }
         if (allNoModel) {
-            // 整轮 3 试全是空体/无模型回包＝限流形状定型，进冷却
+            // 整轮 3 试全是空体/无码回包＝限流形状定型，进冷却
             modelCooldownUntilMs = System.currentTimeMillis() + MODEL_COOLDOWN_MS;
             Log.w(TAG, "取模型整轮空回，进入冷却 " + (MODEL_COOLDOWN_MS / 1000) + " 秒");
         }

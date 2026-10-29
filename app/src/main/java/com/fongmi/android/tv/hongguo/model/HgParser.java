@@ -333,19 +333,42 @@ public final class HgParser {
      * （card 形，同键集）。code 非 0（如 101001 已下架）返回空表，调用方直进剧。
      */
     public static List<HgSeriesItem> parseAlbum(String json) {
+        HgAlbumDetail detail = parseAlbumDetail(json);
+        return detail == null ? new ArrayList<>() : new ArrayList<>(detail.rows);
+    }
+
+    /**
+     * 专辑/合集详情回包 → 头部＋集列表（批四卡 8 落点）：头部字段只收
+     * album_data 实有键（见 {@link HgAlbumDetail} 类注），集列表行与
+     * parseAlbum 旧抽取同一份（series_list／video_detail_list／video_list
+     * 三形、按 seasonIndex 排序）。回包坏/无 album_data 返回 null；
+     * code 非 0 返回头部为空、行为空表的实例（与旧 parseAlbum 空表口径
+     * 一致，调用方按空名单处理）。
+     */
+    public static HgAlbumDetail parseAlbumDetail(String json) {
         List<HgSeriesItem> out = new ArrayList<>();
         JsonObject root;
         try {
             root = JsonParser.parseString(json).getAsJsonObject();
         } catch (Exception e) {
-            return out;
+            return null;
         }
         String code = str(root, "code");
-        if (code != null && !"0".equals(code)) return out;
+        if (code != null && !"0".equals(code)) {
+            return new HgAlbumDetail(null, null, null, null, -1, null, null, -1, -1,
+                    null, null, null, null, null, false, -1, out);
+        }
         JsonObject data = obj(root, "data");
-        if (data == null) return out;
+        if (data == null) return null;
         JsonObject album = obj(data, "album_data");
-        if (album == null) return out;
+        if (album == null) return null;
+        // 头部（官方 VideoAlbumHeaderLayout 字段位）：封面/标题/副标题段/
+        // 作者行/简介；计数与热度文案只收回包实有键（见 HgAlbumDetail 注）
+        JsonObject ugcUser = obj(album, "ugc_user_info");
+        JsonObject ugcBase = ugcUser == null ? null : obj(ugcUser, "base_info");
+        JsonObject ugcRel = ugcUser == null ? null : obj(ugcUser, "user_relation");
+        String hdrAuthorUid = ugcUser == null ? null : str(ugcUser, "user_id");
+        if (hdrAuthorUid == null && ugcBase != null) hdrAuthorUid = str(ugcBase, "user_id");
         JsonArray rows = arr(album, "series_list");
         // UGC 合集（搜索合集条点开的 album_detail 真回包 2026-10-29 实拉）：
         // 名单在 album_data.video_detail_list，每行 card 形
@@ -353,8 +376,8 @@ public final class HgParser {
         // 同位不同名，不补此路合集点开恒空表。
         if (rows == null) rows = arr(album, "video_detail_list");
         if (rows == null) rows = arr(album, "video_list");
-        if (rows == null) return out;
         List<HgSeriesItem> seasons = new ArrayList<>();
+        if (rows != null) {
         for (JsonElement el : rows) {
             if (!el.isJsonObject()) continue;
             JsonObject r = el.getAsJsonObject();
@@ -368,10 +391,24 @@ public final class HgParser {
                     null, null, -1, null));
         }
         final JsonArray seasonRows = rows;
-        seasons.sort((a, b) -> Integer.compare(seasonIndex(seasonRows, a.getSeriesId()),
-                seasonIndex(seasonRows, b.getSeriesId())));
-        out.addAll(seasons);
-        return out;
+        if (seasonRows != null) {
+            seasons.sort((a, b) -> Integer.compare(seasonIndex(seasonRows, a.getSeriesId()),
+                    seasonIndex(seasonRows, b.getSeriesId())));
+        }
+        }
+        return new HgAlbumDetail(
+                firstStr(album, "album_id_str", "album_id"),
+                str(album, "title"), str(album, "cover"), str(album, "intro"),
+                intOf(album, "episode_cnt", -1), subTitleList(album),
+                str(album, "hot_score_text"),
+                longOf(album, "followed_cnt", -1), longOf(album, "play_cnt", -1),
+                intOrNull(album, "series_status"), str(album, "color_hex"),
+                hdrAuthorUid,
+                ugcBase == null ? null : str(ugcBase, "user_name"),
+                ugcBase == null ? null : str(ugcBase, "user_avatar"),
+                ugcRel != null && boolOf(ugcRel, "can_follow"),
+                ugcRel == null ? -1 : intOf(ugcRel, "relation_type", -1),
+                seasons);
     }
 
     /**
@@ -530,8 +567,10 @@ public final class HgParser {
         List<HgSeriesItem> items = new ArrayList<>();
         List<HgSearchRow> rows = new ArrayList<>();
         JsonObject data = obj(root, "data");
-        // 搜索回包的页签面（data.search_tabs）：只收视频面三页签
-        // （11 综合/29 剧集/30 视频），顺序照服务端下发
+        // 搜索回包的页签面（data.search_tabs）：收短剧面五签
+        // （11 综合/29 剧集/30 视频/31 讨论/27 用户，批四补讨论与用户），
+        // 顺序照服务端下发；小说(1)/听书(2)是番茄通用面、不在短剧范围
+        // （普查总图待裁），不收
         List<HgSearchTab> tabs = new ArrayList<>();
         // search_tabs 的挂载层随回包形变（存档真回包在根级、无 data 包裹）：
         // 与 collectSeries 同口径，data 在用 data、否则用根级
@@ -542,7 +581,7 @@ public final class HgParser {
                 JsonObject t = el.getAsJsonObject();
                 int type = intOf(t, "tab_type", -1);
                 String title = str(t, "title");
-                if ((type == 11 || type == 29 || type == 30)
+                if ((type == 11 || type == 29 || type == 30 || type == 31 || type == 27)
                         && title != null && !title.isEmpty()) {
                     tabs.add(new HgSearchTab(type, title));
                 }
@@ -1315,6 +1354,22 @@ public final class HgParser {
         String albumId = firstStr(o, "album_id_str", "album_id");
         if (albumId == null && albumInfo != null) {
             albumId = firstStr(albumInfo, "album_id_str", "album_id");
+        }
+        // UGC 短片的所属合集 id（批四残项 1 定点抠查）：频道存档回包的
+        // UGC 条目本体无此字段，但搜索视频签真回包（tab30 存档逐键实证）
+        // 与详情面 video_data 都带 related_album_id——只给 1001 型作
+        // albumId 补源（正剧的 related_album_id 是多季专辑身份、已有
+        // 详情路消费，不在此改判，防串正剧系列款/系列单口径）
+        if (albumId == null && intOf(o, "content_type", -1) == 1001) {
+            albumId = firstStr(o, "related_album_id_str", "related_album_id");
+            if (albumId == null) {
+                // 搜索视频签真回包里此字段在 video_detail 子对象内
+                // （tab30 存档逐键定位：5 条 UGC 恰 5 处，全在此层）
+                JsonObject vdObj = obj(o, "video_detail");
+                if (vdObj != null) {
+                    albumId = firstStr(vdObj, "related_album_id_str", "related_album_id");
+                }
+            }
         }
         // 作者四件补源（本体 author_* 为空时）：合集条在
         // album_info.ugc_user_info、UGC 单集条在 video_detail.ugc_user_info

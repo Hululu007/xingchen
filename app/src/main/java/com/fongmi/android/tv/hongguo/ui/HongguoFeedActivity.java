@@ -1700,6 +1700,17 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                 openAlbumItem(session.items.get(position));
                 return;
             }
+            // UGC 所属合集条（批四残项 1 接上）：条目自带 related_album_id
+            // （解析层只给 1001 型补进 albumId，频道存档回包未出现此字段、
+            // 出现即生效）时落合集详情页；没带仍进所属剧集流（旧落点）
+            if (position >= 0 && position < session.items.size()) {
+                HgFeedItem ugc = session.items.get(position);
+                if (ugc.kind == HgItemKind.UGC_CLIP
+                        && ugc.albumId != null && !ugc.albumId.isEmpty()) {
+                    openAlbumItem(ugc);
+                    return;
+                }
+            }
             enterSeries(position);
             return;
         }
@@ -1718,56 +1729,54 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     }
 
     /**
-     * 合集型条目的落点（普查卡 8：官方是合集详情页 VideoAlbumDetail
-     * Activity；自家没有合集详情页，以专辑名单承接——与搜索合集条
-     * 点击同一路，账 hongguo-search-parity）：拉 album 名单弹系列单，
-     * 选一条进其集流；拉空/失败给明确提示，不拿 album id 冒充 series
-     * id 直进（必空转）。UGC 短片的所属合集 id 在流侧存档回包里没有
-     * 对应字段（未抠到），UGC 型不走本路、仍进所属剧集流。
+     * 合集型条目的落点（普查卡 8：官方合集详情页 VideoAlbumDetail
+     * Activity）：批四起落独立合集详情页 HongguoAlbumActivity（头部＋
+     * 集列表＋点集起播），与搜索合集条同一落点；此前以专辑名单弹层
+     * 承接的旧路随之退役（批一残项 2）。不拿 album id 冒充 series id
+     * 直进（必空转）的口径不变——albumId 缺失时整路不走。
      */
     private void openAlbumItem(HgFeedItem item) {
         String albumId = item.albumId != null && !item.albumId.isEmpty()
                 ? item.albumId : item.seriesId;
         if (albumId == null || albumId.isEmpty()) return;
         suppressResumeRefresh = true;
-        session.client.fetchAlbum(albumId, new HgCallback<List<HgSeriesItem>>() {
-            @Override
-            public void onSuccess(List<HgSeriesItem> rows) {
-                runOnUiThread(() -> {
-                    if (isFinishing() || isDestroyed()) return;
-                    if (rows == null || rows.isEmpty()) {
-                        android.widget.Toast.makeText(HongguoFeedActivity.this,
-                                "合集暂时打不开，稍后再试", android.widget.Toast.LENGTH_SHORT).show();
-                        return;
-                    }
-                    HgSeriesSheet.show(HongguoFeedActivity.this, rows, null,
-                            session.interactions, picked ->
-                                    startSeries(HongguoFeedActivity.this,
-                                            picked.getSeriesId(), picked.getTitle(),
-                                            picked.getCoverUrl(), picked.getAuthorUid(),
-                                            picked.getPublisher()));
-                });
-            }
-
-            @Override
-            public void onError(int httpCode, String message) {
-                runOnUiThread(() -> {
-                    if (isFinishing() || isDestroyed()) return;
-                    android.widget.Toast.makeText(HongguoFeedActivity.this,
-                            "合集暂时打不开，稍后再试", android.widget.Toast.LENGTH_SHORT).show();
-                });
-            }
-        });
+        HongguoAlbumActivity.start(this, albumId, item.title, item.coverUrl);
     }
 
-    /** 剧名行点入剧详情页（用户亲授：与作者页分开的另一个去处）。 */
+    /**
+     * 剧名行/剧条点入详情（用户亲授：与作者页分开的另一个去处）：批四
+     * 卡 16 起先唤出流内侧滑详情面板（官方轻量详情路），全页详情改由
+     * 面板内「查看详情」入口进（落点仍是 HongguoSeriesDetailActivity）；
+     * 面板「选集」回既有落点（集流开选集弹窗、发现流先进剧）。合集型
+     * 条目不走面板、直落合集详情页（与底栏合集条同落点）。
+     */
     @Override
     public void onSeriesDetail(int position) {
         if (position < 0 || position >= session.items.size()) return;
         HgFeedItem item = session.items.get(position);
         if (item.seriesId == null || item.seriesId.isEmpty()) return;
         suppressResumeRefresh = true;
-        HongguoSeriesDetailActivity.start(this, item.seriesId, item.title, item.coverUrl);
+        if (item.kind == HgItemKind.ALBUM) {
+            openAlbumItem(item);
+            return;
+        }
+        HgDetailPanel.show(this, item, session.interactions, new HgDetailPanel.Host() {
+            @Override
+            public void onPanelEpisodes() {
+                if (mode == MODE_SERIES) {
+                    HgEpisodeSheet.show(HongguoFeedActivity.this, session, position,
+                            HongguoFeedActivity.this::jumpTo);
+                } else {
+                    onEnterSeries(position);
+                }
+            }
+
+            @Override
+            public void onPanelFullDetail() {
+                HongguoSeriesDetailActivity.start(HongguoFeedActivity.this,
+                        item.seriesId, item.title, item.coverUrl);
+            }
+        });
     }
 
     /**

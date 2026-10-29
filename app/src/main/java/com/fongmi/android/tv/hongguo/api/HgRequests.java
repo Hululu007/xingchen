@@ -226,6 +226,14 @@ public final class HgRequests {
     public static final int TAB_RESPONSE_RECOMMEND = 16;
     public static final int TAB_COMIC = 36;
     public static final int TAB_LIVE = 39;
+    /**
+     * 关注频道 tab_type＝30（批四卡 2）：官方 BookstoreTabType 枚举
+     * BookstoreTabType_follow(30)（jadx9 pbrpc 实证），与搜索签的
+     * tab_type＝30（视频签）是两套枚举、同值不同物，勿混。请求/响应
+     * 同值（照漫剧/真人剧频道口径）；关注流专属取数接口官方未抠到，
+     * 本值走既有 bookmall/tab 频道面同一请求形状（discoverPairs）。
+     */
+    public static final int TAB_FOLLOW = 30;
     /** 短剧商城底栏（bottom_tab_type，三频道同值 7）。 */
     public static final String BOTTOM_TAB_SHORT_DRAMA = "7";
     public static final String BOTTOM_TAB_TYPE_LIST = "7,0,1,2,3,4";

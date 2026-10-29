@@ -52,15 +52,19 @@
             android:textSize="12sp" />
     </LinearLayout>
 
+    <!-- 关注钮（批四卡 23，官方 SearchRoleFollowButton 对位）：原地
+         关注/取关、文案随关系态翻转；两态底借白底可读的 follow 钮族
+         （未关注橙渐变白字／已关注浅灰深字，见 bg_hg_followed_btn 注） -->
     <TextView
+        android:id="@+id/hg_su_follow"
         android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:background="@drawable/bg_hg_badge"
-        android:paddingStart="7dp"
-        android:paddingTop="3dp"
-        android:paddingEnd="7dp"
-        android:paddingBottom="3dp"
-        android:text="作者"
+        android:layout_height="28dp"
+        android:background="@drawable/bg_hg_follow_btn"
+        android:gravity="center"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:text="关注"
         android:textColor="#FFFFFF"
-        android:textSize="12sp" />
+        android:textSize="13sp"
+        android:textStyle="bold" />
 </LinearLayout>

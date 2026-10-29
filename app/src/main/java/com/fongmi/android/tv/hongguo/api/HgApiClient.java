@@ -639,6 +639,26 @@ public final class HgApiClient {
         });
     }
 
+    /**
+     * 合集详情（批四卡 8 落点）：同 fetchAlbum 的 album_detail 口，只换
+     * 解析为头部＋集列表（HgParser.parseAlbumDetail），供独立合集详情页
+     * HongguoAlbumActivity 用；系列单/选部路仍走 fetchAlbum 不变。
+     */
+    public void fetchAlbumDetail(String albumId,
+                                 HgCallback<com.fongmi.android.tv.hongguo.model.HgAlbumDetail> cb) {
+        postSigned(HgDevice.PATH_ALBUM, HgRequests.albumBody(albumId), new BodyCallback() {
+            @Override
+            void onBody(String text) {
+                cb.onSuccess(com.fongmi.android.tv.hongguo.model.HgParser.parseAlbumDetail(text));
+            }
+
+            @Override
+            void onFail(int code, String msg) {
+                cb.onError(code, msg);
+            }
+        });
+    }
+
     public void fetchVideoDetail(String seriesId, HgCallback<HgSeriesDetail> cb) {
         postSigned(HgDevice.PATH_SERIES, HgRequests.seriesBody(seriesId), new BodyCallback() {
             @Override
@@ -681,7 +701,10 @@ public final class HgApiClient {
      * （uid/名/头像/作品数，HgParser.parseUserTab）。用途单一：正剧条目
      * 作者 uid 兜底（详情口恒不下发作者身份，定根账
      * author-page-why-missing-20261029 追补）——会话层拿作者名/出品方
-     * 品牌来查、同名精确匹配定正主；搜索页本身没有用户签界面，不作它用。
+     * 品牌来查、同名精确匹配定正主。搜索页「用户」签（批四卡 23）走
+     * searchTab(…, 27)＋parseCellPage 定域收录，与本口同口不同解析，
+     * 两边抽取的 celebrity_user_list 字段集一致（parseUserTab 注释的
+     * 2026-10-29 实拉定版即用户签回包确有此成员的证据）。
      */
     public void searchUsers(String keyword,
                             HgCallback<java.util.List<com.fongmi.android.tv.hongguo.model.HgAuthorHit>> cb) {
@@ -740,7 +763,7 @@ public final class HgApiClient {
         searchTab(keyword, offset, 11, cb);
     }
 
-    /** 搜索换页签：tabType 取回包 search_tabs 的 tab_type（11 综合/29 剧集/30 视频）。 */
+    /** 搜索换页签：tabType 取回包 search_tabs 的 tab_type（11 综合/29 剧集/30 视频/31 讨论/27 用户）。 */
     public void searchTab(String keyword, int offset, int tabType, HgCallback<HgCellPage> cb) {
         getSigned("/reading/bookapi/search/tab/v", HgRequests.searchPairs(keyword, offset, tabType), new BodyCallback() {
             @Override

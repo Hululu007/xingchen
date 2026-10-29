@@ -430,9 +430,12 @@ public class HongguoSearchActivity extends BaseActivity {
         });
     }
 
-    /** 综合签才走按型行表；剧集/视频签的回包只有剧行、仍走 results。 */
+    /**
+     * 综合/讨论/用户签走按型行表（讨论签只有帖行、用户签只有用户行，
+     * 解析层定域收录同口）；剧集/视频签的回包只有剧行、仍走 results。
+     */
     private boolean useRows() {
-        return searchTabType == 11;
+        return searchTabType == 11 || searchTabType == 31 || searchTabType == 27;
     }
 
     /**
@@ -456,6 +459,12 @@ public class HongguoSearchActivity extends BaseActivity {
             b.getRoot().setOnClickListener(v ->
                     HongguoAuthorActivity.start(HongguoSearchActivity.this,
                             hit.uid, hit.name, hit.avatar, null));
+            // 关注钮（批四卡 23）：复用作者关注统一口（作者页同链）——
+            // 状态读 HgStore 作者集镜像、文案随态翻转；本人不挂钮
+            boolean self = hit.uid != null && hit.uid.equals(HgStore.profileUid());
+            b.hgSuFollow.setVisibility(self ? View.GONE : View.VISIBLE);
+            paintUserFollow(b, hit.uid);
+            b.hgSuFollow.setOnClickListener(v -> onUserFollowClicked(b, hit.uid));
             return;
         }
         if (holder instanceof PostHolder) {
@@ -492,6 +501,54 @@ public class HongguoSearchActivity extends BaseActivity {
         }
     }
 
+    /** 用户卡关注钮两态（读作者集镜像）：未关注橙渐变白字、已关注浅灰深字。 */
+    private void paintUserFollow(ItemHongguoSearchUserBinding b, String uid) {
+        boolean followed = uid != null && HgStore.isAuthorFollowed(uid);
+        b.hgSuFollow.setText(followed ? "已关注" : "关注");
+        b.hgSuFollow.setBackgroundResource(followed
+                ? R.drawable.bg_hg_followed_btn : R.drawable.bg_hg_follow_btn);
+        b.hgSuFollow.setTextColor(followed ? 0xFF333333 : 0xFFFFFFFF);
+    }
+
+    /**
+     * 用户卡关注/取关（批四卡 23）：与作者页同一条链——未登录先拉壳子
+     * 统一登录、不落状态；乐观先行写作者集镜像＋真口（fqClient
+     * doFollowAction）收口，失败回滚镜像并如实提示。回包
+     * celebrity_user_list 不带关系态字段（parseUserTab 字段集实证），
+     * 钮态初值只能读本地镜像——与作者页资料回源前的初值口径一致，
+     * 差记批四账残项。
+     */
+    private void onUserFollowClicked(ItemHongguoSearchUserBinding b, String uid) {
+        if (uid == null || uid.isEmpty()) return;
+        if (session.interactions.requiresLogin()) {
+            boolean delivered = com.fongmi.android.tv.login.LoginManager.loginHongguoDelivered();
+            if (!delivered) {
+                android.widget.Toast.makeText(this, "登录界面暂时打不开，稍后再试",
+                        android.widget.Toast.LENGTH_SHORT).show();
+            }
+            return;
+        }
+        boolean follow = !HgStore.isAuthorFollowed(uid);
+        HgStore.setAuthorFollowed(uid, follow);
+        paintUserFollow(b, uid);
+        session.fqClient.doFollowAction(follow, uid, new HgCallback<Void>() {
+            @Override
+            public void onSuccess(Void result) {
+            }
+
+            @Override
+            public void onError(int code, String msg) {
+                runOnUiThread(() -> {
+                    HgStore.setAuthorFollowed(uid, !follow);
+                    paintUserFollow(b, uid);
+                    android.widget.Toast.makeText(HongguoSearchActivity.this,
+                            follow ? "关注没成功，再试试" : "取关没成功，再试试",
+                            android.widget.Toast.LENGTH_SHORT).show();
+                });
+            }
+        });
+    }
+
     /** 计数文案：万以下原数，万起缩「X.X万」（与 rec_text 的万制文风一致）。 */
     private static String formatCount(long n) {
         if (n < 10000) return String.valueOf(n);
@@ -503,10 +560,10 @@ public class HongguoSearchActivity extends BaseActivity {
 
     /**
      * 搜索结果点击分发：普通剧/UGC 单集直进集流；合集条（content_type
-     * 1003、身份是 album id）先进专辑详情拉名单再让用户选一条进——
-     * 拿 album id 直当 series id 拉详情必空（账 hongguo-search-parity）。
-     * 名单弹法复用集流页同款系列单（HgSeriesSheet），构成口径一致；
-     * 拉空/失败给明确提示，不静默、不假跳。
+     * 1003、身份是 album id）进合集详情页——拿 album id 直当 series id
+     * 拉详情必空（账 hongguo-search-parity）。批四起落点改独立合集
+     * 详情页 HongguoAlbumActivity（头部＋集列表＋点集起播），与流页
+     * 合集条同一落点；此前拉名单弹系列单的承接路退役（批一残项 2）。
      */
     private void onResultClick(HgSeriesItem item) {
         String albumId = item.getAlbumId();
@@ -518,32 +575,7 @@ public class HongguoSearchActivity extends BaseActivity {
             HongguoFeedActivity.startSeries(this, item.getSeriesId(), item.getTitle(), item.getCoverUrl());
             return;
         }
-        session.client.fetchAlbum(albumId, new HgCallback<List<HgSeriesItem>>() {
-            @Override
-            public void onSuccess(List<HgSeriesItem> rows) {
-                runOnUiThread(() -> {
-                    if (isFinishing() || isDestroyed()) return;
-                    if (rows == null || rows.isEmpty()) {
-                        android.widget.Toast.makeText(HongguoSearchActivity.this,
-                                "合集暂时打不开，稍后再试", android.widget.Toast.LENGTH_SHORT).show();
-                        return;
-                    }
-                    HgSeriesSheet.show(HongguoSearchActivity.this, rows, null,
-                            session.interactions, picked ->
-                                    HongguoFeedActivity.startSeries(HongguoSearchActivity.this,
-                                            picked.getSeriesId(), picked.getTitle(), picked.getCoverUrl()));
-                });
-            }
-
-            @Override
-            public void onError(int httpCode, String message) {
-                runOnUiThread(() -> {
-                    if (isFinishing() || isDestroyed()) return;
-                    android.widget.Toast.makeText(HongguoSearchActivity.this,
-                            "合集暂时打不开，稍后再试", android.widget.Toast.LENGTH_SHORT).show();
-                });
-            }
-        });
+        HongguoAlbumActivity.start(this, albumId, item.getTitle(), item.getCoverUrl());
     }
 
     private void onSuggestionClick(HgSuggestion s) {
@@ -599,7 +631,11 @@ public class HongguoSearchActivity extends BaseActivity {
                     adapter.notifyDataSetChanged();
                     if (useRows() ? rows.isEmpty() : results.isEmpty()) {
                         binding.hgSearchState.setVisibility(View.VISIBLE);
-                        binding.hgSearchState.setText("没有找到相关短剧");
+                        // 空态文案按签分化（官方 u2.java 实证）：讨论签走
+                        // Community 分支「没有找到相关内容」，其余沿
+                        // 短剧类分支「没有找到相关短剧」
+                        binding.hgSearchState.setText(searchTabType == 31
+                                ? "没有找到相关内容" : "没有找到相关短剧");
                     } else {
                         binding.hgSearchState.setVisibility(View.GONE);
                     }

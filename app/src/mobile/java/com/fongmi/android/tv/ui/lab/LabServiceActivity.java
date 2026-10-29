@@ -613,6 +613,12 @@ public class LabServiceActivity extends AppCompatActivity {
         }
         LabRegistry.Svc s = LabRegistry.get(this).svc(pkgId);
         if (s != null && s.port > 0) out = out.replace("{port}", String.valueOf(s.port));
+        // {dataPath}/{serverPort} 与命令展开同口径补齐（原件 LabActions 有换）：
+        // 此前不换，click 值里带这两占位的是原样字面量，open/qrcode/copy 全拿错值。
+        // serverPort 走 LabRunner.hostPort 安全取值（没起来先拉起、仍无兜底 9978），不许是 -1
+        out = out.replace("{dataPath}",
+                new java.io.File(LabPaths.packageDir(this, pkgId), "data").getAbsolutePath());
+        out = out.replace("{serverPort}", String.valueOf(LabRunner.hostPort()));
         return out;
     }
 
@@ -621,14 +627,22 @@ public class LabServiceActivity extends AppCompatActivity {
         String action = cl.action == null ? "" : cl.action.trim().toLowerCase();
         String value = expandClickText(cl.value);
         switch (action) {
-            case "open":
-            case "webview": {
+            case "open": {
                 if (TextUtils.isEmpty(value)) { Notify.show("这个按钮没给地址"); return; }
                 try {
                     startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(value)));
                 } catch (Exception e) {
                     Notify.show("打不开这个地址");
                 }
+                return;
+            }
+            case "webview": {
+                // 原件口径是应用内 WebView 弹窗，此前被降级成与 open 一样的外部打开
+                if (TextUtils.isEmpty(value) && TextUtils.isEmpty(cl.content)) {
+                    Notify.show("这个按钮没给地址");
+                    return;
+                }
+                showWebviewClick(cl, value);
                 return;
             }
             case "copy": {
@@ -674,6 +688,77 @@ public class LabServiceActivity extends AppCompatActivity {
                 return;
             default:
                 Notify.show("这个按钮的动作（" + action + "）星辰还没有对应处置");
+        }
+    }
+
+    /**
+     * webview 动作（原件口径）：应用内 WebView 弹窗，不跳外部浏览器。
+     * LabClick 收进来的 style/width/height/content 在这里全消费：content 非空
+     * 按 HTML 载入（value 作基址让相对链接能解析）、空则直接载 value 的地址；
+     * width/height 见 clickDim；style 含 full 时按近全屏走。
+     * 弹窗壳复用 LabInstallDialog.showView 的深底壳（实验室弹窗定案 UI），
+     * 不另起一套；它会把直传 View 的布局改成 MATCH_PARENT/WRAP_CONTENT，
+     * 故 WebView 先套一层 FrameLayout 保住自己的宽高。
+     */
+    private void showWebviewClick(LabManifest.LabClick cl, String value) {
+        try {
+            android.webkit.WebView wv = new android.webkit.WebView(this);
+            android.webkit.WebSettings ws = wv.getSettings();
+            ws.setJavaScriptEnabled(true);
+            ws.setDomStorageEnabled(true);
+            wv.setWebViewClient(new android.webkit.WebViewClient());
+            int screenW = getResources().getDisplayMetrics().widthPixels;
+            int screenH = getResources().getDisplayMetrics().heightPixels;
+            boolean full = cl.style != null && cl.style.toLowerCase().contains("full");
+            int w = full ? (int) (screenW * 0.96f) : clickDim(cl.width, screenW, (int) (screenW * 0.92f));
+            int h = full ? (int) (screenH * 0.78f) : clickDim(cl.height, screenH, dp(360));
+            wv.setLayoutParams(new android.widget.FrameLayout.LayoutParams(w, h));
+            android.widget.FrameLayout holder = new android.widget.FrameLayout(this);
+            holder.addView(wv);
+            String content = cl.content == null ? "" : expandClickText(cl.content);
+            if (!content.isEmpty()) {
+                wv.loadDataWithBaseURL(TextUtils.isEmpty(value) ? null : value,
+                        content, "text/html", "UTF-8", null);
+            } else {
+                wv.loadUrl(value);
+            }
+            LabInstallDialog.showView(this,
+                    (cl.title == null || cl.title.isEmpty()) ? "网页" : cl.title, holder, "关闭");
+        } catch (Exception e) {
+            Notify.show("这个网页打不开");
+        }
+    }
+
+    /**
+     * click 的 width/height 取值（纯逻辑）：带 % 按屏幕占比；纯数字 ≤1 按占比、
+     * >1 按 dp；带 dp/px 后缀照字面；空/解析不了/≤0 用缺省。结果夹在
+     * [48dp, 屏幕尺寸] 内，不让包声明把弹窗撑出屏。
+     */
+    int clickDim(String raw, int screenPx, int fallbackPx) {
+        int px = clickDimPx(raw, screenPx, fallbackPx,
+                getResources().getDisplayMetrics().density);
+        int min = (int) (48 * getResources().getDisplayMetrics().density);
+        return Math.max(min, Math.min(px, screenPx));
+    }
+
+    static int clickDimPx(String raw, int screenPx, int fallbackPx, float density) {
+        if (raw == null) return fallbackPx;
+        String s = raw.trim().toLowerCase();
+        if (s.isEmpty()) return fallbackPx;
+        try {
+            if (s.endsWith("%")) {
+                double pct = Double.parseDouble(s.substring(0, s.length() - 1).trim());
+                return pct > 0 ? (int) (screenPx * pct / 100.0) : fallbackPx;
+            }
+            boolean pxUnit = s.endsWith("px");
+            if (s.endsWith("dp") || pxUnit) s = s.substring(0, s.length() - 2).trim();
+            double v = Double.parseDouble(s);
+            if (v <= 0) return fallbackPx;
+            if (pxUnit) return (int) v;
+            if (v <= 1) return (int) (screenPx * v);
+            return (int) (v * density);
+        } catch (Exception e) {
+            return fallbackPx;
         }
     }
 

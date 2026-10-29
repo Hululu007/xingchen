@@ -965,6 +965,35 @@ public final class HgMineView extends LinearLayout {
         });
     }
 
+    /**
+     * 书架格标题显示整形（仅本网格标题的显示串，存档与他面一字不动）：
+     * 全角分隔标点（，、：；）换半角。定根（2026-10-29 他真机截图
+     * 113589 逐像素量）：标题框与封面同宽、字距均匀、省略号就落在末字
+     * 的下一槽位——错位不在框宽，在全角标点本身：本机字体栈里「：」「，」
+     * 的墨迹只占其整宽步距最左侧约 1/8（冒号墨迹 3px／步距 26px），标点
+     * 后面凭空留出约 20px 白；标题恰在冒号后被截断时，省略号就隔着这
+     * 截白独飘在格子右缘，看着像两个零件（同图第二格行中逗号后同样
+     * 19px 白、刷剧页文案逗号同病，非本网格独有）。半角化后标点贴前字、
+     * 步距收紧，省略号自然贴正文末尾——官方自家内容面（详情简介）里
+     * 逗号本就是半角贴字。「。」与「！？」墨迹占满步距、无此病，不动。
+     */
+    private static String shapeGridTitle(String title) {
+        if (title == null || title.isEmpty()) return "";
+        StringBuilder sb = null;
+        for (int i = 0; i < title.length(); i++) {
+            char c = title.charAt(i);
+            char r = c == '，' || c == '、' ? ','
+                    : c == '：' ? ':'
+                    : c == '；' ? ';' : c;
+            if (r != c && sb == null) {
+                sb = new StringBuilder(title.length());
+                sb.append(title, 0, i);
+            }
+            if (sb != null) sb.append(r);
+        }
+        return sb == null ? title : sb.toString();
+    }
+
     /** 书架副行样式档（官方 c3()）：有断点＝「X集/Y集」，没看过＝「未看过」。 */
     private static String shelfMeta(String seriesId, int total) {
         HgStore.Progress p = HgStore.progressOf(seriesId);
@@ -1014,7 +1043,7 @@ public final class HgMineView extends LinearLayout {
         public void onBindViewHolder(@NonNull Holder h, int position) {
             Row row = rows.get(position);
             ImgUtil.load(row.title == null ? "" : row.title, row.cover, h.cover);
-            h.title.setText(row.title == null ? "" : row.title);
+            h.title.setText(shapeGridTitle(row.title));
             h.meta.setText(row.meta == null ? "" : row.meta);
             if (row.badge != null && !row.badge.isEmpty()) {
                 h.badge.setVisibility(VISIBLE);

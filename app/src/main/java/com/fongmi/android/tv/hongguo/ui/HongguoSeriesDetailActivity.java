@@ -60,10 +60,12 @@ import java.util.Locale;
  * 随体上送。两口 2026-10-29 本机实拉只差登录（code=103006「用户未登录」），
  * 成功回包待首登验。半星是官方实验旗能力、咱家只做整星。</p>
  *
- * <p>顶右分享＝系统分享（文案与集流页分享同口径「我在看《剧名》」——官方
- * 分享内容由服务端分享模型驱动、包内无客户端文案模板）；更多＝官方「⋯」
- * 的不感兴趣形态（do_action Dislike，2026-10-29 实拉匿名受理）；举报形态
- * 走字节 spam SDK 自有链、请求形状未验通，不摆。</p>
+ * <p>顶右分享/更多两钮 2026-10-29 按他亲口令整件摘除（官方 113563 此
+ * 页顶右有此两钮，本页按他的令不留，是有意偏离官方、非对齐项）。更多
+ * 菜单里唯一动作「不感兴趣」（do_action Dislike）的全应用唯一入口随之
+ * 消失——只记账不搬家（series-detail-corners-20261029.md），接口层
+ * HgCommentClient.dislikeSeries 保留待他裁。举报形态走字节 spam SDK
+ * 自有链、请求形状未验通，不摆。</p>
  */
 public class HongguoSeriesDetailActivity extends BaseActivity {
 
@@ -172,8 +174,16 @@ public class HongguoSeriesDetailActivity extends BaseActivity {
             binding.hgSdStars.addView(star);
         }
         binding.hgSdScoreAction.setOnClickListener(v -> submitScore());
-        binding.hgSdShare.setOnClickListener(v -> shareSeries());
-        binding.hgSdMore.setOnClickListener(v -> showMoreMenu());
+        // 评分卡四角裁圆：卡底本身是 14dp 圆角 shape，但左块（平行四边形
+        // 矢量底）四角是直角、无裁剪地盖住卡的左缘两角，整卡轮廓被它
+        // 拉直——给卡设圆角轮廓＋clipToOutline，子件一律裁进卡廓。
+        binding.hgSdRating.setOutlineProvider(new android.view.ViewOutlineProvider() {
+            @Override
+            public void getOutline(View view, android.graphics.Outline outline) {
+                outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), dp(14));
+            }
+        });
+        binding.hgSdRating.setClipToOutline(true);
         paintStars();
         paintScoreAction();
         loadDetail();
@@ -613,63 +623,6 @@ public class HongguoSeriesDetailActivity extends BaseActivity {
     private void promptLogin() {
         boolean delivered = com.fongmi.android.tv.login.LoginManager.loginHongguoDelivered();
         if (!delivered) Toast.makeText(this, "登录界面暂时打不开，稍后再试", Toast.LENGTH_SHORT).show();
-    }
-
-    // ---------- 分享/更多 ----------
-
-    /** 系统分享：文案与集流页分享同口径（官方分享内容由服务端模型驱动、无客户端模板）。 */
-    private void shareSeries() {
-        String title = binding.hgSdTitle.getText() == null ? "" : binding.hgSdTitle.getText().toString().trim();
-        Intent send = new Intent(Intent.ACTION_SEND);
-        send.setType("text/plain");
-        send.putExtra(Intent.EXTRA_TEXT, title.isEmpty() ? "红果短剧" : "我在看《" + title + "》");
-        startActivity(Intent.createChooser(send, "分享"));
-    }
-
-    /** 更多小单：只放「不感兴趣」一项真功能（举报形态未验通不摆，见类头账）。 */
-    private void showMoreMenu() {
-        android.widget.PopupMenu menu = new android.widget.PopupMenu(this, binding.hgSdMore);
-        menu.getMenu().add(0, 1, 0, "不感兴趣");
-        menu.setOnMenuItemClickListener(item -> {
-            dislikeSeries();
-            return true;
-        });
-        menu.show();
-    }
-
-    private void dislikeSeries() {
-        // business.video_id＝当前在看集（断点集，没有就第一集，再没有传空串——
-        // 官方 UGC 分支即空串形状、服务端已受理）
-        String vid = "";
-        if (detail != null && !detail.getEpisodes().isEmpty()) {
-            HgStore.Progress p = HgStore.progressOf(seriesId);
-            int idx = p != null && p.episodeIndex > 0 ? p.episodeIndex - 1 : 0;
-            if (idx >= detail.getEpisodes().size()) idx = 0;
-            vid = detail.getEpisodes().get(idx).getVideoId();
-        }
-        HgFeedSession.get().fqClient.dislikeSeries(seriesId, vid, new HgCallback<Void>() {
-            @Override
-            public void onSuccess(Void v) {
-                mainHandler.post(() -> {
-                    if (isFinishing()) return;
-                    Toast.makeText(HongguoSeriesDetailActivity.this,
-                            "感谢反馈", Toast.LENGTH_SHORT).show();
-                });
-            }
-
-            @Override
-            public void onError(int code, String msg) {
-                mainHandler.post(() -> {
-                    if (isFinishing()) return;
-                    if (code == HgCommentClient.CODE_NOT_LOGIN) {
-                        promptLogin();
-                        return;
-                    }
-                    Toast.makeText(HongguoSeriesDetailActivity.this,
-                            "反馈没成功，再试试", Toast.LENGTH_SHORT).show();
-                });
-            }
-        });
     }
 
     private final class ReviewAdapter extends RecyclerView.Adapter<ReviewAdapter.Holder> {

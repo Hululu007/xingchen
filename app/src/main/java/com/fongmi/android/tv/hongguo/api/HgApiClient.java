@@ -758,7 +758,7 @@ public final class HgApiClient {
         });
     }
 
-    /** 搜索翻页：同 searchTab，offset 为已取条数。 */
+    /** 搜索翻页：同 searchTab，offset 为服务端回包下发的 next_offset 游标（消费侧未拿到下发值时回落已取条数）。 */
     public void searchTab(String keyword, int offset, HgCallback<HgCellPage> cb) {
         searchTab(keyword, offset, 11, cb);
     }

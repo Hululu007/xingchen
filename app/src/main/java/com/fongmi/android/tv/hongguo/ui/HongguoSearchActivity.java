@@ -89,7 +89,12 @@ public class HongguoSearchActivity extends BaseActivity {
     private int searchTabType = 11;
     private java.util.List<HgSearchTab> searchTabs = new java.util.ArrayList<>();
     private boolean loadingMore;
-    private boolean lastPageFull;
+    // 续拉共享态（全签一处，不分签）：hasMore/nextOffset 以回包签段的
+    // 服务端下发为准（HgParser 已抬进 HgCellPage）；服务端未下发
+    // nextOffset 时 nextOffset=-1，回落旧口径（整页≥20 条才续、offset＝
+    // 已取剧条数），剧集/视频/综合签在存档回包下与旧口径逐值等价
+    private boolean hasMore;
+    private int nextOffset = -1;
     private final List<String> cues = new ArrayList<>();
     private int cueIndex;
     private final Runnable cueTicker = new Runnable() {
@@ -309,7 +314,8 @@ public class HongguoSearchActivity extends BaseActivity {
                 } else if (lm instanceof LinearLayoutManager) {
                     last = ((LinearLayoutManager) lm).findLastVisibleItemPosition();
                 }
-                if (last >= results.size() - 4) loadMore();
+                int total = useRows() ? rows.size() : results.size();
+                if (last >= total - 4) loadMore();
             }
         });
         showHistory();
@@ -632,10 +638,28 @@ public class HongguoSearchActivity extends BaseActivity {
         loadSearchFirstPage();
     }
 
+    /** 回包落续拉共享态：服务端下发了 next_offset 就全听服务端的
+     * （has_more 定触发、next_offset 定下页 offset）；没下发才回落旧口径。 */
+    private void applyPaging(HgCellPage page) {
+        String no = page.getNextOffset();
+        if (no != null) {
+            try {
+                nextOffset = Integer.parseInt(no.trim());
+            } catch (NumberFormatException e) {
+                nextOffset = -1;
+            }
+            hasMore = page.isHasMore() && nextOffset >= 0;
+        } else {
+            nextOffset = -1;
+            hasMore = page.getItems() != null && page.getItems().size() >= 20;
+        }
+    }
+
     /** 结果第一页（提交搜索与换页签共用）：按当前 searchTabType 重查。 */
     private void loadSearchFirstPage() {
         loadingMore = false;
-        lastPageFull = false;
+        hasMore = false;
+        nextOffset = -1;
         useGrid(true);
         results.clear();
         rows.clear();
@@ -651,7 +675,7 @@ public class HongguoSearchActivity extends BaseActivity {
                     if (page.getItems() != null) results.addAll(page.getItems());
                     rows.clear();
                     if (page.getSearchRows() != null) rows.addAll(page.getSearchRows());
-                    lastPageFull = page.getItems() != null && page.getItems().size() >= 20;
+                    applyPaging(page);
                     if (page.getTabs() != null && !page.getTabs().isEmpty()) {
                         searchTabs = page.getTabs();
                         renderSearchTabs();
@@ -720,35 +744,41 @@ public class HongguoSearchActivity extends BaseActivity {
         loadSearchFirstPage();
     }
 
-    /** 结果翻页：offset＝已取条数；回包不满整页即到底，失败安静停（已显结果不丢）。 */
+    /**
+     * 结果翻页（全签共享）：offset＝服务端下发的 next_offset（回落时为
+     * 已取剧条数）；has_more 说停就停，本页零新增或游标未推进同样收口
+     * 防空转重拉；失败安静停（已显结果不丢）。
+     */
     private void loadMore() {
-        if (loadingMore || !lastPageFull || currentKeyword.isEmpty()) return;
+        if (loadingMore || !hasMore || currentKeyword.isEmpty()) return;
         loadingMore = true;
-        session.client.searchTab(currentKeyword, results.size(), searchTabType, new HgCallback<HgCellPage>() {
+        final int reqOffset = nextOffset >= 0 ? nextOffset : results.size();
+        session.client.searchTab(currentKeyword, reqOffset, searchTabType, new HgCallback<HgCellPage>() {
             @Override
             public void onSuccess(HgCellPage page) {
                 runOnUiThread(() -> {
                     loadingMore = false;
                     if (mode != MODE_RESULT) return;
                     List<HgSeriesItem> more = page.getItems();
-                    lastPageFull = more != null && more.size() >= 20;
-                    if (useRows()) {
-                        // 综合签翻页按行表续（剧计数仍随 results 累积供 offset）
-                        List<HgSearchRow> moreRows = page.getSearchRows();
-                        if (moreRows == null || moreRows.isEmpty()) {
-                            if (more != null) results.addAll(more);
-                            return;
-                        }
+                    List<HgSearchRow> moreRows = page.getSearchRows();
+                    int appended = 0;
+                    if (useRows() && moreRows != null && !moreRows.isEmpty()) {
+                        // 行表签翻页按行表续（剧子集仍随 results 累积）
                         int at = rows.size();
                         if (more != null) results.addAll(more);
                         rows.addAll(moreRows);
+                        appended = moreRows.size();
                         adapter.notifyItemRangeInserted(at, moreRows.size());
-                        return;
+                    } else if (more != null && !more.isEmpty()) {
+                        int at = results.size();
+                        results.addAll(more);
+                        appended = more.size();
+                        if (!useRows()) adapter.notifyItemRangeInserted(at, more.size());
                     }
-                    if (more == null || more.isEmpty()) return;
-                    int at = results.size();
-                    results.addAll(more);
-                    adapter.notifyItemRangeInserted(at, more.size());
+                    applyPaging(page);
+                    if (appended == 0 || (nextOffset >= 0 && nextOffset <= reqOffset)) {
+                        hasMore = false;
+                    }
                 });
             }
 

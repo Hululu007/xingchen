@@ -553,7 +553,9 @@ public final class HgParser {
      * 搜索口专用重载（批三 C 卡 18）：tabType&gt;0 且回包带 search_tabs 时
      * 按该签段（search_tabs[].data）定域收录——成员按型分形进
      * {@link HgCellPage#getSearchRows()}（剧集/视频卡、小说卡、用户卡、
-     * 帖卡，保回包原序），items 只留剧/视频子集供既有计数与翻页口径。
+     * 帖卡，保回包原序），items 只留剧/视频子集；签段的 has_more/
+     * next_offset 一并抬进页（续拉触发与 offset 全签统一走服务端下发，
+     * 不再按 items 条数自算——行表签 items 恒空/偏少的同源病根）。
      * 此前无定域的整树递归收录有三宗丢/压：用户成员（celebrity_user_list）
      * 无剧 id 整条丢弃；帖子（post_data）被 asSeriesItem 以 book_id＝0
      * 冒充剧 id 压成假剧条目（存档 tab11 改前实跑：6 条里第 4 条 id＝"0"）；
@@ -588,13 +590,31 @@ public final class HgParser {
             }
         }
         JsonObject seg = tabType > 0 ? findSearchTabSegment(tabScope, tabType) : null;
+        boolean hasMore = false;
+        String nextOffset = null;
         if (seg != null && arr(seg, "data") != null) {
             collectSearchSegment(seg, items, rows);
+            // 续拉口径以服务端下发为准（存档真回包逐签实证，2026-10-30）：
+            // 签段自带 has_more/next_offset/passback——next_offset 是服务端
+            // 游标，不等于解析条数（用户签回 15~19 行时 next_offset 恒 20；
+            // 综合签回 6 cell 时 next_offset=6 而解析 items5+rows6 两头都
+            // 对不上；小说签步长 10）。解析层此前把这两字段整段丢掉，
+            // 消费侧只能拿 items 条数自算 offset，行表签（讨论/用户/小说）
+            // items 恒空或偏少 → 续页永不触发或游标错位。此处抬升入页，
+            // 六签共享同一口径。
+            hasMore = boolOf(seg, "has_more");
+            nextOffset = firstStr(seg, "next_offset");
+            if (nextOffset == null) {
+                JsonElement no = seg.get("next_offset");
+                if (no != null && no.isJsonPrimitive() && no.getAsJsonPrimitive().isNumber()) {
+                    nextOffset = String.valueOf(no.getAsLong());
+                }
+            }
         } else {
             collectSeries(data != null ? data : root, items, 0);
             for (HgSeriesItem it : items) rows.add(HgSearchRow.ofSeries(it));
         }
-        return new HgCellPage(code, msg, items, root, false, null, null, null, tabs, rows);
+        return new HgCellPage(code, msg, items, root, hasMore, nextOffset, null, null, tabs, rows);
     }
 
     /** search_tabs 里 tab_type 命中的签段；没有返回 null。 */

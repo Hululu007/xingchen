@@ -25,8 +25,9 @@ public final class HgCellPage {
     /** 搜索结果页签（只有 search/tab 回包带，其余面为空表）。 */
     private final List<HgSearchTab> tabs;
     /** 搜索结果按型行表（只有走 parseCellPage(json, tabType) 的搜索口带：
-     * 服务端原序、多型同列；items 仍是其中的剧/视频子集，供既有计数与
-     * 翻页口径。其余面为空表）。 */
+     * 服务端原序、多型同列；items 仍是其中的剧/视频子集。同口回包的
+     * hasMore/nextOffset 即签段服务端下发的续拉口径（has_more/next_offset），
+     * 搜索续拉以此为准、不按条数自算。其余面为空表）。 */
     private final List<HgSearchRow> searchRows;
 
     HgCellPage(int code, String message, List<HgSeriesItem> items, JsonObject raw) {

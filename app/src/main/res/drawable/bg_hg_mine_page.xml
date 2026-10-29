@@ -3,7 +3,11 @@
      #FFFFFFFF＋头图色罩压顶，内容面在其上滚动）。头图层高官方 259dp，
      2026-10-29 他装 1.4.59 后亲口「上面那个颜色框，改小一点」「小一点点
      就行」→ 240dp（−19dp，约 −7%），账 mine-page-his-fix-20261029.md。
-     页签行落位按此层高对齐（见 view_hongguo_mine 头部框注）。 -->
+     同日晚他装 1.4.60 再令「框再小点／框中间空的太多了／稍微留点」：
+     层高随头部框改版收到 128dp——框底（状态栏注入约 39＋marginTop 8
+     ＋内容约 76＝约 123dp）之下留约 5dp 渐变尾收边，页签字形坐白区。
+     账 mine-header-shrink-20261029.md。页签行落位按此层高对齐
+     （见 view_hongguo_mine 头部框注）。 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item>
         <shape android:shape="rectangle">
@@ -13,5 +17,5 @@
     <item
         android:drawable="@drawable/bg_hg_mine_header"
         android:gravity="top"
-        android:height="240dp" />
+        android:height="128dp" />
 </layer-list>

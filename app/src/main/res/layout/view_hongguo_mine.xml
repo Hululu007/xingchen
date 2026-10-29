@@ -7,7 +7,12 @@
      功能卡（看剧偏好/反馈与帮助）整张不要，已删；颜色框改小一点点
      （渐变层 259→240dp）；页签行整体往下挪、紧贴颜色框下沿、整行落在
      白区，不叠不骑——上一批的白底层（bg_hg_mine_sheet）按此口径撤销，
-     页签以下直坐页底白面。 -->
+     页签以下直坐页底白面。
+     2026-10-29 晚他装 1.4.60 看 113628 再令（账 mine-header-shrink-
+     20261029.md）：240 仍嫌大——病在框定高 168dp 里内容只占约 90dp、
+     框内拖着约 78dp 空白段，渐变又比框底多探 25dp。改：框高随内容
+     （wrap_content）、行底内距收 16dp 舒服档、渐变层 240→128dp，
+     框内空白段清零，页签行顶 215→约 123dp。 -->
 <com.fongmi.android.tv.hongguo.ui.HgMineView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -18,14 +23,16 @@
          ＋副行「欢迎来到红果短剧」16sp #66000000＋右「立即登录」钮（14sp 粗白字、
          padding 16×8dp、圆角 8dp）；已登录＝头像 60dp＋昵称 20sp 粗。
          旧版自加的「我的」标题行与灰盒账号条官方皆无，摘除。 -->
-    <!-- 颜色框本体：高度定死 168dp（＋上方 marginTop 8dp），框内只放登录区，
-         框底之下紧接页签行。落位对齐（他机推算）：宿主注入的状态栏
-         padding ≈39dp → 页签行顶 ≈39＋8＋168＝215dp、字形顶再下 8dp；
-         页底渐变层高 240dp、自上而下化开，可见桃色约收在上部 3/4
-         （≈180dp）内——字形整行在白区、不叠不骑（待真机终核）。 -->
+    <!-- 颜色框本体：高度随内容（wrap_content，＋上方 marginTop 8dp），
+         框内只放登录区，框底之下紧接页签行。两态内容高一致约 76dp
+         （未登录＝文字两行约 60dp＋行底内距 16dp；已登录＝头像 60dp
+         ＋行底内距 16dp），框内不再留空白段。落位（他机推算）：宿主
+         注入的状态栏 padding ≈39dp → 页签行顶 ≈39＋8＋76＝123dp、
+         字形顶再下 8dp≈131dp；页底渐变层高 128dp、自上而下化开，
+         框底之下只留约 5dp 渐变尾收边，字形整行在白区（待真机终核）。 -->
     <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="168dp"
+        android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
         android:paddingStart="16dp"
         android:paddingEnd="16dp">
@@ -36,7 +43,7 @@
             android:layout_height="wrap_content"
             android:gravity="center_vertical"
             android:orientation="horizontal"
-            android:paddingBottom="30dp">
+            android:paddingBottom="16dp">
 
             <LinearLayout
                 android:layout_width="0dp"
@@ -82,7 +89,7 @@
             android:layout_height="wrap_content"
             android:gravity="center_vertical"
             android:orientation="horizontal"
-            android:paddingBottom="22dp"
+            android:paddingBottom="16dp"
             android:visibility="gone">
 
             <FrameLayout
@@ -209,9 +216,10 @@
     </FrameLayout>
 
     <!-- 页签条（官方 qb3/f：标题 16sp 选中粗体；右端搜索图标 20dp）。
-         紧贴颜色框下沿之下（上接头部框、无额外留距），整行坐页底白面。 -->
-         页签＝历史/收藏/点赞/预约（短剧范围，他亲定预约放点赞后面；国内版
-         预约就是页内页签形态、与功能位「我的预约」互斥，本面取页签形态）。 -->
+         紧贴颜色框下沿之下（上接头部框、无额外留距），整行坐页底白面。
+         页签＝历史/收藏/点赞/追更/预约（短剧范围；追更原埋收藏子筛，他
+         2026-10-29 亲点升一级页签、紧挨预约放其前一位；国内版预约就是
+         页内页签形态、与功能位「我的预约」互斥，本面取页签形态）。 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -242,6 +250,31 @@
             android:padding="8dp"
             android:text="点赞"
             android:textSize="16sp" />
+
+        <!-- 追更页签＋红点：红点压页签右上角内侧，形态照官方 follow
+             页签红点件（bg_hg_red_dot），亮灭由 HgMineView 控制。 -->
+        <FrameLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content">
+
+            <TextView
+                android:id="@+id/hg_mine_tab_follow"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:padding="8dp"
+                android:text="追更"
+                android:textSize="16sp" />
+
+            <View
+                android:id="@+id/hg_mine_tab_follow_dot"
+                android:layout_width="10dp"
+                android:layout_height="10dp"
+                android:layout_gravity="top|end"
+                android:layout_marginTop="2dp"
+                android:layout_marginEnd="2dp"
+                android:background="@drawable/bg_hg_red_dot"
+                android:visibility="gone" />
+        </FrameLayout>
 
         <TextView
             android:id="@+id/hg_mine_tab_reserve"

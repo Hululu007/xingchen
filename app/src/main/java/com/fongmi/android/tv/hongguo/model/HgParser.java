@@ -68,7 +68,8 @@ public final class HgParser {
     /**
      * 回包顶层业务码（结构化拒绝，如 UGC vid 的 101000「服务异常」）；
      * 空体、无 code 字段、解析不了都返回 0——与限流空体区分开，供
-     * 取链层判定「是该条目被口径拒绝、不是档案被限流」。
+     * 取链层判定「是该条目被口径拒绝、不是档案被限流」。code 数字形
+     * 与字符串形都认（intOf 两形兼容，与 isOkCode 同口径）。
      */
     public static int businessCodeOf(String json) {
         if (json == null || json.isEmpty()) return 0;
@@ -1173,7 +1174,23 @@ public final class HgParser {
 
     private static int intOf(JsonObject o, String key, int def) {
         JsonElement e = o == null ? null : o.get(key);
-        if (e != null && e.isJsonPrimitive() && e.getAsJsonPrimitive().isNumber()) return e.getAsInt();
+        if (e == null || !e.isJsonPrimitive()) return def;
+        if (e.getAsJsonPrimitive().isNumber()) return e.getAsInt();
+        if (e.getAsJsonPrimitive().isString()) {
+            // 字符串形数值（同接口族的 code 等字段有此形态，HgApiClient
+            // .isOkCode 两形都认）：解得出才认，解不出回缺省——此前只认
+            // 数字形，code:"101000" 会被 businessCodeOf 读成 0、把结构化
+            // 拒绝误判成限流空体进全域冷却（扫查 H2）
+            try {
+                return Integer.parseInt(e.getAsString().trim());
+            } catch (Exception ex) {
+                try {
+                    return (int) Double.parseDouble(e.getAsString().trim());
+                } catch (Exception ex2) {
+                    return def;
+                }
+            }
+        }
         return def;
     }
 

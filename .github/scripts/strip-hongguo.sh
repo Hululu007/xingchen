@@ -6,7 +6,7 @@
 # 删的只有本功能（2026-10-27 立项的原生红果，一至五阶段）新增的东西：
 #   - 红果本体包 app/src/main/java/com/fongmi/android/tv/hongguo/（api/model/crypto/proxy/ui 全包）
 #     与它的离线单测 app/src/test/hongguo/；
-#   - 本体资源（main 源集）：activity/item/dialog/view_hongguo_* 布局 35 份、bg_hg_*/ic_hg_* 图形 92 份＋hg_switch_* 开关图形 2 份；
+#   - 本体资源（main 源集）：activity/item/dialog/view_hongguo_* 布局 35 份、bg_hg_*/ic_hg_* 图形 146 份＋hg_switch_* 开关图形 2 份＋hg_panel_switch_* 2 份＋hg_dm_seek_thumb 1 份；
 #   - 登录提供方 HongguoLoginProvider 与它在 LoginManager 里的注册行／loginHongguo 入口／
 #     三个静态桥／requestLogin 的红果分发支；
 #   - Nano 本地服务器的红果代理解密 process（HongguoStream 本体＋Nano 的 import 与注册行）；
@@ -104,7 +104,6 @@ app/src/main/res/layout/view_hongguo_series_sheet.xml
 app/src/main/res/drawable/bg_hg_actor_chip.xml
 app/src/main/res/drawable/bg_hg_avatar_circle.xml
 app/src/main/res/drawable/bg_hg_badge.xml
-app/src/main/res/drawable/bg_hg_check_off.xml
 app/src/main/res/drawable/bg_hg_progress_dot.xml
 app/src/main/res/drawable/bg_hg_refresh_pill.xml
 app/src/main/res/drawable/bg_hg_bottom_scrim.xml
@@ -180,9 +179,6 @@ app/src/main/res/drawable/bg_hg_card_gradient_top.xml
 app/src/main/res/drawable/bg_hg_card_gradient_bottom.xml
 app/src/main/res/drawable/bg_hg_avatar_clip.xml
 app/src/main/res/drawable/ic_hg_search_gray.xml
-app/src/main/res/drawable/ic_hg_clear_gray.xml
-app/src/main/res/drawable/ic_hg_play_circle.xml
-app/src/main/res/drawable/ic_hg_sug_arrow.xml
 app/src/main/res/drawable/ic_hg_catalog_arrow.xml
 app/src/main/res/drawable/ic_hg_expand.xml
 app/src/main/res/drawable/ic_hg_speed_gauge.xml
@@ -193,6 +189,67 @@ app/src/main/res/drawable/ic_hg_star.xml
 app/src/main/res/drawable/ic_hg_star_fill.xml
 app/src/main/res/drawable/ic_hg_pref.xml
 app/src/main/res/drawable/ic_hg_feedback.xml
+app/src/main/res/drawable/bg_hg_author_bg_fade.xml
+app/src/main/res/drawable/bg_hg_author_follow_btn.xml
+app/src/main/res/drawable/bg_hg_author_followed_btn.xml
+app/src/main/res/drawable/bg_hg_author_series_card.xml
+app/src/main/res/drawable/bg_hg_author_sheet.xml
+app/src/main/res/drawable/bg_hg_book_chip.xml
+app/src/main/res/drawable/bg_hg_book_searchbar.xml
+app/src/main/res/drawable/bg_hg_comment_input.xml
+app/src/main/res/drawable/bg_hg_comment_replies.xml
+app/src/main/res/drawable/bg_hg_dm_seek_bg.xml
+app/src/main/res/drawable/bg_hg_dm_seek_progress.xml
+app/src/main/res/drawable/bg_hg_dm_settings_card.xml
+app/src/main/res/drawable/bg_hg_dm_settings_sheet.xml
+app/src/main/res/drawable/bg_hg_editor_input.xml
+app/src/main/res/drawable/bg_hg_ep_cell_land.xml
+app/src/main/res/drawable/bg_hg_land_ep_panel.xml
+app/src/main/res/drawable/bg_hg_land_panel.xml
+app/src/main/res/drawable/bg_hg_land_row_on.xml
+app/src/main/res/drawable/bg_hg_login_soft.xml
+app/src/main/res/drawable/bg_hg_mine_avatar.xml
+app/src/main/res/drawable/bg_hg_mine_check_off.xml
+app/src/main/res/drawable/bg_hg_mine_check_on.xml
+app/src/main/res/drawable/bg_hg_mine_chip_off.xml
+app/src/main/res/drawable/bg_hg_mine_chip_on.xml
+app/src/main/res/drawable/bg_hg_mine_edit_bar.xml
+app/src/main/res/drawable/bg_hg_mine_header.xml
+app/src/main/res/drawable/bg_hg_mine_page.xml
+app/src/main/res/drawable/bg_hg_panel_badge.xml
+app/src/main/res/drawable/bg_hg_panel_card.xml
+app/src/main/res/drawable/bg_hg_panel_sheet.xml
+app/src/main/res/drawable/bg_hg_search_avatar_ring.xml
+app/src/main/res/drawable/bg_hg_search_grad_bottom.xml
+app/src/main/res/drawable/bg_hg_search_grad_top.xml
+app/src/main/res/drawable/hg_dm_seek_thumb.xml
+app/src/main/res/drawable/hg_panel_switch_thumb.xml
+app/src/main/res/drawable/hg_panel_switch_track.xml
+app/src/main/res/drawable/ic_hg_author_collect.xml
+app/src/main/res/drawable/ic_hg_author_comment.xml
+app/src/main/res/drawable/ic_hg_author_copy.xml
+app/src/main/res/drawable/ic_hg_author_heart.xml
+app/src/main/res/drawable/ic_hg_author_plus.xml
+app/src/main/res/drawable/ic_hg_author_star_off.xml
+app/src/main/res/drawable/ic_hg_author_star_on.xml
+app/src/main/res/drawable/ic_hg_battery_land.xml
+app/src/main/res/drawable/ic_hg_chevron_right.xml
+app/src/main/res/drawable/ic_hg_detail_heart_outline.xml
+app/src/main/res/drawable/ic_hg_detail_star_outline.xml
+app/src/main/res/drawable/ic_hg_follow_check.xml
+app/src/main/res/drawable/ic_hg_follow_plus.xml
+app/src/main/res/drawable/ic_hg_login_chevron.xml
+app/src/main/res/drawable/ic_hg_login_close.xml
+app/src/main/res/drawable/ic_hg_login_phone.xml
+app/src/main/res/drawable/ic_hg_mine_search.xml
+app/src/main/res/drawable/ic_hg_panel_cast.xml
+app/src/main/res/drawable/ic_hg_panel_speed.xml
+app/src/main/res/drawable/ic_hg_panel_timer.xml
+app/src/main/res/drawable/ic_hg_search_backfill.xml
+app/src/main/res/drawable/ic_hg_search_clear.xml
+app/src/main/res/drawable/ic_hg_search_delete.xml
+app/src/main/res/drawable/ic_hg_search_find.xml
+app/src/main/res/drawable/ic_hg_search_play.xml
 app/src/main/res/drawable/hg_switch_thumb.xml
 app/src/main/res/drawable/hg_switch_track.xml
 app/src/mobile/res/drawable/ic_nav_duanju_outline.xml

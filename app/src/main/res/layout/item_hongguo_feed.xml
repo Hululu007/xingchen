@@ -86,16 +86,15 @@
                 android:textSize="18sp"
                 android:visibility="gone" />
 
-            <TextView
+            <ImageView
                 android:id="@+id/hg_follow_badge"
                 android:layout_width="22dp"
                 android:layout_height="22dp"
                 android:layout_gravity="bottom|center_horizontal"
                 android:background="@drawable/bg_hg_follow_badge"
-                android:gravity="center"
-                android:text="+"
-                android:textColor="#FFFFFF"
-                android:textSize="13sp" />
+                android:contentDescription="关注作者"
+                android:padding="5dp"
+                android:src="@drawable/ic_hg_follow_plus" />
         </FrameLayout>
 
         <LinearLayout

@@ -299,7 +299,7 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         // 「非系列款才显」把集流里的系列剧声明整行吞了
         if ((seriesMode || !seriesStyle) && item.statement != null && !item.statement.isEmpty()) {
             b.hgStatement.setVisibility(View.VISIBLE);
-            b.hgStatement.setText("ⓘ 作者声明：" + item.statement);
+            b.hgStatement.setText("作者声明：" + item.statement);
         } else {
             b.hgStatement.setVisibility(View.GONE);
         }
@@ -373,7 +373,8 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         // （详情/搜索来源）时徽标整件不亮，不许拿剧 id 冒充作者 id
         boolean authorFollowed = item.authorUid != null && HgStore.isAuthorFollowed(item.authorUid);
         b.hgFollowBadge.setVisibility(item.authorUid == null ? View.GONE : View.VISIBLE);
-        b.hgFollowBadge.setText(authorFollowed ? "✓" : "+");
+        b.hgFollowBadge.setImageResource(authorFollowed
+                ? R.drawable.ic_hg_follow_check : R.drawable.ic_hg_follow_plus);
         b.hgFollowBadge.setAlpha(1f);
         setCount(b.hgLikeCount, item.likeCount);
         // 评论数数据驱动：会话里有真总数（评论面板拉到过）才亮，否则不显示

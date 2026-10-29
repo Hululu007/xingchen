@@ -203,15 +203,7 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
     public void onBindViewHolder(@NonNull Holder holder, int position) {
         HgFeedItem item = items.get(position);
         ItemHongguoFeedBinding b = holder.binding;
-        // 封面：走树里 ImgUtil 口径（有址加载、无址按标题素图）；播出首帧后由 Activity 撤掉
-        // 缩放按官方封面层同构（official-scale-dig 定版）：竖条目 CENTER_CROP
-        // 裁满、横条目 FIT_CENTER 整张显——旧版一律 centerCrop 把横封面裁满
-        // 是错的。ImgUtil 的 vod 参正是这两态的开关（true=CENTER_CROP /
-        // false=FIT_CENTER）；无址时退回默认口径（素图垫底不分朝向）。
-        b.hgCover.setVisibility(View.VISIBLE);
-        boolean landscapeCover = (item.isLandscape() || item.landscapeHint)
-                && item.coverUrl != null && !item.coverUrl.isEmpty();
-        ImgUtil.load(item.title == null ? "" : item.title, item.coverUrl, b.hgCover, !landscapeCover);
+        bindCover(b, item);
         b.hgError.setVisibility(View.GONE);
         b.hgPauseIcon.setVisibility(View.GONE);
         b.hgProgressFill.setScaleX(0f);
@@ -386,6 +378,25 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         bindClicks(holder, position);
         if (cleanMode) applyCleanState(holder);
         if (position == currentPos) host.onHolderBound(holder, position);
+    }
+
+    /**
+     * 条目铺底海报的唯一渲染口（刷剧流、集流、横屏实例共用同一适配器）：
+     * 无论内容在服务端被标成竖还是横、也无论视频尺寸回填前后，都只用
+     * FIT_CENTER 按图片自身比例满宽/满高居中，黑边落在页根黑底上。
+     * 不许再按条目朝向切 CENTER_CROP——ImgUtil 的 vod=true 会同时切
+     * ImageView 与 Glide 变换，竖条目会把海报裁成满屏（113624 真机点名），
+     * 而 XML 的 fitCenter 对已加载图片并不生效。无址素图由 ImgUtil 的
+     * FIT_CENTER 分支绘制后会把 View 置 GONE，这里恢复绑定时显性，避免
+     * 无封面条目只剩黑页；有址加载失败仍按 ImgUtil 定案保持透明。
+     */
+    private static void bindCover(ItemHongguoFeedBinding b, HgFeedItem item) {
+        String title = item.title == null ? "" : item.title;
+        String url = item.coverUrl;
+        b.hgCover.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        b.hgCover.setVisibility(View.VISIBLE);
+        ImgUtil.load(title, url, b.hgCover, false);
+        if (url == null || url.isEmpty()) b.hgCover.setVisibility(View.VISIBLE);
     }
 
     /**

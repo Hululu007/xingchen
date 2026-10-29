@@ -22,8 +22,8 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.viewbinding.ViewBinding;
 
-import com.bumptech.glide.request.target.CustomTarget;
 import com.bumptech.glide.request.transition.Transition;
+import com.fongmi.android.tv.impl.CustomTarget;
 import com.fongmi.android.tv.databinding.ActivityHongguoSeriesDetailBinding;
 import com.fongmi.android.tv.databinding.ItemHongguoSeriesReviewBinding;
 import com.fongmi.android.tv.hongguo.HgFormat;

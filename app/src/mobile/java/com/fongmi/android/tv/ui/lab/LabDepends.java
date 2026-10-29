@@ -11,6 +11,9 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -105,7 +108,7 @@ public final class LabDepends {
      */
     public static void fetch(File pkgDir, File cacheDir, LabManifest.LabDownload d, Downloader dl) throws Exception {
         // 主/次两片各自判缺：主包已备好时只补第二分片，不重下主包
-        if (needed(pkgDir, d)) fetchOne(pkgDir, cacheDir, d, dl);
+        if (needed(pkgDir, d)) fetchWithMirrors(pkgDir, cacheDir, d, dl);
         // 第二分片（liburl）：主包落完后按同一落点再备一份（依赖库包与主包同目录
         // 合并）。第二分片自己不再带 liburl，不会递归
         if (d.libUrl != null && !d.libUrl.trim().isEmpty()) {
@@ -113,12 +116,47 @@ public final class LabDepends {
             lib.url = d.libUrl.trim();
             lib.extractTo = d.extractTo;
             lib.required = d.required;
-            if (needed(pkgDir, lib)) fetchOne(pkgDir, cacheDir, lib, dl);
+            if (needed(pkgDir, lib)) fetchOne(pkgDir, cacheDir, lib, dl, lib.url);
         }
     }
 
-    private static void fetchOne(File pkgDir, File cacheDir, LabManifest.LabDownload d, Downloader dl) throws Exception {
-        String url = d.url.trim();
+    /**
+     * 主下载的来源顺序（纯函数，便于单测）：主 url 在前、mirrors 按声明顺序在后，
+     * 空值与重复去掉（解析层在 url 为空时已把 mirrors[0] 提成主 url，列表里会重一份）。
+     */
+    static List<String> candidateUrls(LabManifest.LabDownload d) {
+        LinkedHashSet<String> set = new LinkedHashSet<>();
+        if (d != null) {
+            if (d.url != null && !d.url.trim().isEmpty()) set.add(d.url.trim());
+            if (d.mirrors != null) {
+                for (String m : d.mirrors) {
+                    if (m != null && !m.trim().isEmpty()) set.add(m.trim());
+                }
+            }
+        }
+        return new ArrayList<>(set);
+    }
+
+    /**
+     * 按 candidateUrls 顺序逐个真尝试下载备料：单个来源失败（连不上/下坏/解不开）
+     * 继续下一个，全失败才把最后一个错抛上去。落点、解压与完成标记始终以主
+     * 声明（d）为准——镜像只是同一份文件的不同来源，不许因换源改落点或标记键。
+     */
+    private static void fetchWithMirrors(File pkgDir, File cacheDir, LabManifest.LabDownload d, Downloader dl) throws Exception {
+        Exception last = null;
+        for (String u : candidateUrls(d)) {
+            try {
+                fetchOne(pkgDir, cacheDir, d, dl, u);
+                return;
+            } catch (Exception e) {
+                last = e;
+            }
+        }
+        throw last != null ? last : new Exception("依赖下不下来：没给能用的下载地址");
+    }
+
+    private static void fetchOne(File pkgDir, File cacheDir, LabManifest.LabDownload d, Downloader dl, String useUrl) throws Exception {
+        String url = useUrl.trim();
         String name = fileNameOf(url);
         File tmp = new File(cacheDir, "lab_dep_" + sanitize(name));
         dl.download(url, tmp);

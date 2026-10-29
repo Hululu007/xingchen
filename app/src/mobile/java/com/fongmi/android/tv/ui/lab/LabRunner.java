@@ -248,6 +248,11 @@ public final class LabRunner {
         d.checkFile = expand(c, pkgId, src.checkFile, port);
         d.extractTo = expand(c, pkgId, src.extractTo, port);
         d.libUrl = expand(c, pkgId, src.libUrl, port);
+        // 镜像列表也要带上（此前拼下载副本时丢了，运行层只剩主 url 一条路，
+        // 主 url 失效＋镜像存活的包必然下载失败）；逐条同口径展开占位
+        if (src.mirrors != null) {
+            for (String m : src.mirrors) d.mirrors.add(expand(c, pkgId, m, port));
+        }
         d.required = src.required;
         boolean mainNeeded = LabDepends.needed(pkgDir, d);
         boolean libNeeded = d.libUrl != null && !d.libUrl.trim().isEmpty()

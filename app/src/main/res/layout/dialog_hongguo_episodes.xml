@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 红果选集单（官方 dig E1–E19 定版）：半屏底部层（单高＝屏高 50%、可拉升、
-     顶部横把 36×4、无 × 关闭钮），单体白底圆角顶；头部＝封面 44×62 圆角 4
+     顶部横把 36×4、无 × 关闭钮），单体白底圆角顶；头部＝封面 44×62 圆角 6
      ＋剧名 16sp 粗体（maxWidth 170dp）＋跳详情箭头 8×16＋右端同槽互斥钮
      （收藏钮 72×28／追更药丸，二选一，见 hg_ep_follow 处注释），
      作者副行（作者名＋圆点＋sub_title_list[0]，12sp 灰，有才显）；简介 14sp
@@ -23,7 +23,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginStart="16dp"
-        android:layout_marginTop="14dp"
+        android:layout_marginTop="24dp"
         android:layout_marginEnd="16dp"
         android:gravity="center_vertical"
         android:orientation="horizontal">
@@ -38,7 +38,7 @@
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginStart="16dp"
+            android:layout_marginStart="12dp"
             android:layout_weight="1"
             android:orientation="vertical">
 
@@ -55,8 +55,8 @@
                     android:ellipsize="end"
                     android:gravity="center_vertical"
                     android:maxLines="1"
-                    android:maxWidth="170dp"
-                    android:textColor="#FF1B1B1B"
+                    android:maxWidth="175dp"
+                    android:textColor="#FF000000"
                     android:textSize="16sp"
                     android:textStyle="bold" />
 
@@ -73,7 +73,7 @@
                 android:id="@+id/hg_ep_author_row"
                 android:layout_width="match_parent"
                 android:layout_height="20dp"
-                android:layout_marginTop="4dp"
+                android:layout_marginTop="6dp"
                 android:gravity="center_vertical"
                 android:orientation="horizontal"
                 android:visibility="gone">

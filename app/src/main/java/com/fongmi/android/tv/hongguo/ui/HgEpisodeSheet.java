@@ -30,7 +30,7 @@ import java.util.function.IntConsumer;
 /**
  * 选集单（官方 dig-search-sheets.md 第二节 E1–E19 定版）：半屏底部层
  * （单高＝屏高 50%、可拉升），顶部小横把、无 × 关闭钮，单体白底。
- * 头部＝封面 44×62 圆角 4dp＋剧名 16sp 粗体（maxWidth 170dp）＋跳详情
+ * 头部＝封面 44×62 圆角 6dp＋剧名 16sp 粗体（maxWidth 175dp）＋跳详情
  * 箭头＋右端收藏钮 72×28；作者副行（作者名＋圆点＋sub_title_list[0]，
  * 12sp 灰）数据有才显；简介 14sp 折叠 2 行、展开文案「更多」，空则整行
  * 不显。官方头部没有「选集·已完结·全X集」文案行与完结标记（E10），
@@ -93,7 +93,7 @@ public final class HgEpisodeSheet {
     }
 
     /**
-     * 头部（E6–E9）：封面（详情优先、否则条目）圆角 4dp；剧名只出剧名本体
+     * 头部（E6–E9＋P2 回 aib 复核）：封面（详情优先、否则条目）圆角 6dp；剧名只出剧名本体
      * （官方绑 AlbumDetailModel.title，不拼集数/完结文案，E10）；箭头点击
      * ＝进该剧集流（等价 HongguoFeedActivity.startSeries）；头部钮走现行
      * interactions 口子，点击前先过登录门（与系列单同口径、照播放页
@@ -112,7 +112,7 @@ public final class HgEpisodeSheet {
         String cover = detail != null && detail.getCoverUrl() != null && !detail.getCoverUrl().isEmpty()
                 ? detail.getCoverUrl() : current.coverUrl;
         binding.hgEpTitle.setText(title == null ? "" : title);
-        float radius = 4f * activity.getResources().getDisplayMetrics().density;
+        float radius = 6f * activity.getResources().getDisplayMetrics().density;
         binding.hgEpCover.setOutlineProvider(new ViewOutlineProvider() {
             @Override
             public void getOutline(View view, Outline outline) {
@@ -131,16 +131,40 @@ public final class HgEpisodeSheet {
                 dialog.dismiss();
                 HongguoFeedActivity.startSeries(activity, current.seriesId, title, cover);
             });
-            // 头部右槽同槽互斥（官方选集弹窗 aib/q7：品牌钮 dll 与追更
-            // 药丸 dlw 同槽）：咱家映射——已上线正剧亮追更药丸（走
-            // KIND_FOLLOW 管道，与播放页剧条药丸同一动作两态），未上线
-            // 剧维持收藏钮（预约在播放页剧条药丸里办，头部不并排两件）。
-            // 批三 A 抠官方定版（账 hongguo-batch3a-slotmap-20261029）：
-            // dll 的文案/动作恒是追剧架那一套（t0 文案提供器＋follow 点击
-            // 链）、从不变预约；canReserve 时官方把 dll 置 INVISIBLE（星钮
-            // 优化件 u2 在场与否影响最终显隐、线上配置未抓到）——证据不支
-            // 持把头部改成预约、也不足以定「隐藏」，本槽映射维持不动。
-            if (current.reservable) {
+            // 头部右槽同槽互斥（官方选集弹窗 aib：品牌钮 dll 与追更
+            // 药丸 dlw 同槽）：批三 A 抠官方定版（账 hongguo-batch3a
+            // -slotmap-20261029）：dll 的文案/动作恒是追剧架那一套（t0
+            // 文案提供器＋follow 点击链）、从不变预约；canReserve 时官方
+            // 把 dll 置 INVISIBLE（星钮优化件 u2 在场与否影响最终显隐、
+            // 线上配置未抓到）——证据不支持把头部改成预约、也不足以定
+            // 「隐藏」，预约剧的收藏钮映射维持不动。
+            // P2 本单回原件复核补药丸显隐闸（官方 w1 的 o2()/b1()）：
+            // b1 为真 → dll 隐、药丸显；b1 为假 → 药丸隐、槽位归 dll。
+            // b1 的 B 路（漫剧＋更新中）与竖屏播放页同一条判定
+            // （HgFeedItem.dramaPillVisible：仅完结漫剧 (1004,1) 不显）；
+            // 判别量取 detail 的剧级 contentType/seriesStatus（与官方
+            // SaasVideoDetailModel 同层，detail 缺项才回落 current 条目
+            // 自带值）——非预约剧判定不显（完结漫剧）时回落收藏钮，与
+            // 预约剧同路（bindFav＋toggleFavorite）；b1 的 A 路（专辑
+            // albumSerialCount≥2＋实验开）输入在 BookGroup 数据中心、
+            // 咱家数据面没有，不收敛（同 P1 口径）。
+            int contentType = current.contentType;
+            Integer seriesStatus = current.seriesStatus;
+            if (detail != null) {
+                if (detail.getContentType() != -1) contentType = detail.getContentType();
+                if (detail.getSeriesStatus() != null) seriesStatus = detail.getSeriesStatus();
+            }
+            boolean showPill = !current.reservable
+                    && HgFeedItem.dramaPillVisible(contentType, seriesStatus);
+            if (showPill) {
+                binding.hgEpFav.setVisibility(View.GONE);
+                bindFollowPill(binding, session.interactions, current.seriesId);
+                binding.hgEpFollow.setOnClickListener(v -> {
+                    if (!passLoginGate(activity, session)) return;
+                    session.interactions.toggleFollow(current.seriesId);
+                    bindFollowPill(binding, session.interactions, current.seriesId);
+                });
+            } else {
                 binding.hgEpFollow.setVisibility(View.GONE);
                 binding.hgEpFav.setVisibility(View.VISIBLE);
                 bindFav(binding, session.interactions, current.seriesId);
@@ -148,14 +172,6 @@ public final class HgEpisodeSheet {
                     if (!passLoginGate(activity, session)) return;
                     session.interactions.toggleFavorite(current.seriesId);
                     bindFav(binding, session.interactions, current.seriesId);
-                });
-            } else {
-                binding.hgEpFav.setVisibility(View.GONE);
-                bindFollowPill(binding, session.interactions, current.seriesId);
-                binding.hgEpFollow.setOnClickListener(v -> {
-                    if (!passLoginGate(activity, session)) return;
-                    session.interactions.toggleFollow(current.seriesId);
-                    bindFollowPill(binding, session.interactions, current.seriesId);
                 });
             }
         }

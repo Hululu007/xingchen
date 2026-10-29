@@ -109,7 +109,7 @@ public class HongguoLoginPage extends DialogFragment {
     private TextView tvSentTo;
 
     // 协议勾选（主页/手机号页两行同读同写一份状态）
-    private final java.util.List<TextView> agreeDots = new java.util.ArrayList<>();
+    private final java.util.List<FrameLayout> agreeDots = new java.util.ArrayList<>();
     private boolean agreed;
 
     // 抖音授权页件
@@ -764,17 +764,12 @@ public class HongguoLoginPage extends DialogFragment {
 
     // ---------------- 共享小件 ----------------
 
-    /** 协议勾选行：圆点＋「已阅读并同意红果免费短剧 用户协议 和 隐私政策」（照官方实拍文案，整行点按切换，主页/手机号页同状态）。 */
+    /** 协议勾选行：单选圈＋「已阅读并同意红果免费短剧 用户协议 和 隐私政策」（照官方实拍文案，整行点按切换，主页/手机号页同状态）。 */
     private View buildAgreementRow() {
         LinearLayout agreeRow = new LinearLayout(requireContext());
         agreeRow.setOrientation(LinearLayout.HORIZONTAL);
         agreeRow.setGravity(Gravity.CENTER);
-        TextView dot = new TextView(requireContext());
-        dot.setText("○");
-        dot.setTextColor(Color.parseColor("#666666"));
-        dot.setTextSize(16);
-        agreeRow.addView(dot);
-        agreeDots.add(dot);
+        agreeRow.addView(agreementDot());
         TextView agreeText = new TextView(requireContext());
         agreeText.setText(agreementText());
         agreeText.setTextSize(13);
@@ -784,12 +779,54 @@ public class HongguoLoginPage extends DialogFragment {
         agreeRow.addView(agreeText, at);
         agreeRow.setOnClickListener(v -> {
             agreed = !agreed;
-            for (TextView d : agreeDots) {
-                d.setText(agreed ? "●" : "○");
-                d.setTextColor(Color.parseColor(agreed ? "#FF7A29" : "#666666"));
-            }
+            refreshAgreementDots();
         });
         return agreeRow;
+    }
+
+    /**
+     * 协议单选圈（照官方包 7.2.5.32 定版）：官方登录页协议行用
+     * fqbase_bg_checkbox_agreement——圈直径＝其 oval 定版尺寸
+     * {@code @dimen/le}＝10dp，未选＝透明底＋0.8dp 黑 40%（#66000000）
+     * 描边，选中＝品牌橙实心＋白色勾；圈与文字间距＝登录页该行
+     * CheckBox 的 layout_marginEnd＝6dp（咱家文字左距同为 6dp）。
+     * 旧实现是 16sp 的「○/●」字形，可见墨迹只约 7dp，比官方小一圈。
+     */
+    private View agreementDot() {
+        FrameLayout dot = new FrameLayout(requireContext());
+        TextView check = new TextView(requireContext());
+        check.setText("✓");
+        check.setTextColor(Color.WHITE);
+        check.setTextSize(7);
+        check.setTypeface(null, Typeface.BOLD);
+        check.setGravity(Gravity.CENTER);
+        check.setVisibility(View.GONE);
+        dot.addView(check, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        dot.setBackground(agreementCircleDrawable(false));
+        dot.setLayoutParams(new LinearLayout.LayoutParams(dp(10), dp(10)));
+        agreeDots.add(dot);
+        return dot;
+    }
+
+    private GradientDrawable agreementCircleDrawable(boolean checked) {
+        GradientDrawable gd = new GradientDrawable();
+        gd.setShape(GradientDrawable.OVAL);
+        if (checked) {
+            gd.setColor(Color.parseColor("#FF7A29"));
+        } else {
+            gd.setColor(Color.TRANSPARENT);
+            int stroke = Math.max(1, Math.round(0.8f * getResources().getDisplayMetrics().density));
+            gd.setStroke(stroke, Color.parseColor("#66000000"));
+        }
+        return gd;
+    }
+
+    private void refreshAgreementDots() {
+        for (FrameLayout dot : agreeDots) {
+            dot.setBackground(agreementCircleDrawable(agreed));
+            dot.getChildAt(0).setVisibility(agreed ? View.VISIBLE : View.GONE);
+        }
     }
 
     private SpannableString agreementText() {

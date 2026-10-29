@@ -37,6 +37,15 @@
 -keep class androidx.media3.decoder.SimpleDecoderOutputBuffer { *; }
 -keep class androidx.media3.decoder.mpegh** { *; }
 
+# 弹幕命中查询（自家补丁 media3-danmaku-hit-test-r1 给 DanmakuView 加的
+# findDanmakuUserIdAt）：1.4.60 成品里功能在位，但被 R8 内联进调用方
+# 并改名，复查按原名直查全数落空、误报成「整段被吞」（账
+# r8-swallow-20261029）。保住这个成员名，只为下版成品能按名复查，
+# 不是功能修复——链本身没坏。
+-keepclassmembers class androidx.media3.ui.danmaku.DanmakuView {
+    java.lang.String findDanmakuUserIdAt(float, float);
+}
+
 -keepclassmembers class androidx.media3.datasource.RawResourceDataSource {
   public static android.net.Uri buildRawResourceUri(int);
 }

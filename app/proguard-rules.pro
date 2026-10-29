@@ -201,6 +201,27 @@
 # 本行保留作双保险（类名供 Class.forName 兜底与问题定位）。
 -keep class com.fongmi.android.tv.ui.lab.LabNodeInfo { *; }
 
+# R8 吞件定根（2026-10-29，账 r8-swallow-20261029）：1.4.60 成品实证，
+# 上面那条 keep 保住了 LabNodeInfo 的壳，register() 体仍被整段摘空。
+# 真根不在写方：模块页读链的唯一入口是设置页「运行模块卡」的点击，
+# 1.4.11 补批 7bb78331a 删卡时把 HomeActivity.showModuleFragment()
+# 全仓唯一调用方一起删掉，此后 ModuleFragment → ModuleViewModel →
+# NodeLabInfo 整条读链在 R8 眼里是不可达死代码、整类被删；中转的
+# provider 字段无人读，写方「new Provider＋写字段」遂被判无副作用。
+# 教训：keep 保壳不保可达性，登记链的存活取决于整条读写图谱活着。
+# 设置页入口卡是否恢复属产品裁定（见账）；在此之前把整条图谱钉为
+# 入口点防再被吞——登记中转与接口、Provider 实现、读链四件一并保。
+-keep class com.fongmi.android.tv.utils.NodeLabInfo { *; }
+-keep class com.fongmi.android.tv.utils.NodeLabInfo$Provider { *; }
+-keep class com.fongmi.android.tv.ui.lab.LabNodeInfo$* { *; }
+-keep class com.fongmi.android.tv.model.ModuleViewModel { *; }
+-keep class com.fongmi.android.tv.model.ModuleViewModel$* { *; }
+-keep class com.fongmi.android.tv.ui.fragment.ModuleFragment { *; }
+-keep class com.fongmi.android.tv.ui.fragment.ModuleFragment$* { *; }
+-keep class com.fongmi.android.tv.ui.dialog.ModuleDialog { *; }
+-keep class com.fongmi.android.tv.utils.ModuleUtil { *; }
+-keep class com.fongmi.android.tv.ui.custom.ModuleProgressView { *; }
+
 # AI 语音/问答反射口（全应用扫描 O8，与 LabBoot 同型）：AiActionExecutor /
 # AiQaHelper 靠 getMethod 按字面名调播放页与阅读页的 ai* 方法（aiNext /
 # aiSeekBy / aiGetVodName / aiBookmarks 等共 23 个名），这些方法除反射外无

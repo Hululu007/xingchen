@@ -1,0 +1,17 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- 红果登录页「手机号登录」圆钮内图（官方 e1c 定版：24dp 图位，
+         图形是竖直的智能手机轮廓——实拍墨迹约 13×19dp——不是电话听筒）。
+         本图为按实拍墨迹尺寸复刻的手机轮廓矢量：圆角机身＋底部小圆点。 -->
+    <path
+        android:pathData="M7.5,2.5 h9 a2,2 0 0 1 2,2 v15 a2,2 0 0 1 -2,2 h-9 a2,2 0 0 1 -2,-2 v-15 a2,2 0 0 1 2,-2 z"
+        android:strokeColor="#000000"
+        android:strokeWidth="1.8"
+        android:fillColor="#00000000" />
+    <path
+        android:pathData="M12,18.3 m-1,0 a1,1 0 1 0 2,0 a1,1 0 1 0 -2,0"
+        android:fillColor="#000000" />
+</vector>

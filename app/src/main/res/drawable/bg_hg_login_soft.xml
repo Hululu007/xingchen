@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 红果登录页柔光底（照官方实拍 113559 采样）：官方底是整张柔光图
+     （上半青绿与蜜桃两团柔光、下半近乎平坦的 #F4F4F4），不是斜向三段
+     线性渐变。采样值：青绿团心约 #9DDED6、蜜桃团心约 #F4D1B3、下半
+     平坦区 #F4F4F4。本文件以两团径向柔光叠在平坦底上近似那张图，
+     团心色与平坦色均为实拍采样；原图本身是服务端图/视频资产、
+     静态包内抠不到原值，此为最接近的程序化复刻。 -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#F4F4F4" />
+        </shape>
+    </item>
+    <item
+        android:width="560dp"
+        android:height="360dp"
+        android:top="-170dp"
+        android:gravity="top|center_horizontal">
+        <shape android:shape="oval">
+            <gradient
+                android:type="radial"
+                android:gradientRadius="50%p"
+                android:startColor="#F4D1B3"
+                android:endColor="#00F4D1B3" />
+        </shape>
+    </item>
+    <item
+        android:width="400dp"
+        android:height="600dp"
+        android:left="-150dp"
+        android:top="-80dp"
+        android:gravity="top|start">
+        <shape android:shape="oval">
+            <gradient
+                android:type="radial"
+                android:gradientRadius="50%p"
+                android:startColor="#9DDED6"
+                android:endColor="#009DDED6" />
+        </shape>
+    </item>
+</layer-list>

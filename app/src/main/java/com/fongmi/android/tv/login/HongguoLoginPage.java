@@ -130,7 +130,7 @@ public class HongguoLoginPage extends DialogFragment {
             countdown--;
             if (countdown <= 0) {
                 tvResend.setText("重新发送");
-                tvResend.setTextColor(Color.parseColor("#FF8C4A"));
+                tvResend.setTextColor(Color.parseColor("#FA6725"));
                 tvResend.setClickable(true);
             } else {
                 tvResend.setText("重新发送（" + countdown + "s）");
@@ -253,10 +253,9 @@ public class HongguoLoginPage extends DialogFragment {
 
     private View createContentView() {
         FrameLayout root = new FrameLayout(requireContext());
-        GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
-                new int[]{Color.parseColor("#8FE8D8"), Color.parseColor("#FFE7C4"),
-                        Color.parseColor("#FFFBF3")});
-        root.setBackground(bg);
+        // 柔光底照官方实拍采样换成专属 drawable（两团径向柔光＋平坦下半），
+        // 不再用斜向三段线性渐变（官方底下半是平坦的 #F4F4F4、青绿团只在左上）
+        root.setBackgroundResource(R.drawable.bg_hg_login_soft);
         paneHome = buildHomePane();
         panePhone = buildPhonePane();
         paneWeb = buildWebPane();
@@ -277,15 +276,16 @@ public class HongguoLoginPage extends DialogFragment {
     private LinearLayout pageColumn() {
         LinearLayout content = new LinearLayout(requireContext());
         content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(dp(28), dp(54), dp(28), dp(24));
+        // 横向基准照官方：× 左距 16dp、标题/大钮左距 63dp、协议行 39dp、
+        // 授权说明 40dp——列内距取 16dp，各件再用自身左边距补到官方绝对位
+        content.setPadding(dp(16), dp(54), dp(16), dp(24));
         return content;
     }
 
-    private TextView closeButton() {
-        TextView close = new TextView(requireContext());
-        close.setText("×");
-        close.setTextColor(Color.parseColor("#111111"));
-        close.setTextSize(30);
+    /** 关闭钮（官方 dao 定版：24dp 图标位、左距 16dp；不用字形「×」冒充图标）。 */
+    private View closeButton() {
+        ImageView close = new ImageView(requireContext());
+        close.setImageResource(R.drawable.ic_hg_login_close);
         close.setOnClickListener(v -> dismiss());
         return close;
     }
@@ -293,21 +293,24 @@ public class HongguoLoginPage extends DialogFragment {
     private TextView bigTitle(String text) {
         TextView tv = new TextView(requireContext());
         tv.setText(text);
-        tv.setTextColor(Color.parseColor("#111111"));
-        tv.setTextSize(33);
+        // 官方标题：30sp、纯黑（skin_color_login3_text_light=#FF000000）
+        tv.setTextColor(Color.parseColor("#000000"));
+        tv.setTextSize(30);
         tv.setTypeface(null, Typeface.BOLD);
         return tv;
     }
 
     private void addTitles(LinearLayout content) {
-        content.addView(closeButton(), new LinearLayout.LayoutParams(dp(40), dp(40)));
+        content.addView(closeButton(), new LinearLayout.LayoutParams(dp(24), dp(24)));
         TextView title1 = bigTitle("登录");
         LinearLayout.LayoutParams t1 = wrapWrap();
-        t1.setMargins(dp(10), dp(52), 0, 0);
+        // 标题左距 63dp（列内距 16＋47）、标题顶位照 dao：× 顶 57＋高 24＋距 69
+        t1.setMargins(dp(47), dp(72), 0, 0);
         content.addView(title1, t1);
         TextView title2 = bigTitle("发现更多精彩短剧");
         LinearLayout.LayoutParams t2 = wrapWrap();
-        t2.setMargins(dp(10), dp(6), 0, 0);
+        // 两行行距照官方单 TextView 的 lineSpacingExtra=10dp 口径
+        t2.setMargins(dp(47), dp(8), 0, 0);
         content.addView(title2, t2);
     }
 
@@ -323,36 +326,38 @@ public class HongguoLoginPage extends DialogFragment {
         addTitles(content);
 
         // 橙色大钮：抖音音符标＋「一键登录」（主入口）
+        // 官方 c7e 定版：高 48dp、左右距 63dp、距标题区 107dp；底是橙色
+        // 渐变（官方色值 #FF9A62→#FA6725、实拍色族与圆角约 12dp 对此系）、
+        // 字 16sp 白、图标约 22dp、图标与字距 8dp
         LinearLayout douyin = new LinearLayout(requireContext());
         douyin.setOrientation(LinearLayout.HORIZONTAL);
         douyin.setGravity(Gravity.CENTER);
-        GradientDrawable gd = new GradientDrawable();
-        gd.setColor(Color.parseColor("#FF7A29"));
-        gd.setCornerRadius(dp(14));
+        GradientDrawable gd = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
+                new int[]{Color.parseColor("#FF9A62"), Color.parseColor("#FA6725")});
+        gd.setCornerRadius(dp(12));
         douyin.setBackground(gd);
         ImageView note = new ImageView(requireContext());
         note.setImageResource(R.drawable.ic_hg_douyin);
-        douyin.addView(note, new LinearLayout.LayoutParams(dp(24), dp(24)));
+        douyin.addView(note, new LinearLayout.LayoutParams(dp(22), dp(22)));
         tvDouyinLabel = new TextView(requireContext());
         tvDouyinLabel.setText("一键登录");
         tvDouyinLabel.setTextColor(Color.WHITE);
-        tvDouyinLabel.setTextSize(17);
-        tvDouyinLabel.setTypeface(null, Typeface.BOLD);
+        tvDouyinLabel.setTextSize(16);
         LinearLayout.LayoutParams dl = wrapWrap();
         dl.setMargins(dp(8), 0, 0, 0);
         douyin.addView(tvDouyinLabel, dl);
         LinearLayout.LayoutParams db = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(56));
-        db.setMargins(0, dp(64), 0, 0);
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(48));
+        db.setMargins(dp(47), dp(107), dp(47), 0);
         content.addView(douyin, db);
         btnDouyin = douyin;
         douyin.setOnClickListener(v -> onDouyinClicked());
 
-        content.addView(buildAgreementRow(), matchWrap(dp(22)));
+        content.addView(buildAgreementRow(), matchWrap(dp(20)));
 
         tvHomeStatus = statusText();
         LinearLayout.LayoutParams hs = matchWrap(dp(14));
-        hs.setMargins(dp(10), 0, 0, 0);
+        hs.setMargins(dp(47), 0, 0, 0);
         content.addView(tvHomeStatus, hs);
 
         // 弹性空白：把手机圆钮与授权说明压到页底区（照实拍层级）
@@ -361,51 +366,80 @@ public class HongguoLoginPage extends DialogFragment {
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
 
         // 底部手机图标圆钮：点开切换手机号登录
+        // 官方 e1c 定版：整件 48dp（内图 24dp＋四周 12dp）、白底圆、
+        // 描边 0.5dp 黑 10%（#1A000000）；内图是手机轮廓、不是电话听筒
         FrameLayout phoneBtn = new FrameLayout(requireContext());
         GradientDrawable circle = new GradientDrawable();
         circle.setShape(GradientDrawable.OVAL);
         circle.setColor(Color.WHITE);
-        circle.setStroke(dp(1), Color.parseColor("#E7E1D6"));
+        int stroke = Math.max(1, Math.round(0.5f * getResources().getDisplayMetrics().density));
+        circle.setStroke(stroke, Color.parseColor("#1A000000"));
         phoneBtn.setBackground(circle);
         ImageView phoneIcon = new ImageView(requireContext());
-        phoneIcon.setImageResource(R.drawable.ic_hg_phone);
-        int pad = dp(17);
+        phoneIcon.setImageResource(R.drawable.ic_hg_login_phone);
+        int pad = dp(12);
         phoneIcon.setPadding(pad, pad, pad, pad);
         phoneBtn.addView(phoneIcon, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-        LinearLayout.LayoutParams pb = new LinearLayout.LayoutParams(dp(58), dp(58));
+        LinearLayout.LayoutParams pb = new LinearLayout.LayoutParams(dp(48), dp(48));
         pb.gravity = Gravity.CENTER_HORIZONTAL;
         content.addView(phoneBtn, pb);
         phoneBtn.setOnClickListener(v -> showPane(PANE_PHONE));
 
-        // 页底授权说明（照实拍两行权限）
+        // 页底授权说明（官方 DouyinAuthScopeView／c7_ 定版）：顶部一条
+        // 0.5dp 黑 10% 分隔线（左右距 40dp）、标题 12sp 黑 40%、每行
+        // 10dp 橙勾圆（#FA7705、首行 40% 透明）＋12sp 黑 40% 文、行距 14dp
+        View notesDivider = new View(requireContext());
+        notesDivider.setBackgroundColor(Color.parseColor("#1A000000"));
+        LinearLayout.LayoutParams nd = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, stroke);
+        nd.setMargins(dp(24), dp(30), dp(24), 0);
+        content.addView(notesDivider, nd);
         TextView notesTitle = new TextView(requireContext());
         notesTitle.setText("授权后将获得以下权限");
-        notesTitle.setTextColor(Color.parseColor("#666666"));
-        notesTitle.setTextSize(13);
-        LinearLayout.LayoutParams nt = matchWrap(dp(46));
+        notesTitle.setTextColor(Color.parseColor("#66000000"));
+        notesTitle.setTextSize(12);
+        LinearLayout.LayoutParams nt = matchWrap(dp(16));
+        nt.setMargins(dp(24), dp(16), dp(24), 0);
         content.addView(notesTitle, nt);
-        content.addView(permissionRow("获得你的公开信息（头像、昵称）"), matchWrap(dp(10)));
-        content.addView(permissionRow("获得你的抖音手机号"), matchWrap(dp(6)));
+        content.addView(permissionRow("获得你的公开信息（头像、昵称）", true), scopeRowParams());
+        content.addView(permissionRow("获得你的抖音手机号", false), scopeRowParams());
         return content;
     }
 
-    private LinearLayout permissionRow(String text) {
+    private LinearLayout.LayoutParams scopeRowParams() {
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        p.setMargins(dp(24), dp(14), dp(24), 0);
+        return p;
+    }
+
+    private LinearLayout permissionRow(String text, boolean dimmed) {
         LinearLayout row = new LinearLayout(requireContext());
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
+        // 勾件照官方：10dp 橙实心圆＋白勾（与协议圈同族），不用「✓」字形凑图标
+        FrameLayout dot = new FrameLayout(requireContext());
+        GradientDrawable gd = new GradientDrawable();
+        gd.setShape(GradientDrawable.OVAL);
+        gd.setColor(Color.parseColor("#FA7705"));
+        dot.setBackground(gd);
         TextView check = new TextView(requireContext());
         check.setText("✓");
-        check.setTextColor(Color.parseColor("#FF7A29"));
-        check.setTextSize(13);
+        check.setTextColor(Color.WHITE);
+        check.setTextSize(7);
         check.setTypeface(null, Typeface.BOLD);
-        row.addView(check);
+        check.setGravity(Gravity.CENTER);
+        dot.addView(check, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        if (dimmed) dot.setAlpha(0.4f);
+        row.addView(dot, new LinearLayout.LayoutParams(dp(10), dp(10)));
         TextView tv = new TextView(requireContext());
         tv.setText(text);
-        tv.setTextColor(Color.parseColor("#666666"));
-        tv.setTextSize(13);
+        tv.setTextColor(Color.parseColor("#66000000"));
+        tv.setTextSize(12);
         LinearLayout.LayoutParams p = wrapWrap();
-        p.setMargins(dp(8), 0, 0, 0);
+        p.setMargins(dp(6), 0, 0, 0);
         row.addView(tv, p);
         return row;
     }
@@ -561,13 +595,14 @@ public class HongguoLoginPage extends DialogFragment {
     private View buildPhonePane() {
         LinearLayout content = pageColumn();
         addTitles(content);
-        content.addView(buildStep1(), matchWrap(dp(56)));
-        content.addView(buildStep2(), matchWrap(dp(56)));
-        content.addView(buildAgreementRow(), matchWrap(dp(22)));
+        // 输入区左右距照官方全页手机号面（dar）40dp：列内距 16＋件内距 24
+        content.addView(buildStep1(), phoneStepParams());
+        content.addView(buildStep2(), phoneStepParams());
+        content.addView(buildAgreementRow(), matchWrap(dp(20)));
 
         tvPhoneStatus = statusText();
         LinearLayout.LayoutParams st = matchWrap(dp(14));
-        st.setMargins(dp(10), 0, 0, 0);
+        st.setMargins(dp(24), 0, 0, 0);
         content.addView(tvPhoneStatus, st);
 
         View spacer = new View(requireContext());
@@ -575,13 +610,20 @@ public class HongguoLoginPage extends DialogFragment {
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
         TextView back = new TextView(requireContext());
         back.setText("抖音一键登录");
-        back.setTextColor(Color.parseColor("#FF7A29"));
+        back.setTextColor(Color.parseColor("#FA6725"));
         back.setTextSize(14);
         back.setGravity(Gravity.CENTER);
         back.setOnClickListener(v -> showPane(PANE_HOME));
         content.addView(back, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         return content;
+    }
+
+    private LinearLayout.LayoutParams phoneStepParams() {
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        p.setMargins(dp(24), dp(56), dp(24), 0);
+        return p;
     }
 
     private View buildStep1() {
@@ -592,28 +634,37 @@ public class HongguoLoginPage extends DialogFragment {
         LinearLayout phoneRow = new LinearLayout(requireContext());
         phoneRow.setOrientation(LinearLayout.HORIZONTAL);
         phoneRow.setGravity(Gravity.CENTER_VERTICAL);
+        // 区号件照官方 dct 定版：「+86」20sp 纯黑＋12dp 下箭头图（距 6dp），
+        // 不用「⌄」字形拼在文字里
         TextView prefix = new TextView(requireContext());
-        prefix.setText("+86 ⌄");
-        prefix.setTextColor(Color.parseColor("#111111"));
-        prefix.setTextSize(17);
+        prefix.setText("+86");
+        prefix.setTextColor(Color.parseColor("#000000"));
+        prefix.setTextSize(20);
         phoneRow.addView(prefix, wrapWrap());
+        ImageView arrow = new ImageView(requireContext());
+        arrow.setImageResource(R.drawable.ic_hg_login_chevron);
+        LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(dp(12), dp(12));
+        ap.setMargins(dp(6), 0, 0, 0);
+        phoneRow.addView(arrow, ap);
         etPhone = new EditText(requireContext());
         etPhone.setHint("请输入您的手机号");
-        etPhone.setTextSize(17);
-        etPhone.setTextColor(Color.parseColor("#111111"));
-        etPhone.setHintTextColor(Color.parseColor("#A8A8A8"));
+        // 输入字照官方 cde 定版：20sp 粗黑、提示字黑 45%（#73000000）、左距 12dp
+        etPhone.setTextSize(20);
+        etPhone.setTypeface(null, Typeface.BOLD);
+        etPhone.setTextColor(Color.parseColor("#000000"));
+        etPhone.setHintTextColor(Color.parseColor("#73000000"));
         etPhone.setBackground(null);
         etPhone.setInputType(InputType.TYPE_CLASS_PHONE);
         etPhone.setSingleLine(true);
-        etPhone.setPadding(dp(14), 0, 0, 0);
-        LinearLayout.LayoutParams ep = new LinearLayout.LayoutParams(0, dp(52), 1f);
+        etPhone.setPadding(dp(12), 0, 0, 0);
+        LinearLayout.LayoutParams ep = new LinearLayout.LayoutParams(0, dp(44), 1f);
         phoneRow.addView(etPhone, ep);
         box.addView(phoneRow);
         box.addView(divider());
 
         btnSend = peachButton("获取验证码");
         LinearLayout.LayoutParams bs = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(54));
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(48));
         bs.setMargins(0, dp(26), 0, 0);
         box.addView(btnSend, bs);
         refreshSendButton();
@@ -642,27 +693,29 @@ public class HongguoLoginPage extends DialogFragment {
         step2 = box;
 
         tvSentTo = new TextView(requireContext());
-        tvSentTo.setTextColor(Color.parseColor("#666666"));
+        // 「验证码已发送至」行照官方验证码面标签口径：14sp、黑 45%（#73000000）
+        tvSentTo.setTextColor(Color.parseColor("#73000000"));
         tvSentTo.setTextSize(14);
         box.addView(tvSentTo);
 
         etCode = new EditText(requireContext());
         etCode.setHint("请输入验证码");
-        etCode.setTextSize(17);
-        etCode.setTextColor(Color.parseColor("#111111"));
-        etCode.setHintTextColor(Color.parseColor("#A8A8A8"));
+        etCode.setTextSize(20);
+        etCode.setTypeface(null, Typeface.BOLD);
+        etCode.setTextColor(Color.parseColor("#000000"));
+        etCode.setHintTextColor(Color.parseColor("#73000000"));
         etCode.setBackground(null);
         etCode.setInputType(InputType.TYPE_CLASS_NUMBER);
         etCode.setSingleLine(true);
         LinearLayout.LayoutParams ec = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(52));
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(44));
         ec.setMargins(0, dp(10), 0, 0);
         box.addView(etCode, ec);
         box.addView(divider());
 
         btnLogin = peachButton("登录");
         LinearLayout.LayoutParams bl = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(54));
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(48));
         bl.setMargins(0, dp(26), 0, 0);
         box.addView(btnLogin, bl);
         btnLogin.setOnClickListener(v -> onLoginClicked());
@@ -772,8 +825,9 @@ public class HongguoLoginPage extends DialogFragment {
         agreeRow.addView(agreementDot());
         TextView agreeText = new TextView(requireContext());
         agreeText.setText(agreementText());
-        agreeText.setTextSize(13);
-        agreeText.setTextColor(Color.parseColor("#666666"));
+        // 协议字照官方 bqb 定版：12sp、黑 40%（#66000000）
+        agreeText.setTextSize(12);
+        agreeText.setTextColor(Color.parseColor("#66000000"));
         LinearLayout.LayoutParams at = wrapWrap();
         at.setMargins(dp(6), 0, 0, 0);
         agreeRow.addView(agreeText, at);
@@ -840,6 +894,8 @@ public class HongguoLoginPage extends DialogFragment {
     }
 
     private TextView statusText() {
+        // 报错红字：官方登录面未抠到行内报错的定版（官方多走浮层提示），
+        // 此色此号为咱家自留口径、不冒充官方值，待有官方报错实拍再对
         TextView tv = new TextView(requireContext());
         tv.setTextColor(Color.parseColor("#D93025"));
         tv.setTextSize(13);
@@ -855,9 +911,11 @@ public class HongguoLoginPage extends DialogFragment {
 
     private View divider() {
         View v = new View(requireContext());
-        v.setBackgroundColor(Color.parseColor("#E2DED6"));
+        // 输入行分隔线照官方 cde 定版：0.5dp、黑 20%（#33000000）
+        v.setBackgroundColor(Color.parseColor("#33000000"));
+        int h = Math.max(1, Math.round(0.5f * getResources().getDisplayMetrics().density));
         v.setLayoutParams(new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(1)));
+                LinearLayout.LayoutParams.MATCH_PARENT, h));
         return v;
     }
 
@@ -865,12 +923,13 @@ public class HongguoLoginPage extends DialogFragment {
         TextView tv = new TextView(requireContext());
         tv.setText(text);
         tv.setTextColor(Color.WHITE);
-        tv.setTextSize(17);
-        tv.setTypeface(null, Typeface.BOLD);
+        tv.setTextSize(16);
         tv.setGravity(Gravity.CENTER);
+        // 与主页抖音大钮同底：官方橙渐变 #FF9A62→#FA6725、圆角 12dp
+        // （旧浅桃渐变在浅底上发飘、是廉价感来源之一）
         GradientDrawable gd = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
-                new int[]{Color.parseColor("#FFCF9E"), Color.parseColor("#FFB37E")});
-        gd.setCornerRadius(dp(16));
+                new int[]{Color.parseColor("#FF9A62"), Color.parseColor("#FA6725")});
+        gd.setCornerRadius(dp(12));
         tv.setBackground(gd);
         return tv;
     }

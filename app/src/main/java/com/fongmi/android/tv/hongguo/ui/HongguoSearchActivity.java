@@ -165,10 +165,14 @@ public class HongguoSearchActivity extends BaseActivity {
                     } else {
                         b.hgSBadge.setVisibility(View.GONE);
                     }
-                    // 封面左下文案位（官方双列卡 play_cnt_desc 同位）：优先热度文案，其次全X集，都无则藏
+                    // 封面左下文案位（官方双列卡 play_cnt_desc 同位）：优先热度文案，其次全X集；
+                    // UGC 单集条两者皆无、官方同位是「♥N次赞」（digged_count），照此兜底
                     String overlay = item.getRecText();
                     if ((overlay == null || overlay.isEmpty()) && item.getEpisodeCount() > 0) {
                         overlay = "全" + item.getEpisodeCount() + "集";
+                    }
+                    if ((overlay == null || overlay.isEmpty()) && item.getDiggCount() > 0) {
+                        overlay = "♥" + formatCount(item.getDiggCount()) + "次赞";
                     }
                     if (overlay != null && !overlay.isEmpty()) {
                         b.hgSOverlay.setVisibility(View.VISIBLE);
@@ -200,9 +204,14 @@ public class HongguoSearchActivity extends BaseActivity {
                         b.hgSAuthorRing.setVisibility(View.GONE);
                         b.hgSAuthorName.setVisibility(View.GONE);
                     }
-                    b.getRoot().setOnClickListener(v ->
-                            HongguoFeedActivity.startSeries(HongguoSearchActivity.this,
-                                    item.getSeriesId(), item.getTitle(), item.getCoverUrl()));
+                    // 点赞数位（作者行右端）：有 digged_count 才显
+                    if (item.getDiggCount() > 0) {
+                        b.hgSDigg.setVisibility(View.VISIBLE);
+                        b.hgSDigg.setText("♡" + formatCount(item.getDiggCount()));
+                    } else {
+                        b.hgSDigg.setVisibility(View.GONE);
+                    }
+                    b.getRoot().setOnClickListener(v -> onResultClick(item));
                     return;
                 }
                 int type = getItemViewType(position);
@@ -377,6 +386,56 @@ public class HongguoSearchActivity extends BaseActivity {
             @Override
             public void onError(int httpCode, String message) {
                 // 联想失败不打扰：保持当前列表（历史/已打字状态），提交搜索仍可用
+            }
+        });
+    }
+
+    /** 计数文案：万以下原数，万起缩「X.X万」（与 rec_text 的万制文风一致）。 */
+    private static String formatCount(long n) {
+        if (n < 10000) return String.valueOf(n);
+        long w = n / 1000;
+        String s = (w / 10) + "." + (w % 10);
+        if (s.endsWith(".0")) s = s.substring(0, s.length() - 2);
+        return s + "万";
+    }
+
+    /**
+     * 搜索结果点击分发：普通剧/UGC 单集直进集流；合集条（content_type
+     * 1003、身份是 album id）先进专辑详情拉名单再让用户选一条进——
+     * 拿 album id 直当 series id 拉详情必空（账 hongguo-search-parity）。
+     * 名单弹法复用集流页同款系列单（HgSeriesSheet），构成口径一致；
+     * 拉空/失败给明确提示，不静默、不假跳。
+     */
+    private void onResultClick(HgSeriesItem item) {
+        String albumId = item.getAlbumId();
+        if (item.getContentType() != 1003 || albumId == null || albumId.isEmpty()) {
+            HongguoFeedActivity.startSeries(this, item.getSeriesId(), item.getTitle(), item.getCoverUrl());
+            return;
+        }
+        session.client.fetchAlbum(albumId, new HgCallback<List<HgSeriesItem>>() {
+            @Override
+            public void onSuccess(List<HgSeriesItem> rows) {
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    if (rows == null || rows.isEmpty()) {
+                        android.widget.Toast.makeText(HongguoSearchActivity.this,
+                                "合集暂时打不开，稍后再试", android.widget.Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    HgSeriesSheet.show(HongguoSearchActivity.this, rows, null,
+                            session.interactions, picked ->
+                                    HongguoFeedActivity.startSeries(HongguoSearchActivity.this,
+                                            picked.getSeriesId(), picked.getTitle(), picked.getCoverUrl()));
+                });
+            }
+
+            @Override
+            public void onError(int httpCode, String message) {
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    android.widget.Toast.makeText(HongguoSearchActivity.this,
+                            "合集暂时打不开，稍后再试", android.widget.Toast.LENGTH_SHORT).show();
+                });
             }
         });
     }

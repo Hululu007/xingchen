@@ -329,7 +329,8 @@ public final class HgParser {
      * 专辑详情回包 → 各季条目（照 openhongguo ParseAlbum 的线上形状）：
      * data.album_data{album_id_str/album_title/…/series_list|video_list[]}，
      * 每季 series_id_str/series_title/season_index/series_cover/episode_cnt/
-     * series_status。code 非 0（如 101001 已下架）返回空表，调用方直进剧。
+     * series_status。UGC 合集回包同口不同形：名单在 video_detail_list
+     * （card 形，同键集）。code 非 0（如 101001 已下架）返回空表，调用方直进剧。
      */
     public static List<HgSeriesItem> parseAlbum(String json) {
         List<HgSeriesItem> out = new ArrayList<>();
@@ -346,6 +347,11 @@ public final class HgParser {
         JsonObject album = obj(data, "album_data");
         if (album == null) return out;
         JsonArray rows = arr(album, "series_list");
+        // UGC 合集（搜索合集条点开的 album_detail 真回包 2026-10-29 实拉）：
+        // 名单在 album_data.video_detail_list，每行 card 形
+        // （series_id_str/series_title/series_cover），与多季的 series_list
+        // 同位不同名，不补此路合集点开恒空表。
+        if (rows == null) rows = arr(album, "video_detail_list");
         if (rows == null) rows = arr(album, "video_list");
         if (rows == null) return out;
         List<HgSeriesItem> seasons = new ArrayList<>();
@@ -969,14 +975,23 @@ public final class HgParser {
     private static HgSeriesItem asSeriesItem(JsonElement el, int depth) {
         if (el == null || !el.isJsonObject()) return null;
         JsonObject o = el.getAsJsonObject();
+        // 搜索视频签的合集条（content_type=1003，真回包 2026-10-29 实拉）：
+        // video_data 本体无 series_id、vid 为空，唯一身份在子对象
+        // album_info（album_id_str/title/episode_cnt/ugc_user_info）——
+        // 不归一则整条被判无 id 丢弃（同词回包 20 行里 15 行是合集条，
+        // 咱家只剩 5 条 UGC 单集，账 hongguo-search-parity-20261029）。
+        JsonObject albumInfo = obj(o, "album_info");
         String id = firstStr(o, "series_id", "book_id", "seriesId");
         if (id == null) id = longStr(o, "item_id");
+        if (id == null && albumInfo != null) id = firstStr(albumInfo, "album_id_str", "album_id");
         String title = firstStr(o, "title", "series_name", "name", "book_name");
+        if (title == null && albumInfo != null) title = str(albumInfo, "title");
         if (id == null || title == null) return null;
         String cover = firstStr(o, "cover", "poster_url", "thumb_url", "cover_url", "image_url");
         String desc = firstStr(o, "desc", "description", "intro", "video_desc");
         int count = intOf(o, "episode_count", -1);
         if (count < 0) count = intOf(o, "episode_cnt", -1);
+        if (count < 0 && albumInfo != null) count = intOf(albumInfo, "episode_cnt", -1);
         // 预约面：rpc 模型 Feed 带 appointment: Appointment{is_subscribed /
         // due_start_text / due_start_time}（classes11.dex），键名蛇形逐字验过；
         // 以前解析器没读、被容忍吞掉，未上线剧的预约态从这里进模型。
@@ -1044,21 +1059,53 @@ public final class HgParser {
                 }
             }
         }
+        // 专辑 id：条目自身带 album_id_str 先用，合集条取 album_info 的
+        String albumId = firstStr(o, "album_id_str", "album_id");
+        if (albumId == null && albumInfo != null) {
+            albumId = firstStr(albumInfo, "album_id_str", "album_id");
+        }
+        // 作者四件补源（本体 author_* 为空时）：合集条在
+        // album_info.ugc_user_info、UGC 单集条在 video_detail.ugc_user_info
+        // （与 collectSeries 的 ugc 抬升同一来源口径；此前搜索条这两路
+        // 都抬不到，作者行恒空）。
+        String authorName = str(o, "author_name");
+        String authorAvatar = str(o, "author_avatar");
+        String authorUid = str(o, "author_uid");
+        String authorDesc = str(o, "author_desc");
+        JsonObject authorUgc = albumInfo == null ? null : obj(albumInfo, "ugc_user_info");
+        if (authorUgc == null) {
+            JsonObject detailObj = obj(o, "video_detail");
+            if (detailObj != null) authorUgc = obj(detailObj, "ugc_user_info");
+        }
+        if (authorUgc != null) {
+            JsonObject base = obj(authorUgc, "base_info");
+            if (authorName == null && base != null) authorName = str(base, "user_name");
+            if (authorAvatar == null && base != null) authorAvatar = str(base, "user_avatar");
+            if (authorDesc == null && base != null) authorDesc = str(base, "description");
+            if (authorUid == null) {
+                authorUid = str(authorUgc, "user_id");
+                if (authorUid == null && base != null) authorUid = str(base, "user_id");
+            }
+        }
         HgSeriesItem item = new HgSeriesItem(id, title, cover, desc, count,
                 appt != null, appt != null && boolOf(appt, "is_subscribed"),
                 appt == null ? null : str(appt, "due_start_text"),
                 vid, badge, recText, tags, vertical,
                 boolOf(o, "is_multi_season"),
-                firstStr(o, "album_id_str", "album_id"),
+                albumId,
                 intOf(o, "album_serial_count", -1), siblings,
                 longOf(o, "comment_count", -1), longOf(o, "digged_count", -1),
                 intOrNull(o, "series_status"), statementOf(intOrNull(o, "ai_usage_type")),
-                str(o, "author_name"), str(o, "author_avatar"),
-                str(o, "author_uid"), str(o, "author_desc"),
+                authorName, authorAvatar,
+                authorUid, authorDesc,
                 intOf(o, "content_type", -1),
                 firstStr(o, "publisher", "copyright"));
         item.vidIndex = intOf(o, "vid_index", -1);
         fillInfoStack(item, o, rrl);
+        // 合集条的追更数挂 album_info（fillInfoStack 只读本体 followed_cnt）
+        if (albumInfo != null && item.followedCnt < 0) {
+            item.followedCnt = longOf(albumInfo, "followed_cnt", -1);
+        }
         return item;
     }
 

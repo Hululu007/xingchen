@@ -144,7 +144,24 @@
         android:textColor="#66000000"
         android:textSize="12sp"
         android:visibility="gone"
-        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintEnd_toStartOf="@id/hg_s_digg"
+        app:layout_goneMarginEnd="10dp"
         app:layout_constraintStart_toEndOf="@id/hg_s_author_avatar"
         app:layout_constraintTop_toBottomOf="@id/hg_s_title" />
+
+    <!-- 点赞数（官方 b7l 富卡作者行右端 ♡＋数）：解析有 digged_count
+         才显；合集条回包无点赞数来源、恒不显，不编造 -->
+    <TextView
+        android:id="@+id/hg_s_digg"
+        android:layout_width="wrap_content"
+        android:layout_height="19dp"
+        android:layout_marginEnd="10dp"
+        android:gravity="center_vertical"
+        android:maxLines="1"
+        android:textColor="#66000000"
+        android:textSize="12sp"
+        android:visibility="gone"
+        app:layout_constraintBottom_toBottomOf="@id/hg_s_author_name"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="@id/hg_s_author_name" />
 </androidx.constraintlayout.widget.ConstraintLayout>

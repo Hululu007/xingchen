@@ -868,7 +868,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                 if (at >= 0) adapter.notifyItemChanged(at);
             });
         }
-        startCurrentPlayback();
+        startSettledPlayback(position);
         afterSettleSideWork(position);
     }
 
@@ -953,6 +953,26 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             case "E5": return "播放准备失败，点按重试";
             default: return "加载失败，点按重试";
         }
+    }
+
+    /**
+     * 落定起播分发：UGC 短片（content_type＝1001）的 vid 在单集取模型
+     * 口恒回 101000，先经会话层拉 UGC 详情灌缓存再起播；灌不到按取数
+     * 失败走统一出口（自动跳下一条／短暂提示），不退回单集口假播。
+     * 其余条目与旧口径一致、直接起播（定根账 feed-item-fetch-fail-20261029）。
+     */
+    private void startSettledPlayback(int position) {
+        if (position < 0 || position >= session.items.size()) return;
+        HgFeedItem item = session.items.get(position);
+        if (!item.isUgcClip()) {
+            startCurrentPlayback();
+            return;
+        }
+        session.prepareUgcClip(position, ready -> {
+            if (currentPos != position) return; // 已滑走：灌好的模型留缓存，起播归新落定
+            if (ready) startCurrentPlayback();
+            else onItemPlayFailed("E1");
+        });
     }
 
     private void startCurrentPlayback() {
@@ -1932,7 +1952,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         for (String def : defs) {
             boolean on = def.equals(currentDef);
             TextView chip = new TextView(this);
-            chip.setText((on ? "✓ " : "") + HgPanelLogic.definitionLabel(def));
+            chip.setText(HgPanelLogic.definitionLabel(def));
             chip.setGravity(android.view.Gravity.CENTER);
             chip.setTextSize(13);
             chip.setPadding(Math.round(10 * density), 0, Math.round(10 * density), 0);
@@ -2598,14 +2618,25 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         dialog.show();
     }
 
+    /** 横屏抽屉行（官方倍速行 beo 定版：行高 54dp、文案 16sp 居中；选中＝
+     * 白粗＋42dp 高高亮片（p5 #33FFFFFF 圆角 12，由 InsetDrawable 上下各让
+     * 6dp 承载）；未选＝#B3FFFFFF 常规。清晰度抽屉共用此行型，为同壳推断。 */
     private TextView landDrawerRow(String text, boolean on) {
         TextView row = new TextView(this);
         row.setText(text);
-        row.setTextSize(15);
-        row.setTextColor(on ? 0xFFFA7705 : 0xFFFFFFFF);
+        row.setTextSize(16);
+        row.setGravity(android.view.Gravity.CENTER);
+        row.setTextColor(on ? 0xFFFFFFFF : 0xB3FFFFFF);
         row.setTypeface(null, on ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
-        int pad = Math.round(11 * getResources().getDisplayMetrics().density);
-        row.setPadding(0, pad, 0, pad);
+        float density = getResources().getDisplayMetrics().density;
+        row.setLayoutParams(new android.widget.LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, Math.round(54 * density)));
+        if (on) {
+            android.graphics.drawable.Drawable pill = androidx.core.content.ContextCompat
+                    .getDrawable(this, com.fongmi.android.tv.R.drawable.bg_hg_land_row_on);
+            row.setBackground(new android.graphics.drawable.InsetDrawable(
+                    pill, 0, Math.round(6 * density), 0, Math.round(6 * density)));
+        }
         return row;
     }
 
@@ -2658,7 +2689,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         showLandDrawer("清晰度", (rows, dialog) -> {
             for (String def : defsF) {
                 boolean on = def.equals(currentDef);
-                TextView row = landDrawerRow((on ? "✓ " : "") + HgPanelLogic.definitionLabel(def), on);
+                TextView row = landDrawerRow(HgPanelLogic.definitionLabel(def), on);
                 row.setOnClickListener(v -> {
                     dialog.dismiss();
                     if (!def.equals(currentDef)) switchDefinition(def, item);

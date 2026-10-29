@@ -240,12 +240,13 @@
             android:textSize="12sp" />
     </LinearLayout>
 
+    <!-- 全屏极简控制条（hg_fs_bar）默认隐藏，进全屏点屏唤出、自动再隐。
+         无底板：官方控制层（横屏 ca_/状态条 cah）均无半透方框底，控件直接压画面 -->
     <LinearLayout
         android:id="@+id/hg_fs_bar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
-        android:background="#66000000"
         android:gravity="center_vertical"
         android:orientation="horizontal"
         android:paddingStart="8dp"
@@ -309,13 +310,17 @@
 
         <TextView
             android:id="@+id/hg_land_clock"
-            android:layout_width="0dp"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:gravity="center"
+            android:layout_marginStart="6dp"
             android:textColor="#FFFFFF"
             android:textSize="12sp"
             android:textStyle="bold" />
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
 
         <TextView
             android:id="@+id/hg_land_battery_text"
@@ -326,11 +331,11 @@
             android:textStyle="bold" />
 
         <ImageView
-            android:layout_width="18dp"
-            android:layout_height="18dp"
+            android:layout_width="21dp"
+            android:layout_height="10dp"
             android:layout_marginStart="4dp"
             android:contentDescription="@null"
-            android:src="@drawable/ic_hg_battery" />
+            android:src="@drawable/ic_hg_battery_land" />
     </LinearLayout>
 
     <!-- 横排控制条照官方 ca_：外层 40dp 满宽、内层宽 78% 居中；三件 40dp 高、
@@ -342,7 +347,6 @@
         android:layout_width="match_parent"
         android:layout_height="40dp"
         android:layout_gravity="bottom"
-        android:background="#66000000"
         android:visibility="gone">
 
         <LinearLayout

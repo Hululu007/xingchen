@@ -1164,6 +1164,18 @@ public final class HgParser {
                 if (uid == null && ugcBase != null) uid = str(ugcBase, "user_id");
                 putIfPresent(merged, "author_uid", uid);
             }
+            // 作者关系态同在 ugc_user_info.user_relation 里（存档频道回包
+            // 实证：匿名恒 relation_type=1、can_follow=true）——抬到条目
+            // 顶层成 author_relation_type/author_can_follow 两键（与
+            // followed_cnt 抬升同法），asSeriesItem 出口一处收；出口另有
+            // authorUgc 直读兜底（账 hongguo-ugc-follow-dig-20261030
+            // §3.3/§5.2）
+            JsonObject ugcRel = ugc == null ? null : obj(ugc, "user_relation");
+            int relType = relationTypeOf(ugcRel);
+            if (relType >= 0) merged.addProperty("author_relation_type", relType);
+            if (ugcRel != null && ugcRel.has("can_follow")) {
+                merged.addProperty("author_can_follow", boolOf(ugcRel, "can_follow"));
+            }
         }
         for (Map.Entry<String, JsonElement> e : o.entrySet()) {
             // 条目自带空串不许盖掉已从 video_detail 抬升的真值：推荐频道
@@ -1271,6 +1283,12 @@ public final class HgParser {
                 String aDesc = base == null ? null : str(base, "description");
                 String aUid = str(ugc, "user_id");
                 if (aUid == null && base != null) aUid = str(base, "user_id");
+                // 作者关系态同挂本体 user_relation（与作者四件同源）：
+                // 补成条目顶层键供 asSeriesItem 出口收（§3.3/§5.2）
+                JsonObject aRel = obj(ugc, "user_relation");
+                int aRelType = relationTypeOf(aRel);
+                Boolean aCanFollow = aRel != null && aRel.has("can_follow")
+                        ? boolOf(aRel, "can_follow") : null;
                 if (aName != null || aUid != null) {
                     lifted = true;
                     for (JsonElement ve : vids) {
@@ -1284,6 +1302,12 @@ public final class HgParser {
                         fillIfBlank(copy, "author_avatar", aAvatar);
                         fillIfBlank(copy, "author_desc", aDesc);
                         fillIfBlank(copy, "author_uid", aUid);
+                        if (aRelType >= 0 && intOf(copy, "author_relation_type", -1) < 0) {
+                            copy.addProperty("author_relation_type", aRelType);
+                        }
+                        if (aCanFollow != null && !copy.has("author_can_follow")) {
+                            copy.addProperty("author_can_follow", aCanFollow);
+                        }
                         HgSeriesItem item = asSeriesItem(copy);
                         if (item != null) out.add(item);
                     }
@@ -1294,6 +1318,34 @@ public final class HgParser {
                 collectSeries(e.getValue(), out, depth + 1);
             }
         }
+    }
+
+    /**
+     * user_relation.relation_type 读取（官方 UserRelationType 原值：
+     * 1=None、2=Follow、3=Followed、4=MutualFollow）：线上两形兼容——
+     * 数值形直接取、枚举名字符串形按名映射（与 parseUserProfile 的两形
+     * 判读同口径，数字串亦容忍）；对象缺失/值认不出返回 -1（没带）。
+     */
+    private static int relationTypeOf(JsonObject rel) {
+        if (rel == null) return -1;
+        JsonElement rt = rel.get("relation_type");
+        if (rt == null || !rt.isJsonPrimitive()) return -1;
+        if (rt.getAsJsonPrimitive().isNumber()) return rt.getAsInt();
+        if (rt.getAsJsonPrimitive().isString()) {
+            switch (rt.getAsString()) {
+                case "None": return 1;
+                case "Follow": return 2;
+                case "Followed": return 3;
+                case "MutualFollow": return 4;
+                default:
+                    try {
+                        return Integer.parseInt(rt.getAsString().trim());
+                    } catch (Exception e) {
+                        return -1;
+                    }
+            }
+        }
+        return -1;
     }
 
     private static HgSeriesItem asSeriesItem(JsonElement el) {
@@ -1454,6 +1506,13 @@ public final class HgParser {
             JsonObject detailObj = obj(o, "video_detail");
             if (detailObj != null) authorUgc = obj(detailObj, "ugc_user_info");
         }
+        // 作者关系态（正收口，账 §3.3/§5.2）：顶层键优先（频道归一与
+        // collectSeries 本体形两路抬升的落点），缺了再从 authorUgc 的
+        // user_relation 子对象直读（合集条 album_info／UGC 条
+        // video_detail 两栖身处，存档实证 relation 恰在此）
+        int authorRelationType = intOf(o, "author_relation_type", -1);
+        boolean authorCanFollow = boolOf(o, "author_can_follow");
+        boolean canFollowKnown = o.has("author_can_follow");
         if (authorUgc != null) {
             JsonObject base = obj(authorUgc, "base_info");
             if (authorName == null && base != null) authorName = str(base, "user_name");
@@ -1462,6 +1521,11 @@ public final class HgParser {
             if (authorUid == null) {
                 authorUid = str(authorUgc, "user_id");
                 if (authorUid == null && base != null) authorUid = str(base, "user_id");
+            }
+            JsonObject rel = obj(authorUgc, "user_relation");
+            if (authorRelationType < 0) authorRelationType = relationTypeOf(rel);
+            if (!canFollowKnown && rel != null && rel.has("can_follow")) {
+                authorCanFollow = boolOf(rel, "can_follow");
             }
         }
         HgSeriesItem item = new HgSeriesItem(id, title, cover, desc, count,
@@ -1477,6 +1541,8 @@ public final class HgParser {
                 authorUid, authorDesc,
                 firstStr(o, "publisher", "copyright"));
         item.vidIndex = intOf(o, "vid_index", -1);
+        item.authorRelationType = authorRelationType;
+        item.authorCanFollow = authorCanFollow;
         item.kind = kindOf(o, albumInfo);
         item.bottomBarText = bottomBarTextOf(o);
         fillInfoStack(item, o, rrl);

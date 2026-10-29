@@ -106,6 +106,15 @@ public final class HgFeedItem {
     /** 作者简介（ugc base_info.description；样本恒空，有才带）。 */
     public String authorDesc;
     /**
+     * 作者关系态（HgSeriesItem.authorRelationType 携带，官方
+     * UserRelationType 原值：1 未关注/2 已关注/3 被关注/4 互关）；
+     * 回包没带为 -1。后置字段同 authorUid 惯例，fromSeries 与各 with*
+     * 副本负责携带（漏一处即重绑丢态）。
+     */
+    public int authorRelationType = -1;
+    /** 作者可否关注（user_relation.can_follow）；回包没带为 false。 */
+    public boolean authorCanFollow;
+    /**
      * 出品方品牌（cell copyright 抬升，如「两只猫剧场」）：正剧作者 uid
      * 反查的搜索词来源（作者名为空时用它，见 HgFeedSession 的反查
      * 兜底）；后置字段同 authorUid 惯例，没带为 null。
@@ -245,6 +254,8 @@ public final class HgFeedItem {
         item.rankIconUrl = s.rankIconUrl;
         item.authorUid = s.getAuthorUid();
         item.authorDesc = s.getAuthorDesc();
+        item.authorRelationType = s.authorRelationType;
+        item.authorCanFollow = s.authorCanFollow;
         item.publisher = s.getPublisher();
         item.statement = s.getStatement();
         if (s.getVertical() != null) item.landscapeHint = !s.getVertical();
@@ -265,6 +276,8 @@ public final class HgFeedItem {
         copy.statement = statement;
         copy.authorUid = authorUid;
         copy.authorDesc = authorDesc;
+        copy.authorRelationType = authorRelationType;
+        copy.authorCanFollow = authorCanFollow;
         copy.publisher = publisher;
         copy.playAlbumId = playAlbumId;
         copy.landscapeHint = landscapeHint;
@@ -294,6 +307,8 @@ public final class HgFeedItem {
         copy.statement = statement;
         copy.authorUid = authorUid;
         copy.authorDesc = authorDesc;
+        copy.authorRelationType = authorRelationType;
+        copy.authorCanFollow = authorCanFollow;
         copy.publisher = publisher;
         copy.playAlbumId = playAlbumId;
         copy.landscapeHint = landscapeHint;
@@ -333,6 +348,8 @@ public final class HgFeedItem {
         copy.statement = statement;
         copy.authorUid = authorUid;
         copy.authorDesc = authorDesc;
+        copy.authorRelationType = authorRelationType;
+        copy.authorCanFollow = authorCanFollow;
         copy.publisher = publisher;
         copy.playAlbumId = playAlbumId;
         copy.landscapeHint = landscapeHint;
@@ -367,6 +384,8 @@ public final class HgFeedItem {
         copy.statement = statement;
         copy.authorUid = uid != null ? uid : authorUid;
         copy.authorDesc = authorDesc;
+        copy.authorRelationType = authorRelationType;
+        copy.authorCanFollow = authorCanFollow;
         copy.publisher = publisher;
         copy.playAlbumId = playAlbumId;
         copy.landscapeHint = landscapeHint;
@@ -379,6 +398,25 @@ public final class HgFeedItem {
         copy.rankIconUrl = rankIconUrl;
         copy.pushIndex = pushIndex;
         return copy;
+    }
+
+    /**
+     * 流页头像关注徽标显隐（官方 PugcSubscribeView.t0 口径，账
+     * hongguo-ugc-follow-dig-20261030 §2.2/§5.3）：有作者 uid、非本人、
+     * 未关注才亮（已关注整钮消失、不是变对勾）；relation 已明确给出
+     * （&gt;=0）且 can_follow=false 时不亮（防御项，存档恒 true）。
+     * followed 入参是校准后的 HgStore 镜像态（relation∈{2,4} 在绑定时
+     * 先回写镜像再读，见 HgFeedAdapter.bindInteractionState）。纯判定、
+     * 状态全入参，供适配器绑定与离线断言共用同一份逻辑。
+     */
+    public static boolean followBadgeVisible(String authorUid, String selfUid,
+                                             boolean followed, int relationType,
+                                             boolean canFollow) {
+        if (authorUid == null || authorUid.isEmpty()) return false;
+        if (authorUid.equals(selfUid)) return false;
+        if (followed) return false;
+        if (relationType >= 0 && !canFollow) return false;
+        return true;
     }
 
     /**

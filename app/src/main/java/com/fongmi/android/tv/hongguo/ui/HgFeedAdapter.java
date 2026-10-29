@@ -89,6 +89,13 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         /** 集流作者行关注钮：只在未关注时亮，点击＝关注作者（取关走作者页）。 */
         void onAuthorFollow(int position);
 
+        /**
+         * 流页头像关注徽标（官方 PugcSubscribeView 覆钮）：与头像盒的
+         * onAuthor 分开——点徽标只发关注、不进作者页；只关关注（官方
+         * 此件无取关），取关走作者页。与集流作者行同口同状态源。
+         */
+        void onAuthorBadgeFollow(int position);
+
         /** 「从第1集开始看」引导筹：回第一集从头播（不走断点）。 */
         void onStartFromFirst(int position);
 
@@ -467,14 +474,25 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         // 不许走追剧架口子（批一拆型点，账 hongguo-batch1-item-types）
         boolean shelfAction = item.kind == HgItemKind.SERIES;
         b.hgActFav.setVisibility(shelfAction ? View.VISIBLE : View.GONE);
-        // 头像「+」徽标＝作者关注态（与作者主页关注钮同读 HgStore 作者集，
-        // 按作者 uid 记）：旧实现读的是按剧的追更集（isFollowing(seriesId)）
-        //＋已关注变暗——语义与呈现都错位，本批整段换掉；条目没带 uid
-        // （详情/搜索来源）时徽标整件不亮，不许拿剧 id 冒充作者 id
+        // 头像「+」徽标＝作者关注钮（官方 PugcSubscribeView 口径，账
+        // hongguo-ugc-follow-dig-20261030 §2.2/§5.3）：条目带 relation 时
+        // 先按 {2,4}=已关注校准 HgStore 镜像（与合集页回写镜像同范式、
+        // 镜像已同值不重复落盘），再读镜像定显隐——已关注整钮消失
+        // （不是变对勾：旧版对勾图 ic_hg_follow_check 与官方不符，本批
+        // 摘除其使用）、本人不亮、relation 明确 can_follow=false 不亮；
+        // relation 缺失（-1）时纯读镜像（旧行为）。图标恒加号。
+        if (item.authorUid != null && item.authorRelationType >= 0) {
+            boolean relFollowed = item.authorRelationType == 2 || item.authorRelationType == 4;
+            if (HgStore.isAuthorFollowed(item.authorUid) != relFollowed) {
+                HgStore.setAuthorFollowed(item.authorUid, relFollowed);
+            }
+        }
         boolean authorFollowed = item.authorUid != null && HgStore.isAuthorFollowed(item.authorUid);
-        b.hgFollowBadge.setVisibility(item.authorUid == null ? View.GONE : View.VISIBLE);
-        b.hgFollowBadge.setImageResource(authorFollowed
-                ? R.drawable.ic_hg_follow_check : R.drawable.ic_hg_follow_plus);
+        boolean badgeVisible = HgFeedItem.followBadgeVisible(item.authorUid,
+                HgStore.profileUid(), authorFollowed,
+                item.authorRelationType, item.authorCanFollow);
+        b.hgFollowBadge.setVisibility(badgeVisible ? View.VISIBLE : View.GONE);
+        b.hgFollowBadge.setImageResource(R.drawable.ic_hg_follow_plus);
         b.hgFollowBadge.setAlpha(1f);
         setCount(b.hgLikeCount, item.likeCount);
         // 评论数数据驱动：会话里有真总数（评论面板拉到过）才亮，否则不显示
@@ -808,6 +826,9 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         // 头像与作者名同路：进作者主页（官方 enableClickAvatarOpenSeriesProfilePage
         // 语义）；旧占位把点头像当「关注作者」的 Action.FOLLOW 已整段摘除
         b.hgAvatarBox.setOnClickListener(v -> host.onAuthor(holder.getBindingAdapterPosition()));
+        // 徽标独立点击：子件自消费不到父盒（与官方头像点击/覆钮点击两路
+        // 分开同构）——点徽标只发关注、不进作者页
+        b.hgFollowBadge.setOnClickListener(v -> host.onAuthorBadgeFollow(holder.getBindingAdapterPosition()));
         b.hgAuthor.setOnClickListener(v -> host.onAuthor(holder.getBindingAdapterPosition()));
         b.hgAuthorRow.setOnClickListener(v -> host.onAuthor(holder.getBindingAdapterPosition()));
         b.hgFollowBtn.setOnClickListener(v -> host.onAuthorFollow(holder.getBindingAdapterPosition()));

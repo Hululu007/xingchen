@@ -109,6 +109,16 @@ public final class HgSeriesItem {
      * 模型不再携带原值（账 hongguo-batch5-cleanup-20261029）。
      */
     public HgItemKind kind = HgItemKind.SERIES;
+    /**
+     * 作者关系态（ugc_user_info.user_relation.relation_type，官方
+     * UserRelationType 原值：1=None 未关注、2=Follow 我已关注他、
+     * 3=Followed 他关注我、4=MutualFollow 互关）；解析器后置填充
+     * （与 followedCnt 同惯例），回包没带为 -1。流页关注徽标的显隐与
+     * HgStore 镜像校准靠它（账 hongguo-ugc-follow-dig-20261030 §3/§5.2）。
+     */
+    public int authorRelationType = -1;
+    /** 作者可否关注（user_relation.can_follow）；回包没带为 false。 */
+    public boolean authorCanFollow;
 
     HgSeriesItem(String seriesId, String title, String coverUrl, String desc, int episodeCount) {
         this(seriesId, title, coverUrl, desc, episodeCount, false, false, null);
@@ -171,6 +181,8 @@ public final class HgSeriesItem {
                 albumSerialCount, siblings, commentCount, diggCount, status, statement,
                 authorName, authorAvatar, authorUid, authorDesc, publisher);
         copy.kind = kind;
+        copy.authorRelationType = authorRelationType;
+        copy.authorCanFollow = authorCanFollow;
         return copy;
     }
 

@@ -1970,6 +1970,45 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     }
 
     /**
+     * 流页头像关注徽标（官方 PugcSubscribeView 覆钮）：实现与上方集流
+     * 作者行 {@link #onAuthorFollow} 逐项同口径（同一 doFollowAction 口、
+     * 同一 HgStore 状态源）——登录门、乐观先行、失败回滚＋提示；只发
+     * 关注（官方此件已关注即隐藏、无取关），取关走作者页确认框。触发源
+     * 只是从作者行钮换成头像徽标，故整段同路复刻、不另立第二套口径。
+     */
+    @Override
+    public void onAuthorBadgeFollow(int position) {
+        if (position < 0 || position >= session.items.size()) return;
+        HgFeedItem item = session.items.get(position);
+        String uid = item.authorUid;
+        if (uid == null || uid.isEmpty() || HgStore.isAuthorFollowed(uid)) return;
+        if (session.interactions.requiresLogin()) {
+            promptHongguoLogin();
+            return;
+        }
+        HgStore.setAuthorFollowed(uid, true);
+        adapter.notifyItemChanged(position);
+        session.fqClient.doFollowAction(true, uid, new HgCallback<Void>() {
+
+            @Override
+            public void onSuccess(Void result) {
+            }
+
+            @Override
+            public void onError(int code, String msg) {
+                ui.post(() -> {
+                    HgStore.setAuthorFollowed(uid, false);
+                    if (currentPos >= 0 && currentPos < session.items.size()) {
+                        adapter.notifyItemChanged(currentPos);
+                    }
+                    android.widget.Toast.makeText(HongguoFeedActivity.this,
+                            "关注没成功，再试试", android.widget.Toast.LENGTH_SHORT).show();
+                });
+            }
+        });
+    }
+
+    /**
      * 「从第1集开始看」引导筹点击：回本剧第一集、从 0 起播（不走断点）。
      * 已在第一集页时直接 seek 回 0；跳页时借 play() 的 pendingSeekMs
      * 一次性口径（与清晰度切换续播同机制）压掉断点定位。

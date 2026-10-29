@@ -118,6 +118,14 @@ public final class HgFeedItem {
     public String rankText;
     public List<String> rankColors;
     public String rankIconUrl;
+    /**
+     * 被推集集序（HgSeriesItem.vidIndex 携带）：只供流页简介拼
+     * 「第N集｜」前缀的展示字段，没带为 -1。刻意不进 episodeIndex——
+     * 那是断点/进度语义（Activity 按它存取观看进度），被推短片的
+     * 集序冒充进去会改播放行为；本字段纯展示、零副作用，后置填充
+     * 同 infoChips 惯例，fromSeries 填、各 with* 副本负责抄。
+     */
+    public int pushIndex = -1;
 
     /** 横屏预判（cell vertical=false，账 §3.8）：取模型宽高到手前先据此给全屏观看钮。 */
     public boolean landscapeHint;
@@ -201,6 +209,7 @@ public final class HgFeedItem {
             item.dueStartText = s.getDueStartText();
         }
         item.favCount = formatCount(s.followedCnt);
+        item.pushIndex = s.vidIndex;
         item.infoChips = s.infoChips;
         item.scoreChipPos = s.scoreChipPos;
         item.rankText = s.rankText;
@@ -238,6 +247,7 @@ public final class HgFeedItem {
         copy.rankText = rankText;
         copy.rankColors = rankColors;
         copy.rankIconUrl = rankIconUrl;
+        copy.pushIndex = pushIndex;
         return copy;
     }
 
@@ -265,6 +275,7 @@ public final class HgFeedItem {
         copy.rankText = rankText;
         copy.rankColors = rankColors;
         copy.rankIconUrl = rankIconUrl;
+        copy.pushIndex = pushIndex;
         return copy;
     }
 
@@ -302,6 +313,7 @@ public final class HgFeedItem {
         copy.rankText = rankText;
         copy.rankColors = rankColors;
         copy.rankIconUrl = rankIconUrl;
+        copy.pushIndex = pushIndex;
         return copy;
     }
 
@@ -334,6 +346,7 @@ public final class HgFeedItem {
         copy.rankText = rankText;
         copy.rankColors = rankColors;
         copy.rankIconUrl = rankIconUrl;
+        copy.pushIndex = pushIndex;
         return copy;
     }
 

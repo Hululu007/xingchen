@@ -676,11 +676,27 @@ public final class HgParser {
                     // video_list[0] 里——本体短片入流时把 ugc 借道塞进
                     // 合成 video_detail，让 normalize 的作者抬升照常命中；
                     // 条目自带 video_detail 时以自带为准、不借道。
+                    // 信息摞三件（followed_cnt/secondary_infos/rec_tags）
+                    // 同挂 detail 本体、video_list[0] 自身不带——旧借道只
+                    // 塞 ugc，UGC 本体短片的星数/筹行/榜单条整批丢失
+                    // （存档实证：推荐首屏 UGC cell 的 detail 带
+                    // followed_cnt=109849 与 rec_tags，解析后条目全空，
+                    // feed-infostack-reaudit-20261029），借道一并带走。
                     JsonObject ugc = obj(detail, "ugc_user_info");
-                    if (ugc != null && obj(first, "video_detail") == null) {
+                    boolean borrow = ugc != null || arr(detail, "secondary_infos") != null
+                            || arr(detail, "rec_tags") != null
+                            || longOf(detail, "followed_cnt", -1) >= 0;
+                    if (borrow && obj(first, "video_detail") == null) {
                         JsonObject wrapped = first.deepCopy();
                         JsonObject carrier = new JsonObject();
-                        carrier.add("ugc_user_info", ugc);
+                        if (ugc != null) carrier.add("ugc_user_info", ugc);
+                        JsonArray osi = arr(detail, "secondary_infos");
+                        if (osi != null) carrier.add("secondary_infos", osi.deepCopy());
+                        JsonArray ort = arr(detail, "rec_tags");
+                        if (ort != null) carrier.add("rec_tags", ort.deepCopy());
+                        if (longOf(detail, "followed_cnt", -1) >= 0) {
+                            carrier.addProperty("followed_cnt", longOf(detail, "followed_cnt", -1));
+                        }
                         wrapped.add("video_detail", carrier);
                         first = wrapped;
                     }
@@ -696,11 +712,14 @@ public final class HgParser {
                     // 短片的 ugc 借道同法；作者信息不借道，那是本 cell
                     // 短片自己的、不属于跨推卡）
                     if (card != null && card.isJsonObject() && obj(card.getAsJsonObject(), "video_detail") == null
-                            && (arr(detail, "secondary_infos") != null || longOf(detail, "followed_cnt", -1) >= 0)) {
+                            && (arr(detail, "secondary_infos") != null || arr(detail, "rec_tags") != null
+                            || longOf(detail, "followed_cnt", -1) >= 0)) {
                         JsonObject wrapped = card.getAsJsonObject().deepCopy();
                         JsonObject carrier = new JsonObject();
                         JsonArray si = arr(detail, "secondary_infos");
                         if (si != null) carrier.add("secondary_infos", si.deepCopy());
+                        JsonArray rt = arr(detail, "rec_tags");
+                        if (rt != null) carrier.add("rec_tags", rt.deepCopy());
                         if (longOf(detail, "followed_cnt", -1) >= 0) {
                             carrier.addProperty("followed_cnt", longOf(detail, "followed_cnt", -1));
                         }
@@ -781,6 +800,10 @@ public final class HgParser {
             }
             JsonArray secInfos = arr(vd, "secondary_infos");
             if (secInfos != null) merged.add("secondary_infos", secInfos.deepCopy());
+            // 榜单条同理：rec_tags 在本体短片/跨推卡形态下只挂父
+            // video_detail（借道载体），不抬到顶层 fillInfoStack 读不到
+            JsonArray recTags = arr(vd, "rec_tags");
+            if (recTags != null) merged.add("rec_tags", recTags.deepCopy());
             // 专辑关系与 UGC 作者同在 video_detail 里（存档逐层实证：详情面
             // is_multi_season/related_album_id、cell 面 ugc_user_info）——不抬
             // 到条目顶层，asSeriesItem 读不到：多季剧在流里永远认不出、
@@ -841,6 +864,24 @@ public final class HgParser {
             JsonObject hl = obj(o, "highlight");
             String hv = hl == null ? null : flexStr(hl, "vid");
             if (hv != null) merged.addProperty("vid", hv);
+        }
+        // 被推集集序：流页简介的「第N集｜」前缀靠它（官方流页实拍
+        // 113476/113592 定版形态）。集序在 video_detail.video_list 里
+        // 与 vid 对应那条的 vid_index 上（存档逐层实证：episode 是布尔
+        // 旗、真集序在 vid_index）；条目自带 vid_index 时覆盖循环已带入。
+        if (vd != null && intOf(merged, "vid_index", -1) < 0) {
+            String vidNow = firstStr(merged, "vid", "video_id");
+            JsonArray vids = arr(vd, "video_list");
+            if (vidNow != null && vids != null) {
+                for (JsonElement ve : vids) {
+                    if (!ve.isJsonObject()) continue;
+                    JsonObject v = ve.getAsJsonObject();
+                    if (!vidNow.equals(firstStr(v, "vid"))) continue;
+                    int vi = intOf(v, "vid_index", -1);
+                    if (vi > 0) merged.addProperty("vid_index", vi);
+                    break;
+                }
+            }
         }
         return merged;
     }
@@ -1016,6 +1057,7 @@ public final class HgParser {
                 str(o, "author_uid"), str(o, "author_desc"),
                 intOf(o, "content_type", -1),
                 firstStr(o, "publisher", "copyright"));
+        item.vidIndex = intOf(o, "vid_index", -1);
         fillInfoStack(item, o, rrl);
         return item;
     }

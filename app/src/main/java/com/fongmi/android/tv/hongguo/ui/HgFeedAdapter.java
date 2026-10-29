@@ -240,8 +240,12 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
             if (hasAuthor) b.hgAuthor.setText("@" + item.authorName);
         }
         // 集流页右列不设头像盒（官方实拍 113558：集流右列只有收藏/评论/
-        // 点赞三件；流页保留头像盒＋关注角标）
-        b.hgAvatarBox.setVisibility(seriesMode ? View.GONE : View.VISIBLE);
+        // 点赞三件）；流页头像盒只给带作者头像的条目（作者帖/UGC）——
+        // 官方流页实拍 113476/113592/113598 正剧条目右列直接从星起、
+        // 没有头像位，旧版给正剧也摆首字圆牌是自创件（复核账
+        // feed-infostack-reaudit-20261029）
+        boolean hasAvatarImg = item.authorAvatar != null && !item.authorAvatar.isEmpty();
+        b.hgAvatarBox.setVisibility(seriesMode || !hasAvatarImg ? View.GONE : View.VISIBLE);
         // 头像：有头像址走圆形图；没有用作者/剧名首字圆牌，不编假图
         if (item.authorAvatar != null && !item.authorAvatar.isEmpty()) {
             b.hgAvatarInitial.setVisibility(View.GONE);
@@ -254,17 +258,28 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
                     : (item.title == null ? "" : item.title);
             b.hgAvatarInitial.setText(src.isEmpty() ? "红" : src.substring(0, 1));
         }
-        // 简介：空则整行藏；长文给展开
+        // 简介：空则整行藏；长文给展开。流页形态照官方实拍
+        // 113476/113592 定版：正文是「第N集｜剧简介」——集号取条目
+        // 的展示集序 pushIndex（被推集集序，解析/落定两路已带；纯
+        // 展示字段，不碰 episodeIndex 的断点语义），集流页不拼
+        // （其形态未在实拍里核到、不动）。展开阈值旧版 40 字与单行
+        // 容量（约 20 字）脱节：21–40 字简介被省略号截断却没展开钮；
+        // 改按拼串后长度 20 字判（与单行容量同口径，复核账
+        // feed-infostack-reaudit-20261029）
         String key = descKey(item);
         boolean expanded = expandedDescKeys.contains(key);
         if (seriesStyle || item.desc == null || item.desc.isEmpty()) {
             b.hgDesc.setVisibility(View.GONE);
             b.hgDescMore.setVisibility(View.GONE);
         } else {
+            String descText = item.desc;
+            if (!seriesMode && item.pushIndex > 0 && !hasEpPrefix(descText)) {
+                descText = "第" + item.pushIndex + "集｜" + descText;
+            }
             b.hgDesc.setVisibility(View.VISIBLE);
-            b.hgDesc.setText(item.desc);
+            b.hgDesc.setText(descText);
             b.hgDesc.setMaxLines(expanded ? Integer.MAX_VALUE : 1);
-            b.hgDescMore.setVisibility(item.desc.length() > 40 ? View.VISIBLE : View.GONE);
+            b.hgDescMore.setVisibility(descText.length() > 20 ? View.VISIBLE : View.GONE);
             b.hgDescMore.setText(expanded ? "收起" : "展开");
         }
         bindSeriesStyle(b, item, seriesStyle);
@@ -640,7 +655,7 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
             chip.setText(item.scoreChipPos == shown && chipsData == item.infoChips ? "★" + tag : tag);
             chip.setTextSize(12);
             chip.setTextColor(0xFFFFFFFF);
-            chip.setBackgroundResource(R.drawable.bg_hg_chip);
+            chip.setBackgroundResource(R.drawable.bg_hg_tag);
             int hPad = Math.round(8 * density);
             int vPad = Math.round(3 * density);
             chip.setPadding(hPad, vPad, hPad, vPad);
@@ -666,7 +681,10 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         b.hgHotComment.setText(prefix + item.hotComment);
         boolean expanded = expandedDescKeys.contains(descKey(item) + "#hot");
         b.hgHotComment.setMaxLines(expanded ? Integer.MAX_VALUE : 1);
-        b.hgHotMore.setVisibility(item.hotComment.length() > 24 ? View.VISIBLE : View.GONE);
+        // 展开阈值照官方实拍两例定：113598/113482 热评正文均在约
+        // 12 字处截断出「…＋展开」——旧阈值 24 让 13–24 字热评被截
+        // 断却没展开钮（复核账 feed-infostack-reaudit-20261029）
+        b.hgHotMore.setVisibility(item.hotComment.length() > 12 ? View.VISIBLE : View.GONE);
         b.hgHotMore.setText(expanded ? "收起" : "展开");
     }
 
@@ -681,6 +699,13 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
 
     private String descKey(HgFeedItem item) {
         return (item.seriesId == null ? "" : item.seriesId) + "#" + item.episodeIndex;
+    }
+
+    /** 简介原文是否已带「第N集｜」形（防重拼：详情 desc 个别带集前缀）。 */
+    private static boolean hasEpPrefix(String desc) {
+        if (desc == null || desc.length() < 4 || !desc.startsWith("第")) return false;
+        int bar = desc.indexOf('｜');
+        return bar > 1 && bar < 8 && desc.substring(1, bar).contains("集");
     }
 
     private void bindClicks(Holder holder, int position) {

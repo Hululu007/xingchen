@@ -255,6 +255,7 @@ public final class HgFeedSession {
             head.reservable = true;
             head.dueStartText = detail.getDueStartText();
             HgStore.setReserved(head.seriesId, detail.isAppointmentSubscribed());
+            if (detail.getFollowedCnt() > 0) head.favCount = HgFeedItem.formatCount(detail.getFollowedCnt());
             items.set(position, head);
             return;
         }
@@ -275,8 +276,17 @@ public final class HgFeedSession {
         HgSeriesDetail.Episode first = sorted.get(0);
         int idx = first.getIndex() > 0 ? first.getIndex() : 1;
         HgFeedItem clipItem = head.withDetail(first.getVideoId(), idx, author, avatar, desc);
+        // 展示集序同步成实际在播的这一集（简介「第N集｜」前缀用，
+        // 纯展示字段 pushIndex、不碰 episodeIndex 的进度语义）
+        clipItem.pushIndex = idx;
         if (detail != null && detail.getStatement() != null) clipItem.statement = detail.getStatement();
         if (detail != null && detail.getAuthorUid() != null) clipItem.authorUid = detail.getAuthorUid();
+        // 星数富集：cell 面没带 followed_cnt 的剧头（存档实证 fav=0/空）
+        // 落定后用详情的真值补右列星数——详情模型本就带此字段，此前
+        // 富集只补作者/声明、星数漏补（feed-infostack-reaudit-20261029）
+        if (detail != null && detail.getFollowedCnt() > 0) {
+            clipItem.favCount = HgFeedItem.formatCount(detail.getFollowedCnt());
+        }
         items.set(position, clipItem);
     }
 
@@ -304,6 +314,7 @@ public final class HgFeedSession {
                     .withSeriesTitle(cached.getTitle());
             if (cached.getStatement() != null) enriched.statement = cached.getStatement();
             if (cached.getAuthorUid() != null) enriched.authorUid = cached.getAuthorUid();
+            if (cached.getFollowedCnt() > 0) enriched.favCount = HgFeedItem.formatCount(cached.getFollowedCnt());
             items.set(position, enriched);
             changed.accept(position);
             kickAuthorResolve(enriched, changed);
@@ -325,6 +336,7 @@ public final class HgFeedSession {
                             .withSeriesTitle(detail.getTitle());
                     if (detail.getStatement() != null) enriched.statement = detail.getStatement();
                     if (detail.getAuthorUid() != null) enriched.authorUid = detail.getAuthorUid();
+                    if (detail.getFollowedCnt() > 0) enriched.favCount = HgFeedItem.formatCount(detail.getFollowedCnt());
                     items.set(at, enriched);
                     changed.accept(at);
                     kickAuthorResolve(enriched, changed);

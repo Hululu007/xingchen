@@ -91,6 +91,12 @@ public final class HgSeriesItem {
     public String rankIconUrl;
     /** 追更/收藏人数原值（cell video_detail.followed_cnt）；没带为 -1。 */
     public long followedCnt = -1;
+    /**
+     * 被推集集序（video_list 里与本条 vid 对应那条的 vid_index）：
+     * 流页简介「第N集｜」前缀的集号来源，解析器后置填充（不进构造器，
+     * 与 followedCnt 同惯例）；没带为 -1。
+     */
+    public int vidIndex = -1;
 
     HgSeriesItem(String seriesId, String title, String coverUrl, String desc, int episodeCount) {
         this(seriesId, title, coverUrl, desc, episodeCount, false, false, null);

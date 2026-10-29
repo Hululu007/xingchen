@@ -89,6 +89,9 @@ public final class LabImportCompat {
     /** 引导脚本文件名：随 bundle 一起落进包目录，启动命令先跑它、由它拉起真入口 */
     public static final String NODE_BOOT_NAME = "lab-node-boot.js";
 
+    /** 引导脚本落盘实际候选监听口的文件名（包根，与引导脚本同目录；LabRunner 认口读它） */
+    public static final String NODE_PORT_NAME = "lab-node-port";
+
     /**
      * 引导脚本内容（宿主生成，与点播链 tv.node.NodeBoot 同口径）：
      * 这类 bundle 的预期启动形态是宿主 require 后调 start(conf)，监听端口读
@@ -100,9 +103,11 @@ public final class LabImportCompat {
      * 注入（{hostPort} 展开成 App 的 Nano 服务口，与点播链 NodeBoot 传
      * Proxy.getPort() 同一个值）、NODE_PATH 指到入口同目录的 data/、同目录
      * 配置（<入口名>.config.js，命名规则与 nodeBundleConfigName 一致）读作
-     * conf 传给 start()。与 NodeBoot 的一处有意差异：不落盘发布实际端口——
-     * 点播链要靠落盘在一堆候选服务里认真正的猫源口，实验室这边端口是宿主
-     * 分配并强制注入的，服务页登记的口就是它，没有第二个读者。
+     * conf 传给 start()。实际监听口认口机制与 NodeBoot 同口径（不再是「强制
+     * 注入即认定登记口」）：bundle 可能忽略 DEV_HTTP_PORT 随机监听、还可能
+     * 多起附带服务——启动后把全部 Server 句柄的候选口落盘到包根
+     * lab-node-port（指定口排最前、先写临时文件再 rename），LabRunner 侧
+     * 逐个探 /config 认准真正的口再改登记，登记口与真实口不再两张皮。
      */
     public static String nodeBootSource() {
         return "'use strict';\n"
@@ -143,6 +148,38 @@ public final class LabImportCompat {
                 + "    await start(conf);\n"
                 // listen 之后留心跳撑住事件循环，与 NodeBoot 同口径
                 + "    setInterval(() => {}, 60000);\n"
+                // 实际监听口落盘（与 NodeBoot 同机制）：bundle 可能忽略
+                // DEV_HTTP_PORT 随机监听、附带服务还可能多占口——全部 Server
+                // 句柄的口都落盘、指定口排最前，Java 侧逐个探 /config 认准。
+                // 先写临时文件再 rename，防 Java 侧并发读到半截端口号；
+                // 附带服务可能晚绑定，持续发布到指定口出现或窗口用尽
+                + "    let last = '';\n"
+                + "    const portFile = path.join(__dirname, '" + NODE_PORT_NAME + "');\n"
+                + "    const publish = () => {\n"
+                + "      try {\n"
+                + "        const handles = process._getActiveHandles ? process._getActiveHandles() : [];\n"
+                + "        const ports = [];\n"
+                + "        for (const hd of handles) {\n"
+                + "          if (hd && typeof hd.address === 'function' && hd.constructor && hd.constructor.name === 'Server') {\n"
+                + "            const a = hd.address();\n"
+                + "            if (a && a.port && !ports.includes(a.port)) ports.push(a.port);\n"
+                + "          }\n"
+                + "        }\n"
+                + "        if (!ports.length) return false;\n"
+                + "        const want = parseInt(process.env.DEV_HTTP_PORT || '0', 10);\n"
+                + "        if (want > 0 && ports.includes(want)) { ports.splice(ports.indexOf(want), 1); ports.unshift(want); }\n"
+                + "        const text = ports.join(',');\n"
+                + "        if (text === last) return want > 0 ? ports.includes(want) : true;\n"
+                + "        fs.writeFileSync(portFile + '.tmp', text);\n"
+                + "        fs.renameSync(portFile + '.tmp', portFile);\n"
+                + "        last = text;\n"
+                + "        console.log('lab node bundle listening on ' + text);\n"
+                + "        return want > 0 ? ports.includes(want) : true;\n"
+                + "      } catch (e) { console.error('publish port failed', e.message); }\n"
+                + "      return false;\n"
+                + "    };\n"
+                + "    let tries = 0;\n"
+                + "    const timer = setInterval(() => { if (publish() || ++tries > 150) clearInterval(timer); }, 200);\n"
                 + "    console.log('lab node bundle started on ' + (process.env.DEV_HTTP_PORT || 'random'));\n"
                 + "  } catch (e) {\n"
                 + "    console.error('lab node bundle failed', e && e.stack ? e.stack : e);\n"
@@ -1079,7 +1116,8 @@ public final class LabImportCompat {
      * 启动走宿主生成的引导脚本（nodeBootSource）：包认的端口变量是
      * DEV_HTTP_PORT 不是 PORT，且包要宿主 require 后调 start(conf)＋宿主
      * 全局＋NODE_PATH，裸 node <main> 直跑三样全无（node-retire 阶段二定根）。
-     * 产出声明随引导层落值：端口由引导层强制注入为分配口、config 端点是
+     * 产出声明随引导层落值：端口先按分配口注入展开、启动后由认口链
+     * （引导脚本落盘候选口＋LabRunner 探 /config）按真实口改登记、config 端点是
      * 这类包对宿主的固定形态（点播链 tv.node.NodeRuntime.configUrl 同形
      * http://127.0.0.1:{port}/config），故 kind=vod、target 指向它——
      * 与 fromTermux 从 web_url 语义推导 tool/target 同路：值来自服务形态

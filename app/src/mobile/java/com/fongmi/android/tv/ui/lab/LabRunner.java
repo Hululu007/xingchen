@@ -3,6 +3,7 @@ package com.fongmi.android.tv.ui.lab;
 import android.content.Context;
 import android.text.TextUtils;
 
+import com.fongmi.android.tv.api.CatSource;
 import com.fongmi.android.tv.clash.ClashSettings;
 import com.fongmi.android.tv.clash.MihomoManager;
 import com.fongmi.android.tv.server.Server;
@@ -601,6 +602,15 @@ public final class LabRunner {
             appendFile(log, pathNote + "\n");
             command = aligned;
         }
+        // Node bundle 包：上一轮引导脚本落盘的候选口先删——认口线程读到旧文件
+        // 会把登记改回上一轮的随机口
+        boolean nodeBundle = isNodeBundle(readManifestQuiet(c, pkgId));
+        if (nodeBundle) {
+            try {
+                new File(cwd, LabImportCompat.NODE_PORT_NAME).delete();
+            } catch (Exception ignored) {
+            }
+        }
         ProcessBuilder builder = new ProcessBuilder("/system/bin/setsid", "/system/bin/sh", "-c", command);
         builder.directory(cwd);
         builder.redirectErrorStream(true);
@@ -622,7 +632,107 @@ public final class LabRunner {
         ERRORS.remove(key);
         LabProc.track(c, key, LabProc.pidOf(process), log.getAbsolutePath());
         LabKeepAlive.refresh(c);
+        if (nodeBundle) watchNodePort(c, pkgId, key, process);
         pump(c, key, process, log, listener);
+    }
+
+    /** 这个包是不是走宿主引导脚本的 Node bundle（任一命令引用 lab-node-boot.js） */
+    private static boolean isNodeBundle(LabManifest mf) {
+        if (mf == null || mf.commands == null) return false;
+        for (LabManifest.LabCommand cmd : mf.commands) {
+            if (cmd != null && cmd.command != null
+                    && cmd.command.contains(LabImportCompat.NODE_BOOT_NAME)) return true;
+        }
+        return false;
+    }
+
+    /** 认口轮询间隔/总窗口：引导脚本的发布窗口是 150×200ms≈30 秒，这边留 45 秒盖住起进程延迟 */
+    private static final long NODE_PORT_POLL_MS = 250;
+    private static final long NODE_PORT_WATCH_MS = 45_000;
+
+    /**
+     * Node bundle 认口（点播链 NodeBoot/NodeService 同口径的最小同效实现）：
+     * 引导脚本把候选监听口落盘到包根 lab-node-port，这边逐个探 /config、
+     * 回包形状过 CatSource.isConfig 的才是真口；认到且与登记不同就改登记
+     * （Svc.port 是服务页地址与产出地址的唯一数据源，改它即改登记），
+     * 并在运行记录里留一行。进程被停/换代（RUNNING 里的实例变了）立即收工，
+     * 不许上一轮的认口线程改下一轮的登记。结构差异说明：点播链的认口跑在
+     * :node 子进程的就绪等待里、结果走 Messenger 回主进程；实验室的 bundle
+     * 是 shell 子进程、没有这条回报通道，故认口放在 LabRunner 的轮询线程里，
+     * 落盘＋探 /config 两件核心机制与点播链一致。
+     */
+    private static void watchNodePort(Context c, String pkgId, String key, Process process) {
+        final File portFile = new File(LabPaths.packageDir(c, pkgId), LabImportCompat.NODE_PORT_NAME);
+        new Thread(() -> {
+            long deadline = System.currentTimeMillis() + NODE_PORT_WATCH_MS;
+            while (System.currentTimeMillis() < deadline) {
+                if (RUNNING.get(key) != process) return;
+                for (int candidate : readNodePorts(portFile)) {
+                    if (RUNNING.get(key) != process) return;
+                    if (probeNodeConfig(candidate)) {
+                        LabRegistry.Svc svc = LabRegistry.get(c).svc(pkgId);
+                        if (svc != null && svc.port != candidate) {
+                            svc.port = candidate;
+                            LabRegistry.get(c).upsertSvc(c, svc);
+                            String note = "实际监听口与登记口不同，已按 /config 认到的口重新登记：" + candidate + "\n";
+                            appendLog(key, note);
+                            appendFile(LabProc.logFile(c, pkgId), note);
+                        }
+                        return;
+                    }
+                }
+                try {
+                    Thread.sleep(NODE_PORT_POLL_MS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+        }).start();
+    }
+
+    /** 引导脚本落盘的候选端口（逗号分隔，指定口在最前）——与 NodeRuntime.readPorts 同口径，兼容单口旧格式 */
+    static java.util.List<Integer> readNodePorts(File file) {
+        java.util.List<Integer> ports = new java.util.ArrayList<>();
+        if (file == null || !file.exists()) return ports;
+        try (FileInputStream in = new FileInputStream(file)) {
+            byte[] buf = new byte[128];
+            int len = in.read(buf);
+            if (len <= 0) return ports;
+            for (String part : new String(buf, 0, len, StandardCharsets.UTF_8).trim().split(",")) {
+                try {
+                    int v = Integer.parseInt(part.trim());
+                    if (v > 0 && v <= 65535 && !ports.contains(v)) ports.add(v);
+                } catch (NumberFormatException ignored) {
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return ports;
+    }
+
+    /** 探 /config 认口（与 NodeService.waitReady 同口径）：2 秒超时，回包形状过 isConfig 才算这个口 */
+    static boolean probeNodeConfig(int port) {
+        java.net.HttpURLConnection conn = null;
+        try {
+            conn = (java.net.HttpURLConnection) new java.net.URL(
+                    "http://127.0.0.1:" + port + "/config").openConnection();
+            conn.setConnectTimeout(2000);
+            conn.setReadTimeout(2000);
+            try (java.io.InputStream in = conn.getInputStream()) {
+                byte[] buf = new byte[8192];
+                StringBuilder sb = new StringBuilder();
+                int n;
+                while ((n = in.read(buf)) > 0 && sb.length() < 65536) {
+                    sb.append(new String(buf, 0, n, StandardCharsets.UTF_8));
+                }
+                return CatSource.isConfig(sb.toString());
+            }
+        } catch (Exception e) {
+            return false;
+        } finally {
+            if (conn != null) conn.disconnect();
+        }
     }
 
     private static void applyEnv(Context c, String pkgId, Map<String, String> env) {

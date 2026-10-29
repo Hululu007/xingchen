@@ -180,6 +180,7 @@ public class HongguoSearchActivity extends BaseActivity {
                     // 点头像/名进作者页（与流页同一去处，uid 有才挂——没 uid 不挂假入口）
                     if (item.getAuthorName() != null && !item.getAuthorName().isEmpty()) {
                         b.hgSAuthorAvatar.setVisibility(View.VISIBLE);
+                        b.hgSAuthorRing.setVisibility(View.VISIBLE);
                         b.hgSAuthorName.setVisibility(View.VISIBLE);
                         ImgUtil.load(item.getAuthorName(), item.getAuthorAvatar(), b.hgSAuthorAvatar);
                         b.hgSAuthorName.setText(item.getAuthorName());
@@ -196,6 +197,7 @@ public class HongguoSearchActivity extends BaseActivity {
                         }
                     } else {
                         b.hgSAuthorAvatar.setVisibility(View.GONE);
+                        b.hgSAuthorRing.setVisibility(View.GONE);
                         b.hgSAuthorName.setVisibility(View.GONE);
                     }
                     b.getRoot().setOnClickListener(v ->
@@ -466,6 +468,11 @@ public class HongguoSearchActivity extends BaseActivity {
             tv.setTypeface(null, on ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
             tv.setPadding(Math.round(12 * density), Math.round(8 * density),
                     Math.round(12 * density), Math.round(8 * density));
+            // 页签按压反馈走系统原生水波纹（质感层；官方页签条材料未抠到，不自创选中指示器）
+            android.util.TypedValue ripple = new android.util.TypedValue();
+            if (getTheme().resolveAttribute(android.R.attr.selectableItemBackground, ripple, true)) {
+                tv.setBackgroundResource(ripple.resourceId);
+            }
             tv.setOnClickListener(v -> switchSearchTab(tab.type));
             strip.addView(tv);
         }

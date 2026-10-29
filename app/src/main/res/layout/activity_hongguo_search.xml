@@ -48,7 +48,7 @@
                 android:layout_gravity="start|center_vertical"
                 android:layout_marginStart="16dp"
                 android:contentDescription="@null"
-                android:src="@drawable/ic_hg_search_gray" />
+                android:src="@drawable/ic_hg_search_find" />
 
             <ImageView
                 android:id="@+id/hg_search_clear"
@@ -56,8 +56,9 @@
                 android:layout_height="20dp"
                 android:layout_gravity="end|center_vertical"
                 android:layout_marginEnd="8dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="清空"
-                android:src="@drawable/ic_hg_clear_gray"
+                android:src="@drawable/ic_hg_search_clear"
                 android:visibility="gone" />
         </FrameLayout>
 
@@ -66,6 +67,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="16dp"
+            android:background="?attr/selectableItemBackground"
             android:gravity="center"
             android:text="搜索"
             android:textColor="#FF000000"

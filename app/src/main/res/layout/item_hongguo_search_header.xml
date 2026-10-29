@@ -26,6 +26,7 @@
         android:id="@+id/hg_hist_clear"
         android:layout_width="20dp"
         android:layout_height="20dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
         android:contentDescription="清除历史"
-        android:src="@drawable/ic_action_delete" />
+        android:src="@drawable/ic_hg_search_delete" />
 </LinearLayout>

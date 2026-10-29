@@ -7,6 +7,7 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
+    android:background="?attr/selectableItemBackground"
     android:orientation="vertical">
 
     <LinearLayout
@@ -22,7 +23,7 @@
             android:layout_marginTop="10dp"
             android:layout_marginBottom="10dp"
             android:contentDescription="@null"
-            android:src="@drawable/ic_hg_search_gray" />
+            android:src="@drawable/ic_hg_search_find" />
 
         <TextView
             android:id="@+id/hg_sug_text"
@@ -42,7 +43,7 @@
             android:layout_height="24dp"
             android:layout_marginEnd="16dp"
             android:contentDescription="回填"
-            android:src="@drawable/ic_hg_sug_arrow" />
+            android:src="@drawable/ic_hg_search_backfill" />
     </LinearLayout>
 
     <View

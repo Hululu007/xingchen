@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 红果搜索历史头清除图标（官方线形版）：官方 as1 的 ave 原图是线描
+     垃圾桶（小提手＋盖线＋桶身轮廓＋桶身竖线，逐像素照原图落形），
+     不是 Material 实心桶。ave 原图是白色母版（皮肤引擎换色），浅底上的
+     具体色值未抠到，此处用本页已用的次级灰 #66000000
+     （skin_color_gray_40_light）作适配色，见汇总留痕。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M9.7,3.4 L14.3,3.4"
+        android:strokeColor="#66000000"
+        android:strokeLineCap="round"
+        android:strokeWidth="1.5" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M3.9,5.6 L20.1,5.6"
+        android:strokeColor="#66000000"
+        android:strokeLineCap="round"
+        android:strokeWidth="1.5" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M5.6,7.8 L6.4,19.9 a1.8,1.8 0 0,0 1.8,1.7 L15.8,21.6 a1.8,1.8 0 0,0 1.8,-1.7 L18.4,7.8"
+        android:strokeColor="#66000000"
+        android:strokeLineCap="round"
+        android:strokeWidth="1.5" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M14.8,11.2 L14.8,17.4"
+        android:strokeColor="#66000000"
+        android:strokeLineCap="round"
+        android:strokeWidth="1.5" />
+</vector>

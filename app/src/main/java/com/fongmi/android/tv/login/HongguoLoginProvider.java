@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.login;
 
+import android.content.Context;
 import android.text.TextUtils;
 
 import com.fongmi.android.tv.App;
@@ -20,6 +21,8 @@ import com.fongmi.android.tv.cloud.CloudAccountStore;
  * 现行栈两道全过（证据账 ~/workspace/hongguo/login-route-dig-20261028.md）。
  * 网页登录路（hongguoduanju.com、番茄 fanqienovel.com）已按他亲令整撤：
  * 本提供方不再持任何网页登录地址/抓取域，不留 WebView 登录或兜底路径。
+ * 网页期经本槽位落盘的会话串是残留（撤版未清盘、至今仍随数据请求外发），
+ * 由 {@link #purgeLegacyWebCookieOnce()} 在首读前一次性清掉。
  * 登录产出的会话串（Set-Cookie 优先、data.session_key 组 sessionid 兜底）
  * 由弹窗经 LoginManager 落本托管槽位，HgApiClient 拼头处以登录 Cookie
  * 覆盖游客 Cookie（接缝在 HgLoginAuthProvider，本类零感知）。
@@ -36,6 +39,9 @@ public class HongguoLoginProvider implements LoginProvider {
 
     /** 提供方 id。 */
     public static final String ID = "hongguo";
+
+    /** 网页登录期残留一次性清理标记（落在 CloudAccountStore 的通用值槽）。 */
+    private static final String KEY_WEB_COOKIE_PURGED = "hg_web_cookie_purged_v1";
 
     @Override
     public String id() {
@@ -54,11 +60,38 @@ public class HongguoLoginProvider implements LoginProvider {
 
     @Override
     public String getCookie() {
+        purgeLegacyWebCookieOnce();
         try {
             String cookie = CloudAccountStore.getCookie(App.get(), ID);
             return cookie == null ? "" : cookie;
         } catch (Throwable ignored) {
             return "";
+        }
+    }
+
+    /**
+     * 一次性清网页登录期残留（2026-10-29 深夜立项，证据与口径见
+     * login-close-loop-20261029.md 第四-5）：2026-10-27/28 的网页登录实验
+     * （番茄 fanqienovel.com 一版、hongguoduanju.com 一版）登录成功时经
+     * {@link #putCookie} 把网页会话串落进本槽位；其后撤版只改代码、从未清盘，
+     * 该串至今仍被 HgLoginAuthProvider 现取、由 HgApiClient 拼头附到红果
+     * 全部数据请求上覆盖游客 Cookie（他一手时间线：番茄登录一次之后数据
+     * 开始取不出；撤版当时的实测记账也是「番茄会话在场、登完数据全空」）。
+     * 原生 passport 会话在任何已发版本里从未登录成功过——本槽位在原生
+     * 首登成功之前的内容只可能是网页期残留。故首读前一次性清本提供方的
+     * cookie/user/token 三键并落标记，此后原生登录写入的新会话不受影响。
+     * 误伤面逐项核过：CloudAccountStore.clear 按 driveId 只删本提供方三键
+     * （网盘等其它提供方条目不在内）；历史/收藏/追更/点赞在 HgStore、
+     * 设备档案在 HgDevice，各是独立存储面，本清理一概不碰。
+     */
+    public static void purgeLegacyWebCookieOnce() {
+        try {
+            Context ctx = App.get();
+            if (ctx == null) return;
+            if (!TextUtils.isEmpty(CloudAccountStore.getValue(ctx, ID, KEY_WEB_COOKIE_PURGED))) return;
+            CloudAccountStore.clear(ctx, ID);
+            CloudAccountStore.saveValue(ctx, ID, KEY_WEB_COOKIE_PURGED, "1");
+        } catch (Throwable ignored) {
         }
     }
 

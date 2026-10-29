@@ -68,6 +68,23 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
 
         void onFullscreenWatch(int position);
 
+        /**
+         * 条目最近已知视频尺寸（宿主存档：播放器首帧尺寸／解链回包尺寸，
+         * 按条目 videoId 查）：没存档返回 null。绑定锚「全屏观看」钮用——
+         * 条目自带尺寸（取模型回包）没到手时靠它兜底，免得重绑把钮打回正中。
+         */
+        default int[] videoSizeFor(HgFeedItem item) {
+            return null;
+        }
+
+        /**
+         * 右下全屏方钮（选集条同行那只）：与「全屏观看」筹分开——筹是
+         * 横屏剧进横屏页的入口，方钮在集流竖屏是清屏开关（用户亲点定版：
+         * 按下界面全隐、只剩此钮且变淡，再按恢复）。旧版两钮同走
+         * onFullscreenWatch，按方钮被扔进横屏页是串线。
+         */
+        void onFsButton(int position);
+
         /** 集流作者行关注钮：只在未关注时亮，点击＝关注作者（取关走作者页）。 */
         void onAuthorFollow(int position);
 
@@ -282,8 +299,9 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         }
         applyCatalogMode(b);
         b.hgSeriesText.setText(seriesMode ? item.seriesCatalogText() : item.seriesBarText());
-        // 全屏方钮：只集流竖屏出（用户亲点件：按下进横屏全屏、与全屏观看筹
-        // 同去处）；回收复用先把透明度归位（清屏态的变淡不许串页）
+        // 全屏方钮：只集流竖屏出（用户亲点件：清屏开关——按下界面全隐、
+        // 只剩此钮且变淡，再按恢复；与全屏观看筹的横屏跳转分开，见
+        // Host.onFsButton）；回收复用先把透明度归位（清屏态的变淡不许串页）
         b.hgFsBtn.setVisibility(seriesMode && !landInstance ? View.VISIBLE : View.GONE);
         b.hgFsBtn.setAlpha(1f);
         // 分享件：官方集流页右列（ShortSeriesRightView 布局 cv5/cv6/cv7）
@@ -294,15 +312,26 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         // 横屏短片给全屏观看钮（账 §3.8）：取模型宽高定真朝向，未知先按 cell vertical 预判；
         // 横屏实例里此钮不存在（已在横屏页里），整套不亮
         b.hgFullscreenWatch.setVisibility(!landInstance && (item.isLandscape() || item.landscapeHint) ? View.VISIBLE : View.GONE);
-        // 钮锚位与 Activity.anchorFullscreenWatch 同公式（贴视频下沿）：有真
-        // 尺寸的条目绑定时就锚好（回收复用的钮先归零防串位），没尺寸的等
-        // 首帧 onVideoSizeChanged 再锚
-        if (item.isLandscape() && item.videoWidth > 0 && item.videoHeight > 0) {
+        // 钮锚位与 Activity.anchorFullscreenWatch 同公式（贴视频下沿居中，
+        // 官方实拍 113482 口径）。尺寸来源两级：条目自带（取模型回包）→
+        // 宿主存档（首帧/解链尺寸）。旧版只有条目自带一级、缺尺寸时无条件
+        // 归零——起播后任意一次重绑（短片富集回帖等）就把首帧锚位抹掉，
+        // 钮永久停在页正中（113576 真机实证）；存档兜底后重绑自愈
+        int fsW = item.videoWidth, fsH = item.videoHeight;
+        if ((fsW <= 0 || fsH <= 0) && host != null) {
+            int[] known = host.videoSizeFor(item);
+            if (known != null && known.length >= 2) {
+                fsW = known[0];
+                fsH = known[1];
+            }
+        }
+        if (fsW > fsH && fsH > 0) {
+            final int vw = fsW, vh = fsH;
             b.getRoot().post(() -> {
                 int pageW = b.getRoot().getWidth();
                 if (pageW <= 0) return;
                 float density = b.getRoot().getResources().getDisplayMetrics().density;
-                float renderedH = (float) pageW * item.videoHeight / item.videoWidth;
+                float renderedH = (float) pageW * vh / vw;
                 int btnH = b.hgFullscreenWatch.getHeight() > 0
                         ? b.hgFullscreenWatch.getHeight() : Math.round(40 * density);
                 b.hgFullscreenWatch.setTranslationY(renderedH / 2f + 15 * density + btnH / 2f);
@@ -515,7 +544,7 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         b.hgSeriesBar.setOnClickListener(v -> host.onSeriesBar(holder.getBindingAdapterPosition()));
         b.hgDanmakuBox.setOnClickListener(v -> host.onDanmakuPublish(holder.getBindingAdapterPosition()));
         b.hgFullscreenWatch.setOnClickListener(v -> host.onFullscreenWatch(holder.getBindingAdapterPosition()));
-        b.hgFsBtn.setOnClickListener(v -> host.onFullscreenWatch(holder.getBindingAdapterPosition()));
+        b.hgFsBtn.setOnClickListener(v -> host.onFsButton(holder.getBindingAdapterPosition()));
         b.hgError.setOnClickListener(v -> host.onRetry(holder.getBindingAdapterPosition()));
         View.OnClickListener descToggle = v -> {
             int p = holder.getBindingAdapterPosition();

@@ -209,6 +209,11 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         if (landLocked) binding.hgLandLock.setVisibility(View.GONE);
     };
 
+    /** 已播条目的视频尺寸存档（videoId → [宽, 高]）：首帧回调与解链回包
+     * 两路回填，供绑定时锚「全屏观看」钮兜底（条目自带尺寸没到手、
+     * 起播后重绑时用，见 HgFeedAdapter.Host.videoSizeFor）。 */
+    private final java.util.Map<String, int[]> playedVideoSizes = new HashMap<>();
+
     /** 本页模式：MODE_FEED 短片流 / MODE_SERIES 集流（initView 自 intent 定）。 */
     private int mode = MODE_FEED;
     private String playingVideoId;
@@ -319,6 +324,8 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         @Override
         public void onVideoSizeChanged(VideoSize size) {
             if (size.width <= 0 || size.height <= 0) return;
+            String vidNow = currentVideoId();
+            if (vidNow != null) playedVideoSizes.put(vidNow, new int[]{size.width, size.height});
             boolean landscape = size.width > size.height;
             playerView.setResizeMode(landInstance || landscape
                     ? AspectRatioFrameLayout.RESIZE_MODE_FIT : AspectRatioFrameLayout.RESIZE_MODE_ZOOM);
@@ -959,6 +966,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             @Override
             public void onReady(String vid, String localUrl, int w, int h) {
                 if (!vid.equals(currentVideoId())) return; // 已滑走，迟到的解链只入缓存
+                if (w > 0 && h > 0) playedVideoSizes.put(vid, new int[]{w, h});
                 if (w > 0 && h > 0 && (item.videoWidth != w || item.videoHeight != h)) {
                     session.items.set(posAtRequest, item.withSize(w, h));
                     adapter.notifyItemChanged(posAtRequest);
@@ -2307,13 +2315,39 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                 0f, 0, "", 0);
     }
 
+    /**
+     * 右下全屏方钮（集流竖屏，用户亲点定版）：它是清屏开关，不是全屏
+     * 跳转——按下进清屏（界面全隐、只剩此钮且变淡 0.4，防烧屏），再按
+     * 退出恢复。旧版方钮与「全屏观看」筹同走 onFullscreenWatch，按下被
+     * 扔进横屏实例页是串线（他真机实证 113577/113578）。进清屏复用
+     * enterCleanMode/exitCleanMode（与点画面清屏同一套）；集流竖屏之外
+     * 的语境（窗内转保底等）维持原全屏观看口径。
+     */
+    @Override
+    public void onFsButton(int position) {
+        if (position != currentPos || landInstance) return;
+        if (mode == MODE_SERIES && !landMode) {
+            if (cleanMode) exitCleanMode();
+            else enterCleanMode();
+            return;
+        }
+        onFullscreenWatch(position);
+    }
+
+    @Override
+    public int[] videoSizeFor(HgFeedItem item) {
+        if (item == null || item.videoId == null) return null;
+        return playedVideoSizes.get(item.videoId);
+    }
+
     @Override
     public void onFullscreenWatch(int position) {
         if (position != currentPos || landInstance) return;
         saveProgress();
-        // 首页（流）里点它＝全屏直接进剧集（他亲授）；竖屏集流里点它同样进
-        // 横屏实例（断点已落盘、横屏实例按断点集/秒落位）；旧窗内转只剩
-        // enterSeriesFullscreen 无剧归属短片的保底，不再是剧的去向
+        // 首页（流）里点它＝全屏直接进剧集（他亲授）；竖屏集流里点
+        // 「全屏观看」筹同样进横屏实例（断点已落盘、横屏实例按断点集/秒
+        // 落位）；旧窗内转只剩 enterSeriesFullscreen 无剧归属短片的保底，
+        // 不再是剧的去向。注意右下全屏方钮不走这里（见 onFsButton）
         if (mode == MODE_FEED) {
             enterSeriesFullscreen(position);
             return;

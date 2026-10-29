@@ -7,6 +7,7 @@ import com.fongmi.android.tv.hongguo.api.HgApiClient;
 import com.fongmi.android.tv.hongguo.api.HgCallback;
 import com.fongmi.android.tv.hongguo.api.HgModelCache;
 import com.fongmi.android.tv.hongguo.api.HgPrefetcher;
+import com.fongmi.android.tv.hongguo.model.HgAuthorHit;
 import com.fongmi.android.tv.hongguo.model.HgParser;
 import com.fongmi.android.tv.hongguo.model.HgSeriesDetail;
 import com.fongmi.android.tv.hongguo.model.HgSeriesItem;
@@ -145,6 +146,7 @@ public final class HgFeedSession {
         if (cached != null) {
             applyDetail(position, head, cached);
             changed.accept(position);
+            kickAuthorResolve(head, changed);
             return;
         }
         client.fetchVideoDetail(head.seriesId, new HgCallback<HgSeriesDetail>() {
@@ -159,6 +161,7 @@ public final class HgFeedSession {
                     }
                     applyDetail(at, head, detail);
                     changed.accept(at);
+                    kickAuthorResolve(head, changed);
                 });
             }
 
@@ -172,6 +175,7 @@ public final class HgFeedSession {
                     }
                     applyDetail(at, head, null);
                     changed.accept(at);
+                    kickAuthorResolve(head, changed);
                 });
             }
         });
@@ -200,6 +204,7 @@ public final class HgFeedSession {
         if (cached != null) {
             applyClip(position, head, cached);
             changed.accept(position);
+            kickAuthorResolve(head, changed);
             return;
         }
         client.fetchVideoDetail(head.seriesId, new HgCallback<HgSeriesDetail>() {
@@ -214,6 +219,7 @@ public final class HgFeedSession {
                     }
                     applyClip(at, head, detail);
                     changed.accept(at);
+                    kickAuthorResolve(head, changed);
                 });
             }
 
@@ -227,6 +233,7 @@ public final class HgFeedSession {
                     }
                     applyClip(at, head, null);
                     changed.accept(at);
+                    kickAuthorResolve(head, changed);
                 });
             }
         });
@@ -269,6 +276,7 @@ public final class HgFeedSession {
         int idx = first.getIndex() > 0 ? first.getIndex() : 1;
         HgFeedItem clipItem = head.withDetail(first.getVideoId(), idx, author, avatar, desc);
         if (detail != null && detail.getStatement() != null) clipItem.statement = detail.getStatement();
+        if (detail != null && detail.getAuthorUid() != null) clipItem.authorUid = detail.getAuthorUid();
         items.set(position, clipItem);
     }
 
@@ -295,8 +303,10 @@ public final class HgFeedSession {
                     cached.getDesc() != null ? cached.getDesc() : item.desc)
                     .withSeriesTitle(cached.getTitle());
             if (cached.getStatement() != null) enriched.statement = cached.getStatement();
+            if (cached.getAuthorUid() != null) enriched.authorUid = cached.getAuthorUid();
             items.set(position, enriched);
             changed.accept(position);
+            kickAuthorResolve(enriched, changed);
             return;
         }
         client.fetchVideoDetail(item.seriesId, new HgCallback<HgSeriesDetail>() {
@@ -314,8 +324,10 @@ public final class HgFeedSession {
                             detail.getDesc() != null ? detail.getDesc() : item.desc)
                             .withSeriesTitle(detail.getTitle());
                     if (detail.getStatement() != null) enriched.statement = detail.getStatement();
+                    if (detail.getAuthorUid() != null) enriched.authorUid = detail.getAuthorUid();
                     items.set(at, enriched);
                     changed.accept(at);
+                    kickAuthorResolve(enriched, changed);
                 });
             }
 
@@ -324,6 +336,82 @@ public final class HgFeedSession {
                 main.post(() -> changed.accept(-1));
             }
         });
+    }
+
+    /** 正剧作者 uid 反查的会话内命中缓存：按搜索名记（同名出品方多剧复用）。 */
+    private final Map<String, HgAuthorHit> authorHitByName = new HashMap<>();
+    /** 反查已发起过的剧（本会话每部只查一次，无果/失败都静默不再查）。 */
+    private final java.util.Set<String> authorResolveTried = new java.util.HashSet<>();
+
+    /**
+     * 正剧作者 uid 兜底反查（2026-10-29 本机实拉定根，账
+     * author-page-why-missing-20261029 追补）：详情口对剧集内容恒不
+     * 下发作者身份（单剧/批量/账号自制剧/单集模型五路全量扫零 uid），
+     * 正剧条目 authorUid 只能靠搜索「用户」签按名反查——搜索名取作者名、
+     * 没有取出品方品牌（cell copyright 抬升），定正主口径＝同名精确
+     * 匹配里作品数最高者（潮汐剧场实证：同名三号中作品数 628 的正主
+     * uid＝3336352032369972、与结果序首位一致；公司全称类品牌多半查无
+     * 账号，无果即止）。命中后给同剧全部条目回补 uid（缺名/头像一并
+     * 补）、回写详情缓存让后续展开直接继承，并报首个受影响下标。
+     * UGC 条目 uid 本就齐、进门即回，不走此路；失败一律静默，不打扰播放。
+     * 调用方都在主线程（页表口径），网络回调经 main 转手后才碰页表。
+     */
+    private void kickAuthorResolve(HgFeedItem hint, java.util.function.IntConsumer changed) {
+        if (hint == null || hint.authorUid != null || hint.seriesId == null) return;
+        final String name = hint.authorName != null && !hint.authorName.isEmpty()
+                ? hint.authorName : hint.publisher;
+        if (name == null || name.isEmpty()) return;
+        HgAuthorHit hit = authorHitByName.get(name);
+        if (hit != null) {
+            patchAuthor(hint.seriesId, hit, changed);
+            return;
+        }
+        if (!authorResolveTried.add(hint.seriesId)) return;
+        final String seriesId = hint.seriesId;
+        client.searchUsers(name, new HgCallback<List<HgAuthorHit>>() {
+            @Override
+            public void onSuccess(List<HgAuthorHit> hits) {
+                main.post(() -> {
+                    HgAuthorHit best = null;
+                    if (hits != null) {
+                        for (HgAuthorHit h : hits) {
+                            if (h == null || !name.equals(h.name)) continue;
+                            if (best == null || h.workCount > best.workCount) best = h;
+                        }
+                    }
+                    if (best == null) return;
+                    authorHitByName.put(name, best);
+                    HgSeriesDetail d = details.get(seriesId);
+                    if (d != null) d.attachAuthorUid(best.uid);
+                    patchAuthor(seriesId, best, changed);
+                });
+            }
+
+            @Override
+            public void onError(int httpCode, String message) {
+                // 反查失败静默：作者入口保持现状，不打扰播放
+            }
+        });
+    }
+
+    /** 把命中的作者身份回补到同剧全部条目（只补缺的），报首个受影响下标。 */
+    private void patchAuthor(String seriesId, HgAuthorHit hit,
+                             java.util.function.IntConsumer changed) {
+        int first = -1;
+        for (int i = 0; i < items.size(); i++) {
+            HgFeedItem it = items.get(i);
+            if (it.seriesId == null || !it.seriesId.equals(seriesId)) continue;
+            boolean lacksName = it.authorName == null || it.authorName.isEmpty();
+            boolean lacksAvatar = it.authorAvatar == null || it.authorAvatar.isEmpty();
+            if (it.authorUid == null || lacksName || lacksAvatar) {
+                items.set(i, it.withAuthor(
+                        it.authorUid == null ? hit.uid : null,
+                        lacksName ? hit.name : null,
+                        lacksAvatar ? hit.avatar : null));
+            }
+            if (first < 0) first = i;
+        }
+        if (first >= 0 && changed != null) changed.accept(first);
     }
 
     /** UGC 起播准备的在途等待表（按 vid 合并同条多次落定，只发一次详情请求）。 */
@@ -445,9 +533,11 @@ public final class HgFeedSession {
             HgFeedItem page = HgFeedItem.episode(head.seriesId, ep.getVideoId(), idx,
                     count > 0 ? count : sorted.size(), title, head.category, author, avatar, desc, cover);
             if (detail.getStatement() != null) page.statement = detail.getStatement();
-            // 作者 uid 详情面不下发：从进剧条目继承（流条目 cell 抬升来的），
-            // 集流里点头像进作者主页靠这一手；条目本身没有就整路没有。
-            page.authorUid = head.authorUid;
+            // 作者 uid：详情抬升到的优先（HgSeriesDetail.getAuthorUid，
+            // 现行回包恒不下发、口先建对），没有再从进剧条目继承（流条目
+            // cell 抬升来的）；两处都没有时展开后还有搜索反查兜底回补
+            // （kickAuthorResolve）。
+            page.authorUid = detail.getAuthorUid() != null ? detail.getAuthorUid() : head.authorUid;
             page.authorDesc = head.authorDesc;
             pages.add(page);
             i++;

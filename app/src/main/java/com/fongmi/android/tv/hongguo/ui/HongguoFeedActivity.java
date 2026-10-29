@@ -85,6 +85,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
      * HgFeedSession.applyDetail 的继承注）；没有来源的入口不带、集流里
      * 点作者行就静默不打开（不许按名认人）。 */
     private static final String EXTRA_AUTHOR_UID = "hg_author_uid";
+    private static final String EXTRA_PUBLISHER = "hg_publisher";
     private static final int MODE_FEED = 0;
     private static final int MODE_SERIES = 1;
     private static final long HIDE_DELAY_MS = 4000;
@@ -101,28 +102,33 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
 
     /** 从搜索/详情带一部剧进来：以该剧为流首展开续播。 */
     public static void startSeries(Context context, String seriesId, String title, String cover) {
-        startSeries(context, seriesId, title, cover, null);
+        startSeries(context, seriesId, title, cover, null, null);
     }
 
-    /** 带作者 uid 的进剧：uid 只从流条目 cell 抬升来，透传给集流页头。 */
+    /**
+     * 带作者身份线索的进剧：uid 从流条目 cell 抬升/反查来，透传给集流
+     * 页头；正剧 uid 还没到手时带出品方品牌（publisher），集流会话靠它
+     * 继续反查兜底（定根账 author-page-why-missing-20261029 追补）。
+     */
     public static void startSeries(Context context, String seriesId, String title, String cover,
-                                   String authorUid) {
+                                   String authorUid, String publisher) {
         Intent intent = new Intent(context, HongguoFeedActivity.class);
         intent.putExtra(EXTRA_MODE, MODE_SERIES);
         intent.putExtra(EXTRA_SERIES_ID, seriesId);
         intent.putExtra(EXTRA_TITLE, title);
         intent.putExtra(EXTRA_COVER, cover);
         if (authorUid != null) intent.putExtra(EXTRA_AUTHOR_UID, authorUid);
+        if (publisher != null) intent.putExtra(EXTRA_PUBLISHER, publisher);
         context.startActivity(intent);
     }
 
     /** 精彩片段播完自动进剧（他亲授的官方交互）：不走断点、从第一集起。 */
     public static void startSeriesFirst(Context context, String seriesId, String title, String cover) {
-        startSeriesFirst(context, seriesId, title, cover, null);
+        startSeriesFirst(context, seriesId, title, cover, null, null);
     }
 
     public static void startSeriesFirst(Context context, String seriesId, String title, String cover,
-                                        String authorUid) {
+                                        String authorUid, String publisher) {
         Intent intent = new Intent(context, HongguoFeedActivity.class);
         intent.putExtra(EXTRA_MODE, MODE_SERIES);
         intent.putExtra(EXTRA_SERIES_ID, seriesId);
@@ -130,12 +136,13 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         intent.putExtra(EXTRA_COVER, cover);
         intent.putExtra(EXTRA_START_FIRST, true);
         if (authorUid != null) intent.putExtra(EXTRA_AUTHOR_UID, authorUid);
+        if (publisher != null) intent.putExtra(EXTRA_PUBLISHER, publisher);
         context.startActivity(intent);
     }
 
     /** 横屏剧从首页进剧（他亲授：点击/全屏观看＝全屏直接进剧集）：集流以横屏全屏态落。 */
     public static void startSeriesLandscape(Context context, String seriesId, String title, String cover) {
-        startSeriesLandscape(context, seriesId, title, cover, null);
+        startSeriesLandscape(context, seriesId, title, cover, null, null);
     }
 
     /**
@@ -144,7 +151,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
      * 落点走 HgStore 断点（集＋秒）与竖屏进剧同口径。
      */
     public static void startSeriesLandscape(Context context, String seriesId, String title, String cover,
-                                            String authorUid) {
+                                            String authorUid, String publisher) {
         Intent intent = new Intent();
         intent.setClassName(context, "com.fongmi.android.tv.hongguo.ui.HongguoLandEntry");
         intent.putExtra(EXTRA_MODE, MODE_SERIES);
@@ -153,6 +160,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         intent.putExtra(EXTRA_COVER, cover);
         intent.putExtra(EXTRA_LAND_INSTANCE, true);
         if (authorUid != null) intent.putExtra(EXTRA_AUTHOR_UID, authorUid);
+        if (publisher != null) intent.putExtra(EXTRA_PUBLISHER, publisher);
         context.startActivity(intent);
     }
 
@@ -293,7 +301,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                         if (item.seriesId != null) {
                             suppressResumeRefresh = true;
                             startSeriesFirst(HongguoFeedActivity.this,
-                                    item.seriesId, item.title, item.coverUrl, item.authorUid);
+                                    item.seriesId, item.title, item.coverUrl, item.authorUid, item.publisher);
                         }
                     }
                 } else if (timerMode == HgPanelLogic.TIMER_SERIES_END && atSeriesEnd()) {
@@ -495,6 +503,8 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                         getIntent().getStringExtra(EXTRA_COVER), -1);
                 // 作者 uid 从进剧条目透传来：展开成集页时由 applyDetail 继承
                 headPage.authorUid = getIntent().getStringExtra(EXTRA_AUTHOR_UID);
+                // 出品方品牌同路透传：uid 还没到手时集流靠它反查兜底
+                headPage.publisher = getIntent().getStringExtra(EXTRA_PUBLISHER);
                 session.items.add(headPage);
                 adapter.notifyItemInserted(0);
                 onSettle(0);
@@ -1511,7 +1521,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             return;
         }
         suppressResumeRefresh = true;
-        startSeriesLandscape(this, item.seriesId, item.title, item.coverUrl, item.authorUid);
+        startSeriesLandscape(this, item.seriesId, item.title, item.coverUrl, item.authorUid, item.publisher);
     }
 
     @Override
@@ -1636,7 +1646,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                 session.albumOf(item.seriesId);
         if (cached != null) {
             if (cached.size() >= 2) showSeriesSheet(item, cached);
-            else startSeries(this, item.seriesId, item.title, item.coverUrl, item.authorUid);
+            else startSeries(this, item.seriesId, item.title, item.coverUrl, item.authorUid, item.publisher);
             return;
         }
         if (item.multiSeason && albumId != null && !albumId.isEmpty()) {
@@ -1668,7 +1678,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             });
             return;
         }
-        startSeries(this, item.seriesId, item.title, item.coverUrl, item.authorUid);
+        startSeries(this, item.seriesId, item.title, item.coverUrl, item.authorUid, item.publisher);
     }
 
     private void showSeriesSheet(HgFeedItem item, java.util.List<com.fongmi.android.tv.hongguo.model.HgSeriesItem> siblings) {
@@ -2375,7 +2385,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         HgFeedItem item = session.items.get(position);
         if (item.seriesId != null) {
             suppressResumeRefresh = true;
-            startSeriesLandscape(this, item.seriesId, item.title, item.coverUrl, item.authorUid);
+            startSeriesLandscape(this, item.seriesId, item.title, item.coverUrl, item.authorUid, item.publisher);
         }
     }
 

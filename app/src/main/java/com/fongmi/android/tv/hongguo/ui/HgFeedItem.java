@@ -98,6 +98,12 @@ public final class HgFeedItem {
      * 惯例，不进构造器），fromSeries 负责携带、各 with* 副本负责抄。
      */
     public int contentType = -1;
+    /**
+     * 出品方品牌（cell copyright 抬升，如「两只猫剧场」）：正剧作者 uid
+     * 反查的搜索词来源（作者名为空时用它，见 HgFeedSession 的反查
+     * 兜底）；后置字段同 authorUid 惯例，没带为 null。
+     */
+    public String publisher;
     /** 横屏预判（cell vertical=false，账 §3.8）：取模型宽高到手前先据此给全屏观看钮。 */
     public boolean landscapeHint;
 
@@ -182,6 +188,7 @@ public final class HgFeedItem {
         item.authorUid = s.getAuthorUid();
         item.authorDesc = s.getAuthorDesc();
         item.contentType = s.getContentType();
+        item.publisher = s.getPublisher();
         item.statement = s.getStatement();
         if (s.getVertical() != null) item.landscapeHint = !s.getVertical();
         return item;
@@ -202,6 +209,7 @@ public final class HgFeedItem {
         copy.authorUid = authorUid;
         copy.authorDesc = authorDesc;
         copy.contentType = contentType;
+        copy.publisher = publisher;
         copy.landscapeHint = landscapeHint;
         return copy;
     }
@@ -222,6 +230,7 @@ public final class HgFeedItem {
         copy.authorUid = authorUid;
         copy.authorDesc = authorDesc;
         copy.contentType = contentType;
+        copy.publisher = publisher;
         copy.landscapeHint = landscapeHint;
         return copy;
     }
@@ -252,6 +261,33 @@ public final class HgFeedItem {
         copy.authorUid = authorUid;
         copy.authorDesc = authorDesc;
         copy.contentType = contentType;
+        copy.publisher = publisher;
+        copy.landscapeHint = landscapeHint;
+        return copy;
+    }
+
+    /**
+     * 作者身份后补副本：uid/名/头像传非 null 才换，其余字段与后置状态
+     * 原样——搜索反查命中后会话层给同剧条目回补作者身份用（见
+     * HgFeedSession 的反查兜底），形态（剧头/短片/集页）不经此变。
+     */
+    public HgFeedItem withAuthor(String uid, String name, String avatar) {
+        HgFeedItem copy = new HgFeedItem(seriesId, videoId, episodeIndex, episodeCount, title,
+                category, name != null ? name : authorName,
+                avatar != null ? avatar : authorAvatar, desc, coverUrl,
+                videoWidth, videoHeight, seriesHead, clip,
+                badge, recText, tags, multiSeason, albumId, albumSerialCount, siblings,
+                likeCount, commentCount, seriesStatus);
+        copy.expandTried = expandTried;
+        copy.reservable = reservable;
+        copy.dueStartText = dueStartText;
+        copy.hotComment = hotComment;
+        copy.hotKind = hotKind;
+        copy.statement = statement;
+        copy.authorUid = uid != null ? uid : authorUid;
+        copy.authorDesc = authorDesc;
+        copy.contentType = contentType;
+        copy.publisher = publisher;
         copy.landscapeHint = landscapeHint;
         return copy;
     }

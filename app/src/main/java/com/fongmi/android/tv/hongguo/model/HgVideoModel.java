@@ -22,11 +22,13 @@ public final class HgVideoModel {
     private final int videoWidth;
     private final int videoHeight;
     private final List<HgVideoEntry> entries;
+    /** 构建本模型的 video_model 原始 JSON 串（buildModel 入参原文）；模型缓存落盘时存它、读回经 HgParser.restoreModel 同路重建，保证字段零漂移。 */
+    private final String sourceJson;
 
     HgVideoModel(String requestedId, String videoId, int status, String message,
                  double durationSec, String mediaType, long urlExpire, String posterUrl,
                  String keySeed, String fallbackApi, int videoWidth, int videoHeight,
-                 List<HgVideoEntry> entries) {
+                 List<HgVideoEntry> entries, String sourceJson) {
         this.requestedId = requestedId;
         this.videoId = videoId;
         this.status = status;
@@ -40,6 +42,7 @@ public final class HgVideoModel {
         this.videoWidth = videoWidth;
         this.videoHeight = videoHeight;
         this.entries = Collections.unmodifiableList(entries);
+        this.sourceJson = sourceJson;
     }
 
     /** 请求时的集 id（multi 回包 data 的键）；fplay 形态为 null。 */
@@ -60,6 +63,8 @@ public final class HgVideoModel {
     public int getVideoWidth() { return videoWidth; }
     public int getVideoHeight() { return videoHeight; }
     public List<HgVideoEntry> getEntries() { return entries; }
+    /** 构建来源的 video_model 原始 JSON 串（落盘缓存用）；理论上恒非空，防御性判空在消费方。 */
+    public String getSourceJson() { return sourceJson; }
 
     public HgVideoEntry entryByDefinition(String definition) {
         if (definition == null) return null;

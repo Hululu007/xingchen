@@ -43,6 +43,14 @@ import okhttp3.ResponseBody;
  * HgDevice 匿名注册拿真 device_id/iid 落盘复用＋HgSign 逐请求签名；
  * 旧 multi 口（reading.snssdk.com、platform=1024、无签名）已从主链摘除。</p>
  *
+ * <p>批量口复位（2026-10-30，hongguo-fetch-quota-dig2-20261030.md §四
+ * 定论）：配额探针钉死——计量键＝注册设备身份、桶＝每档案 1 次成功
+ * 请求全端点共享、按请求计不按 vid 计（一发 multi 带 2 vid 回两份
+ * 模型亲验）。据此新增**已签名**批量口（host sinfonlineb、
+ * multi_video_model、体照红果果[短]源码），与上文摘除的无签名旧
+ * multi 不是同一件；取模型改批量优先、单集口降为兜底，消耗面从
+ * 1 份/集降到 1 份/批。</p>
+ *
  * <p>feed 面重建（2026-10-28，tab-fail-dig-20261028.md 两案定罪）：漫剧/
  * 真人剧页签原接的 new_category/front 是小说分类页壳接口（结构上永远不带
  * 剧条目）且无签名发法恒回空体；推荐页签走的 plan/无参 bookmall/tab 不是
@@ -86,18 +94,142 @@ public final class HgApiClient {
         this.authProvider = provider;
     }
 
-    // ---------- 取播放模型（签名单集口；openhongguo 无批量模型口） ----------
+    // ---------- 取播放模型（签名批量口优先＋签名单集口兜底） ----------
 
     /**
-     * 批量取多集播放模型（预取面）：逐集走签名单集口并发取回、聚合为表。
-     * openhongguo 全程没有批量模型口，星辰旧 multi 口已定罪摘除（见类头注）。
-     * 全部失败才回调错误；部分成功回调已取到的表（预取语义：缺集起播时再现取）。
+     * 单发批量上限：探针亲验一发 2 个 vid 回两份（定根账 §四-3），
+     * 账口径「剧集表量级可批、先取保守值」——取 20；超限自动分多发
+     * （每多一发多耗一份成功额度，调用方仍应控制批大小）。
+     */
+    private static final int MAX_MULTI_IDS_PER_REQUEST = 20;
+
+    /** 无类型面时的整批分组键：探针亲验该键对真人剧 vid 同样出模型（跨类型批量成立，定根账 §四-3）。 */
+    private static final String MULTI_GROUP_DEFAULT = "1004";
+
+    /**
+     * 批量取多集播放模型（预取面）：批量优先——一发签名 multi 把当批
+     * vid 全装上（配额按成功请求计，定根账 §四-3）；批量口传输/业务
+     * 失败才回落逐集单集口兜底；批量回空体（-2＝额度形状）不兜底，
+     * 同桶单集必空、连试兑不出（定根账 §六-3）。部分成功回调已取
+     * 到的表（预取语义：缺集起播时再现取）。
      */
     public void fetchVideoModels(Collection<String> videoIds, HgCallback<Map<String, HgVideoModel>> cb) {
         if (videoIds == null || videoIds.isEmpty()) {
             cb.onError(-1, "videoIds 为空");
             return;
         }
+        Map<String, List<String>> grouped = new LinkedHashMap<>();
+        grouped.put(MULTI_GROUP_DEFAULT, new ArrayList<>(videoIds));
+        fetchVideoModelsGrouped(grouped, new HgCallback<Map<String, HgVideoModel>>() {
+            @Override
+            public void onSuccess(Map<String, HgVideoModel> result) {
+                cb.onSuccess(result);
+            }
+
+            @Override
+            public void onError(int httpCode, String message) {
+                if (httpCode == -2) {
+                    cb.onError(httpCode, message);
+                    return;
+                }
+                fetchVideoModelsBySingles(videoIds, cb);
+            }
+        });
+    }
+
+    /**
+     * 签名批量口取模型（纯 multi，不带兜底）：POST host b
+     * /novel/player/multi_video_model/v1/，体照
+     * {@link HgRequests#multiPlaybackBody}（红果果体）。入参按
+     * content_type 分组；总量超 {@link #MAX_MULTI_IDS_PER_REQUEST}
+     * 自动分多发、顺序执行。任一分片拿到模型即算部分成功回调已取
+     * 表；全部分片皆空/皆败才回调错误（首个错误码：空体归 -2、结构
+     * 化拒绝回业务码、传输失败回其码）。
+     */
+    public void fetchVideoModelsGrouped(Map<String, List<String>> grouped,
+                                        HgCallback<Map<String, HgVideoModel>> cb) {
+        List<Map<String, List<String>>> chunks = chunkGroups(grouped);
+        if (chunks.isEmpty()) {
+            cb.onError(-1, "videoIds 为空");
+            return;
+        }
+        Map<String, HgVideoModel> out = Collections.synchronizedMap(new LinkedHashMap<>());
+        int[] firstError = {-1};
+        String[] firstMessage = {null};
+        runMultiChunk(chunks, 0, out, firstError, firstMessage, cb);
+    }
+
+    private void runMultiChunk(List<Map<String, List<String>>> chunks, int idx,
+                               Map<String, HgVideoModel> out, int[] firstError, String[] firstMessage,
+                               HgCallback<Map<String, HgVideoModel>> cb) {
+        if (idx >= chunks.size()) {
+            if (!out.isEmpty()) cb.onSuccess(out);
+            else cb.onError(firstError[0], firstMessage[0] == null ? "取模型全灭" : firstMessage[0]);
+            return;
+        }
+        postSigned(HgDevice.API_HOST_B, HgDevice.PATH_PLAYBACK_MULTI,
+                HgRequests.multiPlaybackBody(chunks.get(idx)), new BodyCallback() {
+                    @Override
+                    void onBody(String text) {
+                        Map<String, HgVideoModel> part = null;
+                        try {
+                            part = HgParser.parseMultiVideoModel(text);
+                        } catch (Exception ignored) {
+                            // 解析异常按无模型处理，下面统一归形状
+                        }
+                        if (part != null && !part.isEmpty()) {
+                            out.putAll(part);
+                        } else {
+                            int biz = HgParser.businessCodeOf(text);
+                            recordMultiError(firstError, firstMessage,
+                                    biz > 0 ? biz : -2,
+                                    biz > 0 ? "服务端拒绝 code=" + biz : "回包无 video_model");
+                        }
+                        runMultiChunk(chunks, idx + 1, out, firstError, firstMessage, cb);
+                    }
+
+                    @Override
+                    void onFail(int code, String msg) {
+                        recordMultiError(firstError, firstMessage, code, msg);
+                        runMultiChunk(chunks, idx + 1, out, firstError, firstMessage, cb);
+                    }
+                });
+    }
+
+    private static void recordMultiError(int[] firstError, String[] firstMessage, int code, String msg) {
+        synchronized (firstError) {
+            if (firstMessage[0] == null) {
+                firstError[0] = code;
+                firstMessage[0] = msg;
+            }
+        }
+    }
+
+    /** 分组表按总量切成 ≤上限的分片（保持分组与插入序）。 */
+    private static List<Map<String, List<String>>> chunkGroups(Map<String, List<String>> grouped) {
+        List<Map<String, List<String>>> chunks = new ArrayList<>();
+        if (grouped == null) return chunks;
+        Map<String, List<String>> cur = new LinkedHashMap<>();
+        int curCount = 0;
+        for (Map.Entry<String, List<String>> e : grouped.entrySet()) {
+            if (e.getValue() == null) continue;
+            for (String id : e.getValue()) {
+                if (id == null) continue;
+                if (curCount == MAX_MULTI_IDS_PER_REQUEST) {
+                    chunks.add(cur);
+                    cur = new LinkedHashMap<>();
+                    curCount = 0;
+                }
+                cur.computeIfAbsent(e.getKey(), k -> new ArrayList<>()).add(id);
+                curCount++;
+            }
+        }
+        if (curCount > 0) chunks.add(cur);
+        return chunks;
+    }
+
+    /** 逐集单集口扇出（批量口的兜底形态）：全部失败才回调错误；部分成功回调已取到的表。 */
+    private void fetchVideoModelsBySingles(Collection<String> videoIds, HgCallback<Map<String, HgVideoModel>> cb) {
         Map<String, HgVideoModel> out = Collections.synchronizedMap(new LinkedHashMap<>());
         AtomicInteger remain = new AtomicInteger(videoIds.size());
         AtomicReference<String> firstError = new AtomicReference<>();
@@ -416,6 +548,11 @@ public final class HgApiClient {
      * 发送字节为同一串（bodyObj.toString 的 UTF-8 编码）。
      */
     private void postSigned(String path, JsonObject bodyObj, BodyCallback cb) {
+        postSigned(HgDevice.API_HOST, path, bodyObj, cb);
+    }
+
+    /** 已签名 POST 的指定宿主版（批量取模型口走 sinfonlineb，其余同 {@link #postSigned(String, JsonObject, BodyCallback)}）。 */
+    private void postSigned(String host, String path, JsonObject bodyObj, BodyCallback cb) {
         ensureDevice(new HgCallback<Boolean>() {
             @Override
             public void onSuccess(Boolean ok) {
@@ -424,7 +561,7 @@ public final class HgApiClient {
                 long ticket = System.currentTimeMillis();
                 HgSign.Signed signed = HgSign.signPost(path, HgDevice.deviceQueryPairs(), ticket,
                         HgDevice.profile().deviceId, HgDevice.VERSION_NAME, bodyBytes, null);
-                String url = HgDevice.API_HOST + path + "?" + signed.query;
+                String url = host + path + "?" + signed.query;
                 Map<String, String> h = headers();
                 h.put("user-agent", HgDevice.userAgent());
                 h.putAll(signed.headers);

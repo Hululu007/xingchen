@@ -133,6 +133,35 @@ public final class HgRequests {
         return form;
     }
 
+    /**
+     * 批量取模型 multi_video_model 请求体：照红果果[短]源码逐字口径
+     * （hongguo-thirdparty-ref-20261030 §一-①）——biz_param 八字段、
+     * video_platform=1024、mixed_video_id_map 按 content_type 分组、
+     * 无 dr_scene（dr_scene 只属 preload 变体口，本口不带）。
+     * 入参为已分组的 content_type→vid 表（保持插入序）。
+     */
+    public static JsonObject multiPlaybackBody(java.util.Map<String, java.util.List<String>> grouped) {
+        JsonObject biz = new JsonObject();
+        biz.addProperty("detail_page_version", 0);
+        biz.addProperty("device_level", 3);
+        biz.addProperty("disable_digg_stat", false);
+        biz.addProperty("need_all_video_definition", true);
+        biz.addProperty("need_mp4_align", false);
+        biz.addProperty("use_os_player", false);
+        biz.addProperty("use_server_dns", false);
+        biz.addProperty("video_platform", 1024);
+        JsonObject map = new JsonObject();
+        for (java.util.Map.Entry<String, java.util.List<String>> e : grouped.entrySet()) {
+            com.google.gson.JsonArray ids = new com.google.gson.JsonArray();
+            for (String id : e.getValue()) ids.add(id);
+            map.add(e.getKey(), ids);
+        }
+        JsonObject body = new JsonObject();
+        body.add("biz_param", biz);
+        body.add("mixed_video_id_map", map);
+        return body;
+    }
+
     /** 单集 video_model 请求体（openhongguo PlaybackBody）：biz 仅三字段、platform=3。 */
     public static JsonObject playbackBody(String videoId) {
         JsonObject biz = new JsonObject();

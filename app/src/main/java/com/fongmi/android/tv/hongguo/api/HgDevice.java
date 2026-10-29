@@ -38,8 +38,12 @@ public final class HgDevice {
     public static final String APP_NAME = "novelread";
     public static final String DEVICE_PLATFORM = "android";
     public static final String API_HOST = "https://api5-normal-sinfonlinea.fqnovel.com";
+    /** 批量取模型口宿主（sinfonlineb；红果果[短]源码与定根探针 Q3/Q4 双证，账 hongguo-fetch-quota-dig2-20261030 §三/§四）。 */
+    public static final String API_HOST_B = "https://api5-normal-sinfonlineb.fqnovel.com";
     public static final String REGISTER_HOST = "https://log5-applog-lq.fqnovel.com";
     public static final String PATH_PLAYBACK = "/novel/player/video_model/v1/";
+    /** 签名批量取模型口（配额按成功请求计、一发兑整批，定根账同上 §四-3）。 */
+    public static final String PATH_PLAYBACK_MULTI = "/novel/player/multi_video_model/v1/";
     public static final String PATH_SERIES = "/novel/player/video_detail/v1/";
     public static final String PATH_ALBUM = "/novel/player/album_detail/v1/";
     public static final String PATH_SERIES_BATCH = "/novel/player/multi_video_detail/player/v1";

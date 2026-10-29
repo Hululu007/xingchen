@@ -222,10 +222,11 @@ public final class HgPlayResolver {
     // ---------- 后台线程同步解链（网络等待用锁，不占主线程） ----------
 
     /**
-     * 同步解链。失败出口编号（诊断用，定罪后撤）：E1 取模型全灭（签名单集口
-     * 3 次皆失败）；E2 模型无可播条目；E3 明文链拿不到且 fplay 兜底也空；
-     * E4 选中档带加密标记但全模型扫 spade_a 推不出 DEK（模型级判定，
-     * 定罪账借条 3；未保护条目免钥匙直喂、不进 E4）；E5 注册流失败。
+     * 同步解链。失败出口编号（诊断用，定罪后撤）：E1 取模型全灭（批量口
+     * 与单集兜底皆失败，或空体判额度未到）；E2 模型无可播条目；E3 明文
+     * 链拿不到且 fplay 兜底也空；E4 选中档带加密标记但全模型扫 spade_a
+     * 推不出 DEK（模型级判定，定罪账借条 3；未保护条目免钥匙直喂、
+     * 不进 E4）；E5 注册流失败。
      */
     private Outcome resolveSync(String videoId) throws Exception {
         HgVideoModel model = cache.getFresh(videoId);
@@ -269,13 +270,14 @@ public final class HgPlayResolver {
     }
 
     /**
-     * 取模型（官方取数链口径，2026-10-29 对齐）：签名单集口逐请求现签、
-     * 最多 3 次直取（补偿官方 TTNet 传输层自带重试；每次都是同一形状
-     * 的新签请求），先成先回；全灭回 null 走 E1。官方 App 层没有的
-     * 自有机制（轮次计数、60 秒全域冷却、700ms 错峰闸、重试睡眠、
-     * 限流自动换档案）已整批摘除——它们改变取数行为本身且掩盖真断
-     * 点（账 feed-stuck-autoscroll-20261029 主线节）。fplay 兜底只能
-     * 跟在拿到模型之后（fallback_api 在回包里）。
+     * 取模型（2026-10-30 配额定根后改法，hongguo-fetch-quota-dig2-
+     * 20261030.md §六）：配额按成功请求计、桶全端点共享——先走签名
+     * 批量口（一发装当批，单人起播时批＝当前集 1 个）；批量口回空体
+     * （-2＝额度形状）即停判额度未到，同桶单集必空、不再兜底连试；
+     * 批量口传输/业务失败才回落签名单集口兜底，单集同样按形状决定
+     * 连试——只有真网络错误（-1）与服务端 5xx 才重试（最多 3 次，
+     * 补偿官方 TTNet 传输层自带重试），空体与结构化拒绝一次即停。
+     * fplay 兜底只能跟在拿到模型之后（fallback_api 在回包里）。
      */
     /** 单次取模型的失败形状（最后一次失败的码与文案，落日志用）。 */
     private static final class FetchError {
@@ -284,20 +286,68 @@ public final class HgPlayResolver {
         String message;
     }
 
+    /**
+     * 失败形状是否值得重试（纯函数，离线可验）：只有传输层失败（-1）
+     * 与 HTTP 5xx（500–599）是真网络/服务端瞬时错误；-2 空体是额度
+     * 形状、业务码是结构化拒绝，重试都兑不出。注意码空间复用：业务
+     * 码（101000/110001 等）数值大于 500，必须按 HTTP 码段限界、
+     * 不许用 ≥500 一刀切（离线真值表实证抓到过此误判）。
+     */
+    static boolean retryableFetchError(int httpCode) {
+        return httpCode == -1 || (httpCode >= 500 && httpCode < 600);
+    }
+
     private HgVideoModel fetchModel(String videoId) {
         FetchError lastError = new FetchError();
-        for (int attempt = 0; attempt < 3; attempt++) {
-            HgVideoModel m = fetchSigned(videoId, lastError);
-            if (m != null) return m;
+        HgVideoModel m = fetchViaMulti(videoId, lastError);
+        if (m != null) return m;
+        if (lastError.recorded && lastError.httpCode == -2) {
+            // 空体＝额度未到：按额度形状收尾（上层提示口径维持现行），不连试
+            Log.e(TAG, "fetchModel " + videoId + " 批量口空体（额度形状），即停");
+            return null;
         }
-        // 三次皆失败：最后一次的真实失败形状落日志（此前 onError 把
-        // httpCode/message 整件丢弃，E1 不带形状、每次定根都要再跑一轮
-        // 探针，定根账 feed-fail-1460-20261029 §1/§4 附带小修）。只落
-        // 日志，E1 的上屏文案不动。
-        Log.e(TAG, "fetchModel " + videoId + " 3 次皆失败 lastHttpCode="
+        for (int attempt = 0; attempt < 3; attempt++) {
+            m = fetchSigned(videoId, lastError);
+            if (m != null) return m;
+            if (!lastError.recorded || !retryableFetchError(lastError.httpCode)) break;
+        }
+        // 全灭：最后一次的真实失败形状落日志（定根账 feed-fail-
+        // 1460-20261029 §1/§4 附带小修）。只落日志，E1 上屏文案不动。
+        Log.e(TAG, "fetchModel " + videoId + " 取模型全灭 lastHttpCode="
                 + (lastError.recorded ? lastError.httpCode : -1)
                 + " lastMessage=" + (lastError.recorded ? lastError.message : "无回包（等待超时）"));
         return null;
+    }
+
+    /** 批量口取单个 vid（起播批＝当前集一份）；失败形状记进 lastError（口径同 fetchSigned）。 */
+    private HgVideoModel fetchViaMulti(String videoId, FetchError lastError) {
+        CountDownLatch latch = new CountDownLatch(1);
+        HgVideoModel[] box = new HgVideoModel[1];
+        Map<String, List<String>> grouped = new HashMap<>();
+        grouped.put("1004", java.util.Collections.singletonList(videoId));
+        client.fetchVideoModelsGrouped(grouped, new HgCallback<Map<String, HgVideoModel>>() {
+            @Override
+            public void onSuccess(Map<String, HgVideoModel> result) {
+                box[0] = result.get(videoId);
+                if (box[0] == null) {
+                    // 批量成功但本集不在回表里：按无模型形状记账，交上层走单集兜底判定
+                    lastError.recorded = true;
+                    lastError.httpCode = -2;
+                    lastError.message = "批量回包无本集模型";
+                }
+                latch.countDown();
+            }
+
+            @Override
+            public void onError(int httpCode, String message) {
+                lastError.recorded = true;
+                lastError.httpCode = httpCode;
+                lastError.message = message;
+                latch.countDown();
+            }
+        });
+        await(latch);
+        return box[0];
     }
 
     private HgVideoModel fetchSigned(String videoId, FetchError lastError) {

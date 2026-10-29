@@ -141,7 +141,22 @@ public final class HgParser {
                 str(vm, "key_seed"),
                 fallback,
                 vw, vh,
-                entries);
+                entries,
+                vm.toString());
+    }
+
+    /**
+     * 落盘缓存读回：video_model 原始 JSON 串＋外层宽高 → 模型，与当初
+     * buildModel 同路重建（字段口径零漂移）；串坏/为空返回 null。
+     */
+    public static HgVideoModel restoreModel(String requestedId, String modelJson, int vw, int vh) {
+        if (modelJson == null || modelJson.isEmpty()) return null;
+        try {
+            JsonObject vm = asObject(JsonParser.parseString(modelJson));
+            return vm == null ? null : buildModel(requestedId, vm, vw, vh);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /** multi 形态：字段在 video_meta / encrypt_info 子对象里（子对象也可能是字符串化 JSON）。 */

@@ -114,6 +114,7 @@ public class HongguoLoginPage extends DialogFragment {
 
     // 抖音授权页件
     private WebView webView;
+    private LinearLayout webBox;
     private FrameLayout webHolder;
     private ProgressBar webProgress;
     private String authState;
@@ -196,8 +197,9 @@ public class HongguoLoginPage extends DialogFragment {
      * 内容被系统窗框收在状态栏下方——柔光渐变铺不上去、顶上留一条灰带。
      * 这里给本页窗口单独落：edge-to-edge＋状态栏透明（渐变直接铺到状态栏
      * 底下连续一色）、浅底配深色状态栏图标；底部按导航区真实高度留距
-     * （手势让位全应用口径），根视图顶距不动（页内列自带 54dp 顶内距已
-     * 让开状态栏高度）。
+     * （手势让位全应用口径），根视图顶距不动（主页/手机号页的页内列自带
+     * 54dp 顶内距已让开状态栏高度；抖音授权面没有页内列，由同一 insets
+     * 监听给它的内容根补状态栏顶距，见下方监听内 webBox 分支）。
      *
      * <p>2026-10-29 补根（1.4.59 装机截图 113591 定罪）：上一版只落了颜色
      * （状态栏透明＋decorFits=false＋MATCH_PARENT），真机上带仍在——像素
@@ -221,6 +223,16 @@ public class HongguoLoginPage extends DialogFragment {
             int nav = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom;
             if (v.getPaddingBottom() != nav) {
                 v.setPadding(v.getPaddingLeft(), v.getPaddingTop(), v.getPaddingRight(), nav);
+            }
+            // 抖音授权面没有页内列的 54dp 顶内距托底：它的内容根（webBox）
+            // 顶部按状态栏真实高度让位，WebView 本体从状态栏下方起画
+            // （box 白底罩住让位区、与网页白底连续）
+            if (webBox != null) {
+                int top = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top;
+                if (webBox.getPaddingTop() != top) {
+                    webBox.setPadding(webBox.getPaddingLeft(), top,
+                            webBox.getPaddingRight(), webBox.getPaddingBottom());
+                }
             }
             return insets;
         });
@@ -507,29 +519,16 @@ public class HongguoLoginPage extends DialogFragment {
     // ---------------- 抖音授权页（受控 WebView，只装授权页本体） ----------------
 
     private View buildWebPane() {
+        // 不再自搭「取消／抖音授权」标题栏：授权页本体自带完整页头，这行
+        // 是咱家多余件（2026-10-29 他装 1.4.60 后点名「那字就是多余的」），
+        // 且在全屏帧下它正好顶进状态栏区。退出授权面走系统返回（子面
+        // 先回主页，onCreateDialog 的按键监听已处理），不靠这行字。
+        // 顶部让位由 applyImmersiveStatusBar 的 insets 监听给 webBox 补
+        // 状态栏真实高度，WebView 从状态栏下方起画。
         LinearLayout box = new LinearLayout(requireContext());
         box.setOrientation(LinearLayout.VERTICAL);
         box.setBackgroundColor(Color.WHITE);
-
-        LinearLayout bar = new LinearLayout(requireContext());
-        bar.setOrientation(LinearLayout.HORIZONTAL);
-        bar.setGravity(Gravity.CENTER_VERTICAL);
-        bar.setPadding(dp(16), dp(12), dp(16), dp(12));
-        TextView cancel = new TextView(requireContext());
-        cancel.setText("取消");
-        cancel.setTextColor(Color.parseColor("#666666"));
-        cancel.setTextSize(15);
-        cancel.setOnClickListener(v -> showPane(PANE_HOME));
-        bar.addView(cancel);
-        TextView title = new TextView(requireContext());
-        title.setText("抖音授权");
-        title.setTextColor(Color.parseColor("#111111"));
-        title.setTextSize(16);
-        title.setTypeface(null, Typeface.BOLD);
-        LinearLayout.LayoutParams tp = wrapWrap();
-        tp.setMargins(dp(14), 0, 0, 0);
-        bar.addView(title, tp);
-        box.addView(bar);
+        webBox = box;
 
         webProgress = new ProgressBar(requireContext(), null, android.R.attr.progressBarStyleHorizontal);
         webProgress.setMax(100);

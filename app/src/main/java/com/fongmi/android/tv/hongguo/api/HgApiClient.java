@@ -532,6 +532,28 @@ public final class HgApiClient {
     }
 
     /**
+     * 搜索「用户」签（tab_type＝27）GET 同搜索口：按名反查账号
+     * （uid/名/头像/作品数，HgParser.parseUserTab）。用途单一：正剧条目
+     * 作者 uid 兜底（详情口恒不下发作者身份，定根账
+     * author-page-why-missing-20261029 追补）——会话层拿作者名/出品方
+     * 品牌来查、同名精确匹配定正主；搜索页本身没有用户签界面，不作它用。
+     */
+    public void searchUsers(String keyword,
+                            HgCallback<java.util.List<com.fongmi.android.tv.hongguo.model.HgAuthorHit>> cb) {
+        getSigned("/reading/bookapi/search/tab/v", HgRequests.searchPairs(keyword, 0, 27), new BodyCallback() {
+            @Override
+            void onBody(String text) {
+                cb.onSuccess(HgParser.parseUserTab(text));
+            }
+
+            @Override
+            void onFail(int code, String msg) {
+                cb.onError(code, msg);
+            }
+        });
+    }
+
+    /**
      * 搜索框提示词 GET /reading/bookapi/search/cue/v1/（已签名）：旧无签名
      * 形同门回空体、界面也从没用过，已换签名口（openhongguo SearchCues 同口）。
      */

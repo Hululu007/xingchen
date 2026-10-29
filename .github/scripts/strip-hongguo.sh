@@ -312,12 +312,19 @@ if not (i < j and lines[i - 1].strip() == "/**"):
     sys.exit("python: loginHongguo 段落形状对不上")
 lines = lines[:i - 1] + lines[j:]
 
-# ---- LoginManager：红果静态桥整段删（loginHongguo 起、QQ 静态桥 javadoc 止） ----
+# ---- LoginManager：红果静态桥整段删（loginHongguo 起、requestLogin javadoc 止） ----
+# 结束锚点原是 QQ 静态口的 javadoc，但编排上 strip-friend-seed 先行、已把 QQ 静态口
+# 整段删净，该锚点在朋友版检出里命中 0 处（1.4.60 朋友版首编实证）；现改锚到紧随
+# 红果静态口之后的 requestLogin javadoc——删到它的 /** 之前为止，并断言删除段内
+# 只含红果静态口、不含别家标识与 requestLogin 本体。
 i = find_line(lines, "弹红果官方形态登录页（异步）", "loginHongguo 静态桥 javadoc")
-j = find_line(lines, "QQ 是否已登录（托管 Cookie 含账号标识＋音乐钥匙）", "QQ 静态桥 javadoc")
-if not (i < j and lines[i].strip().startswith("/**") and lines[j].strip().startswith("/**")):
+j = find_line(lines, "     * 通用：按提供方 id 请壳子弹统一登录框", "requestLogin javadoc")
+if not (i < j - 1 and lines[i].strip().startswith("/**") and lines[j - 1].strip() == "/**"):
     sys.exit("python: 红果静态桥段落形状对不上")
-lines = lines[:i] + lines[j:]
+seg = "\n".join(lines[i:j - 1])
+if "requestLogin" in seg or "login115" in seg or "loginGoogle" in seg or "loginKuaishou" in seg:
+    sys.exit("python: 红果静态桥删除段越界（段内含别家标识）")
+lines = lines[:i] + lines[j - 1:]
 lm = "\n".join(lines)
 save(lm_path, lm)
 
@@ -426,7 +433,8 @@ done
 grep -qF "register(new Qr115Provider());" "$LM" || fail "剥完后 115 提供方注册不见了"
 grep -qF "register(new KuaishouLoginProvider());" "$LM" || fail "剥完后快手提供方注册不见了"
 grep -qF "register(new GoogleLoginProvider());" "$LM" || fail "剥完后谷歌提供方注册不见了"
-grep -qF "register(new QQLoginProvider());" "$LM" || fail "剥完后 QQ 提供方注册不见了"
+# 注：QQ 提供方注册不在此断言——朋友版自 2026-10-26 起由先行的 strip-friend-seed
+# 剥 QQ 音乐登录（其注册行已删是预期形态，完整性由 friend-seed 自己的复查负责）。
 grep -qF "public static boolean requestLogin(String providerId)" "$LM" || fail "剥完后 requestLogin 通用分发不见了"
 grep -qF "public static String getCookie(String providerId)" "$LM" || fail "剥完后 getCookie 通用口不见了"
 grep -qF "process.add(new Proxy());" "$NANO" || fail "剥完后 Nano 的 Proxy process 不见了"

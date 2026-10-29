@@ -2669,8 +2669,8 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
                         String rJson = argStr(args[2]);
                         if (rJson != null && !rJson.isEmpty() && !"undefined".equals(rJson)) {
                             adRules = new com.google.gson.Gson().fromJson(rJson,
-                                    new com.google.gson.reflect.TypeToken<java.util.List<HkM3u8ClearAdRule>>() {
-                                    }.getType());
+                                    com.google.gson.reflect.TypeToken.getParameterized(
+                                            java.util.List.class, HkM3u8ClearAdRule.class).getType());
                         }
                     } catch (Throwable ignored) {
                     }

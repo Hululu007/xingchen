@@ -96,8 +96,7 @@ public final class HkBrowserProxy {
                 String json = readUtf8(file);
                 if (!TextUtils.isEmpty(json)) {
                     List<HkBrowserProxyRule> parsed = GSON.fromJson(json,
-                            new TypeToken<List<HkBrowserProxyRule>>() {
-                            }.getType());
+                            TypeToken.getParameterized(List.class, HkBrowserProxyRule.class).getType());
                     if (parsed != null) loaded = parsed;
                 }
             }

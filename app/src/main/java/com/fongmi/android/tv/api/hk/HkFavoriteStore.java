@@ -35,8 +35,8 @@ public class HkFavoriteStore {
         try {
             String json = prefs().getString(KEY_RECORDS, "");
             if (TextUtils.isEmpty(json)) return new ArrayList<>();
-            List<HkFavorite> list = new Gson().fromJson(json, new TypeToken<List<HkFavorite>>() {
-            }.getType());
+            List<HkFavorite> list = new Gson().fromJson(json,
+                    TypeToken.getParameterized(List.class, HkFavorite.class).getType());
             return list == null ? new ArrayList<>() : list;
         } catch (Throwable ignored) {
             return new ArrayList<>();

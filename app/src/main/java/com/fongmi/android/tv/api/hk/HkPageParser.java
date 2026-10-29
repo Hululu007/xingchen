@@ -211,8 +211,8 @@ public class HkPageParser {
             return list;
         }
         try {
-            List<HkPage> parsed = GSON.fromJson(rule.getPages(), new TypeToken<List<HkPage>>() {
-            }.getType());
+            List<HkPage> parsed = GSON.fromJson(rule.getPages(),
+                    TypeToken.getParameterized(List.class, HkPage.class).getType());
             if (parsed != null) {
                 list.addAll(parsed);
             }

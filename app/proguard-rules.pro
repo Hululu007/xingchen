@@ -167,6 +167,13 @@
 -keep class com.fongmi.android.tv.api.hk.HkViewCollection { *; }
 -keep class com.fongmi.android.tv.api.hk.HkSubscribeRecord { *; }
 -keep class com.fongmi.android.tv.api.hk.HkPlayData { *; }
+# 页面缓存模型（2026-10-29 1.4.60 崩定根，账 hk-list-cast-crash-20261029）：HkItem 与
+# PageCache 此前不在保名名单，成品字段改名＋data 的 Signature 被剥，saveCache 写盘键
+# 漂移成混淆名、getCache 反射读出 LinkedTreeMap 元素、retype 按源码键查树落空，
+# bindArrayToView 强转崩。字段已另以 @SerializedName 钉死、getCache 已改树读定型，
+# 此处保名作双保险（与 HkRule 同口径：Gson 按字段名序列化，字段名不能改）。
+-keep class com.fongmi.android.tv.api.hk.HkItem { *; }
+-keep class com.fongmi.android.tv.ui.hk.HkAutoCacheUtil$PageCache { *; }
 
 # 实验室自启触发（同族第 3 步口径）：App 在 main 源集按类名 Class.forName
 # 调 LabBoot.kick（main 不能直引 mobile 源集的实验室类），此前漏了保名——

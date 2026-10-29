@@ -144,8 +144,7 @@ public class HkM3u8ClearUtil {
                 rules.clear();
             } else {
                 List<HkM3u8ClearAdRule> list = GSON.fromJson(json,
-                        new TypeToken<List<HkM3u8ClearAdRule>>() {
-                        }.getType());
+                        TypeToken.getParameterized(List.class, HkM3u8ClearAdRule.class).getType());
                 rules = list != null ? list : new ArrayList<HkM3u8ClearAdRule>();
             }
             persistAsync();
@@ -171,8 +170,7 @@ public class HkM3u8ClearUtil {
                     String json = readFile(f);
                     if (!TextUtils.isEmpty(json)) {
                         List<HkM3u8ClearAdRule> list = GSON.fromJson(json,
-                                new TypeToken<List<HkM3u8ClearAdRule>>() {
-                                }.getType());
+                                TypeToken.getParameterized(List.class, HkM3u8ClearAdRule.class).getType());
                         if (list != null) rules = list;
                     }
                 }

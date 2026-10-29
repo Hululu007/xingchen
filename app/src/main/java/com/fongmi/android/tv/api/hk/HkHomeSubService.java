@@ -22,7 +22,7 @@ public class HkHomeSubService {
     private static final String PREFS = "hk_home_sub";
     private static final String KEY_SUB_RECORDS = "sub_records";
     private static final Gson GSON = new Gson();
-    private static final Type LIST_TYPE = new TypeToken<List<HkSubscribeRecord>>() {}.getType();
+    private static final Type LIST_TYPE = TypeToken.getParameterized(List.class, HkSubscribeRecord.class).getType();
 
     private static Context appContext;
 

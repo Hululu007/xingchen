@@ -29,9 +29,15 @@ import java.util.List;
  */
 public class HkAutoCacheUtil {
 
-    /** 对应原版 PageCache。 */
+    /**
+     * 对应原版 PageCache。字段名由 @SerializedName 钉死：本类不在 proguard
+     * 保名名单内，R8 改名后 Gson 写盘键会漂移成混淆名（1.4.60 成品实证
+     * data→a、code→b），读回与写盘对不上账的一切按此钉死。
+     */
     public static class PageCache {
+        @com.google.gson.annotations.SerializedName("data")
         private List<HkItem> data;
+        @com.google.gson.annotations.SerializedName("code")
         private String code;
 
         public PageCache() {
@@ -62,7 +68,7 @@ public class HkAutoCacheUtil {
     }
 
     private static final Gson GSON = new Gson();
-    private static final Type ITEM_LIST_TYPE = new TypeToken<List<HkItem>>() {}.getType();
+    private static final Type ITEM_LIST_TYPE = TypeToken.getParameterized(List.class, HkItem.class).getType();
     /** clearCache 的过期线：原版常量 0x4d3f6400 毫秒 = 15 天。 */
     private static final long EXPIRE_MS = 1_296_000_000L;
     /** clearCache 的文件数上限：原版常量 0xc8 = 200，超出只留修改时间最新的 200 个。 */
@@ -97,7 +103,16 @@ public class HkAutoCacheUtil {
 
     /**
      * 对应原版 getCache：md5 为空或读/解析失败一律回空 PageCache；
-     * 文件内容是 JSON 数组（旧格式）时只取 data、code 留空；是对象时整包解析。
+     * 文件内容是 JSON 数组（旧格式）时只取 data、code 留空；是对象时按树读。
+     *
+     * 对象形态不用反射整包读 PageCache（2026-10-29 1.4.60 真机崩定根，
+     * 账 hk-list-cast-crash-20261029）：PageCache 与 HkItem 都不在保名名单，
+     * 成品里字段被改名且 data 的 Signature 被剥——反射读出 LinkedTreeMap
+     * 元素，而旧 retypeData 按源码键 "data" 查树，在成品文件里键已是混淆名
+     * "a"、查空即静默跳过，毒元素直达 bindArrayToView 强转崩。现行读法：
+     * 先解树，data 只许经 ITEM_LIST_TYPE 定型读入，定型失败整包回空
+     * （按缓存未命中处理），反射结果永不外放。旧混淆键文件（键为 a/b）
+     * 查不到 "data" 即按未命中回空，下次 saveCache 以钉名格式重写。
      */
     public static PageCache getCache(Context context, String md5) {
         PageCache empty = new PageCache();
@@ -113,29 +128,21 @@ public class HkAutoCacheUtil {
                 if (list != null) cache.setData(list);
                 return cache;
             }
-            PageCache cache = GSON.fromJson(text, PageCache.class);
-            if (cache != null) retypeData(cache, text);
-            return cache != null ? cache : empty;
+            com.google.gson.JsonElement tree = GSON.fromJson(text, com.google.gson.JsonElement.class);
+            if (tree == null || !tree.isJsonObject()) return empty;
+            com.google.gson.JsonObject obj = tree.getAsJsonObject();
+            PageCache cache = new PageCache();
+            com.google.gson.JsonElement code = obj.get("code");
+            if (code != null && code.isJsonPrimitive()) cache.setCode(code.getAsString());
+            com.google.gson.JsonElement data = obj.get("data");
+            if (data == null || data.isJsonNull()) return cache;
+            if (!data.isJsonArray()) return empty;
+            List<HkItem> typed = GSON.fromJson(data, ITEM_LIST_TYPE);
+            if (typed == null) return empty;
+            cache.setData(typed);
+            return cache;
         } catch (Exception e) {
             return empty;
-        }
-    }
-
-    /**
-     * 定型修复（体检类2）：对象形态整包读 PageCache 时 data 是 List&lt;HkItem&gt;，反射读靠
-     * 类文件 Signature 保型（PageCache 不在任何 keep 名单内），签名失效时元素退化成
-     * LinkedTreeMap、getData() 下游按 HkItem 消费即崩。这里用与数组形态同一份
-     * ITEM_LIST_TYPE 按树重读 data 覆盖；修复自守、读失败保持反射结果不动。
-     */
-    private static void retypeData(PageCache cache, String text) {
-        try {
-            com.google.gson.JsonElement tree = GSON.fromJson(text, com.google.gson.JsonElement.class);
-            if (tree == null || !tree.isJsonObject()) return;
-            com.google.gson.JsonElement data = tree.getAsJsonObject().get("data");
-            if (data == null || !data.isJsonArray()) return;
-            List<HkItem> typed = GSON.fromJson(data, ITEM_LIST_TYPE);
-            if (typed != null) cache.setData(typed);
-        } catch (Exception ignored) {
         }
     }
 

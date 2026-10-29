@@ -1,38 +1,58 @@
 package com.fongmi.android.tv.api.hk;
 
+import com.google.gson.annotations.SerializedName;
+
 /**
  * 海阔规则解析出的一条列表/搜索结果。
  * 对应设计文档 §5 HkItem。
+ *
+ * 字段名由 @SerializedName 钉死：本类不在 proguard 保名名单内，R8 会改字段名，
+ * Gson 反射读写若按改后名对键，落盘 JSON 的键随混淆漂移、跨版本互不相认
+ * （2026-10-29 1.4.60 真机崩定根，账 hk-list-cast-crash-20261029）。
  */
 public class HkItem {
 
+    @SerializedName("title")
     private String title;
+    @SerializedName("url")
     private String url;
+    @SerializedName("pic")
     private String pic;
+    @SerializedName("desc")
     private String desc;
     /** 海阔 col_type（movie_3/pic_1_full/input 等，deleteItemByCls/updateItem 用）。 */
+    @SerializedName("colType")
     private String colType = "";
     /**
      * 条目 extra：8.83 JSEngine.convertToArticleList 语义——存原始 JSON 串（String 原样/
      * 非字符串 JSON.toJSONString），数字等保持 JSON 原始类型，不逐值转字符串。
      * （updateItem/deleteItem/findItemsByCls 用）
      */
+    @SerializedName("extra")
     private String extra = "";
     /** 8.83 ArticleList.sel：选中态（text_1 等行标题变色用）。 */
+    @SerializedName("sel")
     private boolean sel;
     /** 搜索多内容字段（官方 content）。 */
+    @SerializedName("content")
     private String content = "";
     /** 明细线路名（官方 line，详情页按 line 分组用；列表里一般为空）。 */
+    @SerializedName("line")
     private String line = "";
     /** 8.83 DetailPage.findRule：条目级 find_rule（覆盖规则级）。 */
+    @SerializedName("findRule")
     private String findRule = "";
     /** 8.83 DetailPage.group：条目分组。 */
+    @SerializedName("group")
     private String group = "";
     /** 8.83 DetailPage.pages：条目分页标记。 */
+    @SerializedName("pages")
     private String pages = "";
     /** 8.83 DetailPage.preRule：条目级 preRule。 */
+    @SerializedName("preRule")
     private String preRule = "";
     /** 8.83 DetailPage.rule：条目携带的规则串。 */
+    @SerializedName("rule")
     private String rule = "";
 
     public HkItem() {

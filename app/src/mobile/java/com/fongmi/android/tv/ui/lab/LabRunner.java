@@ -5,6 +5,7 @@ import android.text.TextUtils;
 
 import com.fongmi.android.tv.clash.ClashSettings;
 import com.fongmi.android.tv.clash.MihomoManager;
+import com.fongmi.android.tv.server.Server;
 import com.github.catvod.Proxy;
 
 import java.io.BufferedReader;
@@ -85,6 +86,37 @@ public final class LabRunner {
     public static int portOf(Context c, String pkgId) {
         LabRegistry.Svc p = LabRegistry.get(c).svc(pkgId);
         return p == null ? 0 : p.port;
+    }
+
+    /** 宿主 Nano 服务口兜底值（原件 LabConfig.serverPort 同值：拉起后仍无口时用它） */
+    static final int HOST_PORT_FALLBACK = 9978;
+
+    /**
+     * 宿主口安全取值（原件 LabConfig.serverPort 三件口径）：Proxy 还没起时
+     * getPort() 是 -1——冷启时 App 先反射 kick LabBoot（新线程立即 boot→start→
+     * 本类 expand），Server.get().start() 在 App 里排在其后 1200ms 的后台服务
+     * 批次里，自启展开直取必然拿到 -1，命令里的 LAB_HOST_PORT=-1 让 bundle 的
+     * /msg 回调永远连不上。故 ≤0 时先把 Server 拉起来再取一次（start 是
+     * synchronized 且已在跑时空转，重复调无副作用），仍无口兜底 9978
+     * （Server 自己的首选口），绝不把 -1 展开进命令。expand 的全部调用点都在
+     * 启动链上（start/startCommand 的命令与依赖展开、runShell 前的 applyEnv），
+     * 没有离线纯展开场景，在这里拉起不算乱启动。
+     */
+    static int hostPort() {
+        return resolveHostPort(Proxy.getPort(), () -> {
+            try {
+                Server.get().start();
+            } catch (Throwable ignored) {
+            }
+            return Proxy.getPort();
+        });
+    }
+
+    /** hostPort 的纯逻辑核（便于单测）：已有口直接用；≤0 时问一次拉起后的口，仍 ≤0 兜底 */
+    static int resolveHostPort(int currentPort, java.util.function.IntSupplier afterEnsure) {
+        if (currentPort > 0) return currentPort;
+        int p = afterEnsure.getAsInt();
+        return p > 0 ? p : HOST_PORT_FALLBACK;
     }
 
     // ---------------- 按命令起停（上游 LabCommandSheet 口径） ----------------
@@ -468,11 +500,12 @@ public final class LabRunner {
      * 命令展开（上游 LabRunner.expand 口径的精简版）：
      * 1) {var} 变量替换（vars 优先，包设置值已在调用方合并进来），支持嵌套（最多 5 层），
      *    ${...} 跳过不碰；没值的占位原样保留（缺失变量由调用方先弹变量表补齐）。
-     * 2) 特殊占位：{serverPort}＝壳子文件服务口（默影视语义，与 {hostPort} 同值，
-     *    即 Proxy.getPort()；此前误换成本次分配口，默影视包里靠它下 EnvFiles 的
-     *    地址永远连不上）；{hostPort}＝宿主 Nano 服务口
-     *    （Proxy.getPort()，与点播链 NodeBoot 给 bundle 的 catDartServerPort
-     *    同一个值；服务没起来时为 -1，与 NodeBoot 直传同口径）；
+     * 2) 特殊占位：{serverPort}＝壳子文件服务口（默影视语义，与 {hostPort} 同值；
+     *    此前误换成本次分配口，默影视包里靠它下 EnvFiles 的地址永远连不上）；
+     *    {hostPort}＝宿主 Nano 服务口（与点播链 NodeBoot 给 bundle 的
+     *    catDartServerPort 同一个值）。两件都经 hostPort() 安全取值：服务没
+     *    起来时先拉起、仍无兜底 9978，不再把 -1 展开进命令（原件
+     *    LabConfig.serverPort 口径）；
      *    {tvPath}{dataPath}{cachePath}
      *    {envRootPath}{wwwroot}{sdcard}；旧 {port}{pkgDir}{filesDir} 照旧。
      */
@@ -482,9 +515,10 @@ public final class LabRunner {
         String out = expandVars(command, vars, 0);
         File pkgDir = LabPaths.packageDir(c, pkgId);
         File labRoot = LabPaths.root(c);
+        String host = String.valueOf(hostPort());
         return out
-                .replace("{serverPort}", String.valueOf(Proxy.getPort()))
-                .replace("{hostPort}", String.valueOf(Proxy.getPort()))
+                .replace("{serverPort}", host)
+                .replace("{hostPort}", host)
                 .replace("{tvPath}", new File(c.getFilesDir(), "TV").getAbsolutePath())
                 .replace("{dataPath}", new File(pkgDir, "data").getAbsolutePath())
                 .replace("{cachePath}", c.getCacheDir().getAbsolutePath())

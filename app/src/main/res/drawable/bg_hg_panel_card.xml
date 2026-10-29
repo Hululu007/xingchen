@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 面板内分组白卡（官方 aii @drawable/sp：圆角 8dp、纯白 #FFFFFFFF，压在 #FAFAFA 单底上分层）。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <corners android:radius="8dp" />
+    <solid android:color="#FFFFFFFF" />
+</shape>

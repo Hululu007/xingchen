@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 面板行首字形徽标底（官方实拍：清晰度「HD」、弹幕「弹」都是圆角方框线徽标，
+     框线深色 1.5dp、圆角 5dp，字在框内——不是裸字形凑图标）。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <corners android:radius="5dp" />
+    <solid android:color="@android:color/transparent" />
+    <stroke android:width="1.5dp" android:color="#FF111111" />
+</shape>

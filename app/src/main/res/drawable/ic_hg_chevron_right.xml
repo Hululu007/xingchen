@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 面板行尾真箭头（替代字形「›」）：细线折线，色取官方行尾箭头灰阶 #FFBBBBBB。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="16dp" android:height="16dp" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="@android:color/transparent" android:pathData="M9,5 L16,12 L9,19"
+        android:strokeWidth="2" android:strokeColor="#FFBBBBBB" android:strokeLineCap="round" android:strokeLineJoin="round" />
+</vector>

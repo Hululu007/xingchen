@@ -1,10 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 定时关闭子选（官方 ScheduledStopPlayOptionType 四档：关闭/播完本剧/
-     30分钟/自定义）：前三档整行点选即定，自定义行内输分钟点「设定」。 -->
+     30分钟/自定义）：前三档整行点选即定，自定义行内输分钟点「设定」。
+     质感：单底照更多面板 #FFFAFAFA 顶圆角 16（bg_hg_panel_sheet）；
+     选中标记原字形「✓」换真图标 ic_hg_check_on（橙圆白勾）。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="@drawable/bg_hg_ep_sheet"
+    android:background="@drawable/bg_hg_panel_sheet"
     android:orientation="vertical"
     android:paddingBottom="18dp">
 
@@ -43,14 +45,12 @@
             android:textColor="#FF111111"
             android:textSize="15sp" />
 
-        <TextView
+        <ImageView
             android:id="@+id/hg_timer_off_check"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="✓"
-            android:textColor="#FFFA7705"
-            android:textSize="16sp"
-            android:textStyle="bold"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:contentDescription="@null"
+            android:src="@drawable/ic_hg_check_on"
             android:visibility="gone" />
     </LinearLayout>
 
@@ -71,14 +71,12 @@
             android:textColor="#FF111111"
             android:textSize="15sp" />
 
-        <TextView
+        <ImageView
             android:id="@+id/hg_timer_series_check"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="✓"
-            android:textColor="#FFFA7705"
-            android:textSize="16sp"
-            android:textStyle="bold"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:contentDescription="@null"
+            android:src="@drawable/ic_hg_check_on"
             android:visibility="gone" />
     </LinearLayout>
 
@@ -99,14 +97,12 @@
             android:textColor="#FF111111"
             android:textSize="15sp" />
 
-        <TextView
+        <ImageView
             android:id="@+id/hg_timer_fixed_check"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="✓"
-            android:textColor="#FFFA7705"
-            android:textSize="16sp"
-            android:textStyle="bold"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:contentDescription="@null"
+            android:src="@drawable/ic_hg_check_on"
             android:visibility="gone" />
     </LinearLayout>
 

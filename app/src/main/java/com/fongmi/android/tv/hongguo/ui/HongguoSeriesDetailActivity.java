@@ -88,6 +88,8 @@ public class HongguoSeriesDetailActivity extends BaseActivity {
     private boolean fav;
     private boolean favBusy;
     private boolean descExpanded;
+    private boolean descExpandable;
+    private String fullDesc = "";
     private int segment;
     // 参与评分：本人已评（十分制，-1 未评）、本人评论 id（改分用）、
     // 当前点选的待提交分（0 未选）、门槛秒（回包 extra）、提交在途旗
@@ -130,10 +132,10 @@ public class HongguoSeriesDetailActivity extends BaseActivity {
                         binding.hgSdTitle.getText().toString(),
                         detail != null ? detail.getCoverUrl() : cover));
         binding.hgSdFav.setOnClickListener(v -> toggleFav());
-        binding.hgSdExpand.setOnClickListener(v -> {
+        binding.hgSdDesc.setOnClickListener(v -> {
+            if (!descExpandable && !descExpanded) return;
             descExpanded = !descExpanded;
-            binding.hgSdDesc.setMaxLines(descExpanded ? Integer.MAX_VALUE : 3);
-            binding.hgSdExpand.setText(descExpanded ? "收起" : "展开");
+            paintDesc();
         });
         // 评分卡五星逐颗建（点按分颗接）：整星，点第 i 颗＝(i+1)×2 十分制
         for (int i = 0; i < starViews.length; i++) {
@@ -213,15 +215,15 @@ public class HongguoSeriesDetailActivity extends BaseActivity {
             subline = sb.toString();
         }
         binding.hgSdSubline.setText(subline);
-        // 标签筹
+        // 标签筹（官方 113563：白透底、与「简介」标同行）
         binding.hgSdTags.removeAllViews();
         for (String tagName : d.getTags()) {
             TextView chip = new TextView(this);
             chip.setText(tagName);
-            chip.setTextSize(11);
+            chip.setTextSize(12);
             chip.setTextColor(0xE6FFFFFF);
             chip.setPadding(dp(8), dp(3), dp(8), dp(3));
-            chip.setBackgroundResource(com.fongmi.android.tv.R.drawable.bg_hg_chip);
+            chip.setBackgroundResource(com.fongmi.android.tv.R.drawable.bg_hg_detail_chip);
             android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(
                     android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
                     android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -230,10 +232,10 @@ public class HongguoSeriesDetailActivity extends BaseActivity {
             binding.hgSdTags.addView(chip);
         }
         binding.hgSdTags.setVisibility(d.getTags().isEmpty() ? View.GONE : View.VISIBLE);
-        // 简介
-        String desc = d.getDesc();
-        binding.hgSdDesc.setText(desc == null ? "" : desc);
-        binding.hgSdExpand.setVisibility(desc != null && desc.length() > 80 ? View.VISIBLE : View.GONE);
+        // 简介（展开/收起在正文行尾内嵌，官方 113563 同款）
+        fullDesc = d.getDesc() == null ? "" : d.getDesc();
+        descExpanded = false;
+        paintDesc();
         // 剧集状态行
         Integer status = d.getSeriesStatus();
         int count = d.getEpisodeCount() > 0 ? d.getEpisodeCount() : d.getEpisodes().size();
@@ -246,6 +248,47 @@ public class HongguoSeriesDetailActivity extends BaseActivity {
         // 收藏态以服务端为准
         fav = d.isFollowed();
         paintFav();
+    }
+
+    /**
+     * 简介正文：收起态最多 3 行，被截断时把第 3 行行尾截出位置内嵌蓝色
+     * 「展开」（官方 113563 是行尾同行，不是另起一行）；展开态全文尾随
+     * 蓝色「收起」。点正文切换（descExpandable/descExpanded 守卫）。
+     */
+    private void paintDesc() {
+        TextView view = binding.hgSdDesc;
+        String desc = fullDesc;
+        if (descExpanded) {
+            view.setMaxLines(Integer.MAX_VALUE);
+            android.text.SpannableString ss = new android.text.SpannableString(desc + "  收起");
+            ss.setSpan(new android.text.style.ForegroundColorSpan(0xFF6FB3FF),
+                    desc.length() + 2, ss.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            view.setText(ss);
+            return;
+        }
+        view.setMaxLines(3);
+        view.setText(desc);
+        descExpandable = false;
+        view.post(() -> {
+            if (descExpanded || !desc.equals(fullDesc)) return;
+            android.text.Layout layout = view.getLayout();
+            if (layout == null || layout.getLineCount() < 3) return;
+            int lineStart = layout.getLineStart(2);
+            int lineEnd = layout.getLineEnd(2);
+            if (layout.getEllipsisCount(2) <= 0 && lineEnd >= desc.length()) return;
+            String suffix = "… 展开";
+            float avail = view.getWidth() - view.getPaddingStart() - view.getPaddingEnd()
+                    - view.getPaint().measureText(suffix);
+            String line3 = desc.substring(lineStart, Math.min(lineEnd, desc.length()));
+            int fit = view.getPaint().breakText(line3, true, Math.max(avail, 0), null);
+            if (fit <= 0) return;
+            String head = desc.substring(0, lineStart + fit);
+            android.text.SpannableString ss = new android.text.SpannableString(head + suffix);
+            ss.setSpan(new android.text.style.ForegroundColorSpan(0xFF6FB3FF),
+                    head.length() + 2, ss.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            view.setText(ss);
+            descExpandable = true;
+        });
     }
 
     /**

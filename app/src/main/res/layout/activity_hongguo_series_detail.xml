@@ -46,8 +46,8 @@
                 <ImageView
                     android:id="@+id/hg_sd_cover"
                     android:layout_width="84dp"
-                    android:layout_height="112dp"
-                    android:background="@drawable/bg_hg_cover_r6"
+                    android:layout_height="124dp"
+                    android:background="@drawable/bg_hg_detail_cover"
                     android:clipToOutline="true"
                     android:contentDescription="@null"
                     android:scaleType="centerCrop" />
@@ -74,48 +74,46 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
-                        android:textColor="#BFFFFFFF"
-                        android:textSize="13sp" />
+                        android:textColor="#CCFFFFFF"
+                        android:textSize="14sp" />
                 </LinearLayout>
             </LinearLayout>
 
-            <!-- 简介 -->
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="22dp"
-                android:text="简介"
-                android:textColor="#FFFFFFFF"
-                android:textSize="15sp"
-                android:textStyle="bold" />
-
+            <!-- 简介：官方 113563 是「标＋标签筹」同一行；展开收在正文行尾内嵌 -->
             <LinearLayout
-                android:id="@+id/hg_sd_tags"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:orientation="horizontal" />
+                android:layout_marginTop="24dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="简介"
+                    android:textColor="#FFFFFFFF"
+                    android:textSize="17sp"
+                    android:textStyle="bold" />
+
+                <LinearLayout
+                    android:id="@+id/hg_sd_tags"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp"
+                    android:layout_weight="1"
+                    android:orientation="horizontal" />
+            </LinearLayout>
 
             <TextView
                 android:id="@+id/hg_sd_desc"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
+                android:layout_marginTop="10dp"
                 android:ellipsize="end"
-                android:lineSpacingExtra="4dp"
+                android:lineSpacingExtra="6dp"
                 android:maxLines="3"
                 android:textColor="#D9FFFFFF"
-                android:textSize="14sp" />
-
-            <TextView
-                android:id="@+id/hg_sd_expand"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text="展开"
-                android:textColor="#FF6FB3FF"
-                android:textSize="13sp"
-                android:visibility="gone" />
+                android:textSize="15sp" />
 
             <!-- 剧集 -->
             <LinearLayout

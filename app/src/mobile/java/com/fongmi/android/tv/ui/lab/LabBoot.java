@@ -41,6 +41,11 @@ public final class LabBoot {
      * 门槛：包标记为自启＋环境已装＋没在跑，失败经 LabRunner 落运行记录。
      */
     public static void kick(Context ctx) {
+        // NodeLabInfo 登记走显式直调挂在本链上（同步段，先于任何页面查询）：
+        // 1.4.59 成品实证只靠 LabNodeInfo 静态块自登记会被 R8 吃掉 clinit，
+        // 登记永不触发、模块页 NODEJS 行恒显未装。register 幂等、开销只是一个
+        // Provider 实例，boot 漏斗里再兜一遍（schedule 单腿路径也覆盖）。
+        LabNodeInfo.register();
         final Context c = ctx.getApplicationContext();
         new Thread(() -> {
             try {
@@ -51,6 +56,7 @@ public final class LabBoot {
     }
 
     private static void boot(Context c) {
+        LabNodeInfo.register();
         // 先恢复进程状态（死了的自动从注册表里清掉）
         LabProc.recoveredAliveKeys(c);
         LabRegistry reg = LabRegistry.get(c);

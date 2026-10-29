@@ -5,9 +5,14 @@ import androidx.annotation.Nullable;
 /**
  * 实验室 Node 环境信息登记口（模块页 NODEJS 行的版本显示用，桥接设计
  * 映射表 15）：实验室在 mobile 源集，主源集不能直引 ui.lab 类（leanback
- * 变体没有实验室），照第 1/3 步登记口先例——mobile 侧实现类靠类名触发
- * 加载并在静态块自登记（proguard 单独 keep 该类名）。未登记（leanback／
- * 实验室不在）一律按没装处理，任何路径不许把没装吞成可用假装已装。
+ * 变体没有实验室）。登记主路由是 mobile 侧的显式直调——LabBoot 在自启
+ * 链上（App.onCreate 反射 kick 的同步段＋boot 漏斗）直接调
+ * LabNodeInfo.register() 把 Provider 递进来，真实代码引用保活；本类的
+ * Class.forName＋实现类静态块只留作兜底触发。口径变更缘由：1.4.59 成品
+ * 解包实证，旧路由只靠反射触发类加载、指望 {@code <clinit>} 自登记，
+ * LabNodeInfo 类名虽被 keep 保住、clinit 却被 R8 吃掉，登记永不触发、
+ * 模块页恒显未装。未登记（leanback／实验室不在）一律按没装处理，
+ * 任何路径不许把没装吞成可用假装已装。
  */
 public final class NodeLabInfo {
 

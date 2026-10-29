@@ -193,9 +193,12 @@
 -keep class com.fongmi.android.tv.ui.lab.LabManifest$LabDownload { *; }
 -keep class com.fongmi.android.tv.ui.lab.LabManifest$LabOutput { *; }
 
-# Node 桥版本登记口（第 4 步接线）：NodeLabInfo 在 main 源集按类名
-# Class.forName 触发 LabNodeInfo 加载自登记（同第 3 步口径），类名被
-# R8 改名会让模块页 NODEJS 行的版本登记静默失效、误报没装。整类保名。
+# Node 桥版本登记口（第 4 步接线）：登记主路由已改为 LabBoot 自启链
+# 直调 LabNodeInfo.register()（真实引用保活），Class.forName 触发静态块
+# 自登记只留兜底。1.4.59 成品实证教训：本 keep 只保住了类名、<clinit>
+# 仍被 R8 吃掉（成品里只剩私有构造器），登记永不触发、模块页恒显未装
+# ——keep 类名不等于保住 clinit 的副作用，登记类一律要有直调兜底。
+# 本行保留作双保险（类名供 Class.forName 兜底与问题定位）。
 -keep class com.fongmi.android.tv.ui.lab.LabNodeInfo { *; }
 
 # AI 语音/问答反射口（全应用扫描 O8，与 LabBoot 同型）：AiActionExecutor /

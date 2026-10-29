@@ -1,6 +1,4 @@
 package com.fongmi.android.tv.ui.dialog;
-import com.fongmi.android.tv.utils.ToastUtil;
-
 import android.view.View;
 import android.widget.CheckBox;
 
@@ -13,8 +11,6 @@ import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.databinding.DialogSearchSourceBinding;
 import com.fongmi.android.tv.ui.adapter.CheckableAdapter;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
-
-import android.widget.Toast;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -173,11 +169,12 @@ public class SearchSourceDialog extends BaseAlertDialog {
                 effective = true;
             }
         }
-        // JS scripts: 搜索链未接 JS，勾选只记录（供重开恢复显示），不产生过滤效力；
-        // 只勾 JS 时不能把 hasSelection 置真，否则消费方按空集过滤会把搜索结果清成空
-        if (jsAdapter != null && !jsAdapter.getSelected().isEmpty()) {
-            for (String name : jsAdapter.getSelected()) selectedKeys.add("js_" + name);
-            ToastUtil.show(requireContext(), "JS 暂未支持", Toast.LENGTH_SHORT);
+        // JS scripts: build js_ keys （与 PY 同口径：勾选即生效，消费方按 key 合成 JS 站点参与搜索）
+        if (jsAdapter != null) {
+            for (String name : jsAdapter.getSelected()) {
+                selectedKeys.add("js_" + name);
+                effective = true;
+            }
         }
         hasSelection = effective;
         dismiss();

@@ -171,18 +171,13 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
         if (home != null && home.isSearchable()) {
             if (TextUtils.isEmpty(siteKey) || home.getKey().equals(siteKey)) {
                 if (selected == null || selected.contains(home.getKey())) {
-                    if (isJsSite(home)) {
-                        App.post(() -> ToastUtil.show(requireContext(), "JS 暂未支持", android.widget.Toast.LENGTH_SHORT));
-                    } else {
-                        mSites.add(home);
-                    }
+                    mSites.add(home);
                 }
             }
         }
         for (Site site : VodConfig.get().getSites()) {
             if (!site.isSearchable()) continue;
             if (!TextUtils.isEmpty(siteKey) && !site.getKey().equals(siteKey)) continue;
-            if (isJsSite(site)) continue;
             if (selected != null && !selected.contains(site.getKey())) continue;
             boolean exists = false;
             for (Site s : mSites) {
@@ -203,6 +198,16 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
                 Site pySite = createPySite(key.substring(3));
                 if (pySite != null && pySite.isSearchable()) mSites.add(pySite);
             }
+            for (String key : selected) {
+                if (!key.startsWith("js_")) continue;
+                boolean exists = false;
+                for (Site s : mSites) {
+                    if (s.getKey().equals(key)) { exists = true; break; }
+                }
+                if (exists) continue;
+                Site jsSite = createJsSite(key.substring(3));
+                if (jsSite != null && jsSite.isSearchable()) mSites.add(jsSite);
+            }
         } else {
             // No dialog selection: scan all PY scripts in plugins/py/ (align with VOD "search all" behavior)
             java.io.File pyDir = new java.io.File(requireContext().getFilesDir(), "plugins/py");
@@ -219,6 +224,23 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
                     if (exists) continue;
                     Site pySite = createPySite(baseName);
                     if (pySite != null && pySite.isSearchable()) mSites.add(pySite);
+                }
+            }
+            // Scan all JS scripts in plugins/js/ (same as PY above; .js and .wv)
+            java.io.File jsDir = new java.io.File(requireContext().getFilesDir(), "plugins/js");
+            java.io.File[] jsFiles = jsDir.listFiles((dir, name) -> name.endsWith(".js") || name.endsWith(".wv"));
+            if (jsFiles != null) {
+                for (java.io.File f : jsFiles) {
+                    String fileName = f.getName();
+                    String baseName = fileName.substring(0, fileName.length() - 3);
+                    String key = "js_" + baseName;
+                    boolean exists = false;
+                    for (Site s : mSites) {
+                        if (s.getKey().equals(key)) { exists = true; break; }
+                    }
+                    if (exists) continue;
+                    Site jsSite = createJsSite(baseName);
+                    if (jsSite != null && jsSite.isSearchable()) mSites.add(jsSite);
                 }
             }
         }
@@ -278,11 +300,27 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
         }
     }
 
-    private boolean isJsSite(Site site) {
-        if (site == null) return false;
-        String key = site.getKey();
-        String api = site.getApi();
-        return (key != null && key.startsWith("js_")) || (api != null && (api.endsWith(".js") || api.endsWith(".wv")));
+    private Site createJsSite(String baseName) {
+        try {
+            java.io.File file = new java.io.File(requireContext().getFilesDir(), "plugins/js/" + baseName + ".js");
+            if (!file.exists()) file = new java.io.File(requireContext().getFilesDir(), "plugins/js/" + baseName + ".wv");
+            if (!file.exists()) return null;
+            Site site = new Site();
+            site.setKey("js_" + baseName);
+            site.setName(baseName);
+            site.setApi(file.getAbsolutePath());
+            site.setType(3);
+            String extKey = "js_" + baseName;
+            String savedExt = com.fongmi.android.tv.utils.PyExtConfig.load(requireContext(), extKey);
+            site.setExt(savedExt == null || savedExt.isEmpty() ? "{}" : savedExt);
+            site.setJar("");
+            // Register in VodConfig so detail/playback can resolve this dynamic source via getSite()
+            // (same as createPySite).
+            VodConfig.get().registerDynamicSite(site);
+            return site;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private void setWidth() {
@@ -301,7 +339,7 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
 
     private void search() {
         if (mSites.isEmpty()) {
-            // 无源可搜必须可见，不许静默空白（深挖 F-03b：只勾 JS 等情形会走到这）
+            // 无源可搜必须可见，不许静默空白（深挖 F-03b）
             ToastUtil.show(requireContext(), "没有可搜索的源", android.widget.Toast.LENGTH_SHORT);
             return;
         }

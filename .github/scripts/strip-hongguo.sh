@@ -141,6 +141,7 @@ app/src/main/res/drawable/bg_hg_reserve_btn.xml
 app/src/main/res/drawable/bg_hg_reserve_btn_on.xml
 app/src/main/res/drawable/bg_hg_follow_pill.xml
 app/src/main/res/drawable/bg_hg_follow_pill_on.xml
+app/src/main/res/drawable/bg_hg_pill_glow.webp
 app/src/main/res/drawable/bg_hg_top_scrim.xml
 app/src/main/res/drawable/bg_hg_tag_chip.xml
 app/src/main/res/drawable/bg_hg_dialog_dark.xml
@@ -273,6 +274,7 @@ app/src/main/res/drawable/hg_switch_thumb.xml
 app/src/main/res/drawable/hg_switch_track.xml
 app/src/mobile/res/drawable/ic_nav_duanju_outline.xml
 app/src/mobile/res/drawable/ic_nav_duanju_filled.xml
+app/src/main/assets/hongguo/follow_update_entrance_v721.json
 "
 for f in $RES_FILES; do
   [ -f "$f" ] || fail "红果本体资源找不到：$f"

@@ -25,6 +25,9 @@ public final class HgStore {
     private static final String K_DM_SHOW_IN_CLEAN = "hongguo_dm_show_in_clean";
     private static final String K_DM_LINE_SPACE = "hongguo_dm_line_space";
     private static final String K_SPEED = "hongguo_speed";
+    /** 追更药丸入场动画一次性旗（官方 follow_update_info_panel_entrance_anim_shown_v721
+     * 同义：播过或已追过任一剧即置位、永不再播，见 HgPillEntrance）。 */
+    private static final String K_PILL_ENTRANCE_SHOWN = "hongguo_pill_entrance_anim_shown";
     private static final String K_LAUNCH_DIRECT = "hongguo_launch_direct";
     private static final String K_AUTO_NEXT = "hongguo_auto_next";
     private static final String K_LIKED = "hongguo_liked_series";
@@ -62,6 +65,16 @@ public final class HgStore {
 
     public static void setDanmakuOn(boolean on) {
         Prefers.put(K_DANMAKU_ON, on);
+    }
+
+    // ---------- 追更药丸入场动画（一次性） ----------
+
+    public static boolean pillEntranceAnimShown() {
+        return Prefers.getBoolean(K_PILL_ENTRANCE_SHOWN, false);
+    }
+
+    public static void markPillEntranceAnimShown() {
+        Prefers.put(K_PILL_ENTRANCE_SHOWN, true);
     }
 
     // ---------- 弹幕设置（红果自有口：面板「弹幕设置」单的四项落点） ----------

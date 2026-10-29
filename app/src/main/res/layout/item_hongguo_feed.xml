@@ -2,6 +2,7 @@
 <!-- 刷剧页单元：一集一页。布局求平：视频面挂载口＋封面＋右列＋底部信息＋本剧条＋细进度线。
      视频面（PlayerView）由 Activity 全局一份，settle 后移进当前页的 hg_surface_host。 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/hg_page_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -804,33 +805,63 @@
              全圆）、已追 bg_hg_follow_pill_on（透明白全圆）。
              显隐：整条的闸在适配器（集流+正剧型+有 series_id）；
              药丸自身再吃一条官方否定支——完结漫剧不显（见
-             HgFeedItem.dramaPillVisible），预约态恒显。 -->
-        <LinearLayout
+             HgFeedItem.dramaPillVisible），预约态恒显。
+             动画层（官方 cjw 同构）：光晕板 hg_drama_act_plate
+             （oy 同源图、fitXY 铺满、缺省藏）＋铃位 Lottie
+             hg_drama_act_anim（32×32 覆铃框、缺省藏），一次性
+             入场动画的触发/复位全在 HgPillEntrance。 -->
+        <FrameLayout
             android:id="@+id/hg_drama_act"
             android:layout_width="wrap_content"
             android:layout_height="32dp"
             android:layout_marginStart="10dp"
-            android:background="@drawable/bg_hg_follow_pill"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingStart="8dp"
-            android:paddingEnd="10dp">
+            android:background="@drawable/bg_hg_follow_pill">
 
             <ImageView
-                android:layout_width="16dp"
-                android:layout_height="16dp"
+                android:id="@+id/hg_drama_act_plate"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:alpha="0"
                 android:contentDescription="@null"
-                android:src="@drawable/ic_hg_bell" />
+                android:scaleType="fitXY"
+                android:src="@drawable/bg_hg_pill_glow"
+                android:visibility="gone" />
 
-            <TextView
-                android:id="@+id/hg_drama_act_text"
+            <LinearLayout
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="2dp"
-                android:text="追更"
-                android:textColor="#FFFFFF"
-                android:textSize="12sp" />
-        </LinearLayout>
+                android:layout_height="match_parent"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="8dp"
+                android:paddingEnd="10dp">
+
+                <ImageView
+                    android:id="@+id/hg_drama_bell"
+                    android:layout_width="16dp"
+                    android:layout_height="16dp"
+                    android:contentDescription="@null"
+                    android:src="@drawable/ic_hg_bell" />
+
+                <TextView
+                    android:id="@+id/hg_drama_act_text"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="2dp"
+                    android:text="追更"
+                    android:textColor="#FFFFFF"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+            <com.airbnb.lottie.LottieAnimationView
+                android:id="@+id/hg_drama_act_anim"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:layout_gravity="start|center_vertical"
+                android:visibility="gone"
+                app:lottie_autoPlay="false"
+                app:lottie_fileName="hongguo/follow_update_entrance_v721.json"
+                app:lottie_loop="false" />
+        </FrameLayout>
     </LinearLayout>
 
     <!-- 底部行：选集条＋全屏方钮。材料/几何按模式分工（适配器 bind 时切换，

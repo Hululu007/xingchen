@@ -548,6 +548,9 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
      */
     public void bindDramaBarState(Holder holder, HgFeedItem item) {
         ItemHongguoFeedBinding b = holder.binding;
+        // 动画层先复位：藏条/改绑/Holder 复用都不把上一条目的待发
+        // 或在播动画带过来（官方 p2→G2 同义，见 HgPillEntrance）
+        HgPillEntrance.reset(b.hgDramaAct, b.hgDramaActPlate, b.hgDramaBell, b.hgDramaActAnim);
         if (!seriesMode || landInstance || item.seriesId == null || item.seriesId.isEmpty()
                 || item.kind != HgItemKind.SERIES) {
             b.hgDramaBar.setVisibility(View.GONE);
@@ -575,6 +578,18 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
             // 独立件、条与药丸不是同生同灭
             b.hgDramaAct.setVisibility(HgFeedItem.dramaPillVisible(
                     item.contentType, item.seriesStatus) ? View.VISIBLE : View.GONE);
+            if (b.hgDramaAct.getVisibility() == View.VISIBLE) {
+                // 一次性入场动画（官方 FollowUpdateLottieView）：未追
+                // 药丸绑定后延迟排队；已追态渲染即销案——任一已追
+                // 药丸渲染过，引导永不再出（官方 q2(true)→K2）
+                if (acted) {
+                    HgPillEntrance.onFollowed(b.hgDramaAct, b.hgDramaActPlate,
+                            b.hgDramaBell, b.hgDramaActAnim);
+                } else {
+                    HgPillEntrance.onBound(b.hgDramaAct, b.hgDramaActPlate,
+                            b.hgDramaBell, b.hgDramaActAnim);
+                }
+            }
         }
         b.hgDramaSub.setText(sub);
         b.hgDramaSub.setVisibility(sub == null || sub.isEmpty() ? View.GONE : View.VISIBLE);
@@ -852,6 +867,8 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         // 走 host 既有登录门＋KIND 管道）；条身（封面/剧名区）＝进详情，
         // 与信息摞集流标题行同一去处
         b.hgDramaAct.setOnClickListener(v -> {
+            // 点下即状态将变：先停动画层，跟随态由随后的重绑落定
+            HgPillEntrance.reset(b.hgDramaAct, b.hgDramaActPlate, b.hgDramaBell, b.hgDramaActAnim);
             int pos = holder.getBindingAdapterPosition();
             if (pos < 0 || pos >= items.size()) return;
             host.onAction(pos, items.get(pos).reservable ? Action.RESERVE : Action.FOLLOW);

@@ -418,6 +418,12 @@
             android:configChanges="screenSize|smallestScreenSize|screenLayout"
             android:screenOrientation="fullUser" />
 
+        <activity
+            android:name="com.fongmi.android.tv.hongguo.ui.HongguoNovelDetailActivity"
+            android:theme="@style/Theme.XingChen.HkPage"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout"
+            android:screenOrientation="fullUser" />
+
         <!-- 实验室：独立包 ui.lab -->
         <activity
             android:name=".ui.lab.LabHomeActivity"

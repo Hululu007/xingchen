@@ -443,8 +443,8 @@ public class HongguoSearchActivity extends BaseActivity {
     /**
      * 综合签非剧行的分型绑卡（批三 C 卡 18）：三型都是整行卡（瀑布里
      * fullSpan）。落点——用户卡进作者页、帖卡进帖子页（料由回包自带组装、
-     * 与作者页帖子同一承接）；小说卡红果面无阅读链，只展示、点击给诚实
-     * 提示不假跳（承接差记账）。
+     * 与作者页帖子同一承接）；小说卡进小说详情页（2026-10-30 落点打通，
+     * 见 openNovel）。
      */
     private void bindTypedRow(RecyclerView.ViewHolder holder, HgSearchRow row) {
         if (holder.itemView.getLayoutParams()
@@ -500,9 +500,32 @@ public class HongguoSearchActivity extends BaseActivity {
             b.hgSbAbstract.setText(row.bookAbstract);
             b.hgSbAbstract.setVisibility(
                     row.bookAbstract.isEmpty() ? View.GONE : View.VISIBLE);
-            b.getRoot().setOnClickListener(v ->
-                    android.widget.Toast.makeText(HongguoSearchActivity.this,
-                            "红果里暂不能打开小说", android.widget.Toast.LENGTH_SHORT).show());
+            b.getRoot().setOnClickListener(v -> openNovel(row));
+        }
+    }
+
+    /**
+     * 小说卡落点（2026-10-30 打通）：进小说详情页 HongguoNovelDetailActivity
+     * （mobile 源集的红果页，主源集按类名字符串拉起——横屏实例 HongguoLandEntry
+     * 同法；详情页在红果包内、朋友版整套剥离）。类不在（剥离版/异味构建）时
+     * 才回落诚实提示，不假跳。
+     */
+    private void openNovel(HgSearchRow row) {
+        if (row.bookId == null || row.bookId.isEmpty()) {
+            android.widget.Toast.makeText(this,
+                    "这本书的信息不完整，打不开", android.widget.Toast.LENGTH_SHORT).show();
+            return;
+        }
+        try {
+            Intent intent = new Intent();
+            intent.setClassName(this,
+                    "com.fongmi.android.tv.hongguo.ui.HongguoNovelDetailActivity");
+            intent.putExtra("hg_novel_book_id", row.bookId);
+            intent.putExtra("hg_novel_title", row.bookTitle);
+            startActivity(intent);
+        } catch (Throwable e) {
+            android.widget.Toast.makeText(this,
+                    "红果里暂不能打开小说", android.widget.Toast.LENGTH_SHORT).show();
         }
     }
 

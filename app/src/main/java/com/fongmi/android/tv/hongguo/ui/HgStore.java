@@ -727,4 +727,79 @@ public final class HgStore {
         String s = Prefers.getString(K_LAST_SERIES, "");
         return s == null || s.isEmpty() ? null : s;
     }
+
+    // ---------- 小说阅读断点（与短剧历史分家：独立命名空间 hongguo_novel_*，
+    // 短剧 hongguo_hist_/hongguo_meta_ 的 id 生态与 book_id 同源、数值可能相撞，
+    // 混用会串扰续播位，故另立一套，互不读写） ----------
+
+    private static final String K_NOVEL_HIST_PREFIX = "hongguo_novel_hist_";
+    private static final String K_NOVEL_HIST_INDEX = "hongguo_novel_hist_index";
+    private static final String K_NOVEL_META_PREFIX = "hongguo_novel_meta_";
+
+    /** 一条小说断点：读到的章下标＋该章 item_id＋落盘时刻。 */
+    public static final class NovelMark {
+        public final int chapterIndex;
+        public final String itemId;
+        public final long updatedMs;
+
+        NovelMark(int chapterIndex, String itemId, long updatedMs) {
+            this.chapterIndex = chapterIndex;
+            this.itemId = itemId;
+            this.updatedMs = updatedMs;
+        }
+    }
+
+    /** 落一本书的阅读断点并顶到小说历史索引最前（上限 200 本）。 */
+    public static void saveNovelMark(String bookId, int chapterIndex, String itemId) {
+        if (bookId == null || bookId.isEmpty()) return;
+        Prefers.put(K_NOVEL_HIST_PREFIX + bookId,
+                Math.max(0, chapterIndex) + "|" + (itemId == null ? "" : itemId)
+                        + "|" + System.currentTimeMillis());
+        java.util.List<String> ids = new java.util.ArrayList<>(readSet(K_NOVEL_HIST_INDEX));
+        ids.remove(bookId);
+        ids.add(0, bookId);
+        if (ids.size() > 200) ids = ids.subList(0, 200);
+        Prefers.put(K_NOVEL_HIST_INDEX, String.join(",", ids));
+    }
+
+    /** 取一本书的阅读断点；没读过返回 null。 */
+    public static NovelMark novelMarkOf(String bookId) {
+        if (bookId == null || bookId.isEmpty()) return null;
+        String raw = Prefers.getString(K_NOVEL_HIST_PREFIX + bookId, "");
+        if (raw == null || raw.isEmpty()) return null;
+        String[] parts = raw.split("\\|", -1);
+        try {
+            int ix = Integer.parseInt(parts[0]);
+            String item = parts.length > 1 ? parts[1] : "";
+            long upd = parts.length > 2 ? Long.parseLong(parts[2]) : 0;
+            return new NovelMark(ix, item, upd);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** 小说历史索引（最近读的在前）。 */
+    public static java.util.List<String> novelHistoryIds() {
+        return new java.util.ArrayList<>(readSet(K_NOVEL_HIST_INDEX));
+    }
+
+    /** 落一本书的展示元信息（标题/作者/封面，\u0001 分隔，与剧目 meta 同法）。 */
+    public static void putNovelMeta(String bookId, String title, String author, String cover) {
+        if (bookId == null || bookId.isEmpty()) return;
+        Prefers.put(K_NOVEL_META_PREFIX + bookId,
+                cleanSep(title) + SEP + cleanSep(author) + SEP + cleanSep(cover));
+    }
+
+    /** 返回 {标题, 作者, 封面}；没存过返回 null。 */
+    public static String[] novelMetaOf(String bookId) {
+        if (bookId == null || bookId.isEmpty()) return null;
+        String raw = Prefers.getString(K_NOVEL_META_PREFIX + bookId, "");
+        if (raw == null || raw.isEmpty()) return null;
+        String[] parts = raw.split(SEP, -1);
+        return parts.length < 3 ? null : parts;
+    }
+
+    private static String cleanSep(String s) {
+        return s == null ? "" : s.replace(SEP, " ");
+    }
 }

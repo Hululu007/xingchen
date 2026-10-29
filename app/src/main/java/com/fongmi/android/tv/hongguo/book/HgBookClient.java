@@ -47,6 +47,9 @@ public final class HgBookClient {
         public String coverUrl = "";
         public String intro = "";
         public int episodeCount = -1;
+        /** 详情回包实有键（2026-10-30 探针实拉）：category 分类名、score 评分（0=未评分）。 */
+        public String category = "";
+        public double score = -1;
     }
 
     public static final class Chapter {
@@ -404,6 +407,16 @@ public final class HgBookClient {
         if (o.has("episode_count")) e.episodeCount = intOf(o, "episode_count", -1);
         else if (o.has("chapter_count")) e.episodeCount = intOf(o, "chapter_count", -1);
         else if (o.has("serial_count")) e.episodeCount = intOf(o, "serial_count", -1);
+        String cat = firstStr(o, "category");
+        if (cat != null) e.category = cat;
+        if (o.has("score")) {
+            try {
+                JsonElement se = o.get("score");
+                e.score = se.isJsonPrimitive() && se.getAsJsonPrimitive().isString()
+                        ? Double.parseDouble(se.getAsString().trim()) : se.getAsDouble();
+            } catch (Exception ignored) {
+            }
+        }
     }
 
     /** XHTML 正文 → 纯文本：段落 </p> 断行、去标签、解常见实体。 */
@@ -516,8 +529,16 @@ public final class HgBookClient {
     private static int intOf(JsonObject o, String key, int def) {
         if (o == null) return def;
         JsonElement e = o.get(key);
-        if (e == null || !e.isJsonPrimitive() || !e.getAsJsonPrimitive().isNumber()) return def;
-        return e.getAsInt();
+        if (e == null || !e.isJsonPrimitive()) return def;
+        if (e.getAsJsonPrimitive().isNumber()) return e.getAsInt();
+        if (e.getAsJsonPrimitive().isString()) {
+            try {
+                return Integer.parseInt(e.getAsString().trim());
+            } catch (Exception ignored) {
+                return def;
+            }
+        }
+        return def;
     }
 
     private static boolean boolOf(JsonObject o, String key) {

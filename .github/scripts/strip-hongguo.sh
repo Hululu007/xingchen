@@ -59,7 +59,7 @@ grep -qF "tabs.add(new BottomTabs.Spec(R.id.hongguo, R.drawable.ic_nav_duanju_ou
 grep -qF "if (itemId == R.id.hongguo) {" "$HOME" || fail "HomeActivity 的短剧格点击分发对不上"
 grep -qF "红果「启动直达短剧」" "$HOME" || fail "HomeActivity 的启动直达短剧块对不上"
 grep -qF "<string name=\"nav_duanju\">短剧</string>" "$MSTRINGS" || fail "短剧格字符串 nav_duanju 对不上"
-for a in HongguoFeedActivity HongguoSearchActivity HongguoAuthorActivity HongguoSeriesDetailActivity HongguoPreferenceActivity HongguoFeedbackActivity HongguoPostActivity HongguoAlbumActivity; do
+for a in HongguoFeedActivity HongguoSearchActivity HongguoAuthorActivity HongguoSeriesDetailActivity HongguoPreferenceActivity HongguoFeedbackActivity HongguoPostActivity HongguoAlbumActivity HongguoNovelDetailActivity; do
   grep -qF "android:name=\"com.fongmi.android.tv.hongguo.ui.$a\"" "$MANIFEST" || fail "Manifest 的红果登记对不上：$a"
 done
 grep -qF "android:name=\"com.fongmi.android.tv.hongguo.book.HgBookBrowseActivity\"" "$MANIFEST" || fail "Manifest 的红果书城浏览页登记对不上"
@@ -391,7 +391,7 @@ manifest = cut_exact(manifest, """        <!-- 红果刷剧页（三阶段）：
 manifest = cut_exact(manifest, """        <!-- 横屏独立页别名：与本体同类，靠 intent 旗 EXTRA_LAND_INSTANCE
              切换横屏面（状态条/横排控制条/锁定/右侧抽屉）。 -->
 """, "横屏别名登记注释")
-for name in ("HongguoFeedActivity", "HongguoSearchActivity", "HongguoAuthorActivity", "HongguoSeriesDetailActivity", "HongguoPreferenceActivity", "HongguoFeedbackActivity", "HongguoPostActivity", "HongguoAlbumActivity"):
+for name in ("HongguoFeedActivity", "HongguoSearchActivity", "HongguoAuthorActivity", "HongguoSeriesDetailActivity", "HongguoPreferenceActivity", "HongguoFeedbackActivity", "HongguoPostActivity", "HongguoAlbumActivity", "HongguoNovelDetailActivity"):
     pattern = r"<activity\s+android:name=\"com\.fongmi\.android\.tv\.hongguo\.ui\." + name + r"\"[^>]*/>"
     manifest, n = re.subn(pattern, "", manifest)
     if n != 1:
@@ -423,6 +423,7 @@ sed -i "/<string name=\"nav_duanju\">/d" "$MSTRINGS"
 rm -rf "$HGPKG" "$HGTEST"
 rm "$PROVIDER" "$STREAM" "$LOGINPAGE"
 rm -rf app/src/mobile/java/com/fongmi/android/tv/hongguo/book
+rm -rf app/src/mobile/java/com/fongmi/android/tv/hongguo/ui
 for f in $RES_FILES; do
   rm "$f"
 done

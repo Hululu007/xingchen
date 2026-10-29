@@ -524,6 +524,11 @@ public final class HgFeedSession {
             ws.add(done);
             ugcWaiters.put(vid, ws);
         }
+        fetchUgc(vid);
+    }
+
+    /** UGC 详情实发（等待表已登记）：成败统一经 finishUgcPrepare 收口。 */
+    private void fetchUgc(String vid) {
         client.fetchUgcVideoDetail(vid, new HgCallback<HgSeriesDetail>() {
             @Override
             public void onSuccess(HgSeriesDetail detail) {
@@ -537,7 +542,22 @@ public final class HgFeedSession {
 
             @Override
             public void onError(int httpCode, String message) {
-                main.post(() -> finishUgcPrepare(vid, false));
+                main.post(() -> {
+                    if (httpCode == -2) {
+                        // 限流空体形状（传输层 200 空体归一与无详情回包
+                        // 同码）：与单集口共用档案级轮次记账——达门槛换
+                        // 档案后对同一等待表重发一次；未达门槛/守卫挡下
+                        // 按原失败口径收口。注意详情回包「有详情但没带
+                        // model」走的是 onSuccess 路、不在此列（那是回包
+                        // 形状问题、不是限流，不许记账换档案）。
+                        resolver.noteExternalEmptyRound(vid, didReset -> {
+                            if (didReset) fetchUgc(vid);
+                            else finishUgcPrepare(vid, false);
+                        });
+                        return;
+                    }
+                    finishUgcPrepare(vid, false);
+                });
             }
         });
     }

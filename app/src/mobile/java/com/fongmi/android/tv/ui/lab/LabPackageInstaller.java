@@ -214,6 +214,17 @@ public final class LabPackageInstaller {
                                     if (!new File(staging, "lab.json").exists()) {
                                         writeJson(new File(staging, "lab.json"), manifest);
                                     }
+                                    // 本地 Node bundle（zip 路）的启动命令是宿主生成的、引用
+                                    // 宿主生成的引导脚本，但包文件来自 zip 本身、引导脚本
+                                    // 不在包里：在包根补写一份（与上面补写生成型 lab.json
+                                    // 同一落点）。命令与引导脚本是配套生成的，包里万一
+                                    // 有同名文件也以宿主这份为准，直接覆盖
+                                    if (manifestReferencesNodeBoot(manifest)) {
+                                        try (FileOutputStream out = new FileOutputStream(
+                                                new File(staging, LabImportCompat.NODE_BOOT_NAME))) {
+                                            out.write(LabImportCompat.nodeBootBytes());
+                                        }
+                                    }
                                     token.check();
                                     chmod755(staging);
                                     token.check();
@@ -558,6 +569,16 @@ public final class LabPackageInstaller {
             } catch (Exception ignored) {
             }
         }
+    }
+
+    /** 清单里任一命令是否引用宿主生成的 Node bundle 引导脚本 */
+    private static boolean manifestReferencesNodeBoot(LabManifest manifest) {
+        if (manifest == null || manifest.commands == null) return false;
+        for (LabManifest.LabCommand c : manifest.commands) {
+            if (c != null && c.command != null
+                    && c.command.contains(LabImportCompat.NODE_BOOT_NAME)) return true;
+        }
+        return false;
     }
 
     private static void writeJson(File f, LabManifest m) throws Exception {

@@ -56,11 +56,11 @@
         {
           "name": "media3-ui-danmaku-1.11.0-alpha01-fongmi.aar",
           "url": "media3-ui-danmaku-1.11.0-alpha01-fongmi.aar",
-          "size": 118390,
-          "sha512": "9dadc351d28ea788414bc69e080961af544fd63be51aa5de6a43690c2c18fb7fd9d7fee2a606e5e6fd28329e3248466705d2868196b6ce15ec919a11558e6475",
-          "sha256": "065add7be4c13ca7f68125c3cddcf843f9777790175742a46313c1fc807967c2",
-          "sha1": "de6ba9ff23df08fc5e53408b1cb0554290ee5897",
-          "md5": "8e112e0e5a80d08a2a3fac01781c5ac7"
+          "size": 118782,
+          "sha512": "b179c57048557efeed9e97b2be8db49d1c799e6001543e074d389c490302ae9dfee76b122332d2b4d586d53fcfa572556973e808f80b9e194972ee71c87ed5ad",
+          "sha256": "356f048776842c965a13e577203390cb394ef3b2397cf287bb0ae8220d997c27",
+          "sha1": "bc17a23f0a50feb606976d6ffe32534791d1e663",
+          "md5": "87d3f2a671279bc8d6f552b85282fbf8"
         }
       ]
     },
@@ -127,11 +127,11 @@
         {
           "name": "media3-ui-danmaku-1.11.0-alpha01-fongmi.aar",
           "url": "media3-ui-danmaku-1.11.0-alpha01-fongmi.aar",
-          "size": 118390,
-          "sha512": "9dadc351d28ea788414bc69e080961af544fd63be51aa5de6a43690c2c18fb7fd9d7fee2a606e5e6fd28329e3248466705d2868196b6ce15ec919a11558e6475",
-          "sha256": "065add7be4c13ca7f68125c3cddcf843f9777790175742a46313c1fc807967c2",
-          "sha1": "de6ba9ff23df08fc5e53408b1cb0554290ee5897",
-          "md5": "8e112e0e5a80d08a2a3fac01781c5ac7"
+          "size": 118782,
+          "sha512": "b179c57048557efeed9e97b2be8db49d1c799e6001543e074d389c490302ae9dfee76b122332d2b4d586d53fcfa572556973e808f80b9e194972ee71c87ed5ad",
+          "sha256": "356f048776842c965a13e577203390cb394ef3b2397cf287bb0ae8220d997c27",
+          "sha1": "bc17a23f0a50feb606976d6ffe32534791d1e663",
+          "md5": "87d3f2a671279bc8d6f552b85282fbf8"
         }
       ]
     },
@@ -147,11 +147,11 @@
         {
           "name": "media3-ui-danmaku-1.11.0-alpha01-fongmi-sources.jar",
           "url": "media3-ui-danmaku-1.11.0-alpha01-fongmi-sources.jar",
-          "size": 68103,
-          "sha512": "0bc58c84b44f740e8ac6a0960ada15d214654500ef0648a6d048e25ed1323e0ac25df7d2084a539d0d4205acc663b9a53d60fda3ba696b09fb1afdab14046cb8",
-          "sha256": "64bec27ce2467f5065898e429077c840df68b14280e426e89af069780d1c5b23",
-          "sha1": "8d92de7f9a465a69b81dfd2abaf1e1a8cea0bc03",
-          "md5": "2214153d2164de13dca12f77ea0581a3"
+          "size": 68710,
+          "sha512": "67d3695fa7cbfbd4aa719a8589d8a097ad115f2a8953d18f7953acfd8e7001a0d9378c62be9bba94f871b89006cb6bb50fcf091f9ccd89e0e97bf01b95423f82",
+          "sha256": "ed5e1807d47237239ad81e27531c7936a72138894b966a5986652e00b7d11a3c",
+          "sha1": "5dbc21fba25ed787166167d1ea2d9fff0cda9b21",
+          "md5": "49154a52674d54386cbf26b541a215ae"
         }
       ]
     }

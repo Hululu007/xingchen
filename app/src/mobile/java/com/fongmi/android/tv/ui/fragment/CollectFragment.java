@@ -326,13 +326,17 @@ public class CollectFragment extends BaseFragment implements MenuProvider, Colle
         new Thread(() -> {
             try {
                 Drive115 drive = new Drive115();
-                // 连翻三页（30×3）：结果可能文件夹扎堆在前，只取第一页文件会被挤掉；
+                // 只搜视频（他 2026-10-28 亲点，2026-10-29 收口）：与网盘页内搜同款
+                // searchVideoFiles（服务端 type=4＋结果层兜底过滤，文件夹/文档/音频
+                // 一律不出）；不许回退 searchFiles 全类型——那是音乐搜音频的地基，
+                // 给人看的搜索混进文件夹就是没收口。连翻三页（30×3）凑满视频结果；
+                // 尾页判定沿用返回值条数（过滤后）<30，与网盘页同款口径；
                 // 某一页失败就停在已拿到的，后面页的失败不丢已得结果。
                 List<CloudFile> found = new ArrayList<>();
                 for (int page = 0; page < 3; page++) {
                     List<CloudFile> chunk;
                     try {
-                        chunk = drive.searchFiles(keyword, page * 30, 30);
+                        chunk = drive.searchVideoFiles(keyword, page * 30, 30);
                     } catch (Exception e) {
                         if (page == 0) throw e;
                         break;

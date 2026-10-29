@@ -179,9 +179,22 @@ public final class HgApiClient {
 
     // ---------- 设备注册与签名发送（定罪修法核心，见类头注） ----------
 
-    private final Object deviceLock = new Object();
-    private final List<HgCallback<Boolean>> deviceWaiters = new ArrayList<>();
-    private boolean deviceRegistering;
+    // 注册闸全实例合并：设备档案是 HgDevice 的全局一份（多处各持一个
+    // HgApiClient：会话/护照/书城/登录检查），闸若按实例分家，跨实例就能
+    // 并发发两轮注册——合并成静态一把锁、一个在途旗、一张等待表（扫查 P2）
+    private static final Object deviceLock = new Object();
+    private static final List<HgCallback<Boolean>> deviceWaiters = new ArrayList<>();
+    private static boolean deviceRegistering;
+    /** 旧代次轮作废后按新档案续注册用的空等待者（结果只给真等待者）。 */
+    private static final HgCallback<Boolean> REREGISTER_WAITER = new HgCallback<Boolean>() {
+        @Override
+        public void onSuccess(Boolean ok) {
+        }
+
+        @Override
+        public void onError(int httpCode, String message) {
+        }
+    };
 
     /**
      * 确保匿名设备已注册：已注册立即回调成功；未注册只发一次注册请求，
@@ -249,27 +262,33 @@ public final class HgApiClient {
         enqueue(call, new BodyCallback() {
             @Override
             void onCookies(Map<String, String> cookies) {
-                // 代次已变＝这批游客 Cookie 是旧档案注册回的，不许落进新档案
-                if (HgDevice.profileGeneration() != gen) return;
-                HgDevice.applyGuestCookies(cookies);
+                // 代次复核与落盘原子：代次已变＝这批游客 Cookie 是旧档案
+                // 注册回的，整批不落进新档案（HgDevice 类锁内比对）
+                HgDevice.applyGuestCookiesIfGeneration(gen, cookies);
             }
 
             @Override
             void onBody(String text) {
-                if (HgDevice.profileGeneration() != gen) {
-                    // 本轮注册期间档案被重置：回的 id 属于旧档案，作废，
-                    // 按新档案重新注册；等待者不释放、等新一轮结果
-                    android.util.Log.w(TAG, "注册回包时档案已重置，按新档案重新注册");
-                    doRegister();
-                    return;
-                }
                 String[] ids = HgDevice.parseRegister(text);
                 if (ids == null) {
+                    if (HgDevice.profileGeneration() != gen) {
+                        // 旧代次轮的坏回包不算数，别拿它失败掉已改等新
+                        // 档案的等待者，按新档案重新注册
+                        reregisterAfterProfileReset();
+                        return;
+                    }
                     android.util.Log.e(TAG, "注册回包无 device_id/install_id body=" + abbrev(text));
                     finishRegister("注册回包无设备 id");
                     return;
                 }
-                HgDevice.saveRegistered(ids[0], ids[1]);
+                if (!HgDevice.saveRegisteredIfGeneration(gen, ids[0], ids[1])) {
+                    // 落盘瞬间档案已被重置：回的 id 属于旧档案、原子校验
+                    // 已保证没写进新档案，作废本轮、按新档案重新注册；
+                    // 等待者不释放、等新一轮结果
+                    android.util.Log.w(TAG, "注册回包时档案已重置，按新档案重新注册");
+                    reregisterAfterProfileReset();
+                    return;
+                }
                 finishRegister(null);
             }
 
@@ -277,12 +296,25 @@ public final class HgApiClient {
             void onFail(int code, String msg) {
                 if (HgDevice.profileGeneration() != gen) {
                     // 同上：旧档案那一轮的失败不算数，按新档案重新注册
-                    doRegister();
+                    reregisterAfterProfileReset();
                     return;
                 }
                 finishRegister("注册失败：" + msg);
             }
         }, "device_register");
+    }
+
+    /**
+     * 旧代次注册轮作废后的续注册：必须走注册闸——先把本轮占的闸放开，
+     * 再经 ensureDevice 排队/起新轮；已有别轮在途时只排队等它，不许绕过
+     * deviceRegistering 直接并发再发一轮（扫查 P2 附带项）。等待表里原
+     * 等待者不动，结果仍由最终成功的那一轮 finishRegister 统一回。
+     */
+    private void reregisterAfterProfileReset() {
+        synchronized (deviceLock) {
+            deviceRegistering = false;
+        }
+        ensureDevice(REREGISTER_WAITER);
     }
 
     private void finishRegister(String error) {

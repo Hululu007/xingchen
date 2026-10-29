@@ -147,6 +147,28 @@ public final class HgDevice {
         save(p);
     }
 
+    /**
+     * 注册回填的代次原子版：复核代次与落盘在同一把类锁内完成——注册
+     * 请求在途时档案被重置（resetProfile 同锁 +1 代次），本轮回的旧 id
+     * 绝无可能在「先查代次、后落盘」的缝里写进新档案（扫查 P2）。
+     * 代次不符返回 false 且什么都不写，调用方按新档案重新注册。
+     */
+    public static synchronized boolean saveRegisteredIfGeneration(int gen, String deviceId, String installId) {
+        if (generation != gen) return false;
+        Profile p = profile();
+        p.deviceId = deviceId;
+        p.installId = installId;
+        save(p);
+        return true;
+    }
+
+    /** 游客 Cookie 落盘的代次原子版（同 saveRegisteredIfGeneration 口径）。 */
+    public static synchronized boolean applyGuestCookiesIfGeneration(int gen, Map<String, String> cookies) {
+        if (generation != gen) return false;
+        applyGuestCookies(cookies);
+        return true;
+    }
+
     /** 注册回包 Set-Cookie 里的游客三件（ttreq/store-region/store-region-src）落盘。 */
     public static synchronized void applyGuestCookies(Map<String, String> cookies) {
         if (cookies == null || cookies.isEmpty()) return;

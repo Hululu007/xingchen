@@ -2,7 +2,9 @@ package com.fongmi.android.tv.hongguo.ui;
 
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -14,10 +16,13 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.viewbinding.ViewBinding;
 
+import com.bumptech.glide.request.target.CustomTarget;
+import com.bumptech.glide.request.transition.Transition;
 import com.fongmi.android.tv.databinding.ActivityHongguoSeriesDetailBinding;
 import com.fongmi.android.tv.databinding.ItemHongguoSeriesReviewBinding;
 import com.fongmi.android.tv.hongguo.HgFormat;
@@ -78,6 +83,7 @@ public class HongguoSeriesDetailActivity extends BaseActivity {
     private ActivityHongguoSeriesDetailBinding binding;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private String seriesId;
+    private String bgUrl;
     private HgSeriesDetail detail;
     private boolean fav;
     private boolean favBusy;
@@ -115,7 +121,7 @@ public class HongguoSeriesDetailActivity extends BaseActivity {
         if (title != null) binding.hgSdTitle.setText(title);
         if (cover != null && !cover.isEmpty()) {
             ImgUtil.load(title == null ? "" : title, cover, binding.hgSdCover);
-            ImgUtil.load("", cover, binding.hgSdBg);
+            loadBlurredBg(cover);
         }
         HgStore.Progress p = HgStore.progressOf(seriesId);
         binding.hgSdPlay.setText(p != null && p.episodeIndex > 0 ? "▶ 继续播放" : "▶ 开始播放");
@@ -180,7 +186,7 @@ public class HongguoSeriesDetailActivity extends BaseActivity {
         if (d.getTitle() != null && !d.getTitle().isEmpty()) binding.hgSdTitle.setText(d.getTitle());
         if (d.getCoverUrl() != null && !d.getCoverUrl().isEmpty()) {
             ImgUtil.load(d.getTitle(), d.getCoverUrl(), binding.hgSdCover);
-            ImgUtil.load("", d.getCoverUrl(), binding.hgSdBg);
+            loadBlurredBg(d.getCoverUrl());
         }
         if (d.getColorHex() != null) {
             try {
@@ -240,6 +246,35 @@ public class HongguoSeriesDetailActivity extends BaseActivity {
         // 收藏态以服务端为准
         fav = d.isFollowed();
         paintFav();
+    }
+
+    /**
+     * 背景垫图（官方 113563 口径：重虚化＋剧色压暗的平洗面，不是原图直垫）：
+     * 封面位图先缩到约 54px 宽再两遍 FastBlur，海报细节全化掉只剩色块；
+     * 压暗由 hg_sd_scrim 的剧色罩承担。bgUrl 守卫防详情回包换图时旧图回贴。
+     */
+    private void loadBlurredBg(String url) {
+        if (url == null || url.isEmpty() || url.equals(bgUrl)) return;
+        bgUrl = url;
+        ImgUtil.load(url, 96, new CustomTarget<Bitmap>() {
+            @Override
+            public void onResourceReady(@NonNull Bitmap resource, @Nullable Transition<? super Bitmap> transition) {
+                if (isFinishing() || !url.equals(bgUrl)) return;
+                try {
+                    int w = 54;
+                    int h = Math.max(1, Math.round(resource.getHeight() * (w / (float) resource.getWidth())));
+                    Bitmap small = Bitmap.createScaledBitmap(resource, w, h, true);
+                    Bitmap blurred = jp.wasabeef.glide.transformations.internal.FastBlur.blur(
+                            jp.wasabeef.glide.transformations.internal.FastBlur.blur(small, 25, false), 25, false);
+                    binding.hgSdBg.setImageBitmap(blurred);
+                } catch (Exception ignored) {
+                }
+            }
+
+            @Override
+            public void onLoadCleared(@Nullable Drawable placeholder) {
+            }
+        });
     }
 
     // ---------- 集格 ----------

@@ -187,10 +187,6 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     /** 页签首拉在飞标记与目标页签：同页签首拉未回不许重入（切页签/再点/下拉/onResume 都会撞 loadTab）。 */
     private boolean feedLoadingFirst;
     private HgFeedSources.Tab loadingFirstTab;
-    /** 取链/播放失败自动跳下一条的连跳计数：成功起播或用户手动滑动清零，预算 3 次。 */
-    private int autoSkipCount;
-    /** 本次翻页是程序化自动跳（setCurrentItem 触发的 settle 不算用户滑动、不清连跳计数）。 */
-    private boolean autoSkipping;
     private final Runnable hideErrorRunnable = () -> {
         HgFeedAdapter.Holder h = currentHolder();
         if (h != null) h.binding.hgError.setVisibility(View.GONE);
@@ -365,7 +361,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         public void onPlayerError(PlaybackException error) {
             HgFeedAdapter.Holder h = currentHolder();
             if (h != null) h.binding.hgCover.setVisibility(View.VISIBLE);
-            // 播放器环失败记编号 P，与取链失败同口径：先自动跳、跳不动才瞬时提示
+            // 播放器环失败记编号 P，与取链失败同口径：停当前条＋瞬时提示（见 onItemPlayFailed）
             onItemPlayFailed("P");
         }
     };
@@ -429,12 +425,6 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             @Override
             public void onPageSelected(int position) {
                 onSettle(position);
-            }
-
-            @Override
-            public void onPageScrollStateChanged(int state) {
-                // 用户手指拖动翻页＝手动滑动：自动连跳计数清零
-                if (state == ViewPager2.SCROLL_STATE_DRAGGING) autoSkipCount = 0;
             }
         });
         orientationListener = new android.view.OrientationEventListener(this) {
@@ -835,7 +825,6 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
 
     private void onSettle(int position) {
         if (position < 0 || position >= session.items.size()) return;
-        autoSkipping = false; // 程序化自动跳的 settle 在此消费标记（计数不清零，见字段注）
         if (landMode && position != landPos) exitLandMode(); // 滑离横屏页：窗内转自动退出
         if (position != currentPos) saveProgress();
         currentPos = position;
@@ -923,19 +912,16 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     }
 
     /**
-     * 条目取链/播放失败的统一出口（官方「直接刷」口径）：不把条目停成
-     * 封面＋重试药丸的可停留状态——还有下一条且连跳预算未尽（≤3）就自动
-     * 翻到下一条；预算耗尽或已是末条，错误文案只短暂显示约 2.5 秒自动隐。
-     * 成功起播（play）与用户手动滑动（DRAGGING）清零连跳计数。
+     * 条目取链/播放失败的统一出口：停在当前条，错误文案只短暂显示约
+     * 2.5 秒自动隐，用户点按重试或自己滑走。失败绝不自动翻页——旧版
+     * 「失败自动跳下一条（≤3 次）」在取链全断（如档案级限流）时把一次
+     * 滑动放大成多轮缓慢蠕动：每跳一条都要等数秒取链、失败再跳，且相邻
+     * 条目常是同剧重复推送，看起来永远停在同一张海报上（2026-10-29 他
+     * 真机录屏定根，账 feed-stuck-autoscroll-20261029）。官方对坏条目是
+     * 刷过去即弃，那是用户手滑的语义；程序替用户翻页已被真机判死。
      */
     private void onItemPlayFailed(String code) {
         if (code != null && !code.isEmpty()) android.util.Log.w("HgFeed", "条目加载失败 code=" + code);
-        if (autoSkipCount < 3 && currentPos >= 0 && currentPos < session.items.size() - 1) {
-            autoSkipCount++;
-            autoSkipping = true;
-            binding.hgPager.setCurrentItem(currentPos + 1, true);
-            return;
-        }
         HgFeedAdapter.Holder h = currentHolder();
         if (h == null) return;
         showErrorWithCode(h, code);
@@ -968,7 +954,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     /**
      * 落定起播分发：UGC 短片（content_type＝1001）的 vid 在单集取模型
      * 口恒回 101000，先经会话层拉 UGC 详情灌缓存再起播；灌不到按取数
-     * 失败走统一出口（自动跳下一条／短暂提示），不退回单集口假播。
+     * 失败走统一出口（停当前条＋短暂提示），不退回单集口假播。
      * 其余条目与旧口径一致、直接起播（定根账 feed-item-fetch-fail-20261029）。
      */
     private void startSettledPlayback(int position) {
@@ -1007,8 +993,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             @Override
             public void onFailed(String vid, String code, String message) {
                 if (!vid.equals(currentVideoId())) return;
-                // 官方口径：发现流没有可停留的失败态——失败先自动跳下一条，
-                // 跳不动才短暂提示后自动隐（编号只进日志，见 onItemPlayFailed）
+                // 失败停当前条、短暂提示后自动隐（编号只进日志，见 onItemPlayFailed）
                 onItemPlayFailed(code);
             }
         });
@@ -1035,7 +1020,6 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                 .setTitle(item.title == null ? "" : item.title).build();
         PlaySpec spec = PlaySpec.from("hongguo:" + videoId, localUrl, new HashMap<>(), metadata);
         playingVideoId = videoId;
-        autoSkipCount = 0; // 成功起播：自动连跳计数清零
         if (startAt > 0) engine.start(spec, startAt, true);
         else engine.start(spec, true);
         // 起播初始倍速读红果键（面板持久档）：红果链不经 PlayerManager，
@@ -2788,7 +2772,6 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     @Override
     public void onRetry(int position) {
         if (position != currentPos) return;
-        autoSkipCount = 0; // 用户手动重试：连跳预算重新给
         HgFeedItem item = session.items.get(position);
         if (item.seriesHead) {
             // 剧头没定形态（详情没拉到）：解开记账重新走落定链拉详情，

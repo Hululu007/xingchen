@@ -542,22 +542,10 @@ public final class HgFeedSession {
 
             @Override
             public void onError(int httpCode, String message) {
-                main.post(() -> {
-                    if (httpCode == -2) {
-                        // 限流空体形状（传输层 200 空体归一与无详情回包
-                        // 同码）：与单集口共用档案级轮次记账——达门槛换
-                        // 档案后对同一等待表重发一次；未达门槛/守卫挡下
-                        // 按原失败口径收口。注意详情回包「有详情但没带
-                        // model」走的是 onSuccess 路、不在此列（那是回包
-                        // 形状问题、不是限流，不许记账换档案）。
-                        resolver.noteExternalEmptyRound(vid, didReset -> {
-                            if (didReset) fetchUgc(vid);
-                            else finishUgcPrepare(vid, false);
-                        });
-                        return;
-                    }
-                    finishUgcPrepare(vid, false);
-                });
+                // 官方取数链口径：失败即按取数失败收口，不叠自有恢复
+                // 机制（轮次/换档案已整批摘除，账 feed-stuck-autoscroll
+                // -20261029 主线节）
+                main.post(() -> finishUgcPrepare(vid, false));
             }
         });
     }

@@ -21,7 +21,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -230,23 +229,7 @@ public final class HgPlayResolver {
      */
     private Outcome resolveSync(String videoId) throws Exception {
         HgVideoModel model = cache.getFresh(videoId);
-        if (model == null) {
-            boolean[] rateLimited = {false};
-            model = fetchModel(videoId, rateLimited);
-            if (model == null && rateLimited[0]) {
-                // 限流形状（整轮空体）轮次计数：第一轮只进冷却（既有
-                // 口径）；熬过冷却、再解仍整轮空体＝旧档案被限流定型，
-                // 自动换一次新档案重试（防循环口径见
-                // fetchModelAfterProfileReset）。冷却中被挡回的不算轮次
-                // （fetchModel 没发请求、rateLimited 不置位）。轮次按
-                // 档案计、不按条目计（见 ARCHIVE_EMPTY_ROUNDS 注）。
-                int rounds = ARCHIVE_EMPTY_ROUNDS.incrementAndGet();
-                if (rounds >= RATE_LIMIT_ROUNDS_FOR_RESET) {
-                    model = fetchModelAfterProfileReset(videoId);
-                }
-            }
-            if (model != null) ARCHIVE_EMPTY_ROUNDS.set(0);
-        }
+        if (model == null) model = fetchModel(videoId);
         if (model == null) return Outcome.fail("E1");
         cache.put(videoId, model);
         HgVideoModel use = model;
@@ -286,194 +269,23 @@ public final class HgPlayResolver {
     }
 
     /**
-     * 取模型链：签名单集口（fqnovel video_model，注册身份＋逐请求签名）最多
-     * 3 次，每次都是新签的名（新 ticket）；旧 multi 口已定罪摘除（类头与
-     * HgApiClient 类头注）。fplay 兜底只能跟在拿到模型之后（fallback_api
-     * 在回包里）。
+     * 取模型（官方取数链口径，2026-10-29 对齐）：签名单集口逐请求现签、
+     * 最多 3 次直取（补偿官方 TTNet 传输层自带重试；每次都是同一形状
+     * 的新签请求），先成先回；全灭回 null 走 E1。官方 App 层没有的
+     * 自有机制（轮次计数、60 秒全域冷却、700ms 错峰闸、重试睡眠、
+     * 限流自动换档案）已整批摘除——它们改变取数行为本身且掩盖真断
+     * 点（账 feed-stuck-autoscroll-20261029 主线节）。fplay 兜底只能
+     * 跟在拿到模型之后（fallback_api 在回包里）。
      */
-    private static final Object FETCH_GATE = new Object();
-    private static long lastFetchStartMs = 0;
-
-    /**
-     * HgApiClient 对「回包无 video_model 且无业务码」的错误码：只表限流
-     * 空体这一形。结构化拒绝（如 101000）由客户端原样回业务码（正数），
-     * 在 fetchModel 的整轮判定里不算「无模型」——它是该条目被口径拒绝，
-     * 不是档案被限流，不许触发全域冷却连坐后续正常条目。
-     */
-    private static final int ERR_NO_MODEL = -2;
-    /**
-     * 取模型冷却时长（保守值）：定根报告（feed-all-placeholder §E）只实证
-     * 限流至少持续数分钟、换档案即愈，未给自然恢复时长证据；取 60 秒先
-     * 止住请求加压，不长锁用户重试。
-     */
-    private static final long MODEL_COOLDOWN_MS = 60_000;
-    /** 冷却截止时刻（档案级语义，跨 resolver 实例一致，用静态）。 */
-    private static volatile long modelCooldownUntilMs = 0;
-
-    /**
-     * 换档案自愈的轮次门槛：同一档案整轮空体（限流形状）连续达到此
-     * 数（跨条目累计，见 ARCHIVE_EMPTY_ROUNDS），才认定旧档案被限流
-     * 定型、自动换新档案。第一轮仍走既有冷却口径，不一撞限流就换档案。
-     */
-    private static final int RATE_LIMIT_ROUNDS_FOR_RESET = 2;
-    /**
-     * 整轮空体的轮次——按档案计、不按条目计（静态：跨 resolver 实例
-     * 一致）。限流是档案级的（服务端按 device_id 档案回空体，与哪条
-     * 视频无关），旧实现按 videoId 分开计数在刷剧流里永达不到门槛：
-     * 第一轮空体进 60 秒冷却后，失败条目被滑走/自动跳走，后续条目在
-     * 冷却内连请求都发不出（不计轮次），冷却过后落到的又是新条目
-     * （轮次从 1 重数）——同一个条目几乎不可能在冷却后被再次落定解
-     * 链，换档案自愈等于永不触发（2026-10-29 真机全断定根，账
-     * feed-stuck-autoscroll-20261029）。改按档案累计：任意条目的整轮
-     * 空体都算这一份档案的轮次，任一条目取到模型即清零。
-     */
-    private static final AtomicInteger ARCHIVE_EMPTY_ROUNDS = new AtomicInteger();
-    /**
-     * 已为其自动换过档案的条目（本进程会话内）：每条目最多换一次，
-     * 换完仍失败就走 E1 原出口，不许反复换档案死循环。
-     */
-    private static final Set<String> PROFILE_RESET_TRIED = ConcurrentHashMap.newKeySet();
-    /** 两次自动换档案的最小间隔：限流是档案级的，刚换完别为别的条目连环换。 */
-    private static final long PROFILE_RESET_MIN_INTERVAL_MS = 5 * 60_000;
-    private static volatile long lastProfileResetMs = 0;
-
-    /**
-     * 取模型一轮。rateLimitedOut[0] 置真＝本轮真发了请求且整轮全是
-     * 空体/无码（限流形状定型、已进冷却）；冷却中被挡回、结构化拒绝、
-     * 真 HTTP 错误都不置真。
-     */
-    private HgVideoModel fetchModel(String videoId, boolean[] rateLimitedOut) {
-        if (System.currentTimeMillis() < modelCooldownUntilMs) {
-            // 冷却中不再重试该接口：限流期里连滑/点重试只会继续加压
-            Log.w(TAG, "fetchModel " + videoId + " 取模型冷却中，本次不发请求");
-            return null;
-        }
-        boolean allNoModel = true;
+    private HgVideoModel fetchModel(String videoId) {
         for (int attempt = 0; attempt < 3; attempt++) {
-            // 网关对同一设备短时密集取模型会回空体（2026-10-28 本机实证：
-            // 连续取数次后 video_model 回空、换新设备档案立刻恢复）——
-            // 重试之间留间隔、全局取模型起步错峰，别连发撞限流
-            if (attempt == 1) sleepQuiet(1200);
-            else if (attempt == 2) sleepQuiet(3000);
-            gateFetchStart();
-            int[] errCode = {0};
-            HgVideoModel m = fetchSigned(videoId, errCode);
+            HgVideoModel m = fetchSigned(videoId);
             if (m != null) return m;
-            // 任一试拿到业务码（结构化拒绝，如 101000）或真 HTTP 错误，
-            // 整轮即不是限流形状：101000 是该条目自身被口径拒绝，混进
-            // 冷却判定会让一条 UGC 把 60 秒全域冷却扣到后续所有正常
-            // 条目头上（定根账 feed-item-fetch-fail-20261029 §5）
-            if (errCode[0] != ERR_NO_MODEL) allNoModel = false;
-        }
-        if (allNoModel) {
-            // 整轮 3 试全是空体/无码回包＝限流形状定型，进冷却
-            modelCooldownUntilMs = System.currentTimeMillis() + MODEL_COOLDOWN_MS;
-            rateLimitedOut[0] = true;
-            Log.w(TAG, "取模型整轮空回，进入冷却 " + (MODEL_COOLDOWN_MS / 1000) + " 秒");
         }
         return null;
     }
 
-    /**
-     * 档案级限流自愈：重置匿名设备档案→重新注册→用新档案再取一轮模型。
-     * 定根依据（feed-item-fetch-fail-20261029 §6）：play 类接口对被限流
-     * 的旧档案回空体，换档案即愈（本机 ohg reset 两次实证），而 App 内
-     * 此前没有换档案机制、只能干等冷却。
-     *
-     * <p>防死循环口径：同一条目本会话最多换一次（PROFILE_RESET_TRIED），
-     * 两次换档案至少间隔 PROFILE_RESET_MIN_INTERVAL_MS；换档案后仍取
-     * 不到模型，返回 null 走 resolveSync 原有 E1 出口，不再重试。</p>
-     *
-     * <p>边界（死线）：换的只是匿名设备档案（HgDevice）；账号登录态在
-     * 壳子账号托管里独立存储，重置不碰、登录不掉（见 HgDevice
-     * .resetProfile 与 HgApiClient.resetDeviceProfile 的注释）。</p>
-     */
-    private HgVideoModel fetchModelAfterProfileReset(String videoId) {
-        if (!resetProfileBlocking(videoId)) return null;
-        boolean[] rateLimited = {false};
-        return fetchModel(videoId, rateLimited);
-    }
-
-    /**
-     * 换档案本体（阻塞式，只在解链线程调用）：防循环口径——同一守卫键
-     * 本会话最多换一次（PROFILE_RESET_TRIED），两次换档案至少间隔
-     * PROFILE_RESET_MIN_INTERVAL_MS；换完把档案级轮次清零（新档案重新
-     * 从第一轮算，否则刚换完又立刻够门槛连环换）。守卫挡下/注册失败
-     * 回 false，调用方按原失败口径收口、不再重试。
-     */
-    private boolean resetProfileBlocking(String guardKey) {
-        if (PROFILE_RESET_TRIED.contains(guardKey)) return false;
-        long now = System.currentTimeMillis();
-        if (now - lastProfileResetMs < PROFILE_RESET_MIN_INTERVAL_MS) {
-            // 刚为别的条目换过档案：限流是档案级的，新档案先用着，
-            // 本条目不连环换（未记入已试集，间隔过后仍可触发）
-            Log.w(TAG, "fetchModel " + guardKey + " 距上次自动换档案太近，本次不换");
-            return false;
-        }
-        PROFILE_RESET_TRIED.add(guardKey);
-        lastProfileResetMs = now;
-        // 旧档案攒下的取模型冷却随旧档案作废，否则新档案的第一轮
-        // 会被旧冷却挡在门外、白换一次
-        modelCooldownUntilMs = 0;
-        Log.w(TAG, "fetchModel " + guardKey + " 连续整轮空体，自动重置设备档案换新档案重试");
-        CountDownLatch latch = new CountDownLatch(1);
-        boolean[] ok = {false};
-        client.resetDeviceProfile(new HgCallback<Boolean>() {
-            @Override
-            public void onSuccess(Boolean result) {
-                ok[0] = true;
-                latch.countDown();
-            }
-
-            @Override
-            public void onError(int httpCode, String message) {
-                latch.countDown();
-            }
-        });
-        await(latch);
-        if (!ok[0]) {
-            Log.e(TAG, "fetchModel " + guardKey + " 重置档案/重新注册失败，不再重试");
-            return false;
-        }
-        ARCHIVE_EMPTY_ROUNDS.set(0);
-        return true;
-    }
-
-    /**
-     * UGC 批量详情面撞限流空体（错误码 -2）时的同口径自愈入口
-     * （HgFeedSession.prepareUgcClip 的失败回调调用）：与单集口共用
-     * 档案级轮次记账，达门槛就在解链线程换一次档案，换成功后经主
-     * 线程回调 done(true) 让调用方对同一条目重走一次取数；未达门槛
-     * 或守卫挡下回调 done(false)，调用方按原失败口径收口。done 恒
-     * 被调用恰好一次（主线程）。换档案后重走的那一轮若再撞空体，
-     * 轮次已清零、只记为新档案的第一轮，不会连环换（收敛性同
-     * resetProfileBlocking 注）。
-     */
-    public void noteExternalEmptyRound(String guardKey, java.util.function.Consumer<Boolean> done) {
-        worker.execute(() -> {
-            int rounds = ARCHIVE_EMPTY_ROUNDS.incrementAndGet();
-            boolean reset = rounds >= RATE_LIMIT_ROUNDS_FOR_RESET && resetProfileBlocking(guardKey);
-            main.post(() -> done.accept(reset));
-        });
-    }
-
-    private static void gateFetchStart() {
-        synchronized (FETCH_GATE) {
-            long wait = lastFetchStartMs + 700 - System.currentTimeMillis();
-            if (wait > 0) sleepQuiet(wait);
-            lastFetchStartMs = System.currentTimeMillis();
-        }
-    }
-
-    private static void sleepQuiet(long ms) {
-        try {
-            Thread.sleep(ms);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-    }
-
-    private HgVideoModel fetchSigned(String videoId, int[] errCode) {
+    private HgVideoModel fetchSigned(String videoId) {
         CountDownLatch latch = new CountDownLatch(1);
         HgVideoModel[] box = new HgVideoModel[1];
         client.fetchVideoModel(videoId, new HgCallback<HgVideoModel>() {
@@ -485,7 +297,6 @@ public final class HgPlayResolver {
 
             @Override
             public void onError(int httpCode, String message) {
-                errCode[0] = httpCode;
                 latch.countDown();
             }
         });

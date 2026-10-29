@@ -984,8 +984,12 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                 if (!vid.equals(currentVideoId())) return; // 已滑走，迟到的解链只入缓存
                 if (w > 0 && h > 0) playedVideoSizes.put(vid, new int[]{w, h});
                 if (w > 0 && h > 0 && (item.videoWidth != w || item.videoHeight != h)) {
+                    // 尺寸回填只静默更新数据、不整页重绑：重绑会让封面重刷、
+                    // 信息摞重排、表面重挂，起播那一帧就是肉眼可见的「跳」
+                    // （2026-10-29 他点名，账 feed-stuck-autoscroll-20261029）。
+                    // bind 对尺寸的唯一消费是全屏药丸锚位，而真尺寸到达后
+                    // onVideoSizeChanged 会用实测尺寸再锚一次，不靠这次重绑。
                     session.items.set(posAtRequest, item.withSize(w, h));
-                    adapter.notifyItemChanged(posAtRequest);
                 }
                 play(videoId, localUrl, item);
             }

@@ -388,7 +388,7 @@ public final class HgParser {
                     null, null, null, subTitleList(r), null, false,
                     firstStr(album, "album_id_str", "album_id"), intOf(album, "season_cnt", -1),
                     Collections.emptyList(), -1, -1, intOrNull(r, "series_status"), null, null, null,
-                    null, null, -1, null));
+                    null, null, null));
         }
         final JsonArray seasonRows = rows;
         if (seasonRows != null) {
@@ -1405,7 +1405,6 @@ public final class HgParser {
                 intOrNull(o, "series_status"), statementOf(intOrNull(o, "ai_usage_type")),
                 authorName, authorAvatar,
                 authorUid, authorDesc,
-                intOf(o, "content_type", -1),
                 firstStr(o, "publisher", "copyright"));
         item.vidIndex = intOf(o, "vid_index", -1);
         item.kind = kindOf(o, albumInfo);

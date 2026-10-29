@@ -72,7 +72,8 @@ public final class HgFeedItem {
      * 条目类型（普查卡 6/7/8 三型）：解析入口按协议字段定型后经
      * fromSeries 携带进来（见 HgParser 的定型口径），定下不再变——
      * 消费端（适配器/Activity）只按本字段分发右列顶动作/底栏形态/
-     * 点击落点，不许再拿 clip/contentType 等旗在消费端拼装推断。
+     * 点击落点，不许再拿 clip 等页表旗在消费端拼装推断（content_type
+     * 原值字段已于批五按零消费裁定删除，账 hongguo-batch5-cleanup-20261029）。
      * clip/seriesHead 只剩「页表形态」（短片/剧头/集页）语义，与类型
      * 是两回事：集流的逐集页恒为 SERIES、剧头携带其来源条目的类型。
      */
@@ -104,12 +105,6 @@ public final class HgFeedItem {
     public String authorUid;
     /** 作者简介（ugc base_info.description；样本恒空，有才带）。 */
     public String authorDesc;
-    /**
-     * 内容类型（cell content_type 抬升，存档频道回包实证：1001＝UGC
-     * 短片、1004＝正剧短片）；没带为 -1。后置字段（与 authorUid 同
-     * 惯例，不进构造器），fromSeries 负责携带、各 with* 副本负责抄。
-     */
-    public int contentType = -1;
     /**
      * 出品方品牌（cell copyright 抬升，如「两只猫剧场」）：正剧作者 uid
      * 反查的搜索词来源（作者名为空时用它，见 HgFeedSession 的反查
@@ -229,7 +224,6 @@ public final class HgFeedItem {
         item.rankIconUrl = s.rankIconUrl;
         item.authorUid = s.getAuthorUid();
         item.authorDesc = s.getAuthorDesc();
-        item.contentType = s.getContentType();
         item.publisher = s.getPublisher();
         item.statement = s.getStatement();
         if (s.getVertical() != null) item.landscapeHint = !s.getVertical();
@@ -250,7 +244,6 @@ public final class HgFeedItem {
         copy.statement = statement;
         copy.authorUid = authorUid;
         copy.authorDesc = authorDesc;
-        copy.contentType = contentType;
         copy.publisher = publisher;
         copy.landscapeHint = landscapeHint;
         copy.favCount = favCount;
@@ -278,7 +271,6 @@ public final class HgFeedItem {
         copy.statement = statement;
         copy.authorUid = authorUid;
         copy.authorDesc = authorDesc;
-        copy.contentType = contentType;
         copy.publisher = publisher;
         copy.landscapeHint = landscapeHint;
         copy.favCount = favCount;
@@ -316,7 +308,6 @@ public final class HgFeedItem {
         copy.statement = statement;
         copy.authorUid = authorUid;
         copy.authorDesc = authorDesc;
-        copy.contentType = contentType;
         copy.publisher = publisher;
         copy.landscapeHint = landscapeHint;
         copy.favCount = favCount;
@@ -349,7 +340,6 @@ public final class HgFeedItem {
         copy.statement = statement;
         copy.authorUid = uid != null ? uid : authorUid;
         copy.authorDesc = authorDesc;
-        copy.contentType = contentType;
         copy.publisher = publisher;
         copy.landscapeHint = landscapeHint;
         copy.favCount = favCount;

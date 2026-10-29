@@ -528,6 +528,12 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             // 进程被杀后重建：先回到上次页签，首拉成功后按落盘位置落位
             String savedTab = HgStore.feedPosTab();
             if (savedTab != null) {
+                // 存量落盘值 "FOLLOW"（批五前顶栏首槽＝追剧架列表，枚举已
+                // 退役）显式映射到关注频道：那个槽位的后任就是它，落回
+                // 它等于回到用户上次看的那个槽，不靠 valueOf 抛异常兜底、
+                // 也不许静默跳到推荐把槽位弄错（批五选型，账
+                // hongguo-batch5-cleanup-20261029）。
+                if ("FOLLOW".equals(savedTab)) savedTab = HgFeedSources.Tab.FOLLOW_CHANNEL.name();
                 try {
                     tab = HgFeedSources.Tab.valueOf(savedTab);
                     refreshTabStyle();
@@ -594,7 +600,9 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
 
     private void setupTabs() {
         View[] groups = {binding.hgTabFollow, binding.hgTabComic, binding.hgTabLive, binding.hgTabRecommend};
-        HgFeedSources.Tab[] tabs = {HgFeedSources.Tab.FOLLOW, HgFeedSources.Tab.COMIC,
+        // 首槽 hgTabFollow（文案「关注」）批五起装官方关注频道；此前装的
+        // 追剧架列表已退役（正源读面在「我的」追更签，批二已归一）。
+        HgFeedSources.Tab[] tabs = {HgFeedSources.Tab.FOLLOW_CHANNEL, HgFeedSources.Tab.COMIC,
                 HgFeedSources.Tab.LIVE, HgFeedSources.Tab.RECOMMEND};
         for (int i = 0; i < groups.length; i++) {
             HgFeedSources.Tab t = tabs[i];
@@ -612,7 +620,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
 
     private void refreshTabStyle() {
         View[] groups = {binding.hgTabFollow, binding.hgTabComic, binding.hgTabLive, binding.hgTabRecommend};
-        HgFeedSources.Tab[] tabs = {HgFeedSources.Tab.FOLLOW, HgFeedSources.Tab.COMIC,
+        HgFeedSources.Tab[] tabs = {HgFeedSources.Tab.FOLLOW_CHANNEL, HgFeedSources.Tab.COMIC,
                 HgFeedSources.Tab.LIVE, HgFeedSources.Tab.RECOMMEND};
         for (int i = 0; i < groups.length; i++) {
             boolean selected = tabs[i] == tab;

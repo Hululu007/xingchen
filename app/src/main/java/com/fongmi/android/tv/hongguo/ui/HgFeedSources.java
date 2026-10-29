@@ -27,32 +27,32 @@ import java.util.Set;
  *       首页壳、只有找剧位 6 张卡且从不续页）。</li>
  *   <li>续页：开页回包带 continuation（session_id/cell_id）＋ has_more，
  *       滑到尾部走 cell/change 续页追加（去重），流不再封顶首批条数。</li>
- *   <li>关注：四阶段接壳子统一登录后，未登录仍给诚实空态（不发注定失败的
- *       请求）；已登录走追剧架 GET /reading/bookapi/bookshelf/video/list 拉
- *       他追的剧，回来的条目顺手把服务端态写进 HgStore 镜像（官方态为准）。
- *       注意此「关注」槽装的是追剧架列表、与官方关注频道撞名（普查总图
- *       自创登记）——槽位改名/让位归批五，本类不动。</li>
- *   <li>关注频道（批四卡 2）：官方首页首签「关注」＝已关注作者/剧的更新
- *       聚合流，频道类型 BookstoreTabType_follow(30)。专属取数接口官方
+ *   <li>关注（批五让位）：官方首页首签「关注」＝关注频道（已关注作者/剧
+ *       的更新聚合流，频道类型 BookstoreTabType_follow(30)）。批四已备好
+ *       本链（见下条），批五起顶栏第一槽即本频道。此前该槽装的是追剧架
+ *       列表（咱家自创撞名件，旧枚举 Tab.FOLLOW）——已整件退役：追剧架
+ *       列表的正源读面是「我的」追更签（批二已归一，HgMineView 直拉
+ *       bookshelfVideoList＋读 followed 正源），流页这个重复面摘除；
+ *       HgStore followed 数据与「我的」页未动。存量落盘页签名 "FOLLOW"
+ *       由 HongguoFeedActivity 读档点显式映射到 FOLLOW_CHANNEL（见该处
+ *       注），不靠 valueOf 抛异常兜底。</li>
+ *   <li>关注频道（批四卡 2 建链、批五上顶栏首槽）：专属取数接口官方
  *       未抠到，本链按既有频道同一请求形状接入（bookmall/tab＋
  *       discoverPairs(30)、parseDiscoverTab 读响应 tab 30、续页走同一
- *       cell/change、条目渲染走既有单元与 kind 分发）。枚举
- *       FOLLOW_CHANNEL 已进频道切换机制（forTab 可达），但顶栏槽位
- *       仍是追剧架那一格——批五让位前本频道无 UI 入口（账
- *       hongguo-batch4-fill-20261029 交接点）。未登录/零关注时服务端
- *       无内容可下发即空态，文案为自家诚实文案（官方空态未抠到）。</li>
+ *       cell/change、条目渲染走既有单元与 kind 分发）。未登录/零关注时
+ *       服务端无内容可下发即空态，文案为自家诚实文案（官方空态未抠到）。</li>
  * </ul>
  */
 public final class HgFeedSources {
 
     public enum Tab {
-        FOLLOW("关注"),
+        /** 官方关注频道（BookstoreTabType_follow=30，批四卡 2 建链）：
+         * 批五起占顶栏第一槽（布局文案「关注」）。旧 FOLLOW（追剧架列表
+         * 撞名件）已退役，存量落盘值 "FOLLOW" 由读档点显式映射到本值。 */
+        FOLLOW_CHANNEL("关注"),
         COMIC("漫剧"),
         LIVE("真人剧"),
-        RECOMMEND("推荐"),
-        /** 官方关注频道（BookstoreTabType_follow=30，批四卡 2）：链已建，
-         * 顶栏无槽位（现「关注」槽是追剧架列表），批五让位前不可达。 */
-        FOLLOW_CHANNEL("关注频道");
+        RECOMMEND("推荐");
 
         public final String title;
 
@@ -83,39 +83,6 @@ public final class HgFeedSources {
 
     public static Source forTab(HgApiClient client, Tab tab) {
         switch (tab) {
-            case FOLLOW:
-                return new Source() {
-                    @Override
-                    public void load(HgCallback<List<HgSeriesItem>> cb) {
-                        if (!com.fongmi.android.tv.hongguo.api.HgLoginAuthProvider.isLoggedIn()) {
-                            cb.onSuccess(Collections.emptyList());
-                            return;
-                        }
-                        client.bookshelfVideoList(new HgCallback<com.fongmi.android.tv.hongguo.model.HgCellPage>() {
-                            @Override
-                            public void onSuccess(com.fongmi.android.tv.hongguo.model.HgCellPage page) {
-                                List<HgSeriesItem> items = page.getItems() == null
-                                        ? Collections.emptyList() : page.getItems();
-                                // 服务端态为准：追剧架里的剧同步进本地镜像
-                                for (HgSeriesItem s : items) {
-                                    if (s.getSeriesId() != null) HgStore.setShelfMirrored(s.getSeriesId(), true);
-                                }
-                                cb.onSuccess(items);
-                            }
-
-                            @Override
-                            public void onError(int httpCode, String message) {
-                                cb.onError(httpCode, message);
-                            }
-                        });
-                    }
-
-                    @Override
-                    public String emptyHint() {
-                        return com.fongmi.android.tv.hongguo.api.HgLoginAuthProvider.isLoggedIn()
-                                ? "你追的剧会显示在这里" : "登录后这里显示你关注的剧";
-                    }
-                };
             case FOLLOW_CHANNEL:
                 return new ChannelSource(client, HgRequests.TAB_FOLLOW, HgRequests.TAB_FOLLOW,
                         "你关注的作者和剧更新会显示在这里");

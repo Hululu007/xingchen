@@ -3,9 +3,11 @@ package com.fongmi.android.tv.hongguo.ui;
 /**
  * 红果互动接缝：右列点赞/收藏/关注的唯一入口。
  *
- * <p>三阶段实现是 {@link HgLocalInteractions}（纯本地）；四阶段默认实现换成
- * {@link HgRemoteInteractions}：已登录走官方真接口（乐观更新＋失败回滚），
- * 未登录由页面先拉壳子统一登录。分享走系统分享、评论走面板，不经本接口。</p>
+ * <p>唯一实现是 {@link HgRemoteInteractions}（四阶段起）：已登录走官方真
+ * 接口（乐观更新＋失败回滚），未登录由页面先拉壳子统一登录。三阶段的纯
+ * 本地备用实现自始无装配点、与 Remote 语义分歧，批五已整件删除（账
+ * hongguo-batch5-cleanup-20261029）。分享走系统分享、评论走面板，不经
+ * 本接口。</p>
  */
 public interface HgInteractions {
 

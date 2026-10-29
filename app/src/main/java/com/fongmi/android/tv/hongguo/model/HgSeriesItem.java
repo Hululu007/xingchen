@@ -58,13 +58,6 @@ public final class HgSeriesItem {
     /** 作者简介（ugc base_info.description；存档样本里恒 null，有才有）。 */
     private final String authorDesc;
     /**
-     * 内容类型（cell content_type，存档频道回包实证：1001＝UGC 短片、
-     * 1004＝正剧短片）；没带为 -1。UGC 的播放模型只随 UGC 详情下发、
-     * 单集取模型口对它恒回 101000，起播链靠它分流（定根账
-     * feed-item-fetch-fail-20261029）。
-     */
-    private final int contentType;
-    /**
      * 出品方品牌（cell video_list[].copyright 抬升，如「魔方短剧」）；
      * 没带为 null。正剧条目作者身份全链无源（详情口恒不下发 uid），
      * 会话层拿它走搜索「用户」签反查作者 uid 兜底（定根账
@@ -103,6 +96,9 @@ public final class HgSeriesItem {
      * 只来自 album_info → ALBUM；content_type＝1001 → UGC_CLIP；其余
      * → SERIES），手工构造的条目（专辑名单行/系列单补行）恒为正剧
      * 缺省。消费端只读本字段分发，不许再按 content_type 原值推断。
+     * content_type 原值字段（旧 contentType/getContentType/isUgc）已于
+     * 批五按全树零真消费裁定删除：定型只在解析入口读 JSON 原值完成，
+     * 模型不再携带原值（账 hongguo-batch5-cleanup-20261029）。
      */
     public HgItemKind kind = HgItemKind.SERIES;
 
@@ -121,7 +117,7 @@ public final class HgSeriesItem {
                  boolean hasAppointment, boolean appointmentSubscribed, String dueStartText) {
         this(seriesId, title, coverUrl, desc, episodeCount, hasAppointment, appointmentSubscribed,
                 dueStartText, null, null, null, Collections.emptyList(), null, false, null, -1,
-                Collections.emptyList(), -1, -1, null, null, null, null, null, null, -1, null);
+                Collections.emptyList(), -1, -1, null, null, null, null, null, null, null);
     }
 
     HgSeriesItem(String seriesId, String title, String coverUrl, String desc, int episodeCount,
@@ -130,7 +126,7 @@ public final class HgSeriesItem {
                  boolean multiSeason, String albumId, int albumSerialCount,
                  List<HgSeriesItem> siblings, long commentCount, long diggCount,
                  Integer seriesStatus, String statement, String authorName, String authorAvatar,
-                 String authorUid, String authorDesc, int contentType, String publisher) {
+                 String authorUid, String authorDesc, String publisher) {
         this.seriesId = seriesId;
         this.title = title;
         this.coverUrl = coverUrl;
@@ -156,7 +152,6 @@ public final class HgSeriesItem {
         this.authorAvatar = authorAvatar;
         this.authorUid = authorUid;
         this.authorDesc = authorDesc;
-        this.contentType = contentType;
         this.publisher = publisher;
     }
 
@@ -166,7 +161,7 @@ public final class HgSeriesItem {
                 hasAppointment, appointmentSubscribed, dueStartText,
                 vid, badge, recText, tags, vertical, multiSeason, albumId,
                 albumSerialCount, siblings, commentCount, diggCount, status, statement,
-                authorName, authorAvatar, authorUid, authorDesc, contentType, publisher);
+                authorName, authorAvatar, authorUid, authorDesc, publisher);
         copy.kind = kind;
         return copy;
     }
@@ -174,10 +169,6 @@ public final class HgSeriesItem {
     public String getStatement() { return statement; }
     public String getAuthorName() { return authorName; }
     public String getAuthorAvatar() { return authorAvatar; }
-    /** 内容类型原值（content_type）；没带为 -1。 */
-    public int getContentType() { return contentType; }
-    /** 是否 UGC 短片（content_type＝1001，存档频道回包实证）。 */
-    public boolean isUgc() { return contentType == 1001; }
     public String getAuthorUid() { return authorUid; }
     public String getAuthorDesc() { return authorDesc; }
     /** 出品方品牌（cell copyright）；没带为 null。 */

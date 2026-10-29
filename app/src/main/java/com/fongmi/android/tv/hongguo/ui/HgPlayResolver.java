@@ -277,15 +277,30 @@ public final class HgPlayResolver {
      * 点（账 feed-stuck-autoscroll-20261029 主线节）。fplay 兜底只能
      * 跟在拿到模型之后（fallback_api 在回包里）。
      */
+    /** 单次取模型的失败形状（最后一次失败的码与文案，落日志用）。 */
+    private static final class FetchError {
+        boolean recorded;
+        int httpCode;
+        String message;
+    }
+
     private HgVideoModel fetchModel(String videoId) {
+        FetchError lastError = new FetchError();
         for (int attempt = 0; attempt < 3; attempt++) {
-            HgVideoModel m = fetchSigned(videoId);
+            HgVideoModel m = fetchSigned(videoId, lastError);
             if (m != null) return m;
         }
+        // 三次皆失败：最后一次的真实失败形状落日志（此前 onError 把
+        // httpCode/message 整件丢弃，E1 不带形状、每次定根都要再跑一轮
+        // 探针，定根账 feed-fail-1460-20261029 §1/§4 附带小修）。只落
+        // 日志，E1 的上屏文案不动。
+        Log.e(TAG, "fetchModel " + videoId + " 3 次皆失败 lastHttpCode="
+                + (lastError.recorded ? lastError.httpCode : -1)
+                + " lastMessage=" + (lastError.recorded ? lastError.message : "无回包（等待超时）"));
         return null;
     }
 
-    private HgVideoModel fetchSigned(String videoId) {
+    private HgVideoModel fetchSigned(String videoId, FetchError lastError) {
         CountDownLatch latch = new CountDownLatch(1);
         HgVideoModel[] box = new HgVideoModel[1];
         client.fetchVideoModel(videoId, new HgCallback<HgVideoModel>() {
@@ -297,6 +312,9 @@ public final class HgPlayResolver {
 
             @Override
             public void onError(int httpCode, String message) {
+                lastError.recorded = true;
+                lastError.httpCode = httpCode;
+                lastError.message = message;
                 latch.countDown();
             }
         });

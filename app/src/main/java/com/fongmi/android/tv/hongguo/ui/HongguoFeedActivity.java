@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.hongguo.ui;
 
+import android.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
@@ -232,6 +233,8 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     /** 红果自家底栏当前面：false=首页（刷剧流本体） true=我的（壳内「我的」面）。 */
     private boolean mineShowing;
     private boolean drawerOpen;
+    /** 「刷新设备档案」在途旗：确认后到收口前防连点重入（只许手动触发，不自动重试）。 */
+    private boolean profileResetting;
     private boolean resumeAfterMine;
     /** 横屏窗内转模式（整页转 90°，窗口不转）；进入时的页下标，滑走即退出。 */
     private boolean landMode;
@@ -3290,6 +3293,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                     android.widget.Toast.makeText(this, "已清红果缓存",
                             android.widget.Toast.LENGTH_SHORT).show();
                 });
+        binding.hgDrawer.hgDrawerRefreshProfile.setOnClickListener(v -> confirmResetDeviceProfile());
         setPagerBottomMargin(56);
         updateBottomTabs();
         applyStatusBarInsets();
@@ -3487,6 +3491,63 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         binding.hgDrawer.getRoot().animate()
                 .translationX(-binding.hgDrawer.getRoot().getWidth()).setDuration(180)
                 .withEndAction(() -> binding.hgDrawerRoot.setVisibility(View.GONE)).start();
+    }
+
+    /**
+     * 「刷新设备档案」确认框（抽屉手动入口，定根账 feed-fail-1460-20261029
+     * §4 选项 A）：取 model 被服务端按设备档案限流（HTTP 200 空体）时，
+     * 他手动换一份新档案的入口——只许他点按触发，不做任何自动换档案
+     * （自动版未批）。文案把代价说清：换的是匿名设备档案，历史/收藏/
+     * 追更（HgStore 本地仓）不丢、登录会话（壳子 CloudAccountStore 托管）
+     * 不动，换完重新拉数据。
+     */
+    private void confirmResetDeviceProfile() {
+        if (profileResetting) return;
+        new AlertDialog.Builder(this)
+                .setMessage("刷新设备档案？\n\n会换一份新的设备档案，重新向服务端取数。"
+                        + "历史、收藏、追更不会丢，换完会重新拉取当前页数据。")
+                .setNegativeButton("取消", null)
+                .setPositiveButton("刷新", (d, w) -> resetDeviceProfileNow())
+                .show();
+    }
+
+    private void resetDeviceProfileNow() {
+        if (profileResetting) return;
+        profileResetting = true;
+        closeDrawer();
+        // HgCallback 在 OkHttp 分发线程回，收口碰 UI 与会话页表必须回主线程
+        session.client.resetDeviceProfile(new HgCallback<Boolean>() {
+            @Override
+            public void onSuccess(Boolean ok) {
+                runOnUiThread(() -> finishResetDeviceProfile(true));
+            }
+
+            @Override
+            public void onError(int httpCode, String message) {
+                runOnUiThread(() -> finishResetDeviceProfile(false));
+            }
+        });
+    }
+
+    /**
+     * 换档案收口（成败同路）：HgDevice.resetProfile 本体是先作废旧档案
+     * 再注册新档案，注册失败也回不去旧档案——两种结果都把绑旧档案的
+     * 运行时状态清干净再重拉，不留半吊子：已解链注册的流整关
+     * （resolver.closeAll）、取模型/详情/专辑三份运行时缓存整清
+     * （clearRuntimeCache），再走 refreshCurrentTab 换新数据源重拉首
+     * 页（旧数据源的续页凭证随之丢弃）；重拉的签名请求会再走
+     * ensureDevice，注册没成的在这条路上继续补注册。HgStore 本地
+     * 数据与登录会话全程不碰。
+     */
+    private void finishResetDeviceProfile(boolean ok) {
+        profileResetting = false;
+        session.resolver.closeAll();
+        session.clearRuntimeCache();
+        android.widget.Toast.makeText(this,
+                ok ? "设备档案已刷新，正在重新拉数据" : "刷新没成功，已按新档案重新拉取",
+                android.widget.Toast.LENGTH_SHORT).show();
+        if (mineShowing) showFeedFace();
+        refreshCurrentTab();
     }
 
     @Override

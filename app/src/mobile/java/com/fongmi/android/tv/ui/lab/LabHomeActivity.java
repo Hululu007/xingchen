@@ -19,16 +19,16 @@ import com.fongmi.android.tv.R;
 
 /**
  * 实验室首页（定稿 lab-design-sets2/a2/home）：
- * 标题行＝「实验室」＋右端「自动启动」小开关；
+ * 标题行＝「实验室」；
  * 第二行＝「全部停止」「运行中 N ›」两颗深胶囊；
  * 下面＝两列宫格（深玻璃格：环境名＋圆点＋「X 个服务」），点格进环境页。
  * 右上不放任何东西（无＋无设置入口）；顶栏只留标题，走系统返回。
+ * 自启总开关已按 2026-10-29 他的令摘除：自启只认每个服务自己的开关
+ * （环境页服务卡上，LabBoot 按 autoStartOf 拉起），首页不再设总闸。
  */
 public class LabHomeActivity extends AppCompatActivity {
 
     private LinearLayout gridBox;
-    private LinearLayout headBox;
-    private View masterSw;
     private TextView runningPill;
     private TextView runningNum;
 
@@ -73,7 +73,7 @@ public class LabHomeActivity extends AppCompatActivity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
 
-        // 标题行：实验室＋右端 自动启动 开关（字直接落在壁纸上，带衬影）
+        // 标题行：实验室（字直接落在壁纸上，带衬影）
         LinearLayout head = new LinearLayout(this);
         head.setOrientation(LinearLayout.HORIZONTAL);
         head.setGravity(Gravity.CENTER_VERTICAL);
@@ -87,19 +87,6 @@ public class LabHomeActivity extends AppCompatActivity {
         h1.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         h1.setOnClickListener(v -> LabSettingActivity.start(this));
         head.addView(h1);
-        TextView arLab = new TextView(this);
-        arLab.setText("自动启动");
-        arLab.setTextSize(12);
-        arLab.setTextColor(LabSkin.WALL_DIM);
-        LabSkin.halo(arLab);
-        LinearLayout.LayoutParams alp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        alp.rightMargin = dp(8);
-        arLab.setLayoutParams(alp);
-        head.addView(arLab);
-        masterSw = LabSkin.miniSwitch(this, false, on -> onMasterSwitch(on));
-        head.addView(masterSw);
-        headBox = head;
         root.addView(head);
 
         // 胶囊行：全部停止 / 运行中 N ›
@@ -163,12 +150,6 @@ public class LabHomeActivity extends AppCompatActivity {
         setContentView(root);
     }
 
-    /** 总开关拨动：落盘之外，拨上立即补跑一遍自启（冷启那遍之外唯一的触发点） */
-    private void onMasterSwitch(boolean on) {
-        LabRegistry.get(this).setMasterAutoStart(this, on);
-        if (on) LabBoot.kick(this);
-    }
-
     private TextView pill(String text) {
         TextView p = new TextView(this);
         p.setText(text);
@@ -184,11 +165,6 @@ public class LabHomeActivity extends AppCompatActivity {
 
     private void reload() {
         gridBox.removeAllViews();
-        // 开关重建（miniSwitch 是自绘 View，无 setChecked 口）
-        headBox.removeView(masterSw);
-        masterSw = LabSkin.miniSwitch(this, LabRegistry.get(this).masterAutoStart,
-                on -> onMasterSwitch(on));
-        headBox.addView(masterSw);
         int n = LabRunner.runningCount(this);
         runningNum.setText(String.valueOf(n));
         GridLayout grid = new GridLayout(this);

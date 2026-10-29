@@ -90,9 +90,12 @@ public final class LabRegistry {
     private final Map<String, Svc> svcs = new LinkedHashMap<>();
     @SerializedName("runtimes")
     private final Map<String, Runtime> runtimes = new LinkedHashMap<>();
-    /** 实验室总开关（自动启动） */
-    @SerializedName("masterAutoStart")
-    public boolean masterAutoStart = true;
+    /**
+     * 自启总开关已摘除（2026-10-29 他亲定）：自启只认每个包自己的标记
+     * （Svc.autoStartDefault／autoStart，见 autoStartOf）。存量注册表 JSON 里
+     * 可能还留着旧键 masterAutoStart——Gson 读时对无字段的键直接忽略，
+     * 下次落盘即自然消失，不做专门清理、不影响读表。
+     */
 
     /** 上次 load 的恢复/失败提示（非空=要在实验室首页给人看），不落盘 */
     private static String loadNotice;
@@ -210,11 +213,6 @@ public final class LabRegistry {
         save(c);
     }
 
-    public synchronized void setMasterAutoStart(Context c, boolean on) {
-        masterAutoStart = on;
-        save(c);
-    }
-
     public static boolean autoStartOf(Svc s) {
         if (s.autoStart != null) return s.autoStart;
         return s.autoStartDefault;
@@ -288,7 +286,7 @@ public final class LabRegistry {
      * 读回为空时的恢复（不许静默清空）：注册表只是索引，包本体都在
      * files/lab/packages/<id>/（lab.json 在包根、字面键稳定）。重建顺序：
      * ①扫包目录读 lab.json 立行（名字/运行时/版本以清单为准）；
-     * ②旧注册表文本（或 .corrupt 备份）按值的形状把端口与总开关找回来
+     * ②旧注册表文本（或 .corrupt 备份）按值的形状把端口找回来
      * （字段名是旧版 R8 字母、认不得，只能认值：运行时名是闭集、端口是
      * 1..65535 的整数、环境行带装机时间大长数可与服务行分开）。
      * 只恢复包目录还存在的 id（卸载过的包不许借尸还魂）。恢复到了就以
@@ -336,8 +334,7 @@ public final class LabRegistry {
         int driftCandidates = 0;
         if (driftText != null) {
             Map<String, Svc> drift = new LinkedHashMap<>();
-            Boolean master = recoverDrifted(driftText, drift);
-            if (master != null) r.masterAutoStart = master;
+            recoverDrifted(driftText, drift);
             driftCandidates = drift.size();
             for (Map.Entry<String, Svc> e : drift.entrySet()) {
                 Svc base = byId.get(e.getKey());
@@ -373,10 +370,11 @@ public final class LabRegistry {
 
     /**
      * 漂移格式（旧版 R8 字母键）注册表的形状读回：键名认不得，只认值。
-     * 顶层布尔＝总开关；对象套对象里，map 键就是服务 id（写盘时按 id 入表，
-     * 这一层不是字段名、不漂移）；行内找：值命中运行时闭集的字符串＝runtime，
-     * 1..65535 的整数＝port。环境行（名字＋版本＋装机时间大长数）靠
-     * 「大长数＋字符串≤2＋无端口」与服务行分开。返回总开关（没有为 null）。
+     * 顶层布尔＝已摘除的总开关旧键、只跳过；对象套对象里，map 键就是服务 id
+     * （写盘时按 id 入表，这一层不是字段名、不漂移）；行内找：值命中运行时
+     * 闭集的字符串＝runtime，1..65535 的整数＝port。环境行（名字＋版本＋
+     * 装机时间大长数）靠「大长数＋字符串≤2＋无端口」与服务行分开。
+     * 返回值是旧总开关值，现已无读者（调用方丢弃），保留只为不改方法形状。
      */
     static Boolean recoverDrifted(String text, Map<String, Svc> out) {
         Boolean master = null;
@@ -450,7 +448,7 @@ public final class LabRegistry {
      * 注册表读回（1.3.52 真机崩溃根治）：
      * R8 会剥掉集合字段的泛型签名（proguard 里没有 -keepattributes Signature），
      * Gson 按裸类型读 Map/List 时值全是 LinkedTreeMap，之后强转 bean 必崩。
-     * 这里改走 JsonParser 逐层读：顶层按形态分流（对象=服务/环境两张表，布尔=总开关），
+     * 这里改走 JsonParser 逐层读：顶层按形态分流（对象=服务/环境两张表，布尔=已摘除的总开关旧键、读掉丢弃），
      * 每个条目按具体类（Svc/Runtime，无泛型字段）重绑；字段名走 Gson 反射
      * （运行时实际名），不依赖源码名，手机上已存的老数据照读。
      */
@@ -490,7 +488,8 @@ public final class LabRegistry {
                     }
                 }
             } else if (v.isJsonPrimitive() && v.getAsJsonPrimitive().isBoolean()) {
-                r.masterAutoStart = v.getAsBoolean();
+                // 顶层布尔只可能是已摘除的总开关旧键（masterAutoStart）：
+                // 读到即丢，不落任何状态（2026-10-29 摘除）。
             }
         }
     }

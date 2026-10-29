@@ -157,8 +157,8 @@ public class HongguoSeriesDetailActivity extends BaseActivity {
         for (int i = 0; i < starViews.length; i++) {
             TextView star = new TextView(this);
             star.setText("★");
-            star.setTextSize(19);
-            star.setPadding(dp(1), 0, dp(1), 0);
+            star.setTextSize(23);
+            star.setPadding(dp(2), 0, dp(2), 0);
             final int idx = i;
             star.setOnClickListener(v -> {
                 if (scoreBusy) return;

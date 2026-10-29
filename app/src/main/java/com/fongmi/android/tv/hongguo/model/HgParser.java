@@ -1101,12 +1101,41 @@ public final class HgParser {
                 intOf(o, "content_type", -1),
                 firstStr(o, "publisher", "copyright"));
         item.vidIndex = intOf(o, "vid_index", -1);
+        item.kind = kindOf(o, albumInfo);
         fillInfoStack(item, o, rrl);
         // 合集条的追更数挂 album_info（fillInfoStack 只读本体 followed_cnt）
         if (albumInfo != null && item.followedCnt < 0) {
             item.followedCnt = longOf(albumInfo, "followed_cnt", -1);
         }
         return item;
+    }
+
+    /**
+     * 条目定型（普查卡 6/7/8 三型分家，账 hongguo-batch1-item-types
+     * -20261029）：只在解析入口按协议字段定一次——
+     * <ul>
+     *   <li>ALBUM：content_type＝1003（搜索侧实拉定版，见账
+     *       hongguo-search-parity-20261029），或条目本体无任何剧 id、
+     *       身份只来自 album_info（合集条的归一形态，与上一条同物）。</li>
+     *   <li>UGC_CLIP：content_type＝1001（频道存档回包实证）。</li>
+     *   <li>SERIES：其余全部（含 1004 正剧短片、content_type 缺失/未知
+     *       值）——多季/albumId 是正剧条目的属性（普查卡 8 第一义），
+     *       不许拿它们把正剧判成合集。</li>
+     * </ul>
+     * 流/频道侧存档回包里从未出现 1003 与 album_info（2026-10-28 两批
+     * 频道存档全量扫：只有 1001/1004），流侧合集的独立定型字段未抠到，
+     * 本函数在流侧实际只分出 SERIES/UGC_CLIP 两型——如实记账，不编字段。
+     */
+    private static HgItemKind kindOf(JsonObject o, JsonObject albumInfo) {
+        int ct = intOf(o, "content_type", -1);
+        if (ct == 1003) return HgItemKind.ALBUM;
+        if (albumInfo != null
+                && firstStr(o, "series_id", "book_id", "seriesId") == null
+                && longStr(o, "item_id") == null) {
+            return HgItemKind.ALBUM;
+        }
+        if (ct == 1001) return HgItemKind.UGC_CLIP;
+        return HgItemKind.SERIES;
     }
 
     /** 字符串化 JSON 对象（recommend_reason_list 形态）；解不开返回 null。 */

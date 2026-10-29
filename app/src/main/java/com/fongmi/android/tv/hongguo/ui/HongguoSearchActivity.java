@@ -408,7 +408,11 @@ public class HongguoSearchActivity extends BaseActivity {
      */
     private void onResultClick(HgSeriesItem item) {
         String albumId = item.getAlbumId();
-        if (item.getContentType() != 1003 || albumId == null || albumId.isEmpty()) {
+        // 合集判别只读解析入口定下的 kind（批一三型分家），不再回头比
+        // content_type 原值；kind＝ALBUM 与原 1003 判别同物（解析定型
+        // 口径见 HgParser.kindOf），行为不变
+        if (item.kind != com.fongmi.android.tv.hongguo.model.HgItemKind.ALBUM
+                || albumId == null || albumId.isEmpty()) {
             HongguoFeedActivity.startSeries(this, item.getSeriesId(), item.getTitle(), item.getCoverUrl());
             return;
         }

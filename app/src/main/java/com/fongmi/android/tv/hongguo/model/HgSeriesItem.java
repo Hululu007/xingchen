@@ -97,6 +97,14 @@ public final class HgSeriesItem {
      * 与 followedCnt 同惯例）；没带为 -1。
      */
     public int vidIndex = -1;
+    /**
+     * 条目类型（普查卡 6/7/8 三型）：只由解析器在解析入口按协议字段
+     * 定型后置填充（HgParser.asSeriesItem：content_type＝1003 或身份
+     * 只来自 album_info → ALBUM；content_type＝1001 → UGC_CLIP；其余
+     * → SERIES），手工构造的条目（专辑名单行/系列单补行）恒为正剧
+     * 缺省。消费端只读本字段分发，不许再按 content_type 原值推断。
+     */
+    public HgItemKind kind = HgItemKind.SERIES;
 
     HgSeriesItem(String seriesId, String title, String coverUrl, String desc, int episodeCount) {
         this(seriesId, title, coverUrl, desc, episodeCount, false, false, null);
@@ -154,11 +162,13 @@ public final class HgSeriesItem {
 
     /** 补完结态的副本（字段后补场景：如半屏单里当前行由页面条目拼装）。 */
     public HgSeriesItem withSeriesStatus(Integer status) {
-        return new HgSeriesItem(seriesId, title, coverUrl, desc, episodeCount,
+        HgSeriesItem copy = new HgSeriesItem(seriesId, title, coverUrl, desc, episodeCount,
                 hasAppointment, appointmentSubscribed, dueStartText,
                 vid, badge, recText, tags, vertical, multiSeason, albumId,
                 albumSerialCount, siblings, commentCount, diggCount, status, statement,
                 authorName, authorAvatar, authorUid, authorDesc, contentType, publisher);
+        copy.kind = kind;
+        return copy;
     }
 
     public String getStatement() { return statement; }

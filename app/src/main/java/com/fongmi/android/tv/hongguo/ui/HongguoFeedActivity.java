@@ -25,6 +25,7 @@ import androidx.viewpager2.widget.ViewPager2;
 
 import com.fongmi.android.tv.databinding.ActivityHongguoFeedBinding;
 import com.fongmi.android.tv.hongguo.api.HgCallback;
+import com.fongmi.android.tv.hongguo.model.HgItemKind;
 import com.fongmi.android.tv.hongguo.model.HgSeriesItem;
 import com.fongmi.android.tv.hongguo.model.HgUpdateLogic;
 import com.fongmi.android.tv.login.LoginManager;
@@ -547,7 +548,8 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         binding.hgFsPlay.setOnClickListener(v -> togglePlayPause());
         binding.hgFsSeries.setOnClickListener(v -> {
             if (currentPos < 0) return;
-            if (mode == MODE_FEED) enterSeries(currentPos);
+            // 流页走 onEnterSeries 统一分发（合集型条目落合集路，批一）
+            if (mode == MODE_FEED) onEnterSeries(currentPos);
             else HgEpisodeSheet.show(this, session, currentPos, this::jumpTo);
         });
         binding.hgFsSeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
@@ -1636,8 +1638,15 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
 
     @Override
     public void onSeriesBar(int position) {
-        // 短片流里点剧条＝进这部剧；集流里才是开选集（账 §4/§6.3）
+        // 短片流里点剧条＝进这部剧；集流里才是开选集（账 §4/§6.3）。
+        // 合集型条目例外（普查卡 8/专题 C）：底栏是所属合集条，落点是
+        // 合集详情、不进某部剧的集流——按解析定下的 kind 分发（批一）
         if (mode == MODE_FEED) {
+            if (position >= 0 && position < session.items.size()
+                    && session.items.get(position).kind == HgItemKind.ALBUM) {
+                openAlbumItem(session.items.get(position));
+                return;
+            }
             enterSeries(position);
             return;
         }
@@ -1646,7 +1655,56 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
 
     @Override
     public void onEnterSeries(int position) {
-        if (mode == MODE_FEED) enterSeries(position);
+        if (mode != MODE_FEED) return;
+        if (position >= 0 && position < session.items.size()
+                && session.items.get(position).kind == HgItemKind.ALBUM) {
+            openAlbumItem(session.items.get(position));
+            return;
+        }
+        enterSeries(position);
+    }
+
+    /**
+     * 合集型条目的落点（普查卡 8：官方是合集详情页 VideoAlbumDetail
+     * Activity；自家没有合集详情页，以专辑名单承接——与搜索合集条
+     * 点击同一路，账 hongguo-search-parity）：拉 album 名单弹系列单，
+     * 选一条进其集流；拉空/失败给明确提示，不拿 album id 冒充 series
+     * id 直进（必空转）。UGC 短片的所属合集 id 在流侧存档回包里没有
+     * 对应字段（未抠到），UGC 型不走本路、仍进所属剧集流。
+     */
+    private void openAlbumItem(HgFeedItem item) {
+        String albumId = item.albumId != null && !item.albumId.isEmpty()
+                ? item.albumId : item.seriesId;
+        if (albumId == null || albumId.isEmpty()) return;
+        suppressResumeRefresh = true;
+        session.client.fetchAlbum(albumId, new HgCallback<List<HgSeriesItem>>() {
+            @Override
+            public void onSuccess(List<HgSeriesItem> rows) {
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    if (rows == null || rows.isEmpty()) {
+                        android.widget.Toast.makeText(HongguoFeedActivity.this,
+                                "合集暂时打不开，稍后再试", android.widget.Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    HgSeriesSheet.show(HongguoFeedActivity.this, rows, null,
+                            session.interactions, picked ->
+                                    startSeries(HongguoFeedActivity.this,
+                                            picked.getSeriesId(), picked.getTitle(),
+                                            picked.getCoverUrl(), picked.getAuthorUid(),
+                                            picked.getPublisher()));
+                });
+            }
+
+            @Override
+            public void onError(int httpCode, String message) {
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    android.widget.Toast.makeText(HongguoFeedActivity.this,
+                            "合集暂时打不开，稍后再试", android.widget.Toast.LENGTH_SHORT).show();
+                });
+            }
+        });
     }
 
     /** 剧名行点入剧详情页（用户亲授：与作者页分开的另一个去处）。 */

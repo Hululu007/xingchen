@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.hongguo.ui;
 
+import com.fongmi.android.tv.hongguo.model.HgItemKind;
 import com.fongmi.android.tv.hongguo.model.HgSeriesItem;
 
 import java.util.Collections;
@@ -67,6 +68,15 @@ public final class HgFeedItem {
     public final List<HgSeriesItem> siblings;
     /** 完结态（cell series_status，频道存档实证）；没带为 null。 */
     public final Integer seriesStatus;
+    /**
+     * 条目类型（普查卡 6/7/8 三型）：解析入口按协议字段定型后经
+     * fromSeries 携带进来（见 HgParser 的定型口径），定下不再变——
+     * 消费端（适配器/Activity）只按本字段分发右列顶动作/底栏形态/
+     * 点击落点，不许再拿 clip/contentType 等旗在消费端拼装推断。
+     * clip/seriesHead 只剩「页表形态」（短片/剧头/集页）语义，与类型
+     * 是两回事：集流的逐集页恒为 SERIES、剧头携带其来源条目的类型。
+     */
+    public final HgItemKind kind;
 
     /** 剧头（未定形态）标记；定形态后置 false。 */
     public boolean seriesHead;
@@ -136,7 +146,8 @@ public final class HgFeedItem {
                        boolean seriesHead, boolean clip, String badge, String recText,
                        List<String> tags, boolean multiSeason, String albumId,
                        int albumSerialCount, List<HgSeriesItem> siblings,
-                       String likeCount, String commentCount, Integer seriesStatus) {
+                       String likeCount, String commentCount, Integer seriesStatus,
+                       HgItemKind kind) {
         this.seriesId = seriesId;
         this.videoId = videoId;
         this.episodeIndex = episodeIndex;
@@ -162,13 +173,14 @@ public final class HgFeedItem {
         this.albumSerialCount = albumSerialCount;
         this.siblings = siblings == null ? Collections.emptyList() : siblings;
         this.seriesStatus = seriesStatus;
+        this.kind = kind == null ? HgItemKind.SERIES : kind;
     }
 
     public static HgFeedItem head(String seriesId, String title, String category,
                                   String desc, String coverUrl, int episodeCount) {
         return new HgFeedItem(seriesId, null, -1, episodeCount, title, category,
                 null, null, desc, coverUrl, 0, 0, true, false,
-                null, null, null, false, null, -1, null, null, null, null);
+                null, null, null, false, null, -1, null, null, null, null, HgItemKind.SERIES);
     }
 
     public static HgFeedItem episode(String seriesId, String videoId, int episodeIndex,
@@ -177,7 +189,7 @@ public final class HgFeedItem {
                                      String coverUrl) {
         return new HgFeedItem(seriesId, videoId, episodeIndex, episodeCount, title, category,
                 authorName, authorAvatar, desc, coverUrl, 0, 0, false, false,
-                null, null, null, false, null, -1, null, null, null, null);
+                null, null, null, false, null, -1, null, null, null, null, HgItemKind.SERIES);
     }
 
     /**
@@ -203,7 +215,7 @@ public final class HgFeedItem {
                 s.getVid() == null, s.getVid() != null,
                 s.getBadge(), s.getRecText(), s.getTags(), s.isMultiSeason(),
                 s.getAlbumId(), s.getAlbumSerialCount(), s.getSiblings(),
-                formatCount(s.getDiggCount()), formatCount(s.getCommentCount()), s.getSeriesStatus());
+                formatCount(s.getDiggCount()), formatCount(s.getCommentCount()), s.getSeriesStatus(), s.kind);
         if (s.hasAppointment()) {
             item.reservable = true;
             item.dueStartText = s.getDueStartText();
@@ -229,7 +241,7 @@ public final class HgFeedItem {
         HgFeedItem copy = new HgFeedItem(seriesId, videoId, episodeIndex, episodeCount, title,
                 category, authorName, authorAvatar, desc, coverUrl, width, height,
                 seriesHead, clip, badge, recText, tags, multiSeason, albumId,
-                albumSerialCount, siblings, likeCount, commentCount, seriesStatus);
+                albumSerialCount, siblings, likeCount, commentCount, seriesStatus, kind);
         copy.expandTried = expandTried;
         copy.reservable = reservable;
         copy.dueStartText = dueStartText;
@@ -257,7 +269,7 @@ public final class HgFeedItem {
         HgFeedItem copy = new HgFeedItem(seriesId, videoId, episodeIndex, episodeCount, seriesTitle,
                 category, authorName, authorAvatar, desc, coverUrl, videoWidth, videoHeight,
                 seriesHead, clip, badge, recText, tags, multiSeason, albumId,
-                albumSerialCount, siblings, likeCount, commentCount, seriesStatus);
+                albumSerialCount, siblings, likeCount, commentCount, seriesStatus, kind);
         copy.expandTried = expandTried;
         copy.reservable = reservable;
         copy.dueStartText = dueStartText;
@@ -295,7 +307,7 @@ public final class HgFeedItem {
                 detailDesc != null ? detailDesc : desc,
                 coverUrl, videoWidth, videoHeight, false, true,
                 badge, recText, tags, multiSeason, albumId, albumSerialCount, siblings,
-                likeCount, commentCount, seriesStatus);
+                likeCount, commentCount, seriesStatus, kind);
         copy.expandTried = true;
         copy.reservable = reservable;
         copy.dueStartText = dueStartText;
@@ -328,7 +340,7 @@ public final class HgFeedItem {
                 avatar != null ? avatar : authorAvatar, desc, coverUrl,
                 videoWidth, videoHeight, seriesHead, clip,
                 badge, recText, tags, multiSeason, albumId, albumSerialCount, siblings,
-                likeCount, commentCount, seriesStatus);
+                likeCount, commentCount, seriesStatus, kind);
         copy.expandTried = expandTried;
         copy.reservable = reservable;
         copy.dueStartText = dueStartText;
@@ -351,13 +363,14 @@ public final class HgFeedItem {
     }
 
     /**
-     * UGC 短片（剧评/推剧短片，content_type＝1001）：它的 vid 在单集
-     * 取模型口恒回 101000，模型只能先经 UGC 批量详情（source=17）
-     * 灌进缓存再起播——会话层落定起播链靠此分流（定根账
-     * feed-item-fetch-fail-20261029 §2/§4）。
+     * 本条是否 UGC 短片形态的页（类型 UGC_CLIP 且已定成短片）：它的
+     * vid 在单集取模型口恒回 101000，模型只能先经 UGC 批量详情
+     * （source=17）灌进缓存再起播——会话层落定起播链靠此分流（定根账
+     * feed-item-fetch-fail-20261029 §2/§4）。类型判别只读解析入口定下
+     * 的 {@link #kind}，不再回头拼 content_type 原值（批一三型分家）。
      */
     public boolean isUgcClip() {
-        return clip && contentType == 1001;
+        return clip && kind == HgItemKind.UGC_CLIP;
     }
 
     /** 是否横屏剧（宽大于高）；尺寸未知时 cell 的 vertical 预判由 fromSeries 侧补（见适配器）。 */
@@ -437,7 +450,11 @@ public final class HgFeedItem {
     public String feedBarText() {
         StringBuilder sb = new StringBuilder();
         String name = title == null ? "" : title.trim();
-        boolean postForm = isUgcClip() || (authorName != null && !authorName.isEmpty());
+        // 底栏形态按类型分发（普查专题 B/C）：UGC 短片与合集走帖/合集
+        // 条形（类目＋剧名），正剧走本剧条形（观看完整短剧）。旧版判别
+        // 是 isUgcClip 或「有作者名」——正剧短片若带作者名会被拼成帖形，
+        // 是类型没分家时的拼装推断，批一改只认 kind。
+        boolean postForm = kind == HgItemKind.UGC_CLIP || kind == HgItemKind.ALBUM;
         if (postForm && !name.isEmpty()) {
             if (category != null && !category.isEmpty()) sb.append(category).append(' ');
             sb.append(name);

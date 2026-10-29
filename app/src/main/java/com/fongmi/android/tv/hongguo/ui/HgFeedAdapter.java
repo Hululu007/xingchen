@@ -14,6 +14,7 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.databinding.ItemHongguoFeedBinding;
+import com.fongmi.android.tv.hongguo.model.HgItemKind;
 import com.fongmi.android.tv.utils.ImgUtil;
 
 import java.util.HashSet;
@@ -220,8 +221,12 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         b.hgPauseIcon.setVisibility(View.GONE);
         b.hgProgressFill.setScaleX(0f);
         b.hgProgressDot.setTranslationX(0f);
-        // 条目款式（账 §3/§5）：挂多季/专辑关系的走系列剧款，其余作者款
-        boolean seriesStyle = item.multiSeason || item.albumId != null || !item.siblings.isEmpty();
+        // 条目款式（账 §3/§5）：挂多季/专辑关系的走系列剧款，其余作者款。
+        // 系列款是正剧条目的专辑属性形态（普查卡 8 第一义）——只给
+        // SERIES 型：UGC 短片的 albumId 是所属合集、不是它自己的系列
+        // 身份，套系列款就是批一要拆的拼装推断（账 hongguo-batch1）
+        boolean seriesStyle = item.kind == HgItemKind.SERIES
+                && (item.multiSeason || item.albumId != null || !item.siblings.isEmpty());
         // 作者行分工：集流＝官方 InfoPanel 作者行（头像 30dp＋名＋箭头＋
         // 关注钮）；流页＝纯文本「@名」行（官方流页实拍同此）。有真名才显，
         // 无名整行藏；系列剧款两边都不走作者行
@@ -456,6 +461,12 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         ImageView favIcon = (ImageView) ((ViewGroup) b.hgActFav).getChildAt(0);
         likeIcon.setImageResource(in.isLiked(item.seriesId) ? R.drawable.ic_hg_heart_fill : R.drawable.ic_hg_heart);
         favIcon.setImageResource(in.isFavorite(item.seriesId) ? R.drawable.ic_hg_star_fill : R.drawable.ic_hg_star);
+        // 右列顶部动作按类型分家（普查专题 B）：星钮是正剧的追剧架动作
+        // （对象是剧）；UGC 短片顶部是作者头像＋关注徽标（对象是人，在
+        // 头像盒上）、合集条目的身份是 album——这两型都不许再亮星钮、
+        // 不许走追剧架口子（批一拆型点，账 hongguo-batch1-item-types）
+        boolean shelfAction = item.kind == HgItemKind.SERIES;
+        b.hgActFav.setVisibility(shelfAction ? View.VISIBLE : View.GONE);
         // 头像「+」徽标＝作者关注态（与作者主页关注钮同读 HgStore 作者集，
         // 按作者 uid 记）：旧实现读的是按剧的追更集（isFollowing(seriesId)）
         //＋已关注变暗——语义与呈现都错位，本批整段换掉；条目没带 uid
@@ -469,7 +480,9 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         // 评论数数据驱动：会话里有真总数（评论面板拉到过）才亮，否则不显示
         String cc = session.commentCountOf(item.seriesId);
         setCount(b.hgCommentCount, cc != null ? cc : item.commentCount);
-        setCount(b.hgFavCount, item.favCount);
+        // 星数（followed_cnt）同星钮口径：只有正剧型才显——UGC/合集的
+        // favCount 是作者/合集维度的数，挂在追剧架星位就是串位
+        setCount(b.hgFavCount, shelfAction ? item.favCount : null);
         bindReserveState(holder, item);
         bindDramaBarState(holder, item);
     }
@@ -481,7 +494,8 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
      * 他点名的底部叠压。 */
     public void bindReserveState(Holder holder, HgFeedItem item) {
         ItemHongguoFeedBinding b = holder.binding;
-        if (seriesMode || !item.reservable) {
+        // 预约面是正剧未上线剧的形态（普查卡 13）：非正剧型不亮
+        if (seriesMode || item.kind != HgItemKind.SERIES || !item.reservable) {
             b.hgReserve.setVisibility(View.GONE);
             return;
         }
@@ -513,7 +527,7 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
     public void bindDramaBarState(Holder holder, HgFeedItem item) {
         ItemHongguoFeedBinding b = holder.binding;
         if (!seriesMode || landInstance || item.seriesId == null || item.seriesId.isEmpty()
-                || item.isUgcClip()) {
+                || item.kind != HgItemKind.SERIES) {
             b.hgDramaBar.setVisibility(View.GONE);
             return;
         }

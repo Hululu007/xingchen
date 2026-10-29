@@ -25,6 +25,7 @@ import androidx.viewpager2.widget.ViewPager2;
 
 import com.fongmi.android.tv.databinding.ActivityHongguoFeedBinding;
 import com.fongmi.android.tv.hongguo.api.HgCallback;
+import com.fongmi.android.tv.hongguo.api.HgPrefetcher;
 import com.fongmi.android.tv.hongguo.model.HgItemKind;
 import com.fongmi.android.tv.hongguo.model.HgSeriesItem;
 import com.fongmi.android.tv.hongguo.model.HgUpdateLogic;
@@ -264,6 +265,9 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     private boolean speedBoost;
     /** 清晰度切换的重播位置（play() 消费一次；-1＝不用、走断点口径）。 */
     private long pendingSeekMs = -1;
+    /** 尾段预取已为哪条在播 vid 触发过（播中触发口径，见 maybeTailPrefetch）：
+     * 同一条播放只触发一次——预取失败也不在尾段里每 400ms 重发（额度保护）。 */
+    private String tailPrefetchVid;
     /** 定时关闭：档位/自定义分钟（会话内状态，不落盘）；计时档走 timerFireRunnable。 */
     private int timerMode = HgPanelLogic.TIMER_OFF;
     private int timerMinutes;
@@ -1061,9 +1065,11 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
 
     /**
      * settle 后的预备工作：只做详情类预展开（下一剧头定 vid）、回收滑远的流、
-     * 临近末尾续拉下一页。video_model 一律不再预取——限流对策口径
-     * （feed-all-placeholder §E）：play 类接口只为真正要播的那一条取，
-     * 预取批量正是把设备档案打爆的压力源；封面靠列表数据本身渲染，不另发请求。
+     * 临近末尾续拉下一页。settle 时点不取 video_model——限流对策口径
+     * （feed-all-placeholder §E）：批量预取正是把设备档案打爆的压力源；
+     * video_model 的唯一预取口在播中尾段（maybeTailPrefetch，他亲定
+     * 「播中触发」：真播起来、近尾段才取下一集一份）；封面靠列表数据
+     * 本身渲染，不另发请求。
      */
     private void afterSettleSideWork(int position) {
         if (mode == MODE_FEED) {
@@ -1243,6 +1249,42 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         if (danmakuVid != null && !danmakuFetching && danmakuNextQueryMs >= 0
                 && position >= danmakuNextQueryMs) {
             fetchDanmakuWindow(danmakuNextQueryMs);
+        }
+        maybeTailPrefetch(position, duration);
+    }
+
+    /**
+     * 播中尾段预取（2026-10-29 他亲定口径，账 hongguo-batch3b-play-20261029）：
+     * 进页/滑到/暂停未播一律不发；当前条真播起来（isPlaying 且播的就是
+     * 当前条）且播放位置进入尾段（HgPrefetcher.isTailSegment：剩余
+     * ≤30 秒或进度 ≥85%）时，只取下一条一份备好、切过去直接播。
+     * 集流（含横屏实例）取同剧下一集；发现流取下一条条目——但下一条
+     * 须是已有 vid 的正剧短片：剧头没 vid 不取、未上线预约面不取、
+     * UGC 短片不取（它的 model 走 UGC 详情口、单集 video_model 口恒
+     * 回 101000，是死路，起播时 prepareUgcClip 另有正路）。
+     * 同一条播放只触发一次（tailPrefetchVid 记账）；已缓存/在途的
+     * 由 HgPrefetcher 的 cache＋inFlight 去重，不重取。
+     */
+    private void maybeTailPrefetch(long position, long duration) {
+        if (player == null || !player.isPlaying()) return;
+        if (currentPos < 0 || currentPos >= session.items.size()) return;
+        HgFeedItem item = session.items.get(currentPos);
+        if (item.videoId == null || !item.videoId.equals(playingVideoId)) return;
+        if (!HgPrefetcher.isTailSegment(true, position, duration)) return;
+        if (item.videoId.equals(tailPrefetchVid)) return;
+        if (mode == MODE_SERIES) {
+            tailPrefetchVid = item.videoId;
+            java.util.List<String> ids = session.seriesVideoIds(item.seriesId);
+            int idx = session.indexWithinSeries(item);
+            session.prefetcher.prefetchNext(ids, idx, null);
+        } else {
+            if (currentPos + 1 >= session.items.size()) return;
+            HgFeedItem next = session.items.get(currentPos + 1);
+            if (next.videoId == null || next.seriesHead || next.reservable
+                    || next.kind != HgItemKind.SERIES || next.isUgcClip()) return;
+            tailPrefetchVid = item.videoId;
+            session.prefetcher.prefetchIds(
+                    java.util.Collections.singletonList(next.videoId), null);
         }
     }
 

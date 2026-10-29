@@ -8,11 +8,17 @@ import java.util.List;
 /**
  * 预取器：给播放页的「批量＋可预取」入口形态（流畅死线）。
  *
- * <p>用法：播放页拿到一剧的集 id 有序表后，每滑到一集就调
- * {@link #prefetchAround(List, int)}，它把后面若干集里缓存没有的，
- * 一批并发走签名单集口取回并入缓存（openhongguo 无批量模型口，见
- * HgApiClient.fetchVideoModels 注）——滑到之前数据与钥匙（spade_a 在模型里，
- * DEK 可即时推导）已经备好，不做起播时现取现等。</p>
+ * <p>生产触发口径（2026-10-29 他亲定，账 hongguo-batch3b-play-20261029）：
+ * 只许「播中触发」——列表浏览/刚进页/滑到一集都不许抢取下一集地址
+ * （1.4.55 烧 video_model 额度的老路，cdbba10ca 曾整批摘除预取）；
+ * 当前集真播起来、播放位置进入尾段（{@link #isTailSegment}）时，才经
+ * {@link #prefetchNext(List, int)} 取**下一集一份**备好，切集直接播，
+ * 花费＝真看的一集一份。官方侧：包内预取开关缺省关、由服务端配置
+ * 决定，活值探不到——此口径是按他体验定的本地策略，不冒充官方活值。</p>
+ *
+ * <p>{@link #prefetchAround(List, int)} 是通用批量口（当前＋前瞻若干），
+ * 现行无生产调用点（其在途去重语义由 HgProxyOfflineTest 钉住）；生产
+ * 触发只走 prefetchNext。</p>
  */
 public final class HgPrefetcher {
 
@@ -42,6 +48,48 @@ public final class HgPrefetcher {
     /** 已备好的模型（新鲜）直接取；没有返回 null，调用方再走现取。 */
     public HgVideoModel ready(String videoId) {
         return cache.getFresh(videoId);
+    }
+
+    // ---------- 播中尾段触发（生产口径，见类头） ----------
+
+    /** 尾段剩余时长门槛：剩余 ≤30 秒即入尾段（短剧单集多为 1–3 分钟，
+     * 30 秒够一笔 video_model 往返＋解链，又不至于大半集都在预取窗里）。 */
+    public static final long TAIL_REMAINING_MS = 30_000L;
+
+    /** 尾段进度门槛：进度 ≥85% 即入尾段（长集靠百分比兜底，
+     * 免得剩余 30 秒门槛对长集触发太晚、切集时还没备好）。 */
+    public static final double TAIL_FRACTION = 0.85;
+
+    /**
+     * 是否已进尾段（纯函数，离线可验）：必须真在播（playing）——暂停/
+     * 未起播恒 false；时长未知（≤0）恒 false；位置入尾段＝剩余
+     * ≤{@link #TAIL_REMAINING_MS} 或进度 ≥{@link #TAIL_FRACTION}，任一
+     * 成立即是。位置越界（负/超长）按收界后判。
+     */
+    public static boolean isTailSegment(boolean playing, long positionMs, long durationMs) {
+        if (!playing || durationMs <= 0) return false;
+        long pos = Math.max(0L, Math.min(positionMs, durationMs));
+        if (durationMs - pos <= TAIL_REMAINING_MS) return true;
+        return pos >= durationMs * TAIL_FRACTION;
+    }
+
+    /**
+     * 尾段预取下一集一份：orderedIds 为全剧集 id 有序表，currentIndex
+     * 为当前集下标——只取 currentIndex+1 那一集（尾段触发语义下
+     * lookahead＝1）；没有下一集/下一集已缓存/已在途时不发请求
+     * （去重在 {@link #prefetchIds} 的 cache＋inFlight 机制里）。
+     */
+    public void prefetchNext(List<String> orderedIds, int currentIndex, HgCallback<Integer> done) {
+        if (orderedIds == null || currentIndex < 0 || currentIndex + 1 >= orderedIds.size()) {
+            if (done != null) done.onSuccess(0);
+            return;
+        }
+        String next = orderedIds.get(currentIndex + 1);
+        if (next == null) {
+            if (done != null) done.onSuccess(0);
+            return;
+        }
+        prefetchIds(java.util.Collections.singletonList(next), done);
     }
 
     /**

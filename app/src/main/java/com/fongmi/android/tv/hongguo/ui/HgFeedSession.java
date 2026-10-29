@@ -132,7 +132,7 @@ public final class HgFeedSession {
         return seriesId == null ? null : details.get(seriesId);
     }
 
-    /** 同剧全部集 id（页表顺序）＋某集在其中的下标，供 prefetchAround 用。 */
+    /** 同剧全部集 id（页表顺序）＋某集在其中的下标，供预取（播中尾段 prefetchNext）用。 */
     public List<String> seriesVideoIds(String seriesId) {
         List<String> out = new ArrayList<>();
         for (HgFeedItem it : items) {

@@ -20,7 +20,7 @@ import java.util.regex.Pattern;
  * 归一到实验室自己的服务模型（LabManifest）。
  *
  * 纯逻辑类，不碰 android.*，可离线单测。
- * 路径占位约定（LabRunner.expand 会替换）：{port} {pkgDir} {filesDir}
+ * 路径占位约定（LabRunner.expand 会替换）：{port} {pkgDir} {filesDir} {hostPort}
  */
 public final class LabImportCompat {
 
@@ -71,6 +71,81 @@ public final class LabImportCompat {
     }
 
     private LabImportCompat() {
+    }
+
+    // ---------------- Node bundle 引导脚本（宿主生成） ----------------
+
+    /** 引导脚本文件名：随 bundle 一起落进包目录，启动命令先跑它、由它拉起真入口 */
+    public static final String NODE_BOOT_NAME = "lab-node-boot.js";
+
+    /**
+     * 引导脚本内容（宿主生成，与点播链 tv.node.NodeBoot 同口径）：
+     * 这类 bundle 的预期启动形态是宿主 require 后调 start(conf)，监听端口读
+     * process.env.DEV_HTTP_PORT（不给即随机口），数据根读 NODE_PATH，还会用
+     * 两个宿主全局 catServerFactory / catDartServerPort——裸 node <main> 直跑
+     * 三样全缺，包要么起不来、要么听在随机口上和服务页登记的分配口对不上。
+     * 本脚本补齐这一层：端口由启动命令以 DEV_HTTP_PORT={port} 注入（分配口
+     * 由 LabRunner.allocPort 先探空闲再定，不是猜）、宿主口以 LAB_HOST_PORT
+     * 注入（{hostPort} 展开成 App 的 Nano 服务口，与点播链 NodeBoot 传
+     * Proxy.getPort() 同一个值）、NODE_PATH 指到入口同目录的 data/、同目录
+     * 配置（<入口名>.config.js，命名规则与 nodeBundleConfigName 一致）读作
+     * conf 传给 start()。与 NodeBoot 的一处有意差异：不落盘发布实际端口——
+     * 点播链要靠落盘在一堆候选服务里认真正的猫源口，实验室这边端口是宿主
+     * 分配并强制注入的，服务页登记的口就是它，没有第二个读者。
+     */
+    public static String nodeBootSource() {
+        return "'use strict';\n"
+                + "const http = require('http');\n"
+                + "const fs = require('fs');\n"
+                + "const path = require('path');\n"
+                // fastify 的 serverFactory 契约：拿到 handler 返回一个 http.Server（同 NodeBoot）
+                + "globalThis.catServerFactory = (handler) => http.createServer(handler);\n"
+                // bundle 会 POST 到 http://127.0.0.1:<port>/msg 回调宿主，口由命令注入
+                + "const hostPort = parseInt(process.env.LAB_HOST_PORT || '0', 10);\n"
+                + "globalThis.catDartServerPort = () => hostPort;\n"
+                + "process.on('uncaughtException', (e) => console.error('uncaught', e));\n"
+                + "process.on('unhandledRejection', (e) => console.error('unhandled', e));\n"
+                + "(async () => {\n"
+                + "  try {\n"
+                + "    const main = process.argv[2];\n"
+                + "    if (!main) throw new Error('no bundle entry given');\n"
+                // NODE_PATH 是 bundle 约定的数据根目录（db.json、vod_cache 落这儿），
+                // 指到入口同目录的 data/，与 NodeBoot 的 bundle 同级 data 口径一致
+                + "    const data = path.join(path.dirname(main), 'data');\n"
+                + "    try { fs.mkdirSync(data, { recursive: true }); } catch (e) {}\n"
+                + "    process.env.NODE_PATH = data;\n"
+                + "    const mod = require(main);\n"
+                + "    const start = mod.start || (mod.default && mod.default.start);\n"
+                + "    if (typeof start !== 'function') throw new Error('bundle has no start()');\n"
+                // 配置必须传真实内容：各站点从 server.config.<key> 取参数，空对象会让它们抛 undefined
+                + "    let conf = {};\n"
+                + "    const cfgPath = /\\.js$/i.test(main)\n"
+                + "      ? main.replace(/\\.js$/i, '.config.js')\n"
+                + "      : path.join(path.dirname(main), 'index.config.js');\n"
+                + "    if (fs.existsSync(cfgPath)) {\n"
+                + "      try {\n"
+                + "        const raw = require(cfgPath);\n"
+                + "        conf = raw && raw.default ? raw.default : (raw || {});\n"
+                + "        console.log('config keys: ' + Object.keys(conf).length);\n"
+                + "      } catch (e) { console.error('config load failed', e.message); }\n"
+                + "    }\n"
+                + "    await start(conf);\n"
+                // listen 之后留心跳撑住事件循环，与 NodeBoot 同口径
+                + "    setInterval(() => {}, 60000);\n"
+                + "    console.log('lab node bundle started on ' + (process.env.DEV_HTTP_PORT || 'random'));\n"
+                + "  } catch (e) {\n"
+                + "    console.error('lab node bundle failed', e && e.stack ? e.stack : e);\n"
+                + "  }\n"
+                + "})();\n";
+    }
+
+    /** 引导脚本字节（安装落盘用） */
+    public static byte[] nodeBootBytes() {
+        try {
+            return nodeBootSource().getBytes("UTF-8");
+        } catch (Exception e) {
+            return nodeBootSource().getBytes();
+        }
     }
 
     // ---------------- 识别＋分发 ----------------
@@ -885,9 +960,15 @@ public final class LabImportCompat {
 
     /**
      * Node bundle → 一条服务。成立前提：调用方已按指针把真身拉下并验过 MD5。
-     * 启动命令必须带 PORT={port} 前缀：实验室 applyEnv 不注入 PORT，
-     * 不带的话包按自己的缺省端口听，和服务页登记的分配端口对不上。
-     * 同目录配置裸跑时不被读（只被宿主调 start(config) 的那条路消费），仍一并落盘备用。
+     * 启动走宿主生成的引导脚本（nodeBootSource）：包认的端口变量是
+     * DEV_HTTP_PORT 不是 PORT，且包要宿主 require 后调 start(conf)＋宿主
+     * 全局＋NODE_PATH，裸 node <main> 直跑三样全无（node-retire 阶段二定根）。
+     * 产出声明随引导层落值：端口由引导层强制注入为分配口、config 端点是
+     * 这类包对宿主的固定形态（点播链 tv.node.NodeRuntime.configUrl 同形
+     * http://127.0.0.1:{port}/config），故 kind=vod、target 指向它——
+     * 与 fromTermux 从 web_url 语义推导 tool/target 同路：值来自服务形态
+     * 本身，不是导入数据里抄来的声明，也不是凭空自创。
+     * 同目录配置一并落盘，引导脚本启动时读作 conf 传给 start()。
      */
     public static ImportItem fromNodeBundle(String url, byte[] mainBytes, byte[] configBytes) {
         ImportItem it = new ImportItem();
@@ -901,15 +982,20 @@ public final class LabImportCompat {
         it.background = true;
         it.autoStart = false;
         it.portPolicy = "auto";
+        it.outputKind = "vod";
+        it.outputTarget = "http://127.0.0.1:{port}/config";
         it.assetName = mainName;
         it.assetBytes = mainBytes;
+        it.extraFiles = new LinkedHashMap<>();
         if (configBytes != null && configBytes.length > 0) {
-            it.extraFiles = new LinkedHashMap<>();
             it.extraFiles.put(nodeBundleConfigName(mainName), configBytes);
         }
-        it.command = "PORT={port} {filesDir}/lab/runtimes/nodejs/bin/node {pkgDir}/" + mainName;
+        it.extraFiles.put(NODE_BOOT_NAME, nodeBootBytes());
+        it.command = "DEV_HTTP_PORT={port} LAB_HOST_PORT={hostPort} "
+                + "{filesDir}/lab/runtimes/nodejs/bin/node {pkgDir}/" + NODE_BOOT_NAME
+                + " {pkgDir}/" + mainName;
         it.needsReview = addLine(it.needsReview,
-                "这是按 .md5 指针拉下来的远程 Node 服务包，整包已部署成本地服务；同目录的配置文件也一并放进包里备用了（裸跑不读它）");
+                "这是按 .md5 指针拉下来的远程 Node 服务包，整包已部署成本地服务；同目录的配置文件也一并放进包里，启动时由引导脚本读作配置传给包");
         return it;
     }
 
@@ -965,9 +1051,12 @@ public final class LabImportCompat {
 
     /**
      * 本地 Node bundle → 一条服务（与网址路 fromNodeBundle 同一类目收口）。
-     * keepPrefix=false（7z/本地目录路）：文件由安装器按 asset/extraFiles 落到
-     * 包根，前缀剥掉，命令跑 {pkgDir}/index.js；keepPrefix=true（zip 路）：
-     * 文件由安装器整包解压原样落盘，命令按前缀指到真入口。
+     * 启动同样走引导脚本（nodeBootSource）、产出声明同样落 vod＋/config，
+     * 依据见 fromNodeBundle 的注释。keepPrefix=false（7z/本地目录路）：
+     * 文件由安装器按 asset/extraFiles 落到包根、引导脚本随 extraFiles 一起
+     * 落；keepPrefix=true（zip 路）：文件由安装器整包解压原样落盘、引导
+     * 脚本不在包里，由安装器在解压后按命令引用补写到包根（LabPackageInstaller），
+     * 命令按前缀指到真入口。
      */
     public static ImportItem fromNodeBundleLocal(String displayName, Map<String, byte[]> files,
                                                  String prefix, boolean keepPrefix) {
@@ -990,9 +1079,12 @@ public final class LabImportCompat {
         it.background = true;
         it.autoStart = false;
         it.portPolicy = "auto";
+        it.outputKind = "vod";
+        it.outputTarget = "http://127.0.0.1:{port}/config";
         if (keepPrefix) {
-            it.command = "PORT={port} {filesDir}/lab/runtimes/nodejs/bin/node {pkgDir}/"
-                    + prefix + "index.js";
+            it.command = "DEV_HTTP_PORT={port} LAB_HOST_PORT={hostPort} "
+                    + "{filesDir}/lab/runtimes/nodejs/bin/node {pkgDir}/" + NODE_BOOT_NAME
+                    + " {pkgDir}/" + prefix + "index.js";
         } else {
             it.assetName = "index.js";
             Map<String, byte[]> extras = new LinkedHashMap<>();
@@ -1006,11 +1098,15 @@ public final class LabImportCompat {
                     else extras.put(rel, e.getValue());
                 }
             }
-            if (!extras.isEmpty()) it.extraFiles = extras;
-            it.command = "PORT={port} {filesDir}/lab/runtimes/nodejs/bin/node {pkgDir}/index.js";
+            // 引导脚本由宿主生成、随包文件一起落盘；包里万一有同名文件以宿主为准
+            extras.put(NODE_BOOT_NAME, nodeBootBytes());
+            it.extraFiles = extras;
+            it.command = "DEV_HTTP_PORT={port} LAB_HOST_PORT={hostPort} "
+                    + "{filesDir}/lab/runtimes/nodejs/bin/node {pkgDir}/" + NODE_BOOT_NAME
+                    + " {pkgDir}/index.js";
         }
         it.needsReview = addLine(it.needsReview,
-                "本地 Node 服务包：整包文件已部署成本地服务，启动跑 index.js；这类包没有清单，端口自动分配，地址进服务页看");
+                "本地 Node 服务包：整包文件已部署成本地服务，启动经引导脚本拉起 index.js；这类包没有清单，端口自动分配，起来后在服务页可直接当点播源接入");
         return it;
     }
 

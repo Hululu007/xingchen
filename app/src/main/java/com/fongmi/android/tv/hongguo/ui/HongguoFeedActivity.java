@@ -1357,6 +1357,9 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
      */
     private void enterCleanMode() {
         cleanMode = true;
+        // 清屏态同步给适配器：清屏期间条目重绑时按同一隐显集合复位，
+        // 不许把已隐的件漏回屏上（扫查 H3）
+        if (adapter != null) adapter.setCleanMode(true);
         binding.hgSeriesBar.setVisibility(View.GONE);
         binding.hgTopScrim.setVisibility(View.GONE);
         HgFeedAdapter.Holder h = currentHolder();
@@ -1379,6 +1382,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     private void exitCleanMode() {
         if (!cleanMode) return;
         cleanMode = false;
+        if (adapter != null) adapter.setCleanMode(false);
         setChromeHidden(false);
     }
 

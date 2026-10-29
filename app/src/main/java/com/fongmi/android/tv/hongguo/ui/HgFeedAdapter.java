@@ -106,6 +106,10 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
     /** 集流模式（进剧后的竖屏剧集页）：底部行/作者行/信息摞按官方剧集页
      * 构成走，与刷剧流是两副面孔（材料与构成在各 bind 处按此旗分工）。 */
     private boolean seriesMode;
+    /** 清屏态（与 Activity 的 cleanMode 同步，进出清屏时经 setCleanMode
+     * 推过来）：清屏期间条目一旦重绑，绑完按清屏隐显集合复位，不许把
+     * 方钮亮度/分享/全屏钮/弹幕框漏回屏上（扫查 H3）。 */
+    private boolean cleanMode;
 
     public HgFeedAdapter(List<HgFeedItem> items, HgFeedSession session, Host host) {
         this.items = items;
@@ -119,6 +123,14 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
 
     public void setSeriesMode(boolean seriesMode) {
         this.seriesMode = seriesMode;
+    }
+
+    public void setCleanMode(boolean cleanMode) {
+        this.cleanMode = cleanMode;
+    }
+
+    public boolean isCleanMode() {
+        return cleanMode;
     }
 
     public boolean isSeriesMode() {
@@ -356,7 +368,27 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         bindInteractionState(holder, item);
         bindDanmakuState(holder);
         bindClicks(holder, position);
+        if (cleanMode) applyCleanState(holder);
         if (position == currentPos) host.onHolderBound(holder, position);
+    }
+
+    /**
+     * 清屏态重绑复位：隐显集合与 Activity.enterCleanMode 对当前 holder
+     * 置的那套逐件一致（右列/信息摞/弹幕框/全屏观看钮/进度线全隐、选集
+     * 条 INVISIBLE 保位、方钮独留且变淡 0.4 防烧屏）。清屏只存在于集流
+     * 竖屏，模式不对不动——普通模式绑定零影响。
+     */
+    private void applyCleanState(Holder holder) {
+        if (!seriesMode || landInstance) return;
+        ItemHongguoFeedBinding b = holder.binding;
+        b.hgRightRail.setVisibility(View.GONE);
+        b.hgInfo.setVisibility(View.GONE);
+        b.hgSeriesBar.setVisibility(View.INVISIBLE);
+        b.hgDanmakuBox.setVisibility(View.GONE);
+        b.hgFullscreenWatch.setVisibility(View.GONE);
+        b.hgProgressBox.setVisibility(View.GONE);
+        b.hgFsBtn.setVisibility(View.VISIBLE);
+        b.hgFsBtn.setAlpha(0.4f);
     }
 
     /** 互动三件的即时状态（点赞/收藏/关注）：图标填充态＋计数（数据有才显）。 */

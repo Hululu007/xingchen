@@ -1,6 +1,5 @@
 package com.github.catvod.utils;
 
-import android.content.Context;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.Signature;
@@ -28,7 +27,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
@@ -146,7 +144,6 @@ public enum RuntimeModule {
     public String getEntryClass() {
         return switch (this) {
             case PYTHON -> "com.fongmi.chaquo.RuntimeEntry";
-            case NODEJS -> "com.fongmi.nodejs.RuntimeEntry";
             case QUICKJS -> "com.fongmi.quickjs.RuntimeEntry";
             case THUNDER -> "com.xunlei.downloadlib.RuntimeEntry";
             default -> "";
@@ -176,7 +173,6 @@ public enum RuntimeModule {
 
     public synchronized <T extends RuntimePlugin> T entry(Class<T> type) {
         require();
-        if (this == NODEJS) return builtinEntry(type);
         if (getEntryClass().isEmpty()) throw new IllegalStateException("Runtime does not provide a Java plugin");
         External state = external();
         if (state.entryFailure != null) throw state.entryFailure;
@@ -187,27 +183,6 @@ public enum RuntimeModule {
             state.entryFailure = new IllegalStateException("Unable to load " + title + " Java runtime; restart the app", e);
             throw state.entryFailure;
         }
-    }
-
-    // 内置桥入口（映射表 #2）：入口类就在宿主 dex 里，由宿主类加载器直接加载
-    // 实例化——不备包、不读插件元数据、没有 DexClassLoader，自然也没有
-    // createEntry 的宿主断言。失败口径与外包路一致：记 entryFailure 并抛
-    // 「加载不了、重启 App」，不吞成空结果假装可用。
-    private <T extends RuntimePlugin> T builtinEntry(Class<T> type) {
-        External state = external();
-        if (state.entryFailure != null) throw state.entryFailure;
-        try {
-            if (state.entry == null) state.entry = createBuiltinEntry(type);
-            return type.cast(state.entry);
-        } catch (ReflectiveOperationException | ClassCastException | LinkageError e) {
-            state.entryFailure = new IllegalStateException("Unable to load " + title + " Java runtime; restart the app", e);
-            throw state.entryFailure;
-        }
-    }
-
-    private <T extends RuntimePlugin> T createBuiltinEntry(Class<T> type) throws ReflectiveOperationException {
-        Class<?> implementation = Class.forName(getEntryClass(), true, RuntimeModule.class.getClassLoader());
-        return type.cast(implementation.getConstructor().newInstance());
     }
 
     private <T extends RuntimePlugin> T createEntry(Class<T> type, External state) throws ReflectiveOperationException, IOException {
@@ -358,7 +333,6 @@ public enum RuntimeModule {
     }
 
     public synchronized boolean isRestartRequired() throws IOException {
-        if (this == NODEJS) return isNodeRestartRequired();
         External state = external();
         if (state.loadFailure != null || state.entryFailure != null) return true;
         if (state.loaded == null && state.loadedMetadata == null) return false;
@@ -368,44 +342,8 @@ public enum RuntimeModule {
         return !loaded.equals(nativeDirectory(metadata));
     }
 
-    // 桥口径（映射表 13）：没有插件元数据可比，改判「登记时那代运行时
-    // （bin/node 本体＋实验室登记戳）与当前实验室登记还对不对得上」；
-    // 对不上＝运行时已换代，Client 照原文案抛「运行时已变、重启 App」。
-    private boolean isNodeRestartRequired() {
-        External state = external();
-        if (state.loadFailure != null || state.entryFailure != null) return true;
-        if (state.loaded == null) return false;
-        if (!isNodeInstalled()) return true;
-        File binary = nodeBinary();
-        if (binary == null || !binary.equals(state.loaded)) return true;
-        return !Objects.equals(nodeStamp(), state.loadedStamp);
-    }
-
     public synchronized File getLoadedFile() {
         return external().loaded;
-    }
-
-    public synchronized void recordLoaded(File file, Object owner) throws IOException {
-        if (this != NODEJS) throw new IOException("Runtime does not run in a separate process");
-        if (owner == null) throw new IOException("Invalid runtime owner");
-        require();
-        // 桥口径（映射表 13）：登记的必须是当前实验室的 bin/node 本体；
-        // 同时记下这代运行时的登记戳，供 isRestartRequired 改判换代。
-        File binary = nodeBinary();
-        if (binary == null || file == null || !file.equals(binary)) throw new IOException("Invalid loaded runtime file");
-        External state = external();
-        state.loaded = file;
-        state.loadedOwner = owner;
-        state.loadedStamp = nodeStamp();
-    }
-
-    public synchronized void recordStopped(Object owner) {
-        if (this != NODEJS) throw new IllegalStateException("Runtime does not run in a separate process");
-        External state = external();
-        if (owner == null || state.loadedOwner != owner) return;
-        state.loaded = null;
-        state.loadedOwner = null;
-        state.loadedStamp = null;
     }
 
     public synchronized void clean() throws IOException {
@@ -579,7 +517,6 @@ public enum RuntimeModule {
             String prefix = switch (this) {
                 case PYTHON -> "assets/chaquopy/";
                 case QUICKJS -> "assets/js/";
-                case NODEJS -> "assets/nodejs/";
                 default -> "";
             };
             if (prefix.isEmpty() || !payload.path.startsWith(prefix) || payload.path.contains("..") || payload.path.contains("\\") || payload.path.contains("//") || payload.path.endsWith("/")) throw new IOException("Invalid runtime asset path");
@@ -590,7 +527,6 @@ public enum RuntimeModule {
         if (this != BDJ) for (String name : libraries()) if (!paths.contains("lib/" + abi + "/" + name)) throw new IOException("Runtime library is missing");
         if (this == PYTHON) for (String name : List.of("app.imy", "build.json", "bootstrap.imy", "stdlib-common.imy", "stdlib-" + abi + ".imy", "requirements-common.imy", "requirements-" + abi + ".imy", "cacert.pem")) if (!paths.contains("assets/chaquopy/" + name)) throw new IOException("Python asset is missing: " + name);
         if (this == QUICKJS) for (String name : List.of("net.js", "spider.js")) if (!paths.contains("assets/js/lib/" + name)) throw new IOException("QuickJS asset is missing: " + name);
-        if (this == NODEJS && !paths.contains("assets/nodejs/bootstrap.js")) throw new IOException("Node.js bootstrap is missing");
     }
 
     private static final class PluginLoader extends DexClassLoader {
@@ -605,7 +541,7 @@ public enum RuntimeModule {
         @Override
         protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
             RuntimeModule owner = moduleForClass(name);
-            boolean owned = owner == module || name.startsWith("j$.") || module == PYTHON && name.startsWith("kotlin.") || module == NODEJS && name.startsWith("fi.iki.elonen.") || module == QUICKJS && name.startsWith("org.jsoup.");
+            boolean owned = owner == module || name.startsWith("j$.") || module == PYTHON && name.startsWith("kotlin.") || module == QUICKJS && name.startsWith("org.jsoup.");
             if (!owned) return owner == null ? super.loadClass(name, resolve) : SPIDER_LOADER.loadClass(name);
             synchronized (this) {
                 Class<?> type = findLoadedClass(name);
@@ -722,7 +658,6 @@ public enum RuntimeModule {
     }
 
     private String[] libraries() {
-        if (this == NODEJS) return new String[]{"libnode.so", "libnodebridge.so"};
         if (this == PYTHON) return new String[]{"libcrypto_python.so", "libssl_python.so", "libsqlite3_python.so", "libcrypto_chaquopy.so", "libssl_chaquopy.so", "libsqlite3_chaquopy.so", "libpython3.10.so", "libpython3.so", "libchaquopy_java.so"};
         if (this == THUNDER) return new String[]{"libxl_stat.so", "libxl_thunder_sdk.so"};
         if (this == MPV) return new String[]{"libmpv.so", "libplayer.so"};
@@ -748,9 +683,7 @@ public enum RuntimeModule {
         Metadata metadata;
         Metadata loadedMetadata;
         ZipFile assets;
-        Object loadedOwner;
         File loaded;
-        String loadedStamp;
         LinkageError loadFailure;
         boolean complete;
     }
@@ -773,65 +706,7 @@ public enum RuntimeModule {
         return Packages.states[ordinal()];
     }
 
-    /**
-     * Node 内置桥的宿主判据（映射表 13/14）：catvod 层不认识实验室，由宿主
-     * App 在启动时登记——实验室 Node 环境在不在、当前 bin/node 本体在哪、
-     * 这代运行时的登记戳（版本＋安装时间，同版本重打包靠安装时间区分）。
-     * 未登记一律按不在处理（fail-closed），与老路「插件没装」同一个
-     * MissingException 信号，任何路径不许把没装吞成空结果假装可用。
-     */
-    public interface NodeHost {
-        boolean installed(Context context);
-
-        File binary(Context context);
-
-        String stamp(Context context);
-    }
-
-    private static volatile NodeHost nodeHost;
-
-    public static void registerNodeHost(NodeHost host) {
-        nodeHost = host;
-    }
-
-    private boolean isNodeInstalled() {
-        NodeHost host = nodeHost;
-        if (host == null) return false;
-        try {
-            return host.installed(Runtime.context());
-        } catch (Throwable e) {
-            return false;
-        }
-    }
-
-    private File nodeBinary() {
-        NodeHost host = nodeHost;
-        if (host == null) return null;
-        try {
-            return host.binary(Runtime.context());
-        } catch (Throwable e) {
-            return null;
-        }
-    }
-
-    private String nodeStamp() {
-        NodeHost host = nodeHost;
-        if (host == null) return null;
-        try {
-            return host.stamp(Runtime.context());
-        } catch (Throwable e) {
-            return null;
-        }
-    }
-
     public synchronized void require() {
-        if (this == NODEJS) {
-            // 桥口径（映射表 14）：在场判据换实验室 Node 环境，缺失信号不变——
-            // 仍是同一个 MissingException、同一句「Node.js module is not
-            // installed」文案，上层既有的未装引导口径不改。
-            if (!isNodeInstalled()) throw new MissingException(this);
-            return;
-        }
         if (!isInstalled()) throw new MissingException(this);
         try {
             getMetadata();

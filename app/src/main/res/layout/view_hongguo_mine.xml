@@ -299,8 +299,9 @@
     </LinearLayout>
 
     <!-- 子筛行（官方书架壳 auf：二级页签条 42dp 高、右端筛选/编辑 14sp 粗）。
-         筹集按页签换：历史＝全部/已看完/未看完；收藏＝全部/真人剧/追更（他定）；
-         点赞无子筛。编辑进多选删除态。 -->
+         筹集按页签换：历史＝全部/已看完/未看完；收藏＝全部/真人剧；
+         追更＝全部/已看完/未看完（官方 MineFollowUpdateFilter）；点赞无
+         子筛。编辑进多选删除态。 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="42dp"
@@ -326,18 +327,6 @@
             android:textSize="14sp"
             android:textStyle="bold" />
     </LinearLayout>
-
-    <!-- 追更面内自带筛选行（官方 MineFollowUpdateFilter：全部/已看完/未看完）：
-         仅收藏页签的「追更」子筛选中时出现，与上方子筛行同形态。 -->
-    <LinearLayout
-        android:id="@+id/hg_mine_follow_chips"
-        android:layout_width="match_parent"
-        android:layout_height="42dp"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
-        android:visibility="gone" />
 
     <TextView
         android:id="@+id/hg_mine_empty"

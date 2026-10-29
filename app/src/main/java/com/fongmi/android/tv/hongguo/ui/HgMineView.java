@@ -32,10 +32,13 @@ import java.util.Set;
  *
  * <p>构成按国内版官方包源码对照（mine-rework-spec-20261028）＋他的收敛口径：
  * 登录区照官方双态（未登录 c_x／已登录头像 60dp＋昵称）；页签＝历史／收藏／
- * 点赞／预约（官方 qb3/f 标题 16sp＋右端搜索图标；国内版预约是页内页签
- * 形态、与功能位互斥，本面取页签形态，他亲定预约放点赞后面）；子筛行照
- * 书架壳 auf（42dp＋二级页签 bb8 样式＋编辑 14sp 粗）：历史＝全部/已看完/
- * 未看完、收藏＝全部/真人剧/追更（他 2026-10-28 定）、预约＝已上线/待上线。
+ * 点赞／追更／预约（官方 qb3/f 标题 16sp＋右端搜索图标；追更原埋收藏页签
+ * 的子筛筹，他 2026-10-29 亲点「你放收藏级干啥」「放在预约隔壁不好吗，
+ * 我也好找」升为一级页签、紧挨预约放其前一位，2026-10-28 收藏三项口径
+ * 就此作废；国内版预约是页内页签形态、与功能位互斥，本面取页签形态）；
+ * 子筛行照书架壳 auf（42dp＋二级页签 bb8 样式＋编辑 14sp 粗）：历史＝
+ * 全部/已看完/未看完、收藏＝全部/真人剧、追更＝全部/已看完/未看完
+ * （官方 MineFollowUpdateFilter）、预约＝已上线/待上线。
  * 格子走书架卡（封面比 114:159、新样式圆角 12dp、右上角标原文）；历史
  * 副行＝官方百分比算法（ceil(当前集×100/总集数)），收藏副行＝「X集/Y集」
  * 样式档。收藏读本地镜像＋服务端追剧架刷新；点赞读本地镜像＋本人点赞
@@ -51,14 +54,14 @@ public final class HgMineView extends LinearLayout {
     private static final int TAB_HISTORY = 0;
     private static final int TAB_FAV = 1;
     private static final int TAB_LIKE = 2;
-    private static final int TAB_RESERVE = 3;
+    private static final int TAB_FOLLOW = 3;
+    private static final int TAB_RESERVE = 4;
 
     private static final int HIST_ALL = 0;
     private static final int HIST_DONE = 1;
     private static final int HIST_UNDONE = 2;
     private static final int FAV_ALL = 0;
     private static final int FAV_REAL = 1;
-    private static final int FAV_FOLLOW = 2;
     private static final int RES_ONLINE = 0;
     private static final int RES_UPCOMING = 1;
     private static final int FOLLOW_ALL = 0;
@@ -79,11 +82,11 @@ public final class HgMineView extends LinearLayout {
     private TextView relDiggUnit;
     private TextView emptyView;
     private LinearLayout chipsBox;
-    private LinearLayout followChipsBox;
+    private View followTabDot;
     private TextView editBtn;
     private View editBar;
     private TextView editCount;
-    private final TextView[] tabViews = new TextView[4];
+    private final TextView[] tabViews = new TextView[5];
     private final MineAdapter adapter = new MineAdapter();
     private int currentTab = TAB_HISTORY;
     private int histFilter = HIST_ALL;
@@ -137,13 +140,14 @@ public final class HgMineView extends LinearLayout {
         relDiggUnit = findViewById(R.id.hg_mine_rel_digg_unit);
         emptyView = findViewById(R.id.hg_mine_empty);
         chipsBox = findViewById(R.id.hg_mine_chips);
-        followChipsBox = findViewById(R.id.hg_mine_follow_chips);
+        followTabDot = findViewById(R.id.hg_mine_tab_follow_dot);
         editBtn = findViewById(R.id.hg_mine_edit);
         editBar = findViewById(R.id.hg_mine_edit_bar);
         editCount = findViewById(R.id.hg_mine_edit_count);
         tabViews[TAB_HISTORY] = findViewById(R.id.hg_mine_tab_history);
         tabViews[TAB_FAV] = findViewById(R.id.hg_mine_tab_fav);
         tabViews[TAB_LIKE] = findViewById(R.id.hg_mine_tab_like);
+        tabViews[TAB_FOLLOW] = findViewById(R.id.hg_mine_tab_follow);
         tabViews[TAB_RESERVE] = findViewById(R.id.hg_mine_tab_reserve);
         RecyclerView grid = findViewById(R.id.hg_mine_grid);
         grid.setLayoutManager(new GridLayoutManager(getContext(), 3));
@@ -381,7 +385,7 @@ public final class HgMineView extends LinearLayout {
         renderTab();
     }
 
-    /** 子筛筹行：按当前页签重建（历史三筹／收藏三筹／点赞无筹），编辑钮点赞页签也留。 */
+    /** 子筛筹行：按当前页签重建（历史三筹／收藏二筹／追更三筹／点赞无筹／预约二筹），编辑钮各页签都留；末尾顺带刷追更页签红点。 */
     private void renderChips() {
         chipsBox.removeAllViews();
         if (currentTab == TAB_HISTORY) {
@@ -406,8 +410,18 @@ public final class HgMineView extends LinearLayout {
                 favFilter = FAV_REAL;
                 renderTab();
             });
-            addFollowChip(favFilter == FAV_FOLLOW, v -> {
-                favFilter = FAV_FOLLOW;
+        } else if (currentTab == TAB_FOLLOW) {
+            // 追更页签自带筛选（官方 MineFollowUpdateFilter：全部/已看完/未看完）
+            addChip("全部", followFilter == FOLLOW_ALL, v -> {
+                followFilter = FOLLOW_ALL;
+                renderTab();
+            });
+            addChip("已看完", followFilter == FOLLOW_DONE, v -> {
+                followFilter = FOLLOW_DONE;
+                renderTab();
+            });
+            addChip("未看完", followFilter == FOLLOW_UNDONE, v -> {
+                followFilter = FOLLOW_UNDONE;
                 renderTab();
             });
         } else if (currentTab == TAB_RESERVE) {
@@ -420,28 +434,7 @@ public final class HgMineView extends LinearLayout {
                 renderTab();
             });
         }
-        renderFollowChips();
-    }
-
-    /** 追更自带筛选行（官方 MineFollowUpdateFilter：全部/已看完/未看完）：仅追更子筛选中时显。 */
-    private void renderFollowChips() {
-        if (followChipsBox == null) return;
-        boolean show = currentTab == TAB_FAV && favFilter == FAV_FOLLOW;
-        followChipsBox.setVisibility(show ? VISIBLE : GONE);
-        if (!show) return;
-        followChipsBox.removeAllViews();
-        addChipTo(followChipsBox, "全部", followFilter == FOLLOW_ALL, v -> {
-            followFilter = FOLLOW_ALL;
-            renderTab();
-        });
-        addChipTo(followChipsBox, "已看完", followFilter == FOLLOW_DONE, v -> {
-            followFilter = FOLLOW_DONE;
-            renderTab();
-        });
-        addChipTo(followChipsBox, "未看完", followFilter == FOLLOW_UNDONE, v -> {
-            followFilter = FOLLOW_UNDONE;
-            renderTab();
-        });
+        updateFollowTabDot();
     }
 
     private void addChip(String text, boolean on, OnClickListener click) {
@@ -449,30 +442,17 @@ public final class HgMineView extends LinearLayout {
     }
 
     /**
-     * 追更筹＋红点：官方唯一带红点的面是「我的追更」功能位（服务端
-     * showRedDot、点击消），咱家无金刚位、对应载体是这个追更子筛筹——
-     * 红点压筹右上角内侧，形态照官方 follow 页签红点件（bg_hg_red_dot：
-     * #FFFA6725＋1dp 描边）。亮灭判定走 HgUpdateLogic（最新集数 vs
-     * 已看快照/断点），数据靠本面回源刷新（refreshFollowDotSource）。
+     * 追更页签红点：官方唯一带红点的面是「我的追更」功能位（服务端
+     * showRedDot、点击消），咱家对应载体就是追更页签本体——红点压页签
+     * 右上角内侧，形态照官方 follow 页签红点件（bg_hg_red_dot：
+     * #FFFA6725＋1dp 描边，布局侧 FrameLayout 定版）。亮灭判定走
+     * HgUpdateLogic（最新集数 vs 已看快照/断点），数据靠本面回源刷新
+     * （refreshFollowDotSource）。追更埋在收藏子筛里时红点挂子筛筹上，
+     * 2026-10-29 升一级页签后随迁到页签。
      */
-    private void addFollowChip(boolean on, OnClickListener click) {
-        android.widget.FrameLayout wrap = new android.widget.FrameLayout(getContext());
-        LinearLayout.LayoutParams wlp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        wlp.rightMargin = dp(8);
-        wrap.setLayoutParams(wlp);
-        wrap.addView(createChip("追更", on, click));
-        View dot = new View(getContext());
-        dot.setBackgroundResource(R.drawable.bg_hg_red_dot);
-        android.widget.FrameLayout.LayoutParams dlp = new android.widget.FrameLayout.LayoutParams(
-                dp(10), dp(10));
-        dlp.gravity = android.view.Gravity.TOP | android.view.Gravity.END;
-        dlp.topMargin = dp(2);
-        dlp.rightMargin = dp(2);
-        dot.setLayoutParams(dlp);
-        dot.setVisibility(followDotOn() ? VISIBLE : GONE);
-        wrap.addView(dot);
-        chipsBox.addView(wrap);
+    private void updateFollowTabDot() {
+        if (followTabDot == null) return;
+        followTabDot.setVisibility(followDotOn() ? VISIBLE : GONE);
     }
 
     /** 红点亮灭：任一追更剧的最新集数越过已看基线即亮（判定纯逻辑在 HgUpdateLogic）。 */
@@ -553,7 +533,7 @@ public final class HgMineView extends LinearLayout {
                 if (HgStore.isReserved(id)) {
                     HgFeedSession.get().remoteInteractions.toggleReserve(id);
                 }
-            } else if (currentTab == TAB_FAV && favFilter == FAV_FOLLOW) {
+            } else if (currentTab == TAB_FOLLOW) {
                 // 取消追更走追剧架开关（本地镜像＋服务端同步，失败回滚在
                 // 开关内）；只改本地会被下一次回源拉回（删除复活）
                 if (HgStore.isFollowed(id)) {
@@ -621,7 +601,7 @@ public final class HgMineView extends LinearLayout {
                 rows.add(new Row(r.seriesId, r.title, r.cover, r.episodeCount, meta,
                         m != null && m.length > 3 ? m[3] : null));
             }
-        } else if (currentTab == TAB_FAV && favFilter == FAV_FOLLOW) {
+        } else if (currentTab == TAB_FOLLOW) {
             for (String id : HgStore.followedIds()) {
                 String[] meta = HgStore.metaOf(id);
                 if (meta == null) continue;
@@ -660,12 +640,11 @@ public final class HgMineView extends LinearLayout {
         emptyView.setVisibility(rows.isEmpty() ? VISIBLE : GONE);
         if (rows.isEmpty()) {
             emptyView.setText(currentTab == TAB_HISTORY ? "还没有观看记录"
-                    : currentTab == TAB_FAV
-                    ? (favFilter == FAV_FOLLOW ? "还没有追更的剧" : "还没有收藏")
+                    : currentTab == TAB_FAV ? "还没有收藏"
+                    : currentTab == TAB_FOLLOW ? "还没有追更的剧"
                     : "还没有点赞");
         }
-        if (currentTab == TAB_FAV && favFilter != FAV_FOLLOW
-                && LoginManager.isHongguoLoggedIn()) {
+        if (currentTab == TAB_FAV && LoginManager.isHongguoLoggedIn()) {
             refreshFavFromServer();
         }
         if (currentTab == TAB_LIKE && LoginManager.isHongguoLoggedIn()) {
@@ -829,7 +808,7 @@ public final class HgMineView extends LinearLayout {
     }
 
     /**
-     * 追更子筛后台刷新：追更与收藏同在追剧架（服务端同一列表、同一开关），
+     * 追更页签后台刷新：追更与收藏同在追剧架（服务端同一列表、同一开关），
      * 回源把架上条目并入双镜像与元信息后重列。此前追更只读本地
      * followedIds()、从不回源——他端追的更在本面永远看不到。
      * 服务端回空不冲已显镜像行（防冲空口径同收藏/预约）。
@@ -841,7 +820,7 @@ public final class HgMineView extends LinearLayout {
             @Override
             public void onSuccess(com.fongmi.android.tv.hongguo.model.HgCellPage page) {
                 post(() -> {
-                    if (currentTab != TAB_FAV || favFilter != FAV_FOLLOW
+                    if (currentTab != TAB_FOLLOW
                             || page == null || page.getItems() == null || page.getItems().isEmpty()) {
                         followRefreshing = false;
                         return;
@@ -884,8 +863,8 @@ public final class HgMineView extends LinearLayout {
 
     /**
      * 追更红点的数据源刷新：本面每次露面时回源一次追剧架（与官方红点
-     * 随资料口下发同节奏），合并最新集数后重建筹行刷红点。不限于当前
-     * 正看追更子筛——红点要在进「我的」时就亮对，不必先点开追更才知道。
+     * 随资料口下发同节奏），合并最新集数后重建筹行刷页签红点。不限于
+     * 当前正看追更页签——红点要在进「我的」时就亮对，不必先点开追更才知道。
      * 失败静默（镜像旧值判出的点维持原样，下次露面再刷）。
      */
     private void refreshFollowDotSource() {

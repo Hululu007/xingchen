@@ -1447,6 +1447,9 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         }
         new WindowInsetsControllerCompat(getWindow(), getWindow().getDecorView())
                 .hide(WindowInsetsCompat.Type.systemBars());
+        // 清屏态弹幕显隐走 danmakuVisibleNow（官方清屏展示缺省关）：
+        // 未开清屏展示时进清屏即停渲染（条目保留，出清屏恢复不重拉）
+        if (playerView != null) playerView.setDanmakuEnabled(danmakuVisibleNow());
     }
 
     /** 出清屏：走 setChromeHidden(false) 的常态恢复口径（进度线/方钮
@@ -1456,6 +1459,14 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         cleanMode = false;
         if (adapter != null) adapter.setCleanMode(false);
         setChromeHidden(false);
+        // 弹幕恢复：进清屏时被压掉的重新启用；若压制期间从未起拉过
+        // （如清屏中开的弹幕），在此补起当前条
+        if (playerView != null) playerView.setDanmakuEnabled(danmakuVisibleNow());
+        if (danmakuVisibleNow() && danmakuItems.isEmpty()
+                && currentPos >= 0 && currentPos < session.items.size()) {
+            startDanmakuFor(session.items.get(currentPos),
+                    player == null ? 0 : player.getCurrentPosition());
+        }
     }
 
     private void armAutoHide() {
@@ -2290,18 +2301,29 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         return next.seriesHead || next.seriesId == null || !next.seriesId.equals(cur.seriesId);
     }
 
+    /**
+     * 弹幕此刻该不该显（批三 C 卡 37 补实缺）：总开关开、且不在清屏态
+     * ——清屏态还要「清屏展示」项（官方 key_show_danmaku_in_immersive，
+     * 缺省关）放行。此前清屏态无人管显隐、弹幕照显，与官方缺省相反；
+     * 本闸是渲染启停、起拉、点按命中三处的共同口径。
+     */
+    private boolean danmakuVisibleNow() {
+        return HgStore.isDanmakuOn()
+                && (!cleanMode || HgStore.getDanmakuShowInClean());
+    }
+
     /** 弹幕开关统一落点（抽屉开关，自家小设置）：落状态＋启停渲染层＋连带刷新「弹」入口显隐＋开时为当前条起拉。 */
     private void applyDanmakuSwitch(boolean on) {
         HgStore.setDanmakuOn(on);
         HgFeedAdapter.Holder h = currentHolder();
         if (h != null) adapter.bindDanmakuState(h);
-        if (playerView != null) playerView.setDanmakuEnabled(on);
-        if (on) {
+        if (playerView != null) playerView.setDanmakuEnabled(danmakuVisibleNow());
+        if (on && danmakuVisibleNow()) {
             if (currentPos >= 0 && currentPos < session.items.size()) {
                 startDanmakuFor(session.items.get(currentPos),
                         player == null ? 0 : player.getCurrentPosition());
             }
-        } else {
+        } else if (!on) {
             clearDanmaku();
         }
     }
@@ -2311,19 +2333,36 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
      * （不透明度/移动速度/显示区域/字体大小，映射在 HgPanelLogic）。
      * 此前借点播 DanmakuSetting 的全局配置——红果设置与点播设置互串，
      * 本批起断开：红果只读红果自有键（官方同为自有 danmaku_config 存储）。
-     * 横屏实例共用本 Activity 的装配、同走红果键（与官方单一存储同构）；
-     * 本批未动任何横屏界面/交互（横屏无设置入口，维持现状）。
+     * 横屏实例共用本 Activity 的装配、同走红果键（与官方单一存储同构）。
+     * 批三 C 卡 37：横屏实例的滚动区改走 key_line_space 档（见方法体注），
+     * 顶/底固定行仍沿行数上限——官方横屏行数口径未抠到（分册二 #11），
+     * 此处只到可证范围、近似点记账。
      */
     private androidx.media3.ui.danmaku.DanmakuConfig hgDanmakuConfig() {
         int lines = HgStore.getDanmakuLines();
-        return androidx.media3.ui.danmaku.DanmakuConfig.DEFAULT.buildUpon()
+        androidx.media3.ui.danmaku.DanmakuConfig.Builder b =
+                androidx.media3.ui.danmaku.DanmakuConfig.DEFAULT.buildUpon()
                 .setTransparency(HgPanelLogic.danmakuTransparency(HgStore.getDanmakuOpacity()))
                 .setScrollSpeedFactor(HgPanelLogic.danmakuSpeedFactor(HgStore.getDanmakuSpeedIndex()))
                 .setTextScale(HgPanelLogic.danmakuFontScale(HgStore.getDanmakuFontIndex()))
-                .setMaxScrollLines(lines)
                 .setMaxTopLines(lines)
-                .setMaxBottomLines(lines)
-                .build();
+                .setMaxBottomLines(lines);
+        if (landInstance) {
+            // 横屏显示区域走官方 key_line_space 档（批三 C 卡 37）：官方
+            // 设置弹层同一滑杆横屏读此档；咱家横屏行数口径未抠到（分册二
+            // #11），不编行数。SINGLE 档＝滚动单行；其余档走引擎滚动区
+            // 比例（scrollAreaRatio 被 DanmakuTrackManager/Painter 真消费，
+            // maxScrollLines＝0 即自动）。
+            float ratio = HgPanelLogic.danmakuAreaRatio(HgStore.getDanmakuLineSpaceIndex());
+            if (ratio < 0) {
+                b.setMaxScrollLines(1);
+            } else {
+                b.setMaxScrollLines(0).setScrollAreaRatio(ratio);
+            }
+        } else {
+            b.setMaxScrollLines(lines);
+        }
+        return b.build();
     }
 
     /** 弹幕设置改值即时回刷渲染层：正在播的当前条同步换观感，不等切集。 */
@@ -2334,10 +2373,12 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     /**
      * 弹幕设置单（官方 DanmakuOptionDialog 竖屏形态的自家等价）：不透明度／
      * 移动速度／显示区域／字体大小四滑杆＋恢复默认，改值即存 HgStore 并
-     * 即时回刷渲染。官方另有四行（弹幕屏蔽词/屏蔽彩色弹幕/智能防遮/清屏
-     * 模式展示弹幕）由服务端旗标门控、官方包内无缺省值且咱家渲染层无
-     * 对应通道，不摆假项（留痕见 hongguo/panel-danmaku-settings-20261028.md）。
-     * 面板不关、设置单叠在面板之上（官方同为叠弹）。
+     * 即时回刷渲染。批三 C 卡 36/37 补三行开关：弹幕总开关（与更多面板
+     * 同源）、屏蔽彩色弹幕、清屏模式展示弹幕——后两键官方包内有缺省
+     * （config/a.java 缺省 false），此前「包内无缺省、不摆假项」的旧判
+     * 只对设置行的旗标门控成立，功能键本批落码（生效点见 HgStore 键注）。
+     * 屏蔽词/智能防遮两行咱家仍无对应通道（屏蔽词无词表存储、防遮无
+     * 引擎通道），不摆假项。面板不关、设置单叠在面板之上（官方同为叠弹）。
      */
     private void showDanmakuSettings() {
         com.fongmi.android.tv.databinding.DialogHongguoDanmakuSettingsBinding sb =
@@ -2350,6 +2391,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             HgStore.resetDanmakuOptions();
             bindDanmakuSettings(sb);
             applyDanmakuOptions();
+            applyDanmakuFilter();
             android.widget.Toast.makeText(this, "已恢复默认",
                     android.widget.Toast.LENGTH_SHORT).show();
         });
@@ -2400,16 +2442,29 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             public void onStopTrackingTouch(android.widget.SeekBar bar) {
             }
         });
-        // 显示区域：滑杆 0–3 对应 1–4 行
-        sb.hgDmAreaValue.setText(HgPanelLogic.danmakuAreaText(HgStore.getDanmakuLines()));
+        // 显示区域：同一根滑杆横竖分工（官方 DanmakuOptionDialog 同形）——
+        // 竖屏读写行数 1–4（值文案「N行」），横屏实例读写区域档
+        // （key_line_space：单行/1/4屏/1/2屏/3/4屏）
+        if (landInstance) {
+            sb.hgDmAreaValue.setText(HgPanelLogic.danmakuAreaLabel(HgStore.getDanmakuLineSpaceIndex()));
+        } else {
+            sb.hgDmAreaValue.setText(HgPanelLogic.danmakuAreaText(HgStore.getDanmakuLines()));
+        }
         sb.hgDmArea.setOnSeekBarChangeListener(null);
-        sb.hgDmArea.setProgress(HgStore.getDanmakuLines() - HgPanelLogic.DM_LINES_MIN);
+        sb.hgDmArea.setProgress(landInstance
+                ? HgStore.getDanmakuLineSpaceIndex()
+                : HgStore.getDanmakuLines() - HgPanelLogic.DM_LINES_MIN);
         sb.hgDmArea.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
             @Override
             public void onProgressChanged(android.widget.SeekBar bar, int progress, boolean fromUser) {
-                int lines = progress + HgPanelLogic.DM_LINES_MIN;
-                HgStore.setDanmakuLines(lines);
-                sb.hgDmAreaValue.setText(HgPanelLogic.danmakuAreaText(lines));
+                if (landInstance) {
+                    HgStore.setDanmakuLineSpaceIndex(progress);
+                    sb.hgDmAreaValue.setText(HgPanelLogic.danmakuAreaLabel(progress));
+                } else {
+                    int lines = progress + HgPanelLogic.DM_LINES_MIN;
+                    HgStore.setDanmakuLines(lines);
+                    sb.hgDmAreaValue.setText(HgPanelLogic.danmakuAreaText(lines));
+                }
                 applyDanmakuOptions();
             }
 
@@ -2439,6 +2494,27 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
 
             @Override
             public void onStopTrackingTouch(android.widget.SeekBar bar) {
+            }
+        });
+        // 开关三行（批三 C 卡 36/37）：总开关与更多面板/抽屉同走
+        // applyDanmakuSwitch（同键同落点）；屏蔽彩色拨动即时重建渲染集；
+        // 清屏展示只落键、显隐在进出清屏与开关闸处现读现判
+        sb.hgDmMasterSwitch.setOnCheckedChangeListener(null);
+        sb.hgDmMasterSwitch.setChecked(HgStore.isDanmakuOn());
+        sb.hgDmMasterSwitch.setOnCheckedChangeListener((b, on) -> applyDanmakuSwitch(on));
+        sb.hgDmBlockColorful.setOnCheckedChangeListener(null);
+        sb.hgDmBlockColorful.setChecked(HgStore.getDanmakuBlockColorful());
+        sb.hgDmBlockColorful.setOnCheckedChangeListener((b, on) -> {
+            HgStore.setDanmakuBlockColorful(on);
+            applyDanmakuFilter();
+        });
+        sb.hgDmShowInClean.setOnCheckedChangeListener(null);
+        sb.hgDmShowInClean.setChecked(HgStore.getDanmakuShowInClean());
+        sb.hgDmShowInClean.setOnCheckedChangeListener((b, on) -> {
+            HgStore.setDanmakuShowInClean(on);
+            // 正在清屏时拨动立即按新口径启停渲染
+            if (cleanMode && playerView != null) {
+                playerView.setDanmakuEnabled(danmakuVisibleNow());
             }
         });
     }
@@ -2482,7 +2558,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                     case android.view.MotionEvent.ACTION_UP: {
                         if (!downOk[0]) break;
                         downOk[0] = false;
-                        if (!HgStore.isDanmakuOn() || cleanMode) break;
+                        if (!danmakuVisibleNow()) break;
                         float dx = e.getX() - down[0];
                         float dy = e.getY() - down[1];
                         float slop = 24 * getResources().getDisplayMetrics().density;
@@ -2686,10 +2762,10 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         });
     }
 
-    /** 为一条起弹幕：关着/无 vid 直接清；同 vid 已有条目不重拉。 */
+    /** 为一条起弹幕：关着/此刻不该显（清屏未放行）/无 vid 直接清；同 vid 已有条目不重拉。 */
     private void startDanmakuFor(HgFeedItem item, long startAtMs) {
         if (playerView == null || item == null) return;
-        if (!HgStore.isDanmakuOn() || item.videoId == null || item.seriesId == null) {
+        if (!danmakuVisibleNow() || item.videoId == null || item.seriesId == null) {
             clearDanmaku();
             return;
         }
@@ -2715,6 +2791,21 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         if (playerView != null) playerView.getDanmakuController().clearItems();
     }
 
+    /**
+     * 「屏蔽彩色」拨动即时生效（批三 C 卡 37）：已拉到的弹幕不重拉，
+     * 按当前开关从全量模型重建渲染集重喂控制器。
+     */
+    private void applyDanmakuFilter() {
+        if (playerView == null) return;
+        boolean blockColorful = HgStore.getDanmakuBlockColorful();
+        danmakuItems.clear();
+        for (com.fongmi.android.tv.hongguo.model.HgDanmaku dm : danmakuModels) {
+            if (blockColorful && HgPanelLogic.isColorfulDanmaku(dm.colorHex)) continue;
+            danmakuItems.add(toMedia3Danmaku(dm));
+        }
+        playerView.getDanmakuController().setItems(new java.util.ArrayList<>(danmakuItems));
+    }
+
     /** 拉一窗弹幕（窗界服务端定）：回包整表重喂控制器，迟到回包按 vid 丢弃。 */
     private void fetchDanmakuWindow(long startMs) {
         final String vid = danmakuVid;
@@ -2730,8 +2821,13 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                         runOnUiThread(() -> {
                             danmakuFetching = false;
                             if (!vid.equals(danmakuVid)) return; // 已滑走/已关
+                            boolean blockColorful = HgStore.getDanmakuBlockColorful();
                             for (com.fongmi.android.tv.hongguo.model.HgDanmaku dm : w.items) {
+                                // 模型全收（点赞/命中回查不受过滤影响），
+                                // 渲染集按「屏蔽彩色」过滤（批三 C 卡 37）
                                 danmakuModels.add(dm);
+                                if (blockColorful
+                                        && HgPanelLogic.isColorfulDanmaku(dm.colorHex)) continue;
                                 danmakuItems.add(toMedia3Danmaku(dm));
                             }
                             if (playerView != null) {

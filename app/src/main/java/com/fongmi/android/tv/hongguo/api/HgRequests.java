@@ -487,6 +487,11 @@ public final class HgRequests {
     public static final int SUBSCRIBE_OP_CANCEL = 2;
     /** SubscribeListTabType.MySubscribed=1（classes11.dex <clinit> 定版）。 */
     public static final int SUBSCRIBE_TAB_MY_SUBSCRIBED = 1;
+    /** SubscribeListTabType.MySubscribeOnlineUnreadCount=11（classes11.dex
+     * <clinit> 定版）：预约未读专用签，官方 HongguoMineViewModel 以此签拉
+     * GetUserSubscribeList、回包 data.onlineUnreadCountText 非空则换预约
+     * 格文案（普查分册二卡 11）。 */
+    public static final int SUBSCRIBE_TAB_ONLINE_UNREAD_COUNT = 11;
 
     /**
      * 预约/取消预约体 POST /reading/bookapi/search/uncover_subscribe。
@@ -554,6 +559,19 @@ public final class HgRequests {
         q.put("limit", "50");
         q.put("offset", String.valueOf(Math.max(0, offset)));
         q.put("is_online", String.valueOf(online));
+        return q;
+    }
+
+    /**
+     * 预约未读文案读参：同 GetUserSubscribeListRequest 模型换 tab_type＝11。
+     * 官方 t1() 只定 tabType 一项，其余参数照本面同口的既有形状带
+     * limit/offset（未读签不分上线档，不带 is_online）。
+     */
+    public static java.util.Map<String, String> subscribeUnreadParams() {
+        java.util.Map<String, String> q = new java.util.HashMap<>();
+        q.put("tab_type", String.valueOf(SUBSCRIBE_TAB_ONLINE_UNREAD_COUNT));
+        q.put("limit", "50");
+        q.put("offset", "0");
         return q;
     }
 

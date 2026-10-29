@@ -19,6 +19,11 @@ public final class HgStore {
     private static final String K_DM_SPEED = "hongguo_dm_speed";
     private static final String K_DM_LINES = "hongguo_dm_lines";
     private static final String K_DM_FONT = "hongguo_dm_font";
+    // 批三 C 卡 37 新增三键（登记于 hongguo-batch3c 账）：屏蔽彩色／
+    // 清屏展示／显示区域档。均为新增键，不动既有键语义。
+    private static final String K_DM_BLOCK_COLORFUL = "hongguo_dm_block_colorful";
+    private static final String K_DM_SHOW_IN_CLEAN = "hongguo_dm_show_in_clean";
+    private static final String K_DM_LINE_SPACE = "hongguo_dm_line_space";
     private static final String K_SPEED = "hongguo_speed";
     private static final String K_LAUNCH_DIRECT = "hongguo_launch_direct";
     private static final String K_AUTO_NEXT = "hongguo_auto_next";
@@ -108,12 +113,61 @@ public final class HgStore {
                 index, HgPanelLogic.DM_FONT_SIZES.length));
     }
 
-    /** 恢复默认（官方同名动作：四项回缺省）。 */
+    /**
+     * 屏蔽彩色弹幕（批三 C 卡 37 补实缺，新键 hongguo_dm_block_colorful）：
+     * 官方 key_colorful_danmaku_blocked 缺省 false（jadx2
+     * kmp_video_danmaku/config/a.java 一手实证）。「彩色」口径见
+     * HgPanelLogic.isColorfulDanmaku；生效点在 HongguoFeedActivity 取数
+     * 过滤与播放中即时重建，不是摆设键。
+     */
+    public static boolean getDanmakuBlockColorful() {
+        return Prefers.getBoolean(K_DM_BLOCK_COLORFUL, false);
+    }
+
+    public static void setDanmakuBlockColorful(boolean on) {
+        Prefers.put(K_DM_BLOCK_COLORFUL, on);
+    }
+
+    /**
+     * 清屏模式展示弹幕（批三 C 卡 37 补实缺，新键 hongguo_dm_show_in_clean）：
+     * 官方 key_show_danmaku_in_immersive 缺省 false——清屏态缺省不显弹幕，
+     * 开此项才显。生效点在 HongguoFeedActivity 的显隐闸 danmakuVisibleNow。
+     */
+    public static boolean getDanmakuShowInClean() {
+        return Prefers.getBoolean(K_DM_SHOW_IN_CLEAN, false);
+    }
+
+    public static void setDanmakuShowInClean(boolean on) {
+        Prefers.put(K_DM_SHOW_IN_CLEAN, on);
+    }
+
+    /**
+     * 显示区域档下标（批三 C 卡 37 补实缺，新键 hongguo_dm_line_space）：
+     * 官方 key_line_space 是 DanmakuLineSpace 枚举 SINGLE/QUARTER/HALF/
+     * THREE_QUARTER、缺省 QUARTER；语义＝横屏显示区高度档（官方设置弹层
+     * 同一滑杆：竖屏读行数、横屏读此档）。本键存下标 0–3，缺省 1＝QUARTER；
+     * 档表与比例在 HgPanelLogic，横屏生效点在 hgDanmakuConfig。
+     */
+    public static int getDanmakuLineSpaceIndex() {
+        return HgPanelLogic.clampDanmakuIndex(
+                Prefers.getInt(K_DM_LINE_SPACE, HgPanelLogic.DM_AREA_DEFAULT_INDEX),
+                HgPanelLogic.DM_AREA_LABELS.length);
+    }
+
+    public static void setDanmakuLineSpaceIndex(int index) {
+        Prefers.put(K_DM_LINE_SPACE, HgPanelLogic.clampDanmakuIndex(
+                index, HgPanelLogic.DM_AREA_LABELS.length));
+    }
+
+    /** 恢复默认（官方同名动作：清全部七键回缺省，官方即清七键一条路）。 */
     public static void resetDanmakuOptions() {
         Prefers.put(K_DM_OPACITY, HgPanelLogic.DM_OPACITY_DEFAULT);
         Prefers.put(K_DM_SPEED, HgPanelLogic.DM_SPEED_DEFAULT_INDEX);
         Prefers.put(K_DM_LINES, HgPanelLogic.DM_LINES_DEFAULT);
         Prefers.put(K_DM_FONT, HgPanelLogic.DM_FONT_DEFAULT_INDEX);
+        Prefers.put(K_DM_BLOCK_COLORFUL, false);
+        Prefers.put(K_DM_SHOW_IN_CLEAN, false);
+        Prefers.put(K_DM_LINE_SPACE, HgPanelLogic.DM_AREA_DEFAULT_INDEX);
     }
 
     // ---------- 红果默认倍速（更多面板选定即落此键，起播初始倍速读它） ----------

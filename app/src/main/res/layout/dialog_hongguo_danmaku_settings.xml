@@ -204,5 +204,82 @@
             android:splitTrack="false"
             android:thumb="@drawable/hg_dm_seek_thumb"
             android:thumbOffset="2dp" />
+
+        <!-- 开关三行（批三 C 卡 36/37 补实缺）：弹幕总开关（官方设置弹层
+             本就有总开关、与更多面板 danmaku_options 同源同键）／屏蔽
+             彩色弹幕（key_colorful_danmaku_blocked）／清屏模式展示弹幕
+             （key_show_danmaku_in_immersive）。开关图形与更多面板同套
+             （hg_panel_switch_*），行式与本卡滑杆行同距。 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="弹幕开关"
+                android:textColor="#FF000000"
+                android:textSize="14sp" />
+
+            <Switch
+                android:id="@+id/hg_dm_master_switch"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:showText="false"
+                android:thumb="@drawable/hg_panel_switch_thumb"
+                android:track="@drawable/hg_panel_switch_track" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="屏蔽彩色弹幕"
+                android:textColor="#FF000000"
+                android:textSize="14sp" />
+
+            <Switch
+                android:id="@+id/hg_dm_block_colorful"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:showText="false"
+                android:thumb="@drawable/hg_panel_switch_thumb"
+                android:track="@drawable/hg_panel_switch_track" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="清屏模式展示弹幕"
+                android:textColor="#FF000000"
+                android:textSize="14sp" />
+
+            <Switch
+                android:id="@+id/hg_dm_show_in_clean"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:showText="false"
+                android:thumb="@drawable/hg_panel_switch_thumb"
+                android:track="@drawable/hg_panel_switch_track" />
+        </LinearLayout>
     </LinearLayout>
 </LinearLayout>

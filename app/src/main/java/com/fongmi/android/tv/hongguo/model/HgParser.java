@@ -509,12 +509,27 @@ public final class HgParser {
     // ---------- cell 类回包（容忍抽取 + 保留 raw） ----------
 
     public static HgCellPage parseCellPage(String json) {
+        return parseCellPage(json, -1);
+    }
+
+    /**
+     * 搜索口专用重载（批三 C 卡 18）：tabType&gt;0 且回包带 search_tabs 时
+     * 按该签段（search_tabs[].data）定域收录——成员按型分形进
+     * {@link HgCellPage#getSearchRows()}（剧集/视频卡、小说卡、用户卡、
+     * 帖卡，保回包原序），items 只留剧/视频子集供既有计数与翻页口径。
+     * 此前无定域的整树递归收录有三宗丢/压：用户成员（celebrity_user_list）
+     * 无剧 id 整条丢弃；帖子（post_data）被 asSeriesItem 以 book_id＝0
+     * 冒充剧 id 压成假剧条目（存档 tab11 改前实跑：6 条里第 4 条 id＝"0"）；
+     * 小说（book_data）被压成剧条目、点进集流死路。找不到对应签段时回落
+     * 整树容忍抽取（与无参版同口径），不让异常回包把结果清零。
+     */
+    public static HgCellPage parseCellPage(String json, int tabType) {
         JsonObject root = JsonParser.parseString(json).getAsJsonObject();
         int code = intOf(root, "code", 0);
         String msg = str(root, "message");
         List<HgSeriesItem> items = new ArrayList<>();
+        List<HgSearchRow> rows = new ArrayList<>();
         JsonObject data = obj(root, "data");
-        collectSeries(data != null ? data : root, items, 0);
         // 搜索回包的页签面（data.search_tabs）：只收视频面三页签
         // （11 综合/29 剧集/30 视频），顺序照服务端下发
         List<HgSearchTab> tabs = new ArrayList<>();
@@ -533,7 +548,244 @@ public final class HgParser {
                 }
             }
         }
-        return new HgCellPage(code, msg, items, root, false, null, null, null, tabs);
+        JsonObject seg = tabType > 0 ? findSearchTabSegment(tabScope, tabType) : null;
+        if (seg != null && arr(seg, "data") != null) {
+            collectSearchSegment(seg, items, rows);
+        } else {
+            collectSeries(data != null ? data : root, items, 0);
+            for (HgSeriesItem it : items) rows.add(HgSearchRow.ofSeries(it));
+        }
+        return new HgCellPage(code, msg, items, root, false, null, null, null, tabs, rows);
+    }
+
+    /** search_tabs 里 tab_type 命中的签段；没有返回 null。 */
+    private static JsonObject findSearchTabSegment(JsonObject tabScope, int tabType) {
+        if (tabScope == null || !tabScope.has("search_tabs")
+                || !tabScope.get("search_tabs").isJsonArray()) return null;
+        for (JsonElement el : tabScope.getAsJsonArray("search_tabs")) {
+            if (el != null && el.isJsonObject()
+                    && intOf(el.getAsJsonObject(), "tab_type", -1) == tabType) {
+                return el.getAsJsonObject();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 搜索签段定域收录：cell 按回包序遍历，cell 内成员按 JSON 键序分发
+     * （服务端原序，客户端不重排、不混排——普查分册二卡 2 定版）。
+     * video_data→剧/视频行；book_data→小说行；celebrity_user_list→用户行；
+     * post_data→帖行。成员值容忍数组/单对象两形（协议原件 bookList/
+     * postList 同口径）。
+     */
+    private static void collectSearchSegment(JsonObject seg, List<HgSeriesItem> items,
+                                             List<HgSearchRow> rows) {
+        JsonArray cells = arr(seg, "data");
+        if (cells == null) return;
+        for (JsonElement cellEl : cells) {
+            if (cellEl == null || !cellEl.isJsonObject()) continue;
+            JsonObject cell = cellEl.getAsJsonObject();
+            for (Map.Entry<String, JsonElement> e : cell.entrySet()) {
+                JsonElement v = e.getValue();
+                if (v == null) continue;
+                switch (e.getKey()) {
+                    case "video_data":
+                        for (JsonElement el : memberList(v)) collectSearchVideo(el, items, rows);
+                        break;
+                    case "book_data":
+                        for (JsonElement el : memberList(v)) {
+                            HgSearchRow r = searchBookRow(el);
+                            if (r != null) rows.add(r);
+                        }
+                        break;
+                    case "celebrity_user_list":
+                        for (JsonElement el : memberList(v)) {
+                            HgSearchRow r = searchUserRow(el);
+                            if (r != null) rows.add(r);
+                        }
+                        break;
+                    case "post_data":
+                        for (JsonElement el : memberList(v)) {
+                            HgSearchRow r = searchPostRow(el);
+                            if (r != null) rows.add(r);
+                        }
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
+    }
+
+    /** 成员值归一为元素表：数组逐个、单对象包一层、其余空表。 */
+    private static List<JsonElement> memberList(JsonElement v) {
+        List<JsonElement> out = new ArrayList<>();
+        if (v.isJsonArray()) {
+            for (JsonElement el : v.getAsJsonArray()) out.add(el);
+        } else if (v.isJsonObject()) {
+            out.add(v);
+        }
+        return out;
+    }
+
+    /**
+     * video_data 一员 → 剧/视频行（0..n 条）：本体能成条直接收；本体只是
+     * 容器时先把 video_detail 的 series_* 扁平字段补进副本再试；仍不成
+     * 则展开 video_detail.video_detail_list 嵌套卡逐条收（协议原件
+     * ParseSearchTab 同三路）。
+     */
+    private static void collectSearchVideo(JsonElement el, List<HgSeriesItem> items,
+                                           List<HgSearchRow> rows) {
+        if (el == null || !el.isJsonObject()) return;
+        JsonObject o = el.getAsJsonObject();
+        HgSeriesItem item = asSeriesItem(o);
+        if (item == null) {
+            JsonObject vd = obj(o, "video_detail");
+            if (vd != null) {
+                JsonObject merged = o.deepCopy();
+                fillIfBlank(merged, "title", str(vd, "series_title"));
+                fillIfBlank(merged, "series_id", firstStr(vd, "series_id", "series_id_str"));
+                fillIfBlank(merged, "cover", str(vd, "series_cover"));
+                fillIfBlank(merged, "desc", str(vd, "series_intro"));
+                if (intOf(merged, "episode_cnt", -1) < 0 && intOf(vd, "episode_cnt", -1) >= 0) {
+                    merged.addProperty("episode_cnt", intOf(vd, "episode_cnt", -1));
+                }
+                item = asSeriesItem(merged);
+            }
+        }
+        if (item != null) {
+            items.add(item);
+            rows.add(HgSearchRow.ofSeries(item));
+            return;
+        }
+        JsonObject vd = obj(o, "video_detail");
+        JsonArray cards = vd == null ? null : arr(vd, "video_detail_list");
+        if (cards != null) {
+            for (JsonElement card : cards) {
+                if (card == null || !card.isJsonObject()) continue;
+                HgSeriesItem ci = asSeriesItem(card);
+                if (ci != null) {
+                    items.add(ci);
+                    rows.add(HgSearchRow.ofSeries(ci));
+                }
+            }
+        }
+    }
+
+    /** book_data 一员 → 小说行（字段集照协议原件 catalogBook 逐字）。 */
+    private static HgSearchRow searchBookRow(JsonElement el) {
+        if (el == null || !el.isJsonObject()) return null;
+        JsonObject b = el.getAsJsonObject();
+        String id = firstStr(b, "book_id");
+        if (id == null) id = longStr(b, "book_id");
+        String title = firstStr(b, "book_name", "title");
+        if (id == null || title == null) return null;
+        return HgSearchRow.ofBook(id, title, firstStr(b, "thumb_url", "cover"),
+                str(b, "abstract"), intOf(b, "serial_count", 0));
+    }
+
+    /** celebrity_user_list 一员 → 用户行（与 parseUserTab 的抽取同口径）。 */
+    private static HgSearchRow searchUserRow(JsonElement el) {
+        if (el == null || !el.isJsonObject()) return null;
+        JsonObject u = el.getAsJsonObject();
+        JsonObject base = obj(u, "base_info");
+        String uid = str(u, "user_id");
+        if (uid == null) uid = longStr(u, "user_id");
+        if (uid == null && base != null) uid = str(base, "user_id");
+        String name = base == null ? null : str(base, "user_name");
+        if (name == null) name = str(u, "user_name");
+        if (uid == null || name == null) return null;
+        JsonObject stat = obj(u, "user_stat");
+        return HgSearchRow.ofUser(new HgAuthorHit(uid, name,
+                base == null ? null : str(base, "user_avatar"),
+                stat == null ? -1 : intOf(stat, "celebrity_work_cnt", -1)));
+    }
+
+    /**
+     * post_data 一员 → 帖行（存档 tab11 真回包逐字：post_id/title/
+     * pure_content 正文/content 字符串化 materials 图集与关联剧/
+     * user_info 平铺作者/digg_cnt/reply_cnt/favorite_cnt/create_time/
+     * cover_url）。料组装成帖子页的入参形态（HgAuthorWork.PostBody），
+     * 落点 HongguoPostActivity 与作者页帖子同一承接。
+     */
+    private static HgSearchRow searchPostRow(JsonElement el) {
+        if (el == null || !el.isJsonObject()) return null;
+        JsonObject p = el.getAsJsonObject();
+        String postId = firstStr(p, "post_id");
+        if (postId == null) postId = longStr(p, "post_id");
+        String title = str(p, "title");
+        if (postId == null || title == null || title.isEmpty()) return null;
+        JsonObject ui = obj(p, "user_info");
+        JsonObject base = ui == null ? null : obj(ui, "base_info");
+        String authorUid = ui == null ? null : firstStr(ui, "user_id");
+        if (authorUid == null && base != null) authorUid = str(base, "user_id");
+        String authorName = base != null ? str(base, "user_name")
+                : ui == null ? null : str(ui, "user_name");
+        String authorAvatar = base != null ? str(base, "user_avatar")
+                : ui == null ? null : str(ui, "user_avatar");
+        List<String> images = new ArrayList<>();
+        List<String> seriesIds = new ArrayList<>();
+        String raw = str(p, "content");
+        if (raw != null && !raw.isEmpty()) {
+            try {
+                JsonObject textObj = JsonParser.parseString(raw).getAsJsonObject();
+                JsonArray mats = arr(textObj, "materials");
+                if (mats != null) {
+                    for (JsonElement mEl : mats) {
+                        if (!mEl.isJsonObject()) continue;
+                        JsonObject m = mEl.getAsJsonObject();
+                        JsonObject mData = obj(m, "data");
+                        if (mData == null) continue;
+                        String mt = str(m, "type");
+                        if ("img-list".equals(mt)) {
+                            JsonArray datas = arr(mData, "datas");
+                            if (datas != null) {
+                                for (JsonElement dEl : datas) {
+                                    if (!dEl.isJsonObject()) continue;
+                                    String u = str(dEl.getAsJsonObject(), "web_url");
+                                    if (u != null && !u.isEmpty()) images.add(u);
+                                }
+                            }
+                        } else if ("series_card_id".equals(mt)) {
+                            String sid = str(mData, "series_card_id");
+                            if (sid != null && !sid.isEmpty() && !seriesIds.contains(sid)) {
+                                seriesIds.add(sid);
+                            }
+                        }
+                    }
+                }
+            } catch (Exception ignored) {
+                // materials 串坏只丢图集/关联剧，正文与卡面不受影响
+            }
+        }
+        HgAuthorWork.PostBody body = new HgAuthorWork.PostBody(
+                str(p, "pure_content"), images, seriesIds,
+                longOf(p, "reply_cnt", 0), longOf(p, "favorite_cnt", 0));
+        return HgSearchRow.ofPost(new HgAuthorWork(HgAuthorWork.KIND_POST,
+                postId, null, firstStr(p, "cover_url", "cover"), title, null, 0,
+                longOf(p, "digg_cnt", 0), 0, 0, null,
+                authorName, authorAvatar, -1, longOf(p, "create_time", 0), body),
+                authorUid);
+    }
+
+    /**
+     * 预约未读文案（批三 C 卡 25）：GetUserSubscribeList 回包
+     * data.onlineUnreadCountText（官方 GetUserSubscribeListResponseData
+     * 的 @SerializedName 逐字，国内版包 jadx11 实证）——非空即服务端下发
+     * 的预约格文案，空/缺失返回 null（消费侧回落默认文案）。
+     */
+    public static String parseSubscribeUnreadText(String json) {
+        if (json == null || json.isEmpty()) return null;
+        JsonObject root;
+        try {
+            root = JsonParser.parseString(json).getAsJsonObject();
+        } catch (Exception e) {
+            return null;
+        }
+        JsonObject data = obj(root, "data");
+        String t = data == null ? null : str(data, "onlineUnreadCountText");
+        if (t == null) t = str(root, "onlineUnreadCountText");
+        return t == null || t.trim().isEmpty() ? null : t;
     }
 
     // ---------- bookmall 频道面（openhongguo parse.go 逐函数对照移植） ----------

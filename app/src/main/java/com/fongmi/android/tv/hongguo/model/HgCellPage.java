@@ -24,6 +24,10 @@ public final class HgCellPage {
     private final HgContinuation continuation;
     /** 搜索结果页签（只有 search/tab 回包带，其余面为空表）。 */
     private final List<HgSearchTab> tabs;
+    /** 搜索结果按型行表（只有走 parseCellPage(json, tabType) 的搜索口带：
+     * 服务端原序、多型同列；items 仍是其中的剧/视频子集，供既有计数与
+     * 翻页口径。其余面为空表）。 */
+    private final List<HgSearchRow> searchRows;
 
     HgCellPage(int code, String message, List<HgSeriesItem> items, JsonObject raw) {
         this(code, message, items, raw, false, null, null, null);
@@ -39,6 +43,14 @@ public final class HgCellPage {
     HgCellPage(int code, String message, List<HgSeriesItem> items, JsonObject raw,
                boolean hasMore, String nextOffset, String sessionId,
                HgContinuation continuation, List<HgSearchTab> tabs) {
+        this(code, message, items, raw, hasMore, nextOffset, sessionId, continuation,
+                tabs, Collections.emptyList());
+    }
+
+    HgCellPage(int code, String message, List<HgSeriesItem> items, JsonObject raw,
+               boolean hasMore, String nextOffset, String sessionId,
+               HgContinuation continuation, List<HgSearchTab> tabs,
+               List<HgSearchRow> searchRows) {
         this.code = code;
         this.message = message;
         this.items = Collections.unmodifiableList(items);
@@ -48,6 +60,7 @@ public final class HgCellPage {
         this.sessionId = sessionId;
         this.continuation = continuation;
         this.tabs = Collections.unmodifiableList(tabs);
+        this.searchRows = Collections.unmodifiableList(searchRows);
     }
 
     public int getCode() { return code; }
@@ -59,4 +72,5 @@ public final class HgCellPage {
     public String getSessionId() { return sessionId; }
     public HgContinuation getContinuation() { return continuation; }
     public List<HgSearchTab> getTabs() { return tabs; }
+    public List<HgSearchRow> getSearchRows() { return searchRows; }
 }

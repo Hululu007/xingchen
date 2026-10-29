@@ -666,7 +666,7 @@ public final class HgApiClient {
         getSigned("/reading/bookapi/search/tab/v", HgRequests.searchPairs(keyword), new BodyCallback() {
             @Override
             void onBody(String text) {
-                cb.onSuccess(HgParser.parseCellPage(text));
+                cb.onSuccess(HgParser.parseCellPage(text, 11));
             }
 
             @Override
@@ -745,7 +745,7 @@ public final class HgApiClient {
         getSigned("/reading/bookapi/search/tab/v", HgRequests.searchPairs(keyword, offset, tabType), new BodyCallback() {
             @Override
             void onBody(String text) {
-                cb.onSuccess(HgParser.parseCellPage(text));
+                cb.onSuccess(HgParser.parseCellPage(text, tabType));
             }
 
             @Override
@@ -1155,6 +1155,25 @@ public final class HgApiClient {
     /** 按上线档拉我的预约（官方 is_online 分档，见 HgRequests.subscribeListParams）。 */
     public void fetchMyReservations(boolean online, HgCallback<java.util.List<com.fongmi.android.tv.hongguo.model.HgSeriesItem>> cb) {
         fetchReservationsPage(0, online, new java.util.ArrayList<>(), cb);
+    }
+
+    /**
+     * 预约未读文案（批三 C 卡 25）：同订阅列表口换 tab_type＝11 拉一发，
+     * 回调带 data.onlineUnreadCountText 原文；回包没带/为空回调 null
+     * （消费侧回落默认文案）。失败走 onError，消费侧静默回落、不摆假文案。
+     */
+    public void fetchSubscribeUnreadText(HgCallback<String> cb) {
+        get(HOST + "/reading/user/subscribe/list" + BV, HgRequests.subscribeUnreadParams(), new BodyCallback() {
+            @Override
+            void onBody(String text) {
+                cb.onSuccess(HgParser.parseSubscribeUnreadText(text));
+            }
+
+            @Override
+            void onFail(int code, String msg) {
+                cb.onError(code, msg);
+            }
+        });
     }
 
     /**

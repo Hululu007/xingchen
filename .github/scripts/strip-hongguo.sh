@@ -98,6 +98,9 @@ app/src/main/res/layout/item_hongguo_search.xml
 app/src/main/res/layout/item_hongguo_search_header.xml
 app/src/main/res/layout/item_hongguo_search_sug.xml
 app/src/main/res/layout/item_hongguo_search_text.xml
+app/src/main/res/layout/item_hongguo_search_user.xml
+app/src/main/res/layout/item_hongguo_search_post.xml
+app/src/main/res/layout/item_hongguo_search_book.xml
 app/src/main/res/layout/item_hongguo_series_row.xml
 app/src/main/res/layout/item_hongguo_theater.xml
 app/src/main/res/layout/view_hongguo_mine.xml

@@ -506,12 +506,29 @@ public final class HgCommentClient {
         }
     }
 
+    /**
+     * 整剧剧评的唯一取数链（批三 C 卡 34 归一）：详情页剧评区与评论面板
+     * 剧评签同源同口——同一端点 comment/list、同一请求体构造
+     * {@link #seriesListPayload}、同一组头（source 1/channel 34）、同一
+     * 解析（parseList，条目 expand.score 评分随行）。逐字段对账证据：
+     * 两口改前除回调包装外逐字同形；存档两份真回包（详情页口径的
+     * series_comments_rating.json 与面板口径的 series_comments_mine.json）
+     * data_list/total 同值（524）、条目评分同列，差异只在 extra
+     * .user_comment（本人评论信息，登录态字段）——服务端本就是一口，
+     * 此前两条「链」只是两个包装。归一后两边共用本方法：计数同源
+     * （need_count 同置 true、total 同出 parseList）、评分语义同行。
+     */
+    private void seriesList(String seriesId, String cursor, TextCallback cb) {
+        String cur = cursor == null ? "" : cursor;
+        post("comment/list/" + seriesId, seriesListPayload(seriesId, cur), 1, 34, cb);
+    }
+
     public void seriesReviews(String seriesId, HgCallback<SeriesReviews> cb) {
         if (!isId(seriesId)) {
             cb.onError(-1, "id 非法");
             return;
         }
-        post("comment/list/" + seriesId, seriesListPayload(seriesId, ""), 1, 34, new TextCallback() {
+        seriesList(seriesId, "", new TextCallback() {
             @Override
             void onText(String text) {
                 HgComment.Page page = HgCommentParser.parseList(text, seriesId, seriesId, "", true);
@@ -573,14 +590,16 @@ public final class HgCommentClient {
         });
     }
 
-    /** 整剧剧评一页。 */
+    /** 整剧剧评一页（评论面板剧评签）：与详情页 {@link #seriesReviews}
+     * 同一条链（见 {@link #seriesList} 归一注），条目评分经 parseList
+     * 随行、面板按 score 画星（HgCommentsPanel 剧评行）。 */
     public void seriesComments(String seriesId, String cursor, HgCallback<HgComment.Page> cb) {
         if (!isId(seriesId)) {
             cb.onError(-1, "id 非法");
             return;
         }
         String cur = cursor == null ? "" : cursor;
-        post("comment/list/" + seriesId, seriesListPayload(seriesId, cur), 1, 34, new TextCallback() {
+        seriesList(seriesId, cur, new TextCallback() {
             @Override
             void onText(String text) {
                 HgComment.Page page = HgCommentParser.parseList(text, seriesId, seriesId, cur, true);

@@ -137,8 +137,12 @@ public final class HgPanelLogic {
     // ---------- 弹幕设置（竖屏：面板弹幕开后出的「弹幕设置」行 → 设置单） ----------
     // 构成照官方 DanmakuOptionDialog 竖屏形态定版（dig 账
     // panel-danmaku-settings-20261028.md）：不透明度/移动速度/显示区域/
-    // 字体大小四滑杆＋恢复默认，常显；另有四行（屏蔽词/屏蔽彩色/智能
-    // 防遮/清屏展示）由官方服务端旗标门控、包内无缺省，不在此列。
+    // 字体大小四滑杆＋恢复默认，常显。批三 C 卡 37 补注：屏蔽彩色与清屏
+    // 展示两项的「设置行」在官方由服务端旗标门控，但两键本身与缺省值在
+    // 官方包内有据（jadx2 kmp_video_danmaku/config/a.java：
+    // key_colorful_danmaku_blocked/key_show_danmaku_in_immersive 均缺省
+    // false），本批按功能键落码（HgStore 新键＋FeedActivity 生效点），
+    // 设置行在咱家弹层常显——与官方旗标门控的显隐差记批三 C 账。
 
     /** 不透明度百分比界：官方滑杆 max 80＋偏移 20 → 20%–100%；缺省 100%（存储 alpha 255）。 */
     public static final int DM_OPACITY_MIN = 20;
@@ -218,5 +222,55 @@ public final class HgPanelLogic {
     /** 显示区域值文案（官方「%d行」定版）。 */
     public static String danmakuAreaText(int lines) {
         return clampDanmakuLines(lines) + "行";
+    }
+
+    // ---------- 显示区域横屏档（批三 C 卡 37：官方 key_line_space） ----------
+    // 官方 DanmakuLineSpace 枚举（jadx2 一手）：SINGLE=1/QUARTER=2/
+    // HALF=3/THREE_QUARTER=4，存储缺省 QUARTER；语义是横屏显示区高度
+    // 档。官方设置弹层同一根「显示区域」滑杆：竖屏读写行数（1–4）、
+    // 横屏读写此档（DanmakuOptionDialog:712 起横竖分工实证）。咱家横屏
+    // 行数口径未抠到（分册二 #11），横屏只走此档、不编行数。
+
+    /** 显示区域横屏档标签（下标 0–3 对应 SINGLE/QUARTER/HALF/THREE_QUARTER）。 */
+    public static final String[] DM_AREA_LABELS = {"单行", "1/4屏", "1/2屏", "3/4屏"};
+
+    /** 显示区域横屏档缺省下标（QUARTER，官方存储缺省）。 */
+    public static final int DM_AREA_DEFAULT_INDEX = 1;
+
+    /** 显示区域档下标 → 标签。 */
+    public static String danmakuAreaLabel(int index) {
+        return DM_AREA_LABELS[clampDanmakuIndex(index, DM_AREA_LABELS.length)];
+    }
+
+    /**
+     * 显示区域档下标 → 引擎滚动区高度比（DanmakuConfig.scrollAreaRatio
+     * 口径：0–1）。SINGLE 档返回 -1＝单行模式哨兵（消费侧改走
+     * maxScrollLines＝1），其余三档返回 0.25/0.5/0.75。
+     */
+    public static float danmakuAreaRatio(int index) {
+        switch (clampDanmakuIndex(index, DM_AREA_LABELS.length)) {
+            case 0:
+                return -1f;
+            case 2:
+                return 0.5f;
+            case 3:
+                return 0.75f;
+            case 1:
+            default:
+                return 0.25f;
+        }
+    }
+
+    /**
+     * 「彩色弹幕」判定（屏蔽彩色项的过滤口径）：带颜色且非纯白即彩色。
+     * 咱家弹幕项缺省色是白（解析层 HgCommentParser 缺省 #FFFFFF），
+     * 官方彩色弹幕＝服务端下发的非白彩字，同口径。
+     */
+    public static boolean isColorfulDanmaku(String colorHex) {
+        if (colorHex == null) return false;
+        String c = colorHex.trim();
+        if (c.isEmpty()) return false;
+        if (c.startsWith("#")) c = c.substring(1);
+        return !c.equalsIgnoreCase("FFFFFF") && !c.equalsIgnoreCase("FFF");
     }
 }

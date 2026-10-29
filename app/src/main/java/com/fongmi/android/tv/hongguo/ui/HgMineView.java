@@ -184,6 +184,49 @@ public final class HgMineView extends LinearLayout {
         renderTab();
         backfillMissingCovers();
         refreshFollowDotSource();
+        refreshReserveUnreadText();
+    }
+
+    /** 预约签默认文案（布局写死值，他亲定的五签形态成分，不许改）。 */
+    private static final String RESERVE_TAB_DEFAULT = "预约";
+    private boolean reserveUnreadFetching;
+
+    /**
+     * 预约未读文案（批三 C 卡 25，官方 HongguoMineViewModel t1/u1 口径）：
+     * 以 tab_type＝11 拉 GetUserSubscribeList，回包
+     * data.onlineUnreadCountText 非空则预约签文案换成该文案、空则回落
+     * 默认「预约」。未登录不拉、文案回落默认；取数失败静默回落，
+     * 不报错、不摆假文案。五签形态是他亲定，本处只换预约签的文字，
+     * 不动签序与形态。
+     */
+    private void refreshReserveUnreadText() {
+        TextView reserveTab = tabViews[TAB_RESERVE];
+        if (reserveTab == null) return;
+        if (!LoginManager.isHongguoLoggedIn()) {
+            reserveTab.setText(RESERVE_TAB_DEFAULT);
+            return;
+        }
+        if (reserveUnreadFetching) return;
+        reserveUnreadFetching = true;
+        HgFeedSession.get().client.fetchSubscribeUnreadText(new HgCallback<String>() {
+            @Override
+            public void onSuccess(String text) {
+                post(() -> {
+                    reserveUnreadFetching = false;
+                    TextView tab = tabViews[TAB_RESERVE];
+                    if (tab != null) {
+                        tab.setText(text != null && !text.isEmpty()
+                                ? text : RESERVE_TAB_DEFAULT);
+                    }
+                });
+            }
+
+            @Override
+            public void onError(int httpCode, String message) {
+                post(() -> reserveUnreadFetching = false);
+                // 静默回落：文案保持默认，不打扰
+            }
+        });
     }
 
     /** 召回弹窗「去我的-预约查看」的落点：切到预约页签＋已上线档重列。 */

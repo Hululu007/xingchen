@@ -22,8 +22,14 @@ import androidx.viewbinding.ViewBinding;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.databinding.ActivityHongguoSearchBinding;
 import com.fongmi.android.tv.databinding.ItemHongguoSearchBinding;
+import com.fongmi.android.tv.databinding.ItemHongguoSearchBookBinding;
+import com.fongmi.android.tv.databinding.ItemHongguoSearchPostBinding;
+import com.fongmi.android.tv.databinding.ItemHongguoSearchUserBinding;
 import com.fongmi.android.tv.hongguo.api.HgCallback;
+import com.fongmi.android.tv.hongguo.model.HgAuthorHit;
+import com.fongmi.android.tv.hongguo.model.HgAuthorWork;
 import com.fongmi.android.tv.hongguo.model.HgCellPage;
+import com.fongmi.android.tv.hongguo.model.HgSearchRow;
 import com.fongmi.android.tv.hongguo.model.HgSearchTab;
 import com.fongmi.android.tv.hongguo.model.HgSeriesItem;
 import com.fongmi.android.tv.hongguo.model.HgSuggestion;
@@ -58,6 +64,10 @@ public class HongguoSearchActivity extends BaseActivity {
     private static final int TYPE_TEXT = 1;
     private static final int TYPE_HEADER = 2;
     private static final int TYPE_SUG = 3;
+    // 综合签按型分形（批三 C 卡 18）：用户/帖/小说三型整行卡
+    private static final int TYPE_USER = 4;
+    private static final int TYPE_POST = 5;
+    private static final int TYPE_BOOK = 6;
 
     private ActivityHongguoSearchBinding binding;
     private HgFeedSession session;
@@ -65,6 +75,9 @@ public class HongguoSearchActivity extends BaseActivity {
     private StaggeredGridLayoutManager gridManager;
     private int mode = MODE_HISTORY;
     private final List<HgSeriesItem> results = new ArrayList<>();
+    /** 综合签（tabType＝11）的按型行表：服务端原序、多型同列（解析层
+     * HgParser 定域收录）；剧集/视频签仍走 results 一型到底。 */
+    private final List<HgSearchRow> rows = new ArrayList<>();
     private final List<HgSuggestion> suggestions = new ArrayList<>();
     private final List<String> history = new ArrayList<>();
     private RecyclerView.Adapter<RecyclerView.ViewHolder> adapter;
@@ -128,7 +141,21 @@ public class HongguoSearchActivity extends BaseActivity {
         adapter = new RecyclerView.Adapter<RecyclerView.ViewHolder>() {
             @Override
             public int getItemViewType(int position) {
-                if (mode == MODE_RESULT) return TYPE_RESULT;
+                if (mode == MODE_RESULT) {
+                    if (useRows()) {
+                        switch (rows.get(position).kind) {
+                            case HgSearchRow.KIND_USER:
+                                return TYPE_USER;
+                            case HgSearchRow.KIND_POST:
+                                return TYPE_POST;
+                            case HgSearchRow.KIND_BOOK:
+                                return TYPE_BOOK;
+                            default:
+                                return TYPE_RESULT;
+                        }
+                    }
+                    return TYPE_RESULT;
+                }
                 if (mode == MODE_SUGGEST) return TYPE_SUG;
                 if (position == 0) return TYPE_HEADER;
                 return TYPE_TEXT;
@@ -140,6 +167,15 @@ public class HongguoSearchActivity extends BaseActivity {
                 LayoutInflater inflater = LayoutInflater.from(parent.getContext());
                 if (viewType == TYPE_RESULT) {
                     return new ResultHolder(ItemHongguoSearchBinding.inflate(inflater, parent, false));
+                }
+                if (viewType == TYPE_USER) {
+                    return new UserHolder(ItemHongguoSearchUserBinding.inflate(inflater, parent, false));
+                }
+                if (viewType == TYPE_POST) {
+                    return new PostHolder(ItemHongguoSearchPostBinding.inflate(inflater, parent, false));
+                }
+                if (viewType == TYPE_BOOK) {
+                    return new BookHolder(ItemHongguoSearchBookBinding.inflate(inflater, parent, false));
                 }
                 if (viewType == TYPE_HEADER) {
                     return new HeaderHolder(inflater.inflate(R.layout.item_hongguo_search_header, parent, false));
@@ -154,7 +190,11 @@ public class HongguoSearchActivity extends BaseActivity {
             @Override
             public void onBindViewHolder(@NonNull RecyclerView.ViewHolder holder, int position) {
                 if (mode == MODE_RESULT) {
-                    HgSeriesItem item = results.get(position);
+                    if (useRows() && rows.get(position).kind != HgSearchRow.KIND_SERIES) {
+                        bindTypedRow(holder, rows.get(position));
+                        return;
+                    }
+                    HgSeriesItem item = useRows() ? rows.get(position).series : results.get(position);
                     ItemHongguoSearchBinding b = ((ResultHolder) holder).binding;
                     ImgUtil.load(item.getTitle() == null ? "" : item.getTitle(), item.getCoverUrl(), b.hgSCover);
                     b.hgSTitle.setText(item.getTitle() == null ? "" : item.getTitle());
@@ -245,7 +285,7 @@ public class HongguoSearchActivity extends BaseActivity {
 
             @Override
             public int getItemCount() {
-                if (mode == MODE_RESULT) return results.size();
+                if (mode == MODE_RESULT) return useRows() ? rows.size() : results.size();
                 if (mode == MODE_SUGGEST) return suggestions.size();
                 return history.isEmpty() ? 0 : history.size() + 1;
             }
@@ -390,6 +430,68 @@ public class HongguoSearchActivity extends BaseActivity {
         });
     }
 
+    /** 综合签才走按型行表；剧集/视频签的回包只有剧行、仍走 results。 */
+    private boolean useRows() {
+        return searchTabType == 11;
+    }
+
+    /**
+     * 综合签非剧行的分型绑卡（批三 C 卡 18）：三型都是整行卡（瀑布里
+     * fullSpan）。落点——用户卡进作者页、帖卡进帖子页（料由回包自带组装、
+     * 与作者页帖子同一承接）；小说卡红果面无阅读链，只展示、点击给诚实
+     * 提示不假跳（承接差记账）。
+     */
+    private void bindTypedRow(RecyclerView.ViewHolder holder, HgSearchRow row) {
+        if (holder.itemView.getLayoutParams()
+                instanceof StaggeredGridLayoutManager.LayoutParams) {
+            ((StaggeredGridLayoutManager.LayoutParams) holder.itemView.getLayoutParams())
+                    .setFullSpan(true);
+        }
+        if (holder instanceof UserHolder) {
+            ItemHongguoSearchUserBinding b = ((UserHolder) holder).binding;
+            HgAuthorHit hit = row.user;
+            ImgUtil.loadCircle(hit.name, hit.avatar, b.hgSuAvatar);
+            b.hgSuName.setText(hit.name);
+            b.hgSuSub.setText(hit.workCount > 0 ? "作者 · 作品" + hit.workCount : "作者");
+            b.getRoot().setOnClickListener(v ->
+                    HongguoAuthorActivity.start(HongguoSearchActivity.this,
+                            hit.uid, hit.name, hit.avatar, null));
+            return;
+        }
+        if (holder instanceof PostHolder) {
+            ItemHongguoSearchPostBinding b = ((PostHolder) holder).binding;
+            HgAuthorWork work = row.post;
+            ImgUtil.load(work.title, work.cover, b.hgSpCover);
+            b.hgSpTitle.setText(work.title);
+            String text = work.postBody == null ? "" : work.postBody.text;
+            b.hgSpText.setText(text);
+            b.hgSpText.setVisibility(text.isEmpty() ? View.GONE : View.VISIBLE);
+            b.hgSpAuthor.setText(work.authorName == null ? "" : work.authorName);
+            StringBuilder counts = new StringBuilder();
+            if (work.diggCount > 0) counts.append("♡").append(formatCount(work.diggCount));
+            long replies = work.postBody == null ? 0 : work.postBody.commentCount;
+            if (replies > 0) {
+                if (counts.length() > 0) counts.append("  ");
+                counts.append("评论").append(formatCount(replies));
+            }
+            b.hgSpCounts.setText(counts.toString());
+            b.getRoot().setOnClickListener(v ->
+                    HongguoPostActivity.start(HongguoSearchActivity.this, work, row.postAuthorUid));
+            return;
+        }
+        if (holder instanceof BookHolder) {
+            ItemHongguoSearchBookBinding b = ((BookHolder) holder).binding;
+            ImgUtil.load(row.bookTitle, row.bookCover, b.hgSbCover);
+            b.hgSbTitle.setText(row.bookTitle);
+            b.hgSbAbstract.setText(row.bookAbstract);
+            b.hgSbAbstract.setVisibility(
+                    row.bookAbstract.isEmpty() ? View.GONE : View.VISIBLE);
+            b.getRoot().setOnClickListener(v ->
+                    android.widget.Toast.makeText(HongguoSearchActivity.this,
+                            "红果里暂不能打开小说", android.widget.Toast.LENGTH_SHORT).show());
+        }
+    }
+
     /** 计数文案：万以下原数，万起缩「X.X万」（与 rec_text 的万制文风一致）。 */
     private static String formatCount(long n) {
         if (n < 10000) return String.valueOf(n);
@@ -476,6 +578,7 @@ public class HongguoSearchActivity extends BaseActivity {
         lastPageFull = false;
         useGrid(true);
         results.clear();
+        rows.clear();
         adapter.notifyDataSetChanged();
         binding.hgSearchState.setVisibility(View.VISIBLE);
         binding.hgSearchState.setText("搜索中…");
@@ -486,13 +589,15 @@ public class HongguoSearchActivity extends BaseActivity {
                     if (mode != MODE_RESULT) return;
                     results.clear();
                     if (page.getItems() != null) results.addAll(page.getItems());
+                    rows.clear();
+                    if (page.getSearchRows() != null) rows.addAll(page.getSearchRows());
                     lastPageFull = page.getItems() != null && page.getItems().size() >= 20;
                     if (page.getTabs() != null && !page.getTabs().isEmpty()) {
                         searchTabs = page.getTabs();
                         renderSearchTabs();
                     }
                     adapter.notifyDataSetChanged();
-                    if (results.isEmpty()) {
+                    if (useRows() ? rows.isEmpty() : results.isEmpty()) {
                         binding.hgSearchState.setVisibility(View.VISIBLE);
                         binding.hgSearchState.setText("没有找到相关短剧");
                     } else {
@@ -560,6 +665,19 @@ public class HongguoSearchActivity extends BaseActivity {
                     if (mode != MODE_RESULT) return;
                     List<HgSeriesItem> more = page.getItems();
                     lastPageFull = more != null && more.size() >= 20;
+                    if (useRows()) {
+                        // 综合签翻页按行表续（剧计数仍随 results 累积供 offset）
+                        List<HgSearchRow> moreRows = page.getSearchRows();
+                        if (moreRows == null || moreRows.isEmpty()) {
+                            if (more != null) results.addAll(more);
+                            return;
+                        }
+                        int at = rows.size();
+                        if (more != null) results.addAll(more);
+                        rows.addAll(moreRows);
+                        adapter.notifyItemRangeInserted(at, moreRows.size());
+                        return;
+                    }
                     if (more == null || more.isEmpty()) return;
                     int at = results.size();
                     results.addAll(more);
@@ -578,6 +696,33 @@ public class HongguoSearchActivity extends BaseActivity {
         final ItemHongguoSearchBinding binding;
 
         ResultHolder(ItemHongguoSearchBinding binding) {
+            super(binding.getRoot());
+            this.binding = binding;
+        }
+    }
+
+    private static final class UserHolder extends RecyclerView.ViewHolder {
+        final ItemHongguoSearchUserBinding binding;
+
+        UserHolder(ItemHongguoSearchUserBinding binding) {
+            super(binding.getRoot());
+            this.binding = binding;
+        }
+    }
+
+    private static final class PostHolder extends RecyclerView.ViewHolder {
+        final ItemHongguoSearchPostBinding binding;
+
+        PostHolder(ItemHongguoSearchPostBinding binding) {
+            super(binding.getRoot());
+            this.binding = binding;
+        }
+    }
+
+    private static final class BookHolder extends RecyclerView.ViewHolder {
+        final ItemHongguoSearchBookBinding binding;
+
+        BookHolder(ItemHongguoSearchBookBinding binding) {
             super(binding.getRoot());
             this.binding = binding;
         }

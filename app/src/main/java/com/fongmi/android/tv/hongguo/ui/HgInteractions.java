@@ -14,14 +14,15 @@ public interface HgInteractions {
     /** 切换点赞，返回切换后状态。 */
     boolean toggleLike(String seriesId);
 
+    /** 收藏与追更同体（批二归一）：与 isFollowing 同读一份追剧架正源状态。 */
     boolean isFavorite(String seriesId);
 
-    /** 切换收藏，返回切换后状态。 */
+    /** 切换收藏＝切换追剧架正源，返回切换后状态（与 toggleFollow 同一写路）。 */
     boolean toggleFavorite(String seriesId);
 
     boolean isFollowing(String seriesId);
 
-    /** 切换关注，返回切换后状态。 */
+    /** 切换追更＝切换追剧架正源，返回切换后状态（与 toggleFavorite 同一写路）。 */
     boolean toggleFollow(String seriesId);
 
     /** 是否已预约（未上线剧的到货提醒预约，与收藏/追更是不同的服务端状态）。 */

@@ -23,8 +23,14 @@ public final class HgStore {
     private static final String K_LAUNCH_DIRECT = "hongguo_launch_direct";
     private static final String K_AUTO_NEXT = "hongguo_auto_next";
     private static final String K_LIKED = "hongguo_liked_series";
+    /** 旧收藏集键：批二归一后只作一次性并集迁移的来源，迁移完清空、不再读写。 */
     private static final String K_FAVED = "hongguo_faved_series";
+    /** 追剧架本地正源（批二定版）：服务端只有一个追剧架动作与一套 followed
+     * 状态，本地只留这一份；收藏名下全部入口转读本集。 */
     private static final String K_FOLLOWED = "hongguo_followed_series";
+    /** 追剧架归一迁移旗：faved∪followed 并集落正源后置位，保证只迁一次。 */
+    private static final String K_SHELF_MIGRATED = "hongguo_shelf_migrated_v1";
+    private static boolean shelfMigrated;
     /** 作者关注集（key＝作者 uid，与按剧的追更集 K_FOLLOWED 分家：那套喂
      * 追更页签的剧列表，混进 uid 会生出无元信息的鬼行）。 */
     private static final String K_FOLLOWED_AUTHORS = "hongguo_followed_authors";
@@ -154,19 +160,39 @@ public final class HgStore {
         return toggle(K_LIKED, seriesId);
     }
 
-    public static boolean isFaved(String seriesId) {
-        return contains(K_FAVED, seriesId);
+    /**
+     * 追剧架归一迁移（一次性、幂等）：旧 faved 集与 followed 集取并集写入
+     * 正源 followed 集，再清空 faved 集并落迁移旗——两边存量一条不丢。
+     * 每个追剧架读写入口先调本方法，保证任何面第一次用状态前迁移已完成。
+     */
+    static synchronized void ensureShelfMigrated() {
+        if (shelfMigrated) return;
+        shelfMigrated = true;
+        if (Prefers.getBoolean(K_SHELF_MIGRATED, false)) return;
+        Set<String> union = readSet(K_FOLLOWED);
+        union.addAll(readSet(K_FAVED));
+        Prefers.put(K_FOLLOWED, String.join(",", union));
+        Prefers.put(K_FAVED, "");
+        Prefers.put(K_SHELF_MIGRATED, true);
     }
 
+    /** 收藏读口＝追剧架正源（批二归一：收藏与追更同体，isFaved 只是别名）。 */
+    public static boolean isFaved(String seriesId) {
+        return isFollowed(seriesId);
+    }
+
+    /** 收藏翻转口＝追剧架正源翻转（别名，与 toggleFollowed 同一份状态）。 */
     public static boolean toggleFaved(String seriesId) {
-        return toggle(K_FAVED, seriesId);
+        return toggleFollowed(seriesId);
     }
 
     public static boolean isFollowed(String seriesId) {
+        ensureShelfMigrated();
         return contains(K_FOLLOWED, seriesId);
     }
 
     public static boolean toggleFollowed(String seriesId) {
+        ensureShelfMigrated();
         return toggle(K_FOLLOWED, seriesId);
     }
 
@@ -221,21 +247,23 @@ public final class HgStore {
         set(K_LIKED, seriesId, on);
     }
 
+    /** 收藏直写口＝追剧架正源直写（别名，与 setFollowed 同一份状态）。 */
     public static void setFaved(String seriesId, boolean on) {
-        set(K_FAVED, seriesId, on);
+        setFollowed(seriesId, on);
     }
 
     public static void setFollowed(String seriesId, boolean on) {
+        ensureShelfMigrated();
         set(K_FOLLOWED, seriesId, on);
     }
 
     /**
-     * 追剧架镜像直写：官方收藏与追剧同走一个追剧架（bookshelf/video/update），
-     * 服务端态回来后收藏/关注两面同写一份，防两边镜像互相打架。
+     * 追剧架镜像直写（批二归一为一条写路）：官方收藏与追更同走一个追剧架
+     * （bookshelf/video/update）与一套 followed 状态，服务端态回来后只写
+     * 正源一份。方法名保留给既有回读点（我的/关注签/收藏签）不改调用形态。
      */
     public static void setShelfMirrored(String seriesId, boolean on) {
-        set(K_FAVED, seriesId, on);
-        set(K_FOLLOWED, seriesId, on);
+        setFollowed(seriesId, on);
     }
 
     private static void set(String key, String id, boolean on) {
@@ -350,11 +378,13 @@ public final class HgStore {
         return new java.util.ArrayList<>(readSet(K_LIKED));
     }
 
+    /** 收藏列表源＝追剧架正源（别名，与 followedIds 同一份集）。 */
     public static java.util.List<String> favedIds() {
-        return new java.util.ArrayList<>(readSet(K_FAVED));
+        return followedIds();
     }
 
     public static java.util.List<String> followedIds() {
+        ensureShelfMigrated();
         return new java.util.ArrayList<>(readSet(K_FOLLOWED));
     }
 
@@ -364,6 +394,8 @@ public final class HgStore {
      * 实证）。观看历史/断点是设备维度数据、剧目元信息是公开数据，都不在此列。
      */
     public static void clearAccountMirrors() {
+        // 先归一再清：保证追更已看快照按并集后的正源逐个清干净
+        ensureShelfMigrated();
         // 追更已看快照随关注集走：先按现行关注集逐个清，再清集本体
         for (String id : readSet(K_FOLLOWED)) {
             Prefers.put(K_FOLLOW_SEEN_PREFIX + id, -1);

@@ -15,8 +15,9 @@ import com.fongmi.android.tv.hongguo.api.HgLoginAuthProvider;
  *   <li>收藏/关注（追更）：同走追剧架 POST /reading/bookapi/bookshelf/video/update
  *       的 AddShelf/DelShelf——官方右列头像上的关注钮（SeriesFollowButton /
  *       PugcSubscribeView 追剧/订阅）与收藏在服务端是同一个追剧架
- *       （jadx9 rs4/o1.java 的 FollowScene 加入收藏链），故本地镜像两面同写
- *       （{@link HgStore#setShelfMirrored}），服务端态为准。</li>
+ *       （jadx9 rs4/o1.java 的 FollowScene 加入收藏链）。批二归一：本地只留
+ *       一份正源状态（HgStore followed 集，收藏入口全部转正源），toggleFavorite
+ *       与 toggleFollow 共用一条 toggleShelf 写路，KIND 只区分失败文案。</li>
  *   <li>关注作者本人：feed/详情数据里没有作者 uid（详情只有 author_name），
  *       构造不出 Follow 动作的 object_id，不冒充——本接口的关注只到「追剧」为止，
  *       作者关注列四阶段未定项。</li>
@@ -50,6 +51,10 @@ public final class HgRemoteInteractions implements HgInteractions {
     private final HgApiClient client;
     private final HgCommentClient fqClient;
     private volatile Listener listener;
+    /** 附加监听（详情页等第二宿主用）：主 listener 仍归流页，附加者只收
+     * 自己关心的条目、须在宿主销毁时 remove，防抢占与泄漏。 */
+    private final java.util.List<Listener> extraListeners =
+            new java.util.concurrent.CopyOnWriteArrayList<>();
 
     public HgRemoteInteractions(HgApiClient client, HgCommentClient fqClient) {
         this.client = client;
@@ -58,6 +63,26 @@ public final class HgRemoteInteractions implements HgInteractions {
 
     public void setListener(Listener listener) {
         this.listener = listener;
+    }
+
+    public void addListener(Listener l) {
+        if (l != null) extraListeners.add(l);
+    }
+
+    public void removeListener(Listener l) {
+        extraListeners.remove(l);
+    }
+
+    private void fireSynced(String kind, String seriesId, boolean state) {
+        Listener l = listener;
+        if (l != null) l.onSynced(kind, seriesId, state);
+        for (Listener x : extraListeners) x.onSynced(kind, seriesId, state);
+    }
+
+    private void fireSyncFailed(String kind, String seriesId, boolean revertedTo, String message) {
+        Listener l = listener;
+        if (l != null) l.onSyncFailed(kind, seriesId, revertedTo, message);
+        for (Listener x : extraListeners) x.onSyncFailed(kind, seriesId, revertedTo, message);
     }
 
     @Override
@@ -90,15 +115,13 @@ public final class HgRemoteInteractions implements HgInteractions {
         fqClient.doArticleAction(now, item.videoId, seriesId, new HgCallback<Long>() {
             @Override
             public void onSuccess(Long count) {
-                Listener l = listener;
-                if (l != null) l.onSynced(KIND_LIKE, seriesId, now);
+                fireSynced(KIND_LIKE, seriesId, now);
             }
 
             @Override
             public void onError(int httpCode, String message) {
                 HgStore.setLiked(seriesId, before);
-                Listener l = listener;
-                if (l != null) l.onSyncFailed(KIND_LIKE, seriesId, before, message);
+                fireSyncFailed(KIND_LIKE, seriesId, before, message);
             }
         });
         return now;
@@ -106,14 +129,15 @@ public final class HgRemoteInteractions implements HgInteractions {
 
     // ---------- 收藏 / 关注（追更）：同走追剧架 ----------
 
+    /** 收藏与追更同体（批二归一）：两读口同读正源一份状态。 */
     @Override
     public boolean isFavorite(String seriesId) {
-        return HgStore.isFaved(seriesId);
+        return HgStore.isFollowed(seriesId);
     }
 
     @Override
     public boolean toggleFavorite(String seriesId) {
-        return toggleShelf(KIND_FAV, seriesId, HgStore.isFaved(seriesId));
+        return toggleShelf(KIND_FAV, seriesId);
     }
 
     @Override
@@ -123,7 +147,7 @@ public final class HgRemoteInteractions implements HgInteractions {
 
     @Override
     public boolean toggleFollow(String seriesId) {
-        return toggleShelf(KIND_FOLLOW, seriesId, HgStore.isFollowed(seriesId));
+        return toggleShelf(KIND_FOLLOW, seriesId);
     }
 
     // ---------- 预约（未上线剧，走 uncover_subscribe，不经追剧架） ----------
@@ -148,15 +172,13 @@ public final class HgRemoteInteractions implements HgInteractions {
                     @Override
                     public void onSuccess(Boolean hit) {
                         HgStore.setReserved(seriesId, Boolean.TRUE.equals(hit));
-                        Listener l = listener;
-                        if (l != null) l.onSynced(KIND_RESERVE, seriesId, Boolean.TRUE.equals(hit));
+                        fireSynced(KIND_RESERVE, seriesId, Boolean.TRUE.equals(hit));
                     }
 
                     @Override
                     public void onError(int httpCode, String message) {
                         // 写已成功、只是回读没回来：保留乐观镜像，不假报失败
-                        Listener l = listener;
-                        if (l != null) l.onSynced(KIND_RESERVE, seriesId, now);
+                        fireSynced(KIND_RESERVE, seriesId, now);
                     }
                 });
             }
@@ -164,8 +186,7 @@ public final class HgRemoteInteractions implements HgInteractions {
             @Override
             public void onError(int httpCode, String message) {
                 HgStore.setReserved(seriesId, before);
-                Listener l = listener;
-                if (l != null) l.onSyncFailed(KIND_RESERVE, seriesId, before, message);
+                fireSyncFailed(KIND_RESERVE, seriesId, before, message);
             }
         });
         return now;
@@ -197,25 +218,25 @@ public final class HgRemoteInteractions implements HgInteractions {
         });
     }
 
-    private boolean toggleShelf(String kind, String seriesId, boolean before) {
+    /**
+     * 追剧架唯一写路（批二归一）：收藏/追更共用——读正源一份状态、乐观写
+     * 正源一份、失败回滚正源一份。kind 只决定失败提示文案，不分状态。
+     */
+    private boolean toggleShelf(String kind, String seriesId) {
         if (seriesId == null || seriesId.isEmpty()) return false;
+        final boolean before = HgStore.isFollowed(seriesId);
         final boolean now = !before;
-        final boolean favBefore = HgStore.isFaved(seriesId);
-        final boolean followBefore = HgStore.isFollowed(seriesId);
         HgStore.setShelfMirrored(seriesId, now);
         client.bookshelfVideoUpdate(seriesId, now, new HgCallback<Boolean>() {
             @Override
             public void onSuccess(Boolean ok) {
-                Listener l = listener;
-                if (l != null) l.onSynced(kind, seriesId, now);
+                fireSynced(kind, seriesId, now);
             }
 
             @Override
             public void onError(int httpCode, String message) {
-                HgStore.setFaved(seriesId, favBefore);
-                HgStore.setFollowed(seriesId, followBefore);
-                Listener l = listener;
-                if (l != null) l.onSyncFailed(kind, seriesId, before, message);
+                HgStore.setShelfMirrored(seriesId, before);
+                fireSyncFailed(kind, seriesId, before, message);
             }
         });
         return now;

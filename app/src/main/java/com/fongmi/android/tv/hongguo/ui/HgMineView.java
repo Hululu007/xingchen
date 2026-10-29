@@ -541,10 +541,10 @@ public final class HgMineView extends LinearLayout {
                     HgFeedSession.get().remoteInteractions.toggleFollow(id);
                 } else HgStore.setFollowed(id, false);
             } else if (currentTab == TAB_FAV) {
-                // 取消收藏同走追剧架开关（与收藏面同一服务端本体）
-                if (HgStore.isFaved(id)) {
+                // 取消收藏同走追剧架开关（与追更面同一服务端本体、同一正源）
+                if (HgStore.isFollowed(id)) {
                     HgFeedSession.get().remoteInteractions.toggleFavorite(id);
-                } else HgStore.setFaved(id, false);
+                } else HgStore.setFollowed(id, false);
             }
         }
         selected.clear();
@@ -622,7 +622,8 @@ public final class HgMineView extends LinearLayout {
             renderChips();
             if (LoginManager.isHongguoLoggedIn()) refreshFollowFromServer();
         } else {
-            List<String> ids = currentTab == TAB_FAV ? HgStore.favedIds() : HgStore.likedIds();
+            // 收藏签与追更签同读追剧架正源一份（批二归一）
+            List<String> ids = currentTab == TAB_FAV ? HgStore.followedIds() : HgStore.likedIds();
             for (String id : ids) {
                 String[] meta = HgStore.metaOf(id);
                 if (meta == null) continue;
@@ -782,8 +783,8 @@ public final class HgMineView extends LinearLayout {
                     List<Row> fresh = new ArrayList<>();
                     for (HgSeriesItem s : page.getItems()) {
                         if (s.getSeriesId() == null) continue;
+                        // 回读合并只写正源一份（批二归一，setShelfMirrored 即单写）
                         HgStore.setShelfMirrored(s.getSeriesId(), true);
-                        HgStore.setFaved(s.getSeriesId(), true);
                         String[] local = HgStore.metaOf(s.getSeriesId());
                         String title = s.getTitle() != null ? s.getTitle()
                                 : local != null ? local[0] : null;
@@ -810,7 +811,7 @@ public final class HgMineView extends LinearLayout {
 
     /**
      * 追更页签后台刷新：追更与收藏同在追剧架（服务端同一列表、同一开关），
-     * 回源把架上条目并入双镜像与元信息后重列。此前追更只读本地
+     * 回源把架上条目并入正源一份与元信息后重列。此前追更只读本地
      * followedIds()、从不回源——他端追的更在本面永远看不到。
      * 服务端回空不冲已显镜像行（防冲空口径同收藏/预约）。
      */
@@ -843,7 +844,7 @@ public final class HgMineView extends LinearLayout {
     }
 
     /**
-     * 追剧架回源合并（收藏/追更同一服务端本体）：架上条目并入双镜像与
+     * 追剧架回源合并（收藏/追更同一服务端本体）：架上条目并入正源一份与
      * 元信息（标题/封面/集数/角标以服务端为准、缺项回落本地已存）。
      */
     private void mergeShelfIntoStore(com.fongmi.android.tv.hongguo.model.HgCellPage page) {

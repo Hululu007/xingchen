@@ -89,7 +89,37 @@ public class HongguoSeriesDetailActivity extends BaseActivity {
     private String bgUrl;
     private HgSeriesDetail detail;
     private boolean fav;
-    private boolean favBusy;
+    /** 追剧架同步结果（批二归一后走统一互动层）：只收本剧的收藏/追更失败
+     * 回滚——正源已在互动层内回滚，本面把星面与提示对齐其它面口径。 */
+    private final HgRemoteInteractions.Listener favSyncListener = new HgRemoteInteractions.Listener() {
+        @Override
+        public void onSynced(String kind, String sid, boolean state) {
+            if (!isShelfKind(kind) || !seriesId.equals(sid)) return;
+            mainHandler.post(() -> {
+                if (isFinishing()) return;
+                fav = state;
+                paintFav();
+            });
+        }
+
+        @Override
+        public void onSyncFailed(String kind, String sid, boolean revertedTo, String message) {
+            if (!isShelfKind(kind) || !seriesId.equals(sid)) return;
+            mainHandler.post(() -> {
+                if (isFinishing()) return;
+                fav = revertedTo;
+                paintFav();
+                Toast.makeText(HongguoSeriesDetailActivity.this,
+                        revertedTo ? "取消收藏没成功，再试试" : "收藏没成功，再试试",
+                        Toast.LENGTH_SHORT).show();
+            });
+        }
+
+        private boolean isShelfKind(String kind) {
+            return HgRemoteInteractions.KIND_FAV.equals(kind)
+                    || HgRemoteInteractions.KIND_FOLLOW.equals(kind);
+        }
+    };
     private boolean descExpanded;
     private boolean descExpandable;
     private String fullDesc = "";
@@ -135,6 +165,10 @@ public class HongguoSeriesDetailActivity extends BaseActivity {
                         binding.hgSdTitle.getText().toString(),
                         detail != null ? detail.getCoverUrl() : cover));
         binding.hgSdFav.setOnClickListener(v -> toggleFav());
+        // 星面初值先读追剧架正源（与流页/我的同份），详情回包回来再校准
+        fav = HgStore.isFollowed(seriesId);
+        paintFav();
+        HgFeedSession.get().remoteInteractions.addListener(favSyncListener);
         // 剧集状态行点按：集条滚到当前集（官方 › 的确切去向未抠到，此为咱家口径）
         binding.hgSdEpStatus.setOnClickListener(v -> scrollStripToCurrent());
         // 集条滚动反推当前分段（手指滑条时页签高亮跟着走）
@@ -284,8 +318,10 @@ public class HongguoSeriesDetailActivity extends BaseActivity {
         else statusText = "共" + count + "集 ›";
         binding.hgSdEpStatus.setText(statusText);
         buildEpisodes(d);
-        // 收藏态以服务端为准
+        // 收藏态以服务端回包 followed 校准，并回写追剧架正源——详情页与
+        // 我的/流页从此同读一份（批二归一，此前本面不读不写 HgStore）
         fav = d.isFollowed();
+        HgStore.setFollowed(seriesId, fav);
         paintFav();
     }
 
@@ -700,36 +736,26 @@ public class HongguoSeriesDetailActivity extends BaseActivity {
                 : com.fongmi.android.tv.R.drawable.ic_hg_detail_star_outline);
     }
 
+    /**
+     * 底栏「收藏」（文案不动）：批二起改走统一互动层 toggle——乐观写正源、
+     * 服务端 bookshelfVideoUpdate、失败回滚正源，与右列星/药丸/我的删除
+     * 同一条写路；回滚结果经 favSyncListener 回刷本面星与提示。此前本面
+     * 直连 client 且不落 HgStore，改完我的/流页当场看不到（普查 S07）。
+     */
     private void toggleFav() {
-        if (favBusy) return;
         if (HgFeedSession.get().interactions.requiresLogin()) {
             boolean delivered = com.fongmi.android.tv.login.LoginManager.loginHongguoDelivered();
             if (!delivered) Toast.makeText(this, "登录界面暂时打不开，稍后再试", Toast.LENGTH_SHORT).show();
             return;
         }
-        favBusy = true;
-        boolean target = !fav;
-        fav = target;
+        fav = HgFeedSession.get().interactions.toggleFavorite(seriesId);
         paintFav();
-        HgFeedSession.get().client.bookshelfVideoUpdate(seriesId, target, new HgCallback<Boolean>() {
-            @Override
-            public void onSuccess(Boolean ok) {
-                mainHandler.post(() -> favBusy = false);
-            }
+    }
 
-            @Override
-            public void onError(int code, String msg) {
-                mainHandler.post(() -> {
-                    if (isFinishing()) return;
-                    favBusy = false;
-                    fav = !target;
-                    paintFav();
-                    Toast.makeText(HongguoSeriesDetailActivity.this,
-                            target ? "收藏没成功，再试试" : "取消收藏没成功，再试试",
-                            Toast.LENGTH_SHORT).show();
-                });
-            }
-        });
+    @Override
+    protected void onDestroy() {
+        HgFeedSession.get().remoteInteractions.removeListener(favSyncListener);
+        super.onDestroy();
     }
 
     private int dp(int v) {

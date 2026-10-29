@@ -1531,7 +1531,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         HgFeedItem item = session.items.get(position);
         HgFeedAdapter.Holder h = currentHolder();
         switch (action) {
-            case LIKE, FAV, RESERVE -> {
+            case LIKE, FAV, RESERVE, FOLLOW -> {
                 // 四阶段：未登录先拉壳子统一登录，不落状态、不假成功
                 if (session.interactions.requiresLogin()) {
                     promptHongguoLogin();
@@ -1540,6 +1540,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                 switch (action) {
                     case LIKE -> session.interactions.toggleLike(item);
                     case FAV -> session.interactions.toggleFavorite(item.seriesId);
+                    case FOLLOW -> session.interactions.toggleFollow(item.seriesId);
                     case RESERVE -> {
                         boolean now = session.interactions.toggleReserve(item.seriesId);
                         // 点击时只报本地状态（已预约/已取消）：服务端写失败会

@@ -414,6 +414,7 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         setCount(b.hgCommentCount, cc != null ? cc : item.commentCount);
         setCount(b.hgFavCount, item.favCount);
         bindReserveState(holder, item);
+        bindFollowState(holder, item);
     }
 
     /** 预约卡：只在未上线剧（reservable）亮；官方 cu6 形态——封面＋标题＋
@@ -435,6 +436,44 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         b.hgReserveBtn.setBackgroundResource(reserved
                 ? R.drawable.bg_hg_reserve_btn_on : R.drawable.bg_hg_reserve_btn);
         b.hgReserveBtn.setTextColor(reserved ? 0x66FFFFFF : 0xFFFFFFFF);
+    }
+
+    /** 追更卡：与预约卡同位互斥——预约卡只亮未上线剧（reservable），
+     * 本卡只在集流页给已上线剧亮（他定案「追更在播放页信息摞」，发现
+     * 流不亮）；形态与预约卡同版（封面＋标题＋副行＋48dp 钮），两态
+     * 色对与预约钮一致（未追更橘底白字、已追更透明白底灰字），整卡
+     * 点击走 KIND_FOLLOW 管道（本地镜像 HgStore.followedIds＋服务端
+     * 追剧架同步、失败回滚在互动层）。官方包 7.2.5.32 该槽只有预约
+     * 卡、已上线剧的追剧收在右列星钮，本卡按他的定案补同位件（账
+     * follow-button-20261029）。 */
+    public void bindFollowState(Holder holder, HgFeedItem item) {
+        ItemHongguoFeedBinding b = holder.binding;
+        if (!seriesMode || item.reservable || item.seriesId == null || item.seriesId.isEmpty()) {
+            b.hgFollow.setVisibility(View.GONE);
+            return;
+        }
+        boolean followed = session.interactions.isFollowing(item.seriesId);
+        b.hgFollow.setVisibility(View.VISIBLE);
+        ImgUtil.load(item.title == null ? "" : item.title, item.coverUrl, b.hgFollowCover, true);
+        b.hgFollowTitle.setText(item.title == null ? "" : item.title);
+        String sub = followSubText(item);
+        b.hgFollowSub.setText(sub);
+        b.hgFollowSub.setVisibility(sub.isEmpty() ? View.GONE : View.VISIBLE);
+        b.hgFollowAct.setText(followed ? "已追更" : "追更");
+        b.hgFollowAct.setBackgroundResource(followed
+                ? R.drawable.bg_hg_reserve_btn_on : R.drawable.bg_hg_reserve_btn);
+        b.hgFollowAct.setTextColor(followed ? 0x66FFFFFF : 0xFFFFFFFF);
+    }
+
+    /** 追更卡副行：只用条目真数据（集数＋完结态，series_status＝1
+     * 为已完结、官方 SeriesStatus 定版），都没有就空行隐藏，不编。 */
+    private static String followSubText(HgFeedItem item) {
+        if (item.episodeCount > 0) {
+            boolean finished = item.seriesStatus != null && item.seriesStatus == 1;
+            return finished ? "已完结 · 全" + item.episodeCount + "集"
+                    : "更新至" + item.episodeCount + "集";
+        }
+        return item.category == null ? "" : item.category;
     }
 
     /** 「弹」＝发弹幕入口（官方 A25：PublishDanmakuEntranceView）：它不是
@@ -611,6 +650,7 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         b.hgFeedTitleRow.setOnClickListener(v -> host.onSeriesDetail(holder.getBindingAdapterPosition()));
         b.hgGuideChip.setOnClickListener(v -> host.onStartFromFirst(holder.getBindingAdapterPosition()));
         b.hgReserve.setOnClickListener(v -> host.onAction(holder.getBindingAdapterPosition(), Action.RESERVE));
+        b.hgFollow.setOnClickListener(v -> host.onAction(holder.getBindingAdapterPosition(), Action.FOLLOW));
         b.hgSeriesBar.setOnClickListener(v -> host.onSeriesBar(holder.getBindingAdapterPosition()));
         b.hgDanmakuBox.setOnClickListener(v -> host.onDanmakuPublish(holder.getBindingAdapterPosition()));
         b.hgFullscreenWatch.setOnClickListener(v -> host.onFullscreenWatch(holder.getBindingAdapterPosition()));

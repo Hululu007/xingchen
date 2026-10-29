@@ -682,6 +682,73 @@
                 android:textColor="#FFFFFF"
                 android:textSize="12sp" />
         </LinearLayout>
+
+        <!-- 追更卡：与预约卡同位互斥（他 2026-10-29 点名补）——预约卡
+             只亮未上线剧，本卡只在集流页给已上线剧亮，同槽同版：封面
+             32×44 圆角 6dp＋标题 14sp 白粗＋副行（集数/完结真数据）＋
+             右侧 48dp 钮；两态色对与预约钮一致（未追更橘底白字、已
+             追更透明白底灰字）。整卡点击走 KIND_FOLLOW 管道。官方包
+             7.2.5.32 里该槽只有预约卡（can-reserve 门控）、已上线剧的
+             追剧官方收在右列星钮，本卡是按他的定案补的同位件（账
+             follow-button-20261029） -->
+        <LinearLayout
+            android:id="@+id/hg_follow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:visibility="gone">
+
+            <ImageView
+                android:id="@+id/hg_follow_cover"
+                android:layout_width="32dp"
+                android:layout_height="44dp"
+                android:background="@drawable/bg_hg_cover_r6"
+                android:clipToOutline="true"
+                android:contentDescription="@null" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/hg_follow_title"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textColor="#FFFFFF"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/hg_follow_sub"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="3dp"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textColor="#CCFFFFFF"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/hg_follow_act"
+                android:layout_width="48dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:background="@drawable/bg_hg_reserve_btn"
+                android:gravity="center"
+                android:paddingTop="5dp"
+                android:paddingBottom="5dp"
+                android:text="追更"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp" />
+        </LinearLayout>
     </LinearLayout>
 
     <!-- 底部行：选集条＋全屏方钮。材料/几何按模式分工（适配器 bind 时切换，

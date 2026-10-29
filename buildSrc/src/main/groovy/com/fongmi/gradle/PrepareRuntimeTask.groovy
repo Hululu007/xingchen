@@ -88,7 +88,7 @@ abstract class PrepareRuntimeTask extends DefaultTask {
     }
 
     private void preparePayload(File output, String module, String abi) {
-        if (!(module in ['python', 'nodejs', 'thunder'])) jniDirectory.get().asFile.mkdirs()
+        if (!(module in ['python', 'thunder'])) jniDirectory.get().asFile.mkdirs()
         assetsDirectory.get().asFile.mkdirs()
         def files = []
         def hostLibraries = module == 'mpv' ? MpvNativeLibraries.hostLibraries(inputArchive.get().asFile, ffmpegAar.get().asFile, abi) : null
@@ -122,12 +122,11 @@ abstract class PrepareRuntimeTask extends DefaultTask {
         if (entry.directory) return
         def name = runtimePath(entry.name, module, abi)
         if (name == null) return
-        files.add(readPayload(source, entry, module in ['python', 'nodejs', 'thunder'] ? null : output, name))
+        files.add(readPayload(source, entry, module in ['python', 'thunder'] ? null : output, name))
     }
 
     private static String runtimePath(String name, String module, String abi) {
         if (module == 'python' && name.startsWith('assets/chaquopy/')) return name
-        if (module == 'nodejs' && name.startsWith('assets/nodejs/')) return name
         if (!name.startsWith("jni/${abi}/")) return null
         def library = name.substring(name.lastIndexOf('/') + 1)
         return library in nativeLibraries(module) ? "lib/${abi}/${library}".toString() : null
@@ -136,7 +135,6 @@ abstract class PrepareRuntimeTask extends DefaultTask {
     private static List<String> nativeLibraries(String module) {
         if (module == 'python') return PYTHON_LIBRARIES
         if (module == 'thunder') return AbiApkPackaging.THUNDER_LIBRARIES
-        if (module == 'nodejs') return ['libnode.so', 'libnodebridge.so']
         if (module == 'mpv') return AbiApkPackaging.MPV_LIBRARIES
         return [AbiApkPackaging.RUNTIME_PROFILES[module].library]
     }

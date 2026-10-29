@@ -302,6 +302,25 @@ public final class HgParser {
         if (ugcShape) {
             detail.attachUgcModel(ugcModel, intOf(d, "video_width", 0), intOf(d, "video_height", 0));
         }
+        // 作者 uid 抬升（与 cell 面 ugc_user_info 同口径：顶层 user_id、
+        // base_info.user_id 兜底；author 对象形也认）。2026-10-29 实拉
+        // 定根（author-page-why-missing-20261029 追补）：单剧/批量详情对
+        // 剧集内容恒不下发，此处现行恒空转——口先建对，UGC 形详情或回包
+        // 形状变化时即刻生效；正剧实际来源走会话层搜索反查兜底。
+        JsonObject dUgc = obj(d, "ugc_user_info");
+        String dUid = null;
+        if (dUgc != null) {
+            dUid = str(dUgc, "user_id");
+            if (dUid == null) {
+                JsonObject dBase = obj(dUgc, "base_info");
+                if (dBase != null) dUid = str(dBase, "user_id");
+            }
+        }
+        if (dUid == null) {
+            JsonObject dAuthor = obj(d, "author");
+            if (dAuthor != null) dUid = firstStr(dAuthor, "user_id", "uid");
+        }
+        if (dUid != null) detail.attachAuthorUid(dUid);
         return detail;
     }
 
@@ -339,7 +358,7 @@ public final class HgParser {
                     null, null, null, subTitleList(r), null, false,
                     firstStr(album, "album_id_str", "album_id"), intOf(album, "season_cnt", -1),
                     Collections.emptyList(), -1, -1, intOrNull(r, "series_status"), null, null, null,
-                    null, null, -1));
+                    null, null, -1, null));
         }
         final JsonArray seasonRows = rows;
         seasons.sort((a, b) -> Integer.compare(seasonIndex(seasonRows, a.getSeriesId()),
@@ -719,6 +738,11 @@ public final class HgParser {
                 if (intOf(v0, "content_type", -1) >= 0) {
                     merged.addProperty("content_type", intOf(v0, "content_type", -1));
                 }
+                // 出品方品牌同在这条上（copyright，存档频道回包与搜索
+                // 剧集签实证）——正剧作者 uid 反查兜底的搜索词来源，
+                // 漏抬则反查无词可用（定根账 author-page-why-missing
+                // -20261029 追补）
+                putIfPresent(merged, "publisher", str(v0, "copyright"));
             }
             putIfPresent(merged, "series_id", firstStr(vd, "series_id", "series_id_str"));
             // 完结态在 video_data 条目的 video_detail 子对象上（频道存档逐层
@@ -937,7 +961,8 @@ public final class HgParser {
                 intOrNull(o, "series_status"), statementOf(intOrNull(o, "ai_usage_type")),
                 str(o, "author_name"), str(o, "author_avatar"),
                 str(o, "author_uid"), str(o, "author_desc"),
-                intOf(o, "content_type", -1));
+                intOf(o, "content_type", -1),
+                firstStr(o, "publisher", "copyright"));
     }
 
     /**
@@ -1224,6 +1249,58 @@ public final class HgParser {
         String uid = firstStr(data, "user_id", "sec_user_id");
         if (name == null && avatar == null) return null;
         return new HgAccountProfile(name, avatar, uid);
+    }
+
+    /**
+     * 搜索「用户」签回包 → 账号命中表（2026-10-29 本机实拉定版）：
+     * search_tabs 里 tab_type＝27 的 data[] 是 cell，账号挂在 cell 的
+     * celebrity_user_list[]（user_id＋base_info{user_name/user_avatar}＋
+     * user_stat.celebrity_work_cnt）——递归全树收，凡带 celebrity_user_list
+     * 的对象都抽（回包层级随 tab 形态变，不绑死路径）。同 uid 只收一次。
+     * 选正主的口径在会话层（同名精确匹配＋作品数最高），此处只忠实抽取。
+     */
+    public static List<HgAuthorHit> parseUserTab(String json) {
+        List<HgAuthorHit> out = new ArrayList<>();
+        if (json == null || json.isEmpty()) return out;
+        JsonObject root;
+        try {
+            root = JsonParser.parseString(json).getAsJsonObject();
+        } catch (Exception e) {
+            return out;
+        }
+        collectAuthorHits(root, out, new java.util.HashSet<>(), 0);
+        return out;
+    }
+
+    private static void collectAuthorHits(JsonElement el, List<HgAuthorHit> out,
+                                          java.util.Set<String> seen, int depth) {
+        if (el == null || depth > 10) return;
+        if (el.isJsonArray()) {
+            for (JsonElement child : el.getAsJsonArray()) collectAuthorHits(child, out, seen, depth + 1);
+            return;
+        }
+        if (!el.isJsonObject()) return;
+        JsonObject o = el.getAsJsonObject();
+        JsonArray users = arr(o, "celebrity_user_list");
+        if (users != null) {
+            for (JsonElement ue : users) {
+                if (ue == null || !ue.isJsonObject()) continue;
+                JsonObject u = ue.getAsJsonObject();
+                JsonObject base = obj(u, "base_info");
+                String uid = str(u, "user_id");
+                if (uid == null && base != null) uid = str(base, "user_id");
+                String name = base == null ? null : str(base, "user_name");
+                if (name == null) name = str(u, "user_name");
+                if (uid == null || name == null || !seen.add(uid)) continue;
+                JsonObject stat = obj(u, "user_stat");
+                out.add(new HgAuthorHit(uid, name,
+                        base == null ? null : str(base, "user_avatar"),
+                        stat == null ? -1 : intOf(stat, "celebrity_work_cnt", -1)));
+            }
+        }
+        for (Map.Entry<String, JsonElement> e : o.entrySet()) {
+            collectAuthorHits(e.getValue(), out, seen, depth + 1);
+        }
     }
 
     /**

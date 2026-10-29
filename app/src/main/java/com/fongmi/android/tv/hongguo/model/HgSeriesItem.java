@@ -64,6 +64,13 @@ public final class HgSeriesItem {
      * feed-item-fetch-fail-20261029）。
      */
     private final int contentType;
+    /**
+     * 出品方品牌（cell video_list[].copyright 抬升，如「魔方短剧」）；
+     * 没带为 null。正剧条目作者身份全链无源（详情口恒不下发 uid），
+     * 会话层拿它走搜索「用户」签反查作者 uid 兜底（定根账
+     * author-page-why-missing-20261029 追补）。
+     */
+    private final String publisher;
 
     HgSeriesItem(String seriesId, String title, String coverUrl, String desc, int episodeCount) {
         this(seriesId, title, coverUrl, desc, episodeCount, false, false, null);
@@ -80,7 +87,7 @@ public final class HgSeriesItem {
                  boolean hasAppointment, boolean appointmentSubscribed, String dueStartText) {
         this(seriesId, title, coverUrl, desc, episodeCount, hasAppointment, appointmentSubscribed,
                 dueStartText, null, null, null, Collections.emptyList(), null, false, null, -1,
-                Collections.emptyList(), -1, -1, null, null, null, null, null, null, -1);
+                Collections.emptyList(), -1, -1, null, null, null, null, null, null, -1, null);
     }
 
     HgSeriesItem(String seriesId, String title, String coverUrl, String desc, int episodeCount,
@@ -89,7 +96,7 @@ public final class HgSeriesItem {
                  boolean multiSeason, String albumId, int albumSerialCount,
                  List<HgSeriesItem> siblings, long commentCount, long diggCount,
                  Integer seriesStatus, String statement, String authorName, String authorAvatar,
-                 String authorUid, String authorDesc, int contentType) {
+                 String authorUid, String authorDesc, int contentType, String publisher) {
         this.seriesId = seriesId;
         this.title = title;
         this.coverUrl = coverUrl;
@@ -116,6 +123,7 @@ public final class HgSeriesItem {
         this.authorUid = authorUid;
         this.authorDesc = authorDesc;
         this.contentType = contentType;
+        this.publisher = publisher;
     }
 
     /** 补完结态的副本（字段后补场景：如半屏单里当前行由页面条目拼装）。 */
@@ -124,7 +132,7 @@ public final class HgSeriesItem {
                 hasAppointment, appointmentSubscribed, dueStartText,
                 vid, badge, recText, tags, vertical, multiSeason, albumId,
                 albumSerialCount, siblings, commentCount, diggCount, status, statement,
-                authorName, authorAvatar, authorUid, authorDesc, contentType);
+                authorName, authorAvatar, authorUid, authorDesc, contentType, publisher);
     }
 
     public String getStatement() { return statement; }
@@ -136,6 +144,8 @@ public final class HgSeriesItem {
     public boolean isUgc() { return contentType == 1001; }
     public String getAuthorUid() { return authorUid; }
     public String getAuthorDesc() { return authorDesc; }
+    /** 出品方品牌（cell copyright）；没带为 null。 */
+    public String getPublisher() { return publisher; }
 
     public String getSeriesId() { return seriesId; }
     public String getTitle() { return title; }

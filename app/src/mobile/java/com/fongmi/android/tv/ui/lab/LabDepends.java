@@ -116,6 +116,11 @@ public final class LabDepends {
             lib.url = d.libUrl.trim();
             lib.extractTo = d.extractTo;
             lib.required = d.required;
+            // file（归位目标）与 checkFile（在位判定）必须随副本带上：丢了 file，
+            // save 模式/按名归位对第二分片不生效；丢了 checkFile，已在位也会
+            // 误判「缺」每次启动重复下载
+            lib.file = d.file;
+            lib.checkFile = d.checkFile;
             if (needed(pkgDir, lib)) fetchOne(pkgDir, cacheDir, lib, dl, lib.url);
         }
     }

@@ -239,7 +239,10 @@ public final class LabRunner {
      * （{sdcard}/{pkgDir}/{dataPath} 等）先按命令同口径展开再判定落盘。
      */
     private static void ensureDependency(Context c, String pkgId, LabManifest.LabCommand cmd, int port) throws Exception {
-        if (cmd == null || cmd.download == null || TextUtils.isEmpty(cmd.download.url)) return;
+        // url 空但只有 libUrl 的声明也要备料：主片 needed() 按 url 空自动跳过、
+        // 第二分片照常判缺补下；主片与第二分片都空才真是没东西可备
+        if (cmd == null || cmd.download == null
+                || (TextUtils.isEmpty(cmd.download.url) && TextUtils.isEmpty(cmd.download.libUrl))) return;
         File pkgDir = LabPaths.packageDir(c, pkgId);
         LabManifest.LabDownload src = cmd.download;
         LabManifest.LabDownload d = new LabManifest.LabDownload();
@@ -269,11 +272,14 @@ public final class LabRunner {
         }
     }
 
-    /** 只带第二分片的判定用副本（needed 只看 url/extractTo/标记） */
+    /** 只带第二分片的判定用副本（needed 先看 checkFile、再看解压标记/落点） */
     private static LabManifest.LabDownload libOnly(LabManifest.LabDownload d) {
         LabManifest.LabDownload lib = new LabManifest.LabDownload();
         lib.url = d.libUrl;
         lib.extractTo = d.extractTo;
+        // checkFile 不带上时，在位判定永远落到解压标记/落点上猜：声明了
+        // checkFile 的包第二分片已在位也会误判「缺」、每次启动重复下载
+        lib.checkFile = d.checkFile;
         return lib;
     }
 

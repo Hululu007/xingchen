@@ -119,6 +119,13 @@ public final class HgFeedItem {
     public List<String> infoChips;
     /** 评分筹在 infoChips 里的下标；没有为 -1。 */
     public int scoreChipPos = -1;
+    /**
+     * 官方底栏条分段原文（HgSeriesItem.bottomBarText 携带）：服务端逐条
+     * 下发的 bottom_bar.text 数组，feedBarText 照原序以「·」相接；没带
+     * 为 null（feedBarText 退回按官方形态拼的回落形）。后置字段，
+     * fromSeries 填、各 with* 副本负责抄。
+     */
+    public List<String> bottomBarText;
     /** 榜单徽章条文案/渐变色/奖杯图标（rec_tags 榜单条目）；没上榜为 null。 */
     public String rankText;
     public List<String> rankColors;
@@ -220,6 +227,7 @@ public final class HgFeedItem {
         item.infoChips = s.infoChips;
         item.scoreChipPos = s.scoreChipPos;
         item.rankText = s.rankText;
+        item.bottomBarText = s.bottomBarText;
         item.rankColors = s.rankColors;
         item.rankIconUrl = s.rankIconUrl;
         item.authorUid = s.getAuthorUid();
@@ -250,6 +258,7 @@ public final class HgFeedItem {
         copy.infoChips = infoChips;
         copy.scoreChipPos = scoreChipPos;
         copy.rankText = rankText;
+        copy.bottomBarText = bottomBarText;
         copy.rankColors = rankColors;
         copy.rankIconUrl = rankIconUrl;
         copy.pushIndex = pushIndex;
@@ -277,6 +286,7 @@ public final class HgFeedItem {
         copy.infoChips = infoChips;
         copy.scoreChipPos = scoreChipPos;
         copy.rankText = rankText;
+        copy.bottomBarText = bottomBarText;
         copy.rankColors = rankColors;
         copy.rankIconUrl = rankIconUrl;
         copy.pushIndex = pushIndex;
@@ -314,6 +324,7 @@ public final class HgFeedItem {
         copy.infoChips = infoChips;
         copy.scoreChipPos = scoreChipPos;
         copy.rankText = rankText;
+        copy.bottomBarText = bottomBarText;
         copy.rankColors = rankColors;
         copy.rankIconUrl = rankIconUrl;
         copy.pushIndex = pushIndex;
@@ -346,6 +357,7 @@ public final class HgFeedItem {
         copy.infoChips = infoChips;
         copy.scoreChipPos = scoreChipPos;
         copy.rankText = rankText;
+        copy.bottomBarText = bottomBarText;
         copy.rankColors = rankColors;
         copy.rankIconUrl = rankIconUrl;
         copy.pushIndex = pushIndex;
@@ -429,29 +441,40 @@ public final class HgFeedItem {
      * catalogTitleText 同口径：完结段在全N集之前；集数未知不编全0集。
      */
     /**
-     * 流页剧条文案（官方流页实拍定版，两种条目形态分用）：
-     * 作者帖（UGC 短片挂靠正剧，实拍 113482）＝[类目] 剧名 · 全N集——条子
-     * 是「进这部剧」的入口，带类目与剧名；正剧短片（剧的某一集在流里播，
-     * 实拍 113476/113592）＝「观看完整短剧 · 全N集」——信息摞里有剧名行
-     * 也不进条子。旧版按「有没有剧名」分形是读错了 113476（那条摞里明明
-     * 有剧名行、条子仍是观看完整短剧），判别实为条目种类。两种形态都没
-     * 有「选集」前缀、没有「已完结」状态段——那是集流 CatalogView 的拼法。
+     * 流页剧条文案（批六逐字细对改定）：官方此条不是客户端拼的——回包
+     * video_detail.bottom_bar.text 是服务端逐条下发的分段数组，官方
+     * 原序以「·」（无空格）相接展示，分段形态随条目数据变（存档频道/
+     * 搜索回包逐字实证）：三段形「漫剧·剧名·全63集」（推荐频道实回包，
+     * 与实拍 113560「漫剧·崽崽小熊的超市开遍末世·全202集」同形）、
+     * 两段形「观看完整短剧·全303集」/「观看完整漫剧·全1000集」（漫剧
+     * 内容第二段词随内容变）、合集形「合集·剧名·更新至114集」（第三段
+     * 是更新至、不是全）。条首的播放图标是独立图标位（icon_url），
+     * 不进文字。故本法：有分段原文照原文相接；没带分段才回落自拼，
+     * 回落形严格照官方分段形态（分隔符同为「·」无空格；观看完整形的
+     * 内容词只认漫剧一例有存档实证——类目为漫剧时用漫剧、其余用短剧；
+     * 帖/合集形的类目词来源是调用方按频道给的类目（与分段首段是否同物
+     * 只在漫剧频道样本上同值，回落时以此为限、不冒充逐条原文）。
+     * 两种形态都没有「选集」前缀、没有「已完结」状态段——那是集流
+     * CatalogView 的拼法。
      */
     public String feedBarText() {
+        if (bottomBarText != null && !bottomBarText.isEmpty()) {
+            return String.join("·", bottomBarText);
+        }
         StringBuilder sb = new StringBuilder();
         String name = title == null ? "" : title.trim();
-        // 底栏形态按类型分发（普查专题 B/C）：UGC 短片与合集走帖/合集
-        // 条形（类目＋剧名），正剧走本剧条形（观看完整短剧）。旧版判别
-        // 是 isUgcClip 或「有作者名」——正剧短片若带作者名会被拼成帖形，
-        // 是类型没分家时的拼装推断，批一改只认 kind。
+        // 回落分发按类型（普查专题 B/C）：UGC 短片与合集走帖/合集条形
+        // （类目·剧名·全N集），正剧走观看完整形。旧版判别是 isUgcClip
+        // 或「有作者名」——正剧短片若带作者名会被拼成帖形，是类型没
+        // 分家时的拼装推断，批一改只认 kind。
         boolean postForm = kind == HgItemKind.UGC_CLIP || kind == HgItemKind.ALBUM;
         if (postForm && !name.isEmpty()) {
-            if (category != null && !category.isEmpty()) sb.append(category).append(' ');
+            if (category != null && !category.isEmpty()) sb.append(category).append('·');
             sb.append(name);
         } else {
-            sb.append("观看完整短剧");
+            sb.append("观看完整").append("漫剧".equals(category) ? "漫剧" : "短剧");
         }
-        if (episodeCount > 0) sb.append(" · 全").append(episodeCount).append("集");
+        if (episodeCount > 0) sb.append("·全").append(episodeCount).append("集");
         return sb.toString();
     }
 

@@ -76,6 +76,14 @@ public final class HgSeriesItem {
     public List<String> infoChips;
     /** 评分筹在 infoChips 里的下标（data_type=4）；没有为 -1。 */
     public int scoreChipPos = -1;
+    /**
+     * 官方底栏条分段原文（回包 video_detail.bottom_bar.text 数组，存档
+     * 频道/搜索回包逐字实证：如 ["漫剧","剧名","全63集"]、
+     * ["观看完整短剧","全303集"]、["合集","剧名","更新至114集"]）：
+     * 服务端逐条下发的成品分段，流页底栏照原序以「·」相接即官方文案；
+     * 解析器后置填充（不进构造器，与 infoChips 同惯例），没带为 null。
+     */
+    public List<String> bottomBarText;
     /** 榜单徽章条文案（rec_tags 中 rec_type=9 的一条，如「喜剧·真人剧榜 No.4」）；没上榜为 null。 */
     public String rankText;
     /** 榜单条渐变色（rec_reason_style 的背景色组，原样 #AARRGGBB 串）；没带为 null。 */

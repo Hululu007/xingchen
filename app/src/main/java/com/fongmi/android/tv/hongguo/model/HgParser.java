@@ -982,6 +982,7 @@ public final class HgParser {
                     JsonObject ugc = obj(detail, "ugc_user_info");
                     boolean borrow = ugc != null || arr(detail, "secondary_infos") != null
                             || arr(detail, "rec_tags") != null
+                            || obj(detail, "bottom_bar") != null
                             || longOf(detail, "followed_cnt", -1) >= 0;
                     if (borrow && obj(first, "video_detail") == null) {
                         JsonObject wrapped = first.deepCopy();
@@ -991,6 +992,8 @@ public final class HgParser {
                         if (osi != null) carrier.add("secondary_infos", osi.deepCopy());
                         JsonArray ort = arr(detail, "rec_tags");
                         if (ort != null) carrier.add("rec_tags", ort.deepCopy());
+                        JsonObject obb = obj(detail, "bottom_bar");
+                        if (obb != null) carrier.add("bottom_bar", obb.deepCopy());
                         if (longOf(detail, "followed_cnt", -1) >= 0) {
                             carrier.addProperty("followed_cnt", longOf(detail, "followed_cnt", -1));
                         }
@@ -1010,6 +1013,7 @@ public final class HgParser {
                     // 短片自己的、不属于跨推卡）
                     if (card != null && card.isJsonObject() && obj(card.getAsJsonObject(), "video_detail") == null
                             && (arr(detail, "secondary_infos") != null || arr(detail, "rec_tags") != null
+                            || obj(detail, "bottom_bar") != null
                             || longOf(detail, "followed_cnt", -1) >= 0)) {
                         JsonObject wrapped = card.getAsJsonObject().deepCopy();
                         JsonObject carrier = new JsonObject();
@@ -1017,6 +1021,8 @@ public final class HgParser {
                         if (si != null) carrier.add("secondary_infos", si.deepCopy());
                         JsonArray rt = arr(detail, "rec_tags");
                         if (rt != null) carrier.add("rec_tags", rt.deepCopy());
+                        JsonObject cbb = obj(detail, "bottom_bar");
+                        if (cbb != null) carrier.add("bottom_bar", cbb.deepCopy());
                         if (longOf(detail, "followed_cnt", -1) >= 0) {
                             carrier.addProperty("followed_cnt", longOf(detail, "followed_cnt", -1));
                         }
@@ -1097,6 +1103,12 @@ public final class HgParser {
             }
             JsonArray secInfos = arr(vd, "secondary_infos");
             if (secInfos != null) merged.add("secondary_infos", secInfos.deepCopy());
+            // 底栏条分段同在 video_detail 里（bottom_bar.text，存档逐字
+            // 实证）——不抬到顶层，asSeriesItem 的 bottomBarTextOf 虽能
+            // 读 video_detail，但归一后 video_detail 键会被条目自带空值
+            // 覆盖循环干扰，顶层留一份原文最稳
+            JsonObject bottomBar = obj(vd, "bottom_bar");
+            if (bottomBar != null) merged.add("bottom_bar", bottomBar.deepCopy());
             // 榜单条同理：rec_tags 在本体短片/跨推卡形态下只挂父
             // video_detail（借道载体），不抬到顶层 fillInfoStack 读不到
             JsonArray recTags = arr(vd, "rec_tags");
@@ -1263,6 +1275,31 @@ public final class HgParser {
         return asSeriesItem(el, 0);
     }
 
+    /**
+     * 官方底栏条分段原文：bottom_bar.text 数组（bottom_bar_type 为
+     * short_play/album 等，文字以分段数组下发，客户端原序以「·」相接
+     * 展示——频道存档 chan_* 与搜索 tab30 存档逐字实证）。位置两处：
+     * 条目本体（归一后）或 video_detail 子对象；都没有返回 null。
+     */
+    private static List<String> bottomBarTextOf(JsonObject o) {
+        JsonObject bar = obj(o, "bottom_bar");
+        if (bar == null) {
+            JsonObject vd = obj(o, "video_detail");
+            if (vd != null) bar = obj(vd, "bottom_bar");
+        }
+        if (bar == null) return null;
+        JsonArray texts = arr(bar, "text");
+        if (texts == null || texts.size() == 0) return null;
+        List<String> out = new ArrayList<>();
+        for (JsonElement t : texts) {
+            if (t != null && t.isJsonPrimitive()) {
+                String s = t.getAsString();
+                if (s != null && !s.trim().isEmpty()) out.add(s.trim());
+            }
+        }
+        return out.isEmpty() ? null : out;
+    }
+
     private static HgSeriesItem asSeriesItem(JsonElement el, int depth) {
         if (el == null || !el.isJsonObject()) return null;
         JsonObject o = el.getAsJsonObject();
@@ -1280,6 +1317,14 @@ public final class HgParser {
         if (id == null || title == null) return null;
         String cover = firstStr(o, "cover", "poster_url", "thumb_url", "cover_url", "image_url");
         String desc = firstStr(o, "desc", "description", "intro", "video_desc");
+        if (desc == null) {
+            // 简介的另一栖身处：video_detail.series_intro（搜索剧集签
+            // tab29 存档逐条实证——本体直成条时 collectSearchVideo 的
+            // 扁平补填分支不走、频道归一 normalizeDiscoverEntry 又只管
+            // 频道面，搜索面整签 desc 恒空；与该归一的 desc 抬升同口径）
+            JsonObject vdDesc = obj(o, "video_detail");
+            if (vdDesc != null) desc = str(vdDesc, "series_intro");
+        }
         int count = intOf(o, "episode_count", -1);
         if (count < 0) count = intOf(o, "episode_cnt", -1);
         if (count < 0 && albumInfo != null) count = intOf(albumInfo, "episode_cnt", -1);
@@ -1408,6 +1453,7 @@ public final class HgParser {
                 firstStr(o, "publisher", "copyright"));
         item.vidIndex = intOf(o, "vid_index", -1);
         item.kind = kindOf(o, albumInfo);
+        item.bottomBarText = bottomBarTextOf(o);
         fillInfoStack(item, o, rrl);
         // 合集条的追更数挂 album_info（fillInfoStack 只读本体 followed_cnt）
         if (albumInfo != null && item.followedCnt < 0) {

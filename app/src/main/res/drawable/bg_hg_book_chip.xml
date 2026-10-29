@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 红果书城分类筹底（官方包 skin_bg_search_recommend_tag_light：圆角 4dp、
+     底 skin_color_gray_03_light #08000000；HgBookBrowseActivity 程序化使用） -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="4dp" />
+    <solid android:color="#08000000" />
+</shape>

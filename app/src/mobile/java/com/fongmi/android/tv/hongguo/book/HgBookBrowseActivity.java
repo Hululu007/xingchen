@@ -70,7 +70,8 @@ public class HgBookBrowseActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         audio = getIntent().getBooleanExtra(EXTRA_AUDIO, false);
-        ReadingSkin.enableEdgeToEdge(this, true);
+        // 官方书城是浅色面（skin_color_bg_fa_light #FAFAFA），系统栏图标随之切深色
+        ReadingSkin.enableEdgeToEdge(this, false);
         buildUi();
         loadFeedFirst();
         overridePendingTransition(R.anim.xc_fade_in, R.anim.xc_fade_out);
@@ -92,10 +93,16 @@ public class HgBookBrowseActivity extends AppCompatActivity {
         return ReadingSkin.dp(this, v);
     }
 
+    // 官方书城口径（包 7.2.5.32 skin 色板）：页底 #FAFAFA、题黑、副字黑 40%
+    private static final int BOOK_BG = 0xFFFAFAFA;
+    private static final int BOOK_TEXT = 0xFF000000;
+    private static final int BOOK_SUB = 0x66000000;
+    private static final int BOOK_BRAND = 0xFFFA6725;
+
     private void buildUi() {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackground(ReadingSkin.pageBackground(this));
+        root.setBackgroundColor(BOOK_BG);
 
         LinearLayout topBar = new LinearLayout(this);
         topBar.setOrientation(LinearLayout.HORIZONTAL);
@@ -106,7 +113,7 @@ public class HgBookBrowseActivity extends AppCompatActivity {
         title.setText(audio ? HgBookBridge.NAME_AUDIO : HgBookBridge.NAME_NOVEL);
         title.setTextSize(20);
         title.getPaint().setFakeBoldText(true);
-        title.setTextColor(ReadingSkin.TEXT);
+        title.setTextColor(BOOK_TEXT);
         topBar.addView(title, new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         root.addView(topBar);
@@ -115,19 +122,34 @@ public class HgBookBrowseActivity extends AppCompatActivity {
         searchRow.setOrientation(LinearLayout.HORIZONTAL);
         searchRow.setGravity(Gravity.CENTER_VERTICAL);
         searchRow.setPadding(dp(16), dp(6), dp(16), dp(6));
+        // 搜索栏（官方 skin_bg_search_light：36dp 高、17dp 圆角、#08000000 底，
+        // 左放大镜矢量图 ic_hg_search_gray＝官方图标色 #4D000000，不用字形）
+        LinearLayout searchBar = new LinearLayout(this);
+        searchBar.setOrientation(LinearLayout.HORIZONTAL);
+        searchBar.setGravity(Gravity.CENTER_VERTICAL);
+        searchBar.setBackgroundResource(R.drawable.bg_hg_book_searchbar);
+        searchBar.setPadding(dp(12), 0, dp(8), 0);
+        ImageView searchIcon = new ImageView(this);
+        searchIcon.setImageResource(R.drawable.ic_hg_search_gray);
+        searchIcon.setContentDescription(null);
+        searchBar.addView(searchIcon, new LinearLayout.LayoutParams(dp(18), dp(18)));
         EditText input = new EditText(this);
         input.setHint(audio ? "搜听书" : "搜小说");
         input.setSingleLine(true);
         input.setTextSize(15);
-        input.setTextColor(ReadingSkin.TEXT);
-        input.setHintTextColor(ReadingSkin.SUB);
-        input.setPadding(dp(10), dp(6), dp(10), dp(6));
-        searchRow.addView(input, new LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        input.setTextColor(0xB3000000);
+        input.setHintTextColor(BOOK_SUB);
+        input.setBackground(null);
+        input.setPadding(dp(6), 0, dp(4), 0);
+        searchBar.addView(input, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
+        searchRow.addView(searchBar, new LinearLayout.LayoutParams(
+                0, dp(36), 1));
         TextView go = new TextView(this);
         go.setText("搜索");
         go.setTextSize(15);
-        go.setTextColor(ReadingSkin.TEXT);
+        go.getPaint().setFakeBoldText(true);
+        go.setTextColor(BOOK_BRAND);
         go.setPadding(dp(14), dp(6), dp(4), dp(6));
         go.setOnClickListener(v -> {
             String kw = input.getText().toString().trim();
@@ -146,13 +168,15 @@ public class HgBookBrowseActivity extends AppCompatActivity {
 
         status = new TextView(this);
         status.setTextSize(13);
-        status.setTextColor(ReadingSkin.SUB);
+        status.setTextColor(BOOK_SUB);
         status.setPadding(dp(20), dp(8), dp(20), dp(4));
         status.setText("加载中…");
         root.addView(status);
 
         ListView list = new ListView(this);
-        list.setDivider(null);
+        // 行间发丝分隔（官方 gray_08_light #14000000），代原先的无分隔全平
+        list.setDivider(new android.graphics.drawable.ColorDrawable(0x14000000));
+        list.setDividerHeight(1);
         adapter = new BookAdapter();
         list.setAdapter(adapter);
         list.setOnItemClickListener((parent, view, position, id) -> {
@@ -328,7 +352,11 @@ public class HgBookBrowseActivity extends AppCompatActivity {
         TextView tv = new TextView(this);
         tv.setText(text);
         tv.setTextSize(13);
-        tv.setTextColor(active ? 0xFF45C08A : ReadingSkin.TEXT);
+        // 分类筹（官方 recommend tag 口径：4dp 圆角 #08000000 底）；选中＝品牌橙
+        // #FA6725 粗体（代原阅读青绿 #45C08A），未选＝黑 70%（search_word 口径）
+        tv.setBackgroundResource(R.drawable.bg_hg_book_chip);
+        tv.setTextColor(active ? BOOK_BRAND : 0xB3000000);
+        tv.getPaint().setFakeBoldText(active);
         tv.setPadding(dp(10), dp(5), dp(10), dp(5));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -406,9 +434,13 @@ public class HgBookBrowseActivity extends AppCompatActivity {
                 row = new LinearLayout(HgBookBrowseActivity.this);
                 row.setOrientation(LinearLayout.HORIZONTAL);
                 row.setGravity(Gravity.CENTER_VERTICAL);
-                row.setPadding(dp(16), dp(10), dp(16), dp(10));
+                // 行内距＝官方列表行节奏（左右 16dp／上下 12dp）
+                row.setPadding(dp(16), dp(12), dp(16), dp(12));
                 cover = new ImageView(HgBookBrowseActivity.this);
                 cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                // 封面圆角裁剪（既有 bg_hg_cover_r6），代原先的直角贴图
+                cover.setBackgroundResource(R.drawable.bg_hg_cover_r6);
+                cover.setClipToOutline(true);
                 row.addView(cover, new LinearLayout.LayoutParams(dp(46), dp(62)));
                 LinearLayout texts = new LinearLayout(HgBookBrowseActivity.this);
                 texts.setOrientation(LinearLayout.VERTICAL);
@@ -418,12 +450,13 @@ public class HgBookBrowseActivity extends AppCompatActivity {
                 texts.setLayoutParams(tlp);
                 title = new TextView(HgBookBrowseActivity.this);
                 title.setTextSize(16);
-                title.setTextColor(ReadingSkin.TEXT);
+                title.setTextColor(BOOK_TEXT);
+                title.getPaint().setFakeBoldText(true);
                 title.setMaxLines(2);
                 texts.addView(title);
                 sub = new TextView(HgBookBrowseActivity.this);
                 sub.setTextSize(12.5f);
-                sub.setTextColor(ReadingSkin.SUB);
+                sub.setTextColor(BOOK_SUB);
                 sub.setPadding(0, dp(4), 0, 0);
                 texts.addView(sub);
                 row.addView(texts);

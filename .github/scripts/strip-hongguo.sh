@@ -6,7 +6,7 @@
 # 删的只有本功能（2026-10-27 立项的原生红果，一至五阶段）新增的东西：
 #   - 红果本体包 app/src/main/java/com/fongmi/android/tv/hongguo/（api/model/crypto/proxy/ui 全包）
 #     与它的离线单测 app/src/test/hongguo/；
-#   - 本体资源（main 源集）：activity/item/dialog/view_hongguo_* 布局 35 份、bg_hg_*/ic_hg_* 图形 85 份＋hg_switch_* 开关图形 2 份；
+#   - 本体资源（main 源集）：activity/item/dialog/view_hongguo_* 布局 35 份、bg_hg_*/ic_hg_* 图形 92 份＋hg_switch_* 开关图形 2 份；
 #   - 登录提供方 HongguoLoginProvider 与它在 LoginManager 里的注册行／loginHongguo 入口／
 #     三个静态桥／requestLogin 的红果分发支；
 #   - Nano 本地服务器的红果代理解密 process（HongguoStream 本体＋Nano 的 import 与注册行）；
@@ -111,14 +111,19 @@ app/src/main/res/drawable/bg_hg_bottom_scrim.xml
 app/src/main/res/drawable/bg_hg_chip.xml
 app/src/main/res/drawable/bg_hg_cover_r6.xml
 app/src/main/res/drawable/bg_hg_cover_r12.xml
+app/src/main/res/drawable/bg_hg_detail_card.xml
+app/src/main/res/drawable/bg_hg_detail_cell.xml
+app/src/main/res/drawable/bg_hg_detail_chip.xml
+app/src/main/res/drawable/bg_hg_detail_cover.xml
+app/src/main/res/drawable/bg_hg_detail_current.xml
+app/src/main/res/drawable/bg_hg_detail_play.xml
+app/src/main/res/drawable/bg_hg_detail_qmark.xml
+app/src/main/res/drawable/bg_hg_detail_score_block.xml
 app/src/main/res/drawable/bg_hg_red_dot.xml
 app/src/main/res/drawable/bg_hg_sub_chip.xml
 app/src/main/res/drawable/bg_hg_sub_chip_on.xml
 app/src/main/res/drawable/bg_hg_title_badge.xml
 app/src/main/res/drawable/bg_hg_float_card.xml
-app/src/main/res/drawable/bg_hg_ep_cell_dark.xml
-app/src/main/res/drawable/bg_hg_ep_current.xml
-app/src/main/res/drawable/bg_hg_glass_card_dark.xml
 app/src/main/res/drawable/bg_hg_catalog_bar.xml
 app/src/main/res/drawable/bg_hg_follow_mini.xml
 app/src/main/res/drawable/bg_hg_guide_chip.xml
@@ -152,6 +157,7 @@ app/src/main/res/drawable/ic_hg_mine.xml
 app/src/main/res/drawable/ic_hg_close.xml
 app/src/main/res/drawable/ic_hg_check_on.xml
 app/src/main/res/drawable/ic_hg_detail_arrow.xml
+app/src/main/res/drawable/ic_hg_now_playing.xml
 app/src/main/res/drawable/ic_hg_comment.xml
 app/src/main/res/drawable/ic_hg_fullscreen.xml
 app/src/main/res/drawable/ic_hg_heart.xml

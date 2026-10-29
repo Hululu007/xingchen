@@ -204,7 +204,26 @@ public final class HgApiClient {
         doRegister();
     }
 
+    /**
+     * 重置设备档案并重新注册（档案级限流自愈用，定根账
+     * feed-item-fetch-fail-20261029 §6：play 类接口对旧档案回空体、
+     * 换档案即愈）：作废 HgDevice 整份匿名身份后走 ensureDevice 既有
+     * 注册流程拿新档案，结果经 cb 回（口径同 ensureDevice）。
+     *
+     * <p>边界（死线）：只动匿名设备档案；账号登录态（passport 会话
+     * Cookie 在壳子账号托管 CloudAccountStore）不在此列，重置不读
+     * 不写，换档案后登录不掉。若恰有一轮注册在途，HgDevice 代次已变，
+     * 那一轮的回包会被 doRegister 的代次校验作废并按新档案自动重注册，
+     * 在途等待者与本次 cb 都等新档案的结果。</p>
+     */
+    public void resetDeviceProfile(HgCallback<Boolean> cb) {
+        HgDevice.resetProfile();
+        ensureDevice(cb);
+    }
+
     private void doRegister() {
+        // 发出时的档案代次：回包落盘前比对，期间被重置过则本轮结果作废
+        final int gen = HgDevice.profileGeneration();
         final byte[] body;
         try {
             body = HgDevice.buildRegisterBody(System.currentTimeMillis());
@@ -230,11 +249,20 @@ public final class HgApiClient {
         enqueue(call, new BodyCallback() {
             @Override
             void onCookies(Map<String, String> cookies) {
+                // 代次已变＝这批游客 Cookie 是旧档案注册回的，不许落进新档案
+                if (HgDevice.profileGeneration() != gen) return;
                 HgDevice.applyGuestCookies(cookies);
             }
 
             @Override
             void onBody(String text) {
+                if (HgDevice.profileGeneration() != gen) {
+                    // 本轮注册期间档案被重置：回的 id 属于旧档案，作废，
+                    // 按新档案重新注册；等待者不释放、等新一轮结果
+                    android.util.Log.w(TAG, "注册回包时档案已重置，按新档案重新注册");
+                    doRegister();
+                    return;
+                }
                 String[] ids = HgDevice.parseRegister(text);
                 if (ids == null) {
                     android.util.Log.e(TAG, "注册回包无 device_id/install_id body=" + abbrev(text));
@@ -247,6 +275,11 @@ public final class HgApiClient {
 
             @Override
             void onFail(int code, String msg) {
+                if (HgDevice.profileGeneration() != gen) {
+                    // 同上：旧档案那一轮的失败不算数，按新档案重新注册
+                    doRegister();
+                    return;
+                }
                 finishRegister("注册失败：" + msg);
             }
         }, "device_register");

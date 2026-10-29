@@ -84,32 +84,39 @@ public final class LabCustomCommands {
         if (root == null || !root.isJsonArray()) return out;
         for (JsonElement e : root.getAsJsonArray()) {
             if (!e.isJsonObject()) continue;
-            CustomCommand cc = g.fromJson(e, CustomCommand.class);
-            if (cc == null || TextUtils.isEmpty(cc.command)) continue;
-            // 默影视形 description 与星辰形 desc 对名：Gson 只认 desc，
-            // 外部按 description 写的 custom.json 在这里补上，不丢说明
-            if (TextUtils.isEmpty(cc.desc) && e.getAsJsonObject().has("description")) {
-                try {
-                    cc.desc = e.getAsJsonObject().get("description").getAsString();
-                } catch (Exception ignored) {
+            // 逐条兜底（与 LabRegistry.parseRegistry 同口径）：一条外部形状不对
+            // 只跳这一条并留痕，不许抛穿把整表吞成空表——用户自建命令与导入
+            // 的命令都在这一张表里，整表清空等于全丢且无提示
+            try {
+                CustomCommand cc = g.fromJson(e, CustomCommand.class);
+                if (cc == null || TextUtils.isEmpty(cc.command)) continue;
+                // 默影视形 description 与星辰形 desc 对名：Gson 只认 desc，
+                // 外部按 description 写的 custom.json 在这里补上，不丢说明
+                if (TextUtils.isEmpty(cc.desc) && e.getAsJsonObject().has("description")) {
+                    try {
+                        cc.desc = e.getAsJsonObject().get("description").getAsString();
+                    } catch (Exception ignored) {
+                    }
                 }
-            }
-            List<LabManifest.LabVar> vars = new ArrayList<>();
-            for (Object vo : rawList(cc.variables)) {
-                LabManifest.LabVar v = g.fromJson(g.toJsonTree(vo), LabManifest.LabVar.class);
-                if (v == null) continue;
-                List<LabManifest.LabOption> opts = new ArrayList<>();
-                for (Object oo : rawList(v.options)) {
-                    LabManifest.LabOption op = g.fromJson(g.toJsonTree(oo), LabManifest.LabOption.class);
-                    if (op != null) opts.add(op);
+                List<LabManifest.LabVar> vars = new ArrayList<>();
+                for (Object vo : rawList(cc.variables)) {
+                    LabManifest.LabVar v = g.fromJson(g.toJsonTree(vo), LabManifest.LabVar.class);
+                    if (v == null) continue;
+                    List<LabManifest.LabOption> opts = new ArrayList<>();
+                    for (Object oo : rawList(v.options)) {
+                        LabManifest.LabOption op = g.fromJson(g.toJsonTree(oo), LabManifest.LabOption.class);
+                        if (op != null) opts.add(op);
+                    }
+                    v.options.clear();
+                    v.options.addAll(opts);
+                    vars.add(v);
                 }
-                v.options.clear();
-                v.options.addAll(opts);
-                vars.add(v);
+                cc.variables.clear();
+                cc.variables.addAll(vars);
+                out.add(cc);
+            } catch (Exception ex) {
+                android.util.Log.w("LabCustomCommands", "custom.json 有一条命令形状不对，已跳过这一条", ex);
             }
-            cc.variables.clear();
-            cc.variables.addAll(vars);
-            out.add(cc);
         }
         return out;
     }

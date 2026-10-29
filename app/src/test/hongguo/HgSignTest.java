@@ -175,6 +175,37 @@ public class HgSignTest {
                         && !g1.headers.containsKey("x-ss-stub"),
                 "实际=" + g1.headers.keySet());
 
+        // 2c) argus/ladon 身份（2026-10-29 路 A）：解开 signPost 的 x-argus/x-ladon
+        //     断言红果身份；再解四参 argusLadon（评论链缺省）断言番茄身份逐字保留。
+        //     解密锚在本测试内逆向实现（容器 AES＋Simon/ladon 逆轮），密钥常量照
+        //     签名器原值钉死——签名器改密钥/身份而测试不跟随，解密或断言当场红。
+        Map<Integer, Object> af = decryptArgus(s1.headers.get("x-argus"));
+        check("argus 身份=红果（f4=8662/f7=版本名/f8=v04.06.04-ml-android/f9=67503104）",
+                "8662".equals(af.get(4)) && HgDevice.VERSION_NAME.equals(af.get(7))
+                        && "v04.06.04-ml-android".equals(af.get(8))
+                        && Long.valueOf(67503104L).equals(af.get(9)),
+                "实际 f4=" + af.get(4) + " f7=" + af.get(7) + " f8=" + af.get(8) + " f9=" + af.get(9));
+        check("argus 无 f5 device_id、f6 许可常量保留（1611921764）",
+                !af.containsKey(5) && "1611921764".equals(af.get(6)),
+                "实际 f6=" + af.get(6) + " 含f5=" + af.containsKey(5));
+        String ladonPlain = decryptLadon(s1.headers.get("x-ladon"));
+        check("ladon 明文尾=红果 aid（…-1611921764-8662）",
+                ladonPlain != null && ladonPlain.endsWith("-1611921764-8662"),
+                "实际=" + ladonPlain);
+        byte[] tn = new byte[11];
+        for (int i = 0; i < tn.length; i++) tn[i] = (byte) (i + 1);
+        String[] tal = com.fongmi.android.tv.api.FqCommentSigner.argusLadon("a=1&b=2", null, 1700000000L, tn);
+        Map<Integer, Object> tf = decryptArgus(tal[0]);
+        check("评论链 argus 缺省身份=番茄逐字保留（3019/6.8.1.32/v04.07.01-ml-android/135135744）",
+                "3019".equals(tf.get(4)) && "6.8.1.32".equals(tf.get(7))
+                        && "v04.07.01-ml-android".equals(tf.get(8))
+                        && Long.valueOf(135135744L).equals(tf.get(9)),
+                "实际 f4=" + tf.get(4) + " f7=" + tf.get(7) + " f8=" + tf.get(8) + " f9=" + tf.get(9));
+        String tLadonPlain = decryptLadon(tal[1]);
+        check("评论链 ladon 明文尾=番茄 aid（…-1611921764-3019）",
+                tLadonPlain != null && tLadonPlain.endsWith("-1611921764-3019"),
+                "实际=" + tLadonPlain);
+
         // 3) 注册持久化：档案派生 → 回填真 id → 清缓存重读仍在（Prefers 桩为进程内存储）。
         HgDevice.Profile p1 = HgDevice.profile();
         check("档案已派生（cdid/openudid 在位）",
@@ -293,6 +324,148 @@ public class HgSignTest {
                 int bits = (data[pos[0]] & 0xFF) | ((data[pos[0] + 1] & 0xFF) << 8)
                         | ((data[pos[0] + 2] & 0xFF) << 16) | ((data[pos[0] + 3] & 0xFF) << 24);
                 out.put(field, Float.intBitsToFloat(bits));
+                pos[0] += 4;
+            } else if (wire == 1) {
+                pos[0] += 8;
+            } else {
+                break;
+            }
+        }
+        return out;
+    }
+
+    // ---------- argus/ladon 解密锚（逆 FqCommentSigner 的容器与轮函数） ----------
+
+    static final byte[] ARGUS_SECRET_T = unhexT("ac1adaae95a7af94a5114ab3b3a97dd80050aa0a39314c40528caec95256c28c");
+    static final byte[] ARGUS_MASK_T = unhexT("d04ffdffd04ffdff");
+    static final long SIMON_SEED_T = 0x3dc94c3a046d678bL;
+
+    static byte[] unhexT(String s) {
+        byte[] out = new byte[s.length() / 2];
+        for (int i = 0; i < out.length; i++) out[i] = (byte) Integer.parseInt(s.substring(i * 2, i * 2 + 2), 16);
+        return out;
+    }
+
+    static byte[] md5T(byte[] data) {
+        try {
+            return java.security.MessageDigest.getInstance("MD5").digest(data);
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    static long wordT(byte[] b, int at) {
+        return java.nio.ByteBuffer.wrap(b, at, 8).order(java.nio.ByteOrder.LITTLE_ENDIAN).getLong();
+    }
+
+    static byte[] leT(long n) {
+        return java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN).putLong(n).array();
+    }
+
+    static byte[] concatT(byte[]... parts) {
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        for (byte[] p : parts) out.write(p, 0, p.length);
+        return out.toByteArray();
+    }
+
+    /** 解 x-argus → 明文字段表（varint 取原值不 zigzag，LEN 取串）。 */
+    static Map<Integer, Object> decryptArgus(String b64) throws Exception {
+        byte[] all = java.util.Base64.getDecoder().decode(b64);
+        byte[] ct = java.util.Arrays.copyOfRange(all, 2, all.length);
+        javax.crypto.Cipher cipher = javax.crypto.Cipher.getInstance("AES/CBC/PKCS5Padding");
+        cipher.init(javax.crypto.Cipher.DECRYPT_MODE,
+                new javax.crypto.spec.SecretKeySpec(md5T(java.util.Arrays.copyOfRange(ARGUS_SECRET_T, 0, 16)), "AES"),
+                new javax.crypto.spec.IvParameterSpec(md5T(java.util.Arrays.copyOfRange(ARGUS_SECRET_T, 16, 32))));
+        byte[] container = cipher.doFinal(ct);
+        byte[] mid = java.util.Arrays.copyOfRange(container, 9, container.length - 2);
+        byte[] joined = new byte[mid.length];
+        for (int i = 0; i < mid.length; i++) joined[i] = mid[mid.length - 1 - i];
+        byte[] scrambled = java.util.Arrays.copyOfRange(joined, 8, joined.length);
+        byte[] enc = new byte[scrambled.length];
+        for (int i = 0; i < enc.length; i++) enc[i] = (byte) ((scrambled[i] & 255) ^ (ARGUS_MASK_T[i % 8] & 255));
+        byte[] derived = HgSm3.sum(concatT(ARGUS_SECRET_T, unhexT("3ccc567b"), ARGUS_SECRET_T));
+        long[] keys = new long[72];
+        for (int i = 0; i < 4; i++) keys[i] = wordT(derived, i * 8);
+        for (int i = 4; i < 72; i++) {
+            long x = Long.rotateRight(keys[i - 1], 3) ^ keys[i - 3];
+            keys[i] = ~keys[i - 4] ^ x ^ Long.rotateRight(x, 1) ^ ((SIMON_SEED_T >>> ((i - 4) % 62)) & 1) ^ 3;
+        }
+        java.io.ByteArrayOutputStream plain = new java.io.ByteArrayOutputStream();
+        for (int at = 0; at + 16 <= enc.length; at += 16) {
+            long a = wordT(enc, at), b = wordT(enc, at + 8);
+            for (int i = 71; i >= 0; i--) {
+                long prevB = a;
+                long prevA = b ^ (Long.rotateLeft(a, 1) & Long.rotateLeft(a, 8)) ^ Long.rotateLeft(a, 2) ^ keys[i];
+                a = prevA;
+                b = prevB;
+            }
+            byte[] la = leT(a), lb = leT(b);
+            plain.write(la, 0, 8);
+            plain.write(lb, 0, 8);
+        }
+        byte[] msg = plain.toByteArray();
+        int padLen = msg[msg.length - 1] & 255;
+        return parsePlainProto(java.util.Arrays.copyOf(msg, msg.length - padLen));
+    }
+
+    /** 解 x-ladon → 明文串（ts-许可-aid）。 */
+    static String decryptLadon(String b64) {
+        byte[] all = java.util.Base64.getDecoder().decode(b64);
+        byte[] salt = java.util.Arrays.copyOfRange(all, 0, 4);
+        byte[] ascii = hexStrT(md5T(concatT(salt, "8662".getBytes(StandardCharsets.UTF_8))))
+                .getBytes(StandardCharsets.UTF_8);
+        java.util.ArrayDeque<Long> queue = new java.util.ArrayDeque<>();
+        queue.add(wordT(ascii, 16));
+        queue.add(wordT(ascii, 24));
+        long left = wordT(ascii, 0);
+        long right = wordT(ascii, 8);
+        long[] keys = new long[34];
+        for (int i = 0; i < keys.length; i++) {
+            keys[i] = left;
+            long next = (Long.rotateRight(right, 8) + left) ^ (long) i;
+            queue.add(next);
+            left = next ^ Long.rotateLeft(left, 3);
+            right = queue.removeFirst();
+        }
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        for (int at = 4; at + 16 <= all.length; at += 16) {
+            long a = wordT(all, at), b = wordT(all, at + 8);
+            for (int i = 33; i >= 0; i--) {
+                long aOld = Long.rotateRight(a ^ b, 3);
+                long bOld = Long.rotateLeft((b ^ keys[i]) - aOld, 8);
+                a = aOld;
+                b = bOld;
+            }
+            byte[] la = leT(a), lb = leT(b);
+            out.write(la, 0, 8);
+            out.write(lb, 0, 8);
+        }
+        byte[] msg = out.toByteArray();
+        int padLen = msg[msg.length - 1] & 255;
+        return new String(msg, 0, msg.length - padLen, StandardCharsets.UTF_8);
+    }
+
+    static String hexStrT(byte[] data) {
+        StringBuilder sb = new StringBuilder(data.length * 2);
+        for (byte b : data) sb.append(Character.forDigit((b >> 4) & 15, 16)).append(Character.forDigit(b & 15, 16));
+        return sb.toString();
+    }
+
+    /** 明文 proto 解析（varint 不 zigzag），只供 argus 字段断言。 */
+    static Map<Integer, Object> parsePlainProto(byte[] data) {
+        Map<Integer, Object> out = new HashMap<>();
+        int[] pos = {0};
+        while (pos[0] < data.length) {
+            long key = readVarint(data, pos);
+            int field = (int) (key >>> 3);
+            int wire = (int) (key & 7);
+            if (wire == 0) {
+                out.put(field, readVarint(data, pos));
+            } else if (wire == 2) {
+                int len = (int) readVarint(data, pos);
+                out.put(field, new String(data, pos[0], len, StandardCharsets.UTF_8));
+                pos[0] += len;
+            } else if (wire == 5) {
                 pos[0] += 4;
             } else if (wire == 1) {
                 pos[0] += 8;

@@ -30,6 +30,8 @@ import java.util.Map;
 public final class HgSign {
 
     private static final int GORGON_SDK_VERSION = 67503104;
+    /** metasec 构建串：medusa 消息字段 8 与 argus 消息字段 8 同值同源（同一构建自称）。 */
+    private static final String METASEC_SDK_VERSION = "v04.06.04-ml-android";
     static final String APP_ID = "8662";
     static final String CHANNEL_ID = "1588093228";
 
@@ -115,11 +117,18 @@ public final class HgSign {
         // 支持此操作」收口，占位签名是第一嫌疑（定根账 sms-login-fail-20261029.md
         // 第五节）。nonce 从本次签名熵派生：同熵同刻产出确定（离线单测的头集
         // 确定性断言靠它），熵本身每次现抽随机。
+        // 身份分轨（2026-10-29 深夜，login-close-loop-20261029.md 第四-1 路 A）：
+        // 真算法的消息自称的是抓样来源番茄（aid 3019 / 6.8.1.32 / v04.07.01），
+        // 与本请求的 medusa（8662 / 本档案版本名 / v04.06.04 / 67503104）及公参
+        // 正面矛盾——风控层是全链唯一会解密细看 argus 的地方。此处按红果身份
+        // 组装（aid、版本名与同请求 medusa 字段 4/7 同源、SDK 串/构建号与
+        // medusa 字段 8/9 同源），评论链的番茄身份在 FqCommentSigner 内保留不动。
         byte[] argusNonce = new byte[11];
         System.arraycopy(le32(ent.messageRandom), 0, argusNonce, 0, 4);
         System.arraycopy(le32(ent.random), 0, argusNonce, 4, 4);
         System.arraycopy(le32(ent.packedRandom), 0, argusNonce, 8, 3);
-        String[] argusLadon = FqCommentSigner.argusLadon(query, body, khronos & 0xFFFFFFFFL, argusNonce);
+        String[] argusLadon = FqCommentSigner.argusLadon(query, body, khronos & 0xFFFFFFFFL, argusNonce,
+                new FqCommentSigner.Identity(APP_ID, versionName, METASEC_SDK_VERSION, GORGON_SDK_VERSION));
         headers.put("x-ladon", argusLadon[1]);
         headers.put("x-argus", argusLadon[0]);
         headers.put("x-gorgon", xGorgon(query, body, hasBody, khronos, ent.gorgonRandom));
@@ -1048,7 +1057,7 @@ public final class HgSign {
                 protoString(5, deviceId),
                 protoString(6, CHANNEL_ID),
                 protoString(7, versionName),
-                protoString(8, "v04.06.04-ml-android"),
+                protoString(8, METASEC_SDK_VERSION),
                 protoSInt(9, GORGON_SDK_VERSION),
                 protoBytes(10, fixed2),
                 protoSInt(12, khronos & 0xFFFFFFFFL),

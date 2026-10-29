@@ -19,12 +19,46 @@ import javax.crypto.spec.SecretKeySpec;
  * SM3 手写对译红果 py 源自带实现。评论链只服务匿名只读、不带任何账号凭据；
  * 其中 X-Argus / X-Ladon 真算法自 2026-10-29 起也被 HgSign 复用（passport 登录
  * 签名改走真算法，定根见 hongguo/sms-login-fail-20261029.md），见 {@link #argusLadon}。
+ * <p>
+ * 身份分轨（2026-10-29 深夜，login-close-loop-20261029.md 第四-1 路 A）：本签名器
+ * 的消息字段 4/7/8/9 与 ladon 数据尾自带的身份是抓样来源的番茄（aid 3019 /
+ * 6.8.1.32 / v04.07.01 / 135135744，见 {@link Identity#TOMATO}）——评论链的目标
+ * 平台就是番茄系评论口，此身份是它的活证形态，评论链（{@link #headers} 与
+ * 四参 {@link #argusLadon}）逐字保留不动。HgSign 的红果主链（内容＋passport）
+ * 改走五参 {@link #argusLadon(String, byte[], long, byte[], Identity)} 递交红果
+ * 身份（与同请求 medusa/公参同源），不再让每条红果请求自称番茄。算法与密钥
+ * 两轨共用、不变（密码学有效性已双证）；字段 6 与 ladon 中段的 1611921764 是
+ * 两式共用的许可常量、与身份无关，路 A 未动。
  */
 public class FqCommentSigner {
 
     private static final byte[] ARGUS_SECRET = hex("ac1adaae95a7af94a5114ab3b3a97dd80050aa0a39314c40528caec95256c28c");
     private static final byte[] ARGUS_MASK = hex("d04ffdffd04ffdff");
     private static final long SIMON_SEED = 0x3dc94c3a046d678bL;
+
+    /**
+     * argus/ladon 的自称身份（argus 消息字段 4=aid、7=版本名、8=SDK 版本串、
+     * 9=SDK 构建号；ladon 明文尾段的 aid）。算法只认字段位置，身份由调用方给：
+     * 评论链用 {@link #TOMATO}（抓样活证），红果主链由 HgSign 按其同请求
+     * medusa/公参的口径组装（8662 / 档案版本名 / v04.06.04-ml-android /
+     * 67503104）。
+     */
+    public static final class Identity {
+        /** 抓样来源的番茄身份（评论链现行值，逐字保留）。 */
+        public static final Identity TOMATO = new Identity("3019", "6.8.1.32", "v04.07.01-ml-android", 135135744);
+
+        public final String aid;
+        public final String appVersion;
+        public final String sdkVersion;
+        public final long sdkBuild;
+
+        public Identity(String aid, String appVersion, String sdkVersion, long sdkBuild) {
+            this.aid = aid;
+            this.appVersion = appVersion;
+            this.sdkVersion = sdkVersion;
+            this.sdkBuild = sdkBuild;
+        }
+    }
 
     public static Map<String, String> headers(String query) {
         byte[] nonce = new byte[11];
@@ -53,8 +87,16 @@ public class FqCommentSigner {
      * 返回 {x-argus, x-ladon}。
      */
     public static String[] argusLadon(String query, byte[] body, long tsSeconds, byte[] nonce) {
+        return argusLadon(query, body, tsSeconds, nonce, Identity.TOMATO);
+    }
+
+    /**
+     * 带身份的入口（红果主链用）：与四参版同一算法/密钥/随机口径，只把消息里
+     * 的自称身份换成 {@code identity}（argus 字段 4/7/8/9 与 ladon 明文尾段）。
+     */
+    public static String[] argusLadon(String query, byte[] body, long tsSeconds, byte[] nonce, Identity identity) {
         if (nonce == null || nonce.length != 11) throw new IllegalArgumentException("nonce must be 11 bytes");
-        return new String[]{argus(query, body, tsSeconds, nonce), ladon(tsSeconds, copyOfRange(nonce, 2, 6))};
+        return new String[]{argus(query, body, tsSeconds, nonce, identity), ladon(tsSeconds, copyOfRange(nonce, 2, 6), identity.aid)};
     }
 
     private static String gorgon(String query, long ts, byte[] nonce) {
@@ -95,6 +137,10 @@ public class FqCommentSigner {
     }
 
     private static String ladon(long ts, byte[] salt) {
+        return ladon(ts, salt, Identity.TOMATO.aid);
+    }
+
+    private static String ladon(long ts, byte[] salt, String aidTail) {
         byte[] ascii = hexString(md5(concat(salt, "8662".getBytes()))).getBytes();
         java.util.ArrayDeque<Long> queue = new java.util.ArrayDeque<>();
         queue.add(word(ascii, 16));
@@ -109,7 +155,7 @@ public class FqCommentSigner {
             left = next ^ Long.rotateLeft(left, 3);
             right = queue.removeFirst();
         }
-        byte[] data = pad((ts + "-1611921764-3019").getBytes());
+        byte[] data = pad((ts + "-1611921764-" + aidTail).getBytes());
         ByteArrayOutputStream result = new ByteArrayOutputStream();
         result.write(salt, 0, salt.length);
         for (int at = 0; at < data.length; at += 16) {
@@ -128,6 +174,10 @@ public class FqCommentSigner {
     }
 
     private static String argus(String query, byte[] body, long ts, byte[] nonce) {
+        return argus(query, body, ts, nonce, Identity.TOMATO);
+    }
+
+    private static String argus(String query, byte[] body, long ts, byte[] nonce, Identity identity) {
         long random = ByteBuffer.wrap(nonce, 6, 4).order(ByteOrder.LITTLE_ENDIAN).getInt() & 0xffffffffL;
         byte[] nested = new Proto()
                 .varint(1, 2 + (nonce[10] & 255) % 49 * 2)
@@ -139,11 +189,11 @@ public class FqCommentSigner {
                 .varint(1, 0x40401252)
                 .varint(2, 2)
                 .varint(3, random)
-                .bytes(4, "3019".getBytes())
+                .bytes(4, identity.aid.getBytes())
                 .bytes(6, "1611921764".getBytes())
-                .bytes(7, "6.8.1.32".getBytes())
-                .bytes(8, "v04.07.01-ml-android".getBytes())
-                .varint(9, 135135744)
+                .bytes(7, identity.appVersion.getBytes())
+                .bytes(8, identity.sdkVersion.getBytes())
+                .varint(9, identity.sdkBuild)
                 .bytes(10, new byte[8])
                 .varint(12, ts * 2)
                 // 字段 13＝请求体哈希前 6 字节：有体取 sm3(body)；无体按算法惯例

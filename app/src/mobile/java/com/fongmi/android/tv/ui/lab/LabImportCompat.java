@@ -61,6 +61,14 @@ public final class LabImportCompat {
         public byte[] assetBytes;
         /** 7z 离线包 binary/ 条目：相对路径 → 内容，安装时落进包目录 */
         public Map<String, byte[]> extraFiles;
+        /** 上游 Item.icon 的图片地址（URL 形态），与自家 icon 字并存 */
+        public String iconUrl = "";
+        /** 后续操作按钮（上游 Command.clicks 原形） */
+        public final List<LabManifest.LabClick> clicks = new ArrayList<>();
+        /** 包设置项（上游 Item.settings 原形）：与 variables 分开存，toManifest 落 manifest.settings */
+        public final List<LabManifest.LabVar> pkgSettings = new ArrayList<>();
+        /** 离线包 commands.json 的自建命令（已转 LabCommand 形，description/desc 双吃） */
+        public final List<LabManifest.LabCommand> customCommands = new ArrayList<>();
     }
 
     public static class ParseResult {
@@ -160,6 +168,20 @@ public final class LabImportCompat {
         if (text == null) throw new Exception("内容是空的");
         String t = text.replace("\uFEFF", "").trim();
         if (t.isEmpty()) throw new Exception("内容是空的，粘点东西进来");
+        // 默影视单包导入串 VodPlusLabConfig://<Base64(Item JSON)>：解码后走既有 Item 路
+        // （默影视 LabActivity.decodeImport 同口径：MIME Base64、UTF-8）
+        if (t.regionMatches(true, 0, "VodPlusLabConfig://", 0, "VodPlusLabConfig://".length())) {
+            String b64 = t.substring("VodPlusLabConfig://".length()).trim();
+            try {
+                byte[] raw = java.util.Base64.getMimeDecoder().decode(b64);
+                String json = new String(raw, java.nio.charset.StandardCharsets.UTF_8).trim();
+                ParseResult r = parseJson(json);
+                r.note = "认出来了：默影视实验室包导入串（" + r.items.size() + " 条命令）";
+                return r;
+            } catch (Exception e) {
+                throw new Exception("这个 VodPlusLabConfig:// 导入串解不开：" + e.getMessage());
+            }
+        }
         if (t.startsWith("{") || t.startsWith("[")) {
             return parseJson(t);
         }
@@ -200,17 +222,27 @@ public final class LabImportCompat {
             for (int i = 0; i < lists.length(); i++) {
                 JSONObject item = lists.optJSONObject(i);
                 if (item == null || !item.has("commands")) continue;
-                if (!item.optBoolean("available", true) || !item.optBoolean("show", true)) {
+                // available/show 不再当导入过滤器整包丢（默影视是照常列出、只在
+                // 点下载时拦）：照常导入，每条挂明示，装不装由用户看提示定。
+                // 注：两键缺失时默影视 Gson 缺省是 false，星辰按「没写＝不限制」
+                // 处理——野外清单大量不写这两键，按 false 丢会误杀整包
+                boolean flagged = (item.has("available") && !item.optBoolean("available", true))
+                        || (item.has("show") && !item.optBoolean("show", true));
+                List<ImportItem> converted = fromWebhtvItem(item);
+                if (flagged) {
                     skipped++;
-                    continue;
+                    for (ImportItem ci : converted) {
+                        ci.needsReview = addLine(ci.needsReview,
+                                "上游把这个包标了不可用或不显示（available/show），默影视里能看见但装不了；星辰照常导进来了，跑不起来先看这条");
+                    }
                 }
-                r.items.addAll(fromWebhtvItem(item));
+                r.items.addAll(converted);
             }
             if (r.items.isEmpty()) {
-                throw new Exception("这个清单里的包都不可用或不显示，没导进来");
+                throw new Exception("这个清单里没有带命令的包，没导进来");
             }
             r.note = "认出来了：默影视实验室清单（" + r.items.size() + " 条命令）"
-                    + (skipped > 0 ? "，另有 " + skipped + " 个包上游标了不可用/不显示，没导" : "");
+                    + (skipped > 0 ? "，其中 " + skipped + " 个包上游标了不可用/不显示，已照常导入并在每条上标明" : "");
             return r;
         }
         if (o.has("services") && o.opt("services") instanceof JSONArray) {
@@ -321,10 +353,66 @@ public final class LabImportCompat {
             it.portPolicy = p;
             if (it.command.contains(p)) it.command = it.command.replace(p, "{port}");
         }
+        // 路 B 此前只收命令本体，variables/download/clicks 静默全丢（差单探针 7）：
+        // 与路 C 同口径全收
+        it.variables.addAll(parseLabVarList(o.optJSONArray("variables")));
+        JSONObject dl = o.optJSONObject("download");
+        if (dl != null) {
+            LabManifest.LabDownload d = parseCommandDownload(dl, it);
+            if (d != null) it.download = d;
+        }
+        it.clicks.addAll(LabManifest.parseClicks(o.optJSONArray("clicks")));
+        noteUnsupportedClicks(it);
         if (it.command == null || it.command.trim().isEmpty()) {
             it.needsReview = addLine(it.needsReview, "这条没有启动命令，装完也跑不起来");
         }
         return it;
+    }
+
+    /** 命令级 download 解析（路 B/C 共用）：url/file(save_to)/check_file/extract_to/required/title/size/mirrors/liburl 全收 */
+    private static LabManifest.LabDownload parseCommandDownload(JSONObject dl, ImportItem it) {
+        String url = dl.optString("url", "").trim();
+        LabManifest.LabDownload d = new LabManifest.LabDownload();
+        d.url = url;
+        d.file = dl.has("file") ? dl.optString("file", "").trim()
+                : dl.optString("save_to", "").trim();
+        d.checkFile = dl.optString("check_file", dl.optString("checkFile", "")).trim();
+        d.extractTo = dl.optString("extract_to", dl.optString("extractTo", "")).trim();
+        d.required = dl.optBoolean("required", false);
+        d.title = dl.optString("title", "").trim();
+        d.size = dl.optString("size", "").trim();
+        d.libUrl = dl.optString("liburl", dl.optString("libUrl", "")).trim();
+        d.mirrors.addAll(LabManifest.parseMirrorUrls(dl));
+        if (d.url.isEmpty() && !d.mirrors.isEmpty()) d.url = d.mirrors.get(0);
+        if (!d.url.isEmpty()) return d;
+        if (!d.checkFile.isEmpty()) {
+            it.needsReview = addLine(it.needsReview,
+                    "这条命令要用的文件（" + d.checkFile + "）不在包里、地址也是空的（多半是订阅类配置），先把文件备到包里或公共目录它该在的位置");
+            return d;
+        }
+        it.needsReview = addLine(it.needsReview,
+                "这条命令声明了下载（" + (d.title.isEmpty() ? "下载文件" : d.title) + "），但没给下载地址");
+        return null;
+    }
+
+    /** 服务页能落地的 click action 全集；落不了的才进 needsReview 明说，不再整组丢 */
+    static boolean clickActionSupported(String action) {
+        if (action == null) return false;
+        switch (action.trim().toLowerCase()) {
+            case "open": case "webview": case "copy": case "qrcode": case "share":
+            case "alert": case "toast": case "log": case "run": case "stop": case "restart":
+                return true;
+            default: return false;
+        }
+    }
+
+    private static void noteUnsupportedClicks(ImportItem it) {
+        int bad = 0;
+        for (LabManifest.LabClick cl : it.clicks) if (!clickActionSupported(cl.action)) bad++;
+        if (bad > 0) {
+            it.needsReview = addLine(it.needsReview,
+                    "默影视的「后续操作」按钮有 " + bad + " 个的动作星辰还没有对应处置，这几个按钮点了没反应");
+        }
     }
 
     /**
@@ -396,8 +484,20 @@ public final class LabImportCompat {
         // Item 级 downloads[]（靠下载落二进制的服务，如 lxserver/drpy-node）：解析一次套到每条命令。
         // 此前整段没读，装完没二进制还不吭声；读不通的也必须进 needsReview 明说
         ItemDownloads itemDls = parseItemDownloads(o);
-        // 包级 settings（上游按环境变量注入）：并入每条命令的变量表，语义差异如实提示
+        // 包级 settings（上游按环境变量注入）：并入每条命令的变量表，语义差异如实提示；
+        // 同时原形存 pkgSettings，toManifest 落 manifest.settings，服务页「包设置」行才有入口
         List<LabManifest.LabVar> pkgVars = parseLabVarList(o.optJSONArray("settings"));
+        // Item.icon（URL 图片）：此前从不读、合成时一律「服」字；URL 形存 iconUrl 并存
+        String itemIcon = o.optString("icon", "").trim();
+        // binary_path 入口语义补一截：上游给进程注入 <NAME>_BIN 指到二进制位置，
+        // 星辰 varPath 就是环境注入通道，按同口径补上（NAME 取包名大写归一）
+        String binaryPath0 = o.optString("binary_path", "").trim();
+        if (!binaryPath0.isEmpty()) {
+            String binKey = sanitize(stem).toUpperCase().replace('-', '_').replace('.', '_') + "_BIN";
+            if (!pkgVarPath.containsKey(binKey)) pkgVarPath.put(binKey, binaryPath0);
+        }
+        // cmd_name（共享 bin 软链名）：存进 manifest 备注行还做不到，先记进每条提示不装哑巴
+        String cmdName = o.optString("cmd_name", "").trim();
         JSONArray cmds = o.optJSONArray("commands");
         int n = cmds == null ? 0 : cmds.length();
         for (int i = 0; i < n; i++) {
@@ -429,43 +529,24 @@ public final class LabImportCompat {
             it.autoStart = c.optBoolean("auto_execute", false) || autoInstall || pkgAutoExec;
             it.mkdirs.addAll(pkgMkdirs);
             it.varPath.putAll(pkgVarPath);
+            it.iconUrl = itemIcon.startsWith("http") ? itemIcon : "";
+            it.pkgSettings.addAll(pkgVars);
+            if (!cmdName.isEmpty()) {
+                it.needsReview = addLine(it.needsReview,
+                        "包声明了共享命令名 cmd_name=" + cmdName + "（别的包靠这个名字调它），星辰还没有共享软链这套，只按包内二进制位置接上了");
+            }
             // 命令没写 min_version 时用包级的（上游 Item 级此前整段没读，G-5）
             int cmdMin = c.optInt("min_version", 0);
             it.minVersion = upstreamMinVersion(cmdMin > 0 ? cmdMin : itemMinVersion, it);
             it.variables.addAll(parseLabVarList(c.optJSONArray("variables")));
             it.variables.addAll(pkgVars);
             JSONObject dl = c.optJSONObject("download");
-            if (dl != null) {
-                String url = dl.optString("url", "").trim();
-                LabManifest.LabDownload d = new LabManifest.LabDownload();
-                d.url = url;
-                // 落盘键两种都吃：save_to（上游）/ file（自家 LabManifest 口径），两路对齐
-                d.file = dl.has("file") ? dl.optString("file", "").trim()
-                        : dl.optString("save_to", "").trim();
-                // 上游 CommandDownload 的其余字段此前整段没读：check_file（判备好没）、
-                // extract_to（整包解压落点）、required——丢了它们下载只会原样落盘、
-                // 压缩件永远解不开（G-1）。这里全接上，运行期 LabDepends 按声明走
-                d.checkFile = dl.optString("check_file", dl.optString("checkFile", "")).trim();
-                d.extractTo = dl.optString("extract_to", dl.optString("extractTo", "")).trim();
-                d.required = dl.optBoolean("required", false);
-                if (!url.isEmpty()) {
-                    it.download = d;
-                } else if (!d.checkFile.isEmpty()) {
-                    // 地址留空＋check_file（如 mihomo 的订阅配置）：文件要用户先备好，
-                    // 没得下；把声明带上，缺文件时运行日志里能对上是哪一份
-                    it.download = d;
-                    it.needsReview = addLine(it.needsReview,
-                            "这条命令要用的文件（" + d.checkFile + "）不在包里、地址也是空的（多半是订阅类配置），先把文件备到包里或公共目录它该在的位置");
-                } else {
-                    it.needsReview = addLine(it.needsReview,
-                            "这条命令声明了下载（" + dl.optString("title", "下载文件") + "），但没给下载地址");
-                }
-            }
-            // 命令自己没声明能下的下载时，套 Item 级 downloads[] 选中的那条；
-            // 命令声明了但地址为空（check_file 型，如订阅配置）的不算能下——
-            // 它什么都不拉，不能把 Item 级的二进制下载挤掉（mihomo 就长这样）
-            if ((it.download == null || it.download.url == null || it.download.url.isEmpty())
-                    && itemDls.download != null) it.download = itemDls.download;
+            if (dl != null) it.download = parseCommandDownload(dl, it);
+            // 命令级 download 各自保留（差单 P0-5）：命令自己声明了 download 就
+            // 听命令的，哪怕是空 url 的订阅型（check_file）也不许被 Item 级覆盖——
+            // 此前「地址为空则套 Item 级」把 mihomo run_config 的订阅声明整件挤掉。
+            // 只有命令压根没写 download 时才套 Item 级
+            if (dl == null && itemDls.download != null) it.download = itemDls.download;
             for (String note : itemDls.notes) it.needsReview = addLine(it.needsReview, note);
             if (!pkgVars.isEmpty()) {
                 it.needsReview = addLine(it.needsReview, "包设置已并入变量表（上游是按环境变量注入，语义可能有差异）");
@@ -473,11 +554,10 @@ public final class LabImportCompat {
             if (autoInstall) {
                 it.needsReview = addLine(it.needsReview, "上游包声明自动安装，星辰转成了自动启动，语义不完全一样");
             }
-            JSONArray clicks = c.optJSONArray("clicks");
-            if (clicks != null && clicks.length() > 0) {
-                it.needsReview = addLine(it.needsReview,
-                        "默影视的「后续操作」按钮有 " + clicks.length() + " 个转不过来（打开网页/二维码/复制等），这部分功能没有了");
-            }
+            // clicks 原形全收落进 manifest，服务页渲染成可点动作；只有动作
+            // 没有对应处置的才进提示（此前整组只计数、内容全丢）
+            it.clicks.addAll(LabManifest.parseClicks(c.optJSONArray("clicks")));
+            noteUnsupportedClicks(it);
             // 描述里常带「(端口 9528)」：拿它当端口声明（同命令条目路）
             String p = findPortInText(it.desc + " " + it.name);
             if (p != null) {
@@ -488,6 +568,18 @@ public final class LabImportCompat {
                 it.needsReview = addLine(it.needsReview, "这条没有启动命令，装完也跑不起来");
             }
             out.add(it);
+        }
+        // runtime 推断兜底（差单 P1-12）：pkill/curl 这类工具命令单看命令串推不出
+        // 环境、会被推成 none→tool→首页无卡。同包命令共用一个环境：先拿包名
+        // 猜（nodejs/php/…），再拿同包其他命令推出来的环境兜底
+        String itemRuntime = runtimeFromCommand(stem);
+        if ("none".equals(itemRuntime)) {
+            for (ImportItem it : out) {
+                if (!"none".equals(it.runtime)) { itemRuntime = it.runtime; break; }
+            }
+        }
+        if (!"none".equals(itemRuntime)) {
+            for (ImportItem it : out) if ("none".equals(it.runtime)) it.runtime = itemRuntime;
         }
         return out;
     }
@@ -523,44 +615,60 @@ public final class LabImportCompat {
         if (arr == null || arr.length() == 0) return out;
         String binaryPath = o.optString("binary_path", "").trim();
         String myArch = archFamily(System.getProperty("os.arch", ""));
-        String chosenUrl = "";
-        boolean anyUrl = false;
+        JSONObject chosen = null;
+        boolean anyMain = false;
         boolean hasPan = false;
+        boolean hasLibOnly = false;
         for (int i = 0; i < arr.length(); i++) {
             JSONObject d = arr.optJSONObject(i);
             if (d == null) continue;
             if (!d.optString("pan", "").trim().isEmpty()) hasPan = true;
-            String url = downloadUrlOf(d);
-            if (url.isEmpty()) continue;
-            anyUrl = true;
+            String main = mainUrlOf(d);
+            if (main.isEmpty()) {
+                if (!d.optString("liburl", "").trim().isEmpty()) hasLibOnly = true;
+                continue;
+            }
+            anyMain = true;
             String fam = archFamily(d.optString("arch", ""));
-            if (chosenUrl.isEmpty() && (fam.isEmpty() || fam.equals(myArch))) chosenUrl = url;
+            if (chosen == null && (fam.isEmpty() || fam.equals(myArch))) chosen = d;
         }
-        if (!chosenUrl.isEmpty()) {
+        if (chosen != null) {
+            String chosenUrl = mainUrlOf(chosen);
             LabManifest.LabDownload dl = new LabManifest.LabDownload();
             dl.url = chosenUrl;
-            // Item 级 downloads 是整包压缩件（.gz/.tar.gz/rootfs），上游在安装时
-            // 整包解压进包目录：这里归一成 extract 模式——普通包解到包根，
-            // rootfs 包（Item 带 rootfs:true）解进包内 rootfs（命令按
-            // {envRootPath}/rootfs 引用它）；binary_path 作归位目标，
-            // 解压后由 LabDepends 按名/单文件归位到 bin/ 下（G-1）
+            // liburl 是第二分片（依赖库包），单独留槽：主包落完后由 LabDepends
+            // 按同一落点再解一份，不许再被当主下载、也不许静默丢
+            dl.libUrl = chosen.optString("liburl", "").trim();
+            dl.version = chosen.optString("version", "").trim();
+            dl.size = chosen.optString("size", "").trim();
+            dl.mirrors.addAll(LabManifest.parseMirrorUrls(chosen));
             dl.extractTo = o.optBoolean("rootfs", false) ? "rootfs" : ".";
             if (!binaryPath.isEmpty()) {
                 dl.file = binaryPath.endsWith("/") ? binaryPath + urlFileName(chosenUrl) : binaryPath;
                 out.notes.add("包声明二进制放 binary_path（" + binaryPath + "），已按这个位置接上 downloads 的下载（整包先解压再归位）");
             }
+            if (!dl.libUrl.isEmpty()) {
+                out.notes.add("这个包还有第二分片（liburl 依赖库包），已留槽：主包下完后接着下它、解到同一目录");
+            }
             out.download = dl;
-        } else if (!anyUrl) {
+        } else if (!anyMain) {
             out.notes.add(hasPan
                     ? "这个包的二进制只给了网盘地址（downloads 里是 pan），星辰下不了网盘，装完没二进制、多半跑不起来"
+                    : hasLibOnly
+                    ? "这个包的 downloads 只给了第二分片（liburl），主包地址没给，没接上，装完可能跑不起来"
                     : "这个包声明了二进制下载（downloads）但没给能用的地址，没接上，装完可能跑不起来");
         } else {
             out.notes.add("这个包声明的二进制（downloads）没有你手机架构的版本，没接上，装完可能跑不起来");
         }
-        // var_path 与 mkdir 不在这里出提示了：var_path 上游是 Map，此前按 String
-        // 读永远读不出东西、提示也永不触发；现在两者都在 fromWebhtvItem 按原形
-        // 解析并真执行（var_path 注入环境、mkdir 安装时建），无须再提示
         return out;
+    }
+
+    /** 主包直链：url 优先，其次 mirrors（Map/数组双认）；liburl 是第二分片、不算主包 */
+    private static String mainUrlOf(JSONObject d) {
+        String url = d.optString("url", "").trim();
+        if (!url.isEmpty()) return url;
+        List<String> ms = LabManifest.parseMirrorUrls(d);
+        return ms.isEmpty() ? "" : ms.get(0);
     }
 
     /** 上游 mkdir 双形态（LabModels.mkdirList 口径）：字符串＝单个目录、数组＝字符串元素列表；
@@ -578,23 +686,6 @@ public final class LabImportCompat {
             }
         }
         return list;
-    }
-
-    /** 下载条目里取直链：url 优先，其次 mirrors[0]、liburl；只有 pan（网盘）时返回空 */
-    private static String downloadUrlOf(JSONObject d) {
-        String url = d.optString("url", "").trim();
-        if (!url.isEmpty()) return url;
-        JSONArray mirrors = d.optJSONArray("mirrors");
-        if (mirrors != null) {
-            for (int i = 0; i < mirrors.length(); i++) {
-                Object mv = mirrors.opt(i);
-                String mu = mv instanceof JSONObject
-                        ? ((JSONObject) mv).optString("url", "").trim()
-                        : (mv == null ? "" : String.valueOf(mv).trim());
-                if (!mu.isEmpty() && !"null".equals(mu)) return mu;
-            }
-        }
-        return d.optString("liburl", "").trim();
     }
 
     /** 架构归一成家族名（arm64/arm/x64/x86），认不出返回空（视作通用条目） */
@@ -1200,6 +1291,7 @@ public final class LabImportCompat {
         Map<String, byte[]> pkgJsonFiles = new LinkedHashMap<>();
         Map<String, byte[]> bins = new LinkedHashMap<>();
         boolean hasUserCmds = false;
+        byte[] userCmdsBytes = null;
         // 第一遍只记条目名，只把 package.json 与 binary/ 的字节留内存——其余
         // 条目不读入（此前全条目驻留，大包导入内存峰值白白翻倍）。确诊是
         // npm 整目录项目后才第二遍整包读入（见下），普通离线包不付这个代价。
@@ -1216,6 +1308,7 @@ public final class LabImportCompat {
                     if (pkgJson == null) pkgJson = new String(b, java.nio.charset.StandardCharsets.UTF_8);
                 } else if (name.equals("commands.json") || name.endsWith("/commands.json")) {
                     hasUserCmds = true;
+                    userCmdsBytes = readSzEntryBytes(sz);
                 } else {
                     int bi = name.indexOf("binary/");
                     if (bi >= 0) {
@@ -1280,12 +1373,46 @@ public final class LabImportCompat {
         String nm = new JSONObject(pkgJson).optString("name", "");
         if (nm.contains("/") || nm.contains("..")) throw new Exception("包名非法");
         ParseResult r = parseJson(pkgJson);
+        // commands.json 真导入（差单 P0-7）：默影视自建命令表恢复成可运行命令，
+        // 挂到每条服务条目上由安装器写进各自的 custom.json。字段名差要对上：
+        // 默影视 Gson 形是 description，星辰 CustomCommand 落盘名是 desc——
+        // 这里转 LabCommand 时 description/desc 双吃、autoExecute/auto_execute 双吃
+        List<LabManifest.LabCommand> customs = parseCustomCommands(userCmdsBytes);
         for (ImportItem it : r.items) {
             if (!bins.isEmpty()) it.extraFiles = new LinkedHashMap<>(bins);
-            if (hasUserCmds) it.needsReview = addLine(it.needsReview, "包里的自建命令（commands.json）没有导入");
+            if (hasUserCmds && customs.isEmpty()) {
+                it.needsReview = addLine(it.needsReview, "包里的自建命令（commands.json）没读出来，没有导入");
+            }
+            it.customCommands.addAll(customs);
         }
         r.note = "认出来了：默影视实验室离线包（" + r.items.size() + " 条命令）";
         return r;
+    }
+
+    /** commands.json（JSON 数组）→ LabCommand 列表；读不出返回空表，调用方据此提示 */
+    static List<LabManifest.LabCommand> parseCustomCommands(byte[] bytes) {
+        List<LabManifest.LabCommand> out = new ArrayList<>();
+        if (bytes == null || bytes.length == 0) return out;
+        try {
+            JSONArray arr = new JSONArray(new String(bytes, java.nio.charset.StandardCharsets.UTF_8));
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject c = arr.optJSONObject(i);
+                if (c == null) continue;
+                LabManifest.LabCommand cmd = new LabManifest.LabCommand();
+                cmd.id = c.optString("id", "custom" + i).trim();
+                cmd.name = c.optString("name", cmd.id).trim();
+                cmd.desc = c.has("description") ? c.optString("description", "") : c.optString("desc", "");
+                cmd.command = c.optString("command", "");
+                cmd.background = c.optBoolean("background", true);
+                cmd.autoExecute = c.has("autoExecute") ? c.optBoolean("autoExecute", false)
+                        : c.optBoolean("auto_execute", false);
+                cmd.showOutput = c.has("showOutput") ? c.optBoolean("showOutput", true)
+                        : c.optBoolean("show_output", true);
+                if (!cmd.command.isEmpty()) out.add(cmd);
+            }
+        } catch (Exception ignored) {
+        }
+        return out;
     }
 
     private static byte[] readSzEntryBytes(SevenZFile sz) throws Exception {
@@ -1383,8 +1510,13 @@ public final class LabImportCompat {
         c.autoExecute = true;
         c.minVersion = it.minVersion;
         c.variables.addAll(it.variables);
+        c.clicks.addAll(it.clicks);
         c.download = it.download;
         m.commands.add(c);
+        // 包设置原形落 manifest.settings（服务页「包设置」行的数据源）；
+        // 只走 WEBHTV_ITEM 路的条目带 pkgSettings，自家 LAB_JSON 路不带、行为不变
+        m.settings.addAll(it.pkgSettings);
+        m.iconUrl = it.iconUrl == null ? "" : it.iconUrl;
         if (it.outputKind != null && !it.outputKind.isEmpty()) {
             LabManifest.LabOutput o = new LabManifest.LabOutput();
             o.kind = it.outputKind;

@@ -40,9 +40,11 @@ import java.util.List;
  * 作者关注统一口（HgStore 作者集＋fqClient.doFollowAction，乐观
  * 先行＋失败回滚，与作者页/流页同一条链；关系态初值由回包
  * user_relation 校准回写本地镜像）；点集行走既有集流起播路
- * （startSeries，携合集作者 uid 作身份线索）。官方 video.k 构造里
- * 的 albumId 字段在咱家 startSeries 无对应入参——集流侧不消费
- * albumId，差记批四账残项，不冒充已携。</p>
+ * （startSeries，携合集作者 uid 作身份线索＋本页 albumId——批四
+ * R5 后半已接：七参 startSeries 落集流剧头 playAlbumId、展开逐集
+ * 页继承，集流剧条前缀据此判「合集」，与官方 video.k.i=Album 的
+ * CatalogView 前缀同口径；播放解链/追更收藏链经逐位核查无 albumId
+ * 消费位，见账 hongguo-album-play-albumid-20261030）。</p>
  */
 public class HongguoAlbumActivity extends BaseActivity {
 
@@ -119,9 +121,13 @@ public class HongguoAlbumActivity extends BaseActivity {
                 b.hgAeSub.setVisibility(sub.length() > 0 ? View.VISIBLE : View.GONE);
                 b.getRoot().setOnClickListener(v -> {
                     String authorUid = detail == null ? null : detail.authorUid;
+                    // 起播携本页 albumId（官方 video.k 对位，批四 R5 后半）：
+                    // 走七参 startSeries 落集流剧头 playAlbumId，展开后逐集
+                    // 页继承、集流剧条前缀据此判「合集」；身份只从本页进，
+                    // 其他进集流路不带
                     HongguoFeedActivity.startSeries(HongguoAlbumActivity.this,
                             item.getSeriesId(), item.getTitle(), item.getCoverUrl(),
-                            authorUid, null);
+                            authorUid, null, albumId);
                 });
             }
 

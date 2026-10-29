@@ -89,6 +89,11 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
      * 点作者行就静默不打开（不许按名认人）。 */
     private static final String EXTRA_AUTHOR_UID = "hg_author_uid";
     private static final String EXTRA_PUBLISHER = "hg_publisher";
+    /** 起播来源合集 id 透传（官方 video.k 的 albumId＋FollowScene
+     * .ALBUM_PAGE 对位，批四 R5 后半）：只有合集详情页点集起播带，
+     * 落集流剧头的 playAlbumId、展开后逐集页继承（见 HgFeedItem
+     * .playAlbumId 注）；其他进集流路不带、恒缺省。 */
+    private static final String EXTRA_ALBUM_ID = "hg_album_id";
     private static final int MODE_FEED = 0;
     private static final int MODE_SERIES = 1;
     private static final long HIDE_DELAY_MS = 4000;
@@ -115,6 +120,18 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
      */
     public static void startSeries(Context context, String seriesId, String title, String cover,
                                    String authorUid, String publisher) {
+        startSeries(context, seriesId, title, cover, authorUid, publisher, null);
+    }
+
+    /**
+     * 携起播来源合集 id 的进剧（合集详情页点集起播专用，官方对位
+     * video.k 携 albumId＋FollowScene.ALBUM_PAGE）：albumId 只记「本场
+     * 以合集身份进入」，落剧头 playAlbumId 供集流剧条前缀判定，不改
+     * seriesId 语义、不冒充条目自身的专辑属性。albumId 为 null 时与
+     * 六参版逐字等价；搜索/流页等其他进集流路一律走旧签名、不许误带。
+     */
+    public static void startSeries(Context context, String seriesId, String title, String cover,
+                                   String authorUid, String publisher, String albumId) {
         Intent intent = new Intent(context, HongguoFeedActivity.class);
         intent.putExtra(EXTRA_MODE, MODE_SERIES);
         intent.putExtra(EXTRA_SERIES_ID, seriesId);
@@ -122,6 +139,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         intent.putExtra(EXTRA_COVER, cover);
         if (authorUid != null) intent.putExtra(EXTRA_AUTHOR_UID, authorUid);
         if (publisher != null) intent.putExtra(EXTRA_PUBLISHER, publisher);
+        if (albumId != null && !albumId.isEmpty()) intent.putExtra(EXTRA_ALBUM_ID, albumId);
         context.startActivity(intent);
     }
 
@@ -518,6 +536,9 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                 headPage.authorUid = getIntent().getStringExtra(EXTRA_AUTHOR_UID);
                 // 出品方品牌同路透传：uid 还没到手时集流靠它反查兜底
                 headPage.publisher = getIntent().getStringExtra(EXTRA_PUBLISHER);
+                // 起播来源合集 id 同路透传：只有合集详情页点集起播带，
+                // 展开成逐集页时由 applyDetail 继承（身份不随剧头替换丢失）
+                headPage.playAlbumId = getIntent().getStringExtra(EXTRA_ALBUM_ID);
                 session.items.add(headPage);
                 adapter.notifyItemInserted(0);
                 onSettle(0);

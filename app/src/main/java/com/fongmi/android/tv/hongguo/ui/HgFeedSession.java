@@ -749,6 +749,12 @@ public final class HgFeedSession {
             // （kickAuthorResolve）。
             page.authorUid = detail.getAuthorUid() != null ? detail.getAuthorUid() : head.authorUid;
             page.authorDesc = head.authorDesc;
+            // 起播来源合集身份同路继承（官方 video.k 的 albumId 是整场
+            // 播放的身份、不只剧头一张）：剧头被展开替换后逐集页继续
+            // 携带，集流剧条前缀据此判「合集」（HgFeedItem
+            // .seriesCatalogText）；非合集路进剧的剧头此字段恒 null、
+            // 逐集页不带，行为不变
+            page.playAlbumId = head.playAlbumId;
             pages.add(page);
             i++;
         }

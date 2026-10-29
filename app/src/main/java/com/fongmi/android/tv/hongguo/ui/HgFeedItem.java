@@ -112,6 +112,19 @@ public final class HgFeedItem {
      */
     public String publisher;
     /**
+     * 起播来源合集 id（官方 video.k 的 albumId＋FollowScene.ALBUM_PAGE
+     * 对位，批四 R5 后半）：只从合集详情页点集起播这一路带入——经
+     * HongguoFeedActivity 的 EXTRA_ALBUM_ID 落到集流剧头、会话展开
+     * （HgFeedSession.applyDetail）时逐集页继承，各 with* 副本负责抄，
+     * 不许在展开/富集时丢失。与 final 的 {@link #albumId}（cell 条目
+     * 的「所属专辑」属性、驱动流页落点/多季拉取）是两回事：本字段只
+     * 记「本场播放以合集身份进入」，消费位只有集流剧条前缀判定
+     * （{@link #seriesCatalogText()}：合集身份→「合集」，与官方
+     * CatalogView 的 Album 前缀同口径）；搜索/流页其他进集流路不带、
+     * 恒为 null。后置字段同 authorUid 惯例。
+     */
+    public String playAlbumId;
+    /**
      * 信息摞筹行（HgSeriesItem.infoChips 携带）：官方 secondary_infos
      * 全集（评分/季/题材/演员），已按 KeepPriority 排好；没带为 null，
      * 适配器退回 tags（category_schema）。
@@ -253,6 +266,7 @@ public final class HgFeedItem {
         copy.authorUid = authorUid;
         copy.authorDesc = authorDesc;
         copy.publisher = publisher;
+        copy.playAlbumId = playAlbumId;
         copy.landscapeHint = landscapeHint;
         copy.favCount = favCount;
         copy.infoChips = infoChips;
@@ -281,6 +295,7 @@ public final class HgFeedItem {
         copy.authorUid = authorUid;
         copy.authorDesc = authorDesc;
         copy.publisher = publisher;
+        copy.playAlbumId = playAlbumId;
         copy.landscapeHint = landscapeHint;
         copy.favCount = favCount;
         copy.infoChips = infoChips;
@@ -319,6 +334,7 @@ public final class HgFeedItem {
         copy.authorUid = authorUid;
         copy.authorDesc = authorDesc;
         copy.publisher = publisher;
+        copy.playAlbumId = playAlbumId;
         copy.landscapeHint = landscapeHint;
         copy.favCount = favCount;
         copy.infoChips = infoChips;
@@ -352,6 +368,7 @@ public final class HgFeedItem {
         copy.authorUid = uid != null ? uid : authorUid;
         copy.authorDesc = authorDesc;
         copy.publisher = publisher;
+        copy.playAlbumId = playAlbumId;
         copy.landscapeHint = landscapeHint;
         copy.favCount = favCount;
         copy.infoChips = infoChips;
@@ -479,7 +496,10 @@ public final class HgFeedItem {
     }
 
     public String seriesCatalogText() {
-        boolean album = multiSeason || albumId != null || !siblings.isEmpty();
+        // 合集身份两路：条目自带专辑属性（albumId 等），或本场播放以
+        // 合集身份进入（playAlbumId，合集详情页点集起播携入）——官方
+        // video.k.i=Album 时 CatalogView 前缀就是「合集」，同口径
+        boolean album = multiSeason || albumId != null || playAlbumId != null || !siblings.isEmpty();
         boolean finished = seriesStatus != null && seriesStatus == 1;
         StringBuilder sb = new StringBuilder(catalogPrefix(album, false));
         if (episodeCount > 0) {

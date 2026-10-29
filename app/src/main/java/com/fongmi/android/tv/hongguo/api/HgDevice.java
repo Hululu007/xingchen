@@ -48,19 +48,48 @@ public final class HgDevice {
     /** bookmall 频道续页（openhongguo app.go PathCellChange 实证）。 */
     public static final String PATH_BOOKMALL_CELL_CHANGE = "/reading/bookapi/bookmall/cell/change/v";
 
-    // 注册档案描述的设备（openhongguo sdk/model DefaultDevice）：Xiaomi
-    // 23127PN0CC / Android 14。medusa 的设备描述自 2026-10-29 起对齐本档案
-    // （HgSign.deviceProto 经下面 deviceModel/deviceBrand/deviceOsVersion
-    // 现取同一组常量，不许再各写一份），定根与预案见
-    // login-medusa-align-20261029.md。
-    private static final String BRAND = "Xiaomi";
-    private static final String MODEL = "23127PN0CC";
-    private static final String OS_VERSION = "14";
-    private static final int OS_API = 34;
-    private static final String BUILD = "UKQ1.230804.001";
-    private static final String RESOLUTION = "1200*2670";
-    private static final int DPI = 460;
-    private static final String CHANNEL = "xiaomi_8662_64";
+    // ---------- 设备 persona（档案随身携带，openhongguo sdk/model.Device 同构） ----------
+    //
+    // 2026-10-29 根治（hongguo-profile-rootfix-20261029.md）：video_model 的
+    // 配额按档案计、合成档案被压进深罚区（feed-fail-1460-20261029.md 定根）。
+    // 此前全网每份档案共用同一台设备描述＋同一套 medusa 抓样指纹（传感器
+    // 浮点/token/环境哈希逐位相同）——真机群不可能共享这些值，这是合成
+    // 设备农场的一眼特征。现改为：persona 在档案生成时从已证真机元组池里
+    // 掷定、随档案落盘、终身稳定；注册体/公参/UA/medusa 四处都经下面的
+    // 访问口现取档案 persona，不许再各写一份（medusa 对齐口径见
+    // login-medusa-align-20261029.md）。存量档案（无 persona 字段）迁移时
+    // 钉 legacy persona——它注册时报的就是这台，钉死才自洽。
+    private static final class Persona {
+        final String brand;
+        final String model;
+        final String build;
+        final String osVersion;
+        final int osApi;
+        final String resolution;
+        final int dpi;
+        final String channel;
+
+        Persona(String brand, String model, String build, String osVersion, int osApi,
+                String resolution, int dpi, String channel) {
+            this.brand = brand;
+            this.model = model;
+            this.build = build;
+            this.osVersion = osVersion;
+            this.osApi = osApi;
+            this.resolution = resolution;
+            this.dpi = dpi;
+            this.channel = channel;
+        }
+    }
+
+    /** 池 0＝legacy：openhongguo sdk/model DefaultDevice（Xiaomi 23127PN0CC / Android 14）。 */
+    private static final Persona PERSONA_LEGACY = new Persona(
+            "Xiaomi", "23127PN0CC", "UKQ1.230804.001", "14", 34, "1200*2670", 460, "xiaomi_8662_64");
+    /** 池 1：评论栈实抓样机（HongguoCommentApi 的 UA 与查询串逐字段在案）：
+     * Redmi 25053RT47C / Android 16 / Build BP2A.250605.031.A3 / 1280*2772 / dpi 520。 */
+    private static final Persona PERSONA_REDMI_A16 = new Persona(
+            "Redmi", "25053RT47C", "BP2A.250605.031.A3", "16", 36, "1280*2772", 520, "xiaomi_8662_64");
+    private static final Persona[] PERSONA_POOL = {PERSONA_LEGACY, PERSONA_REDMI_A16};
 
     private static final String PREF_KEY = "hongguo_device_profile_v1";
 
@@ -69,25 +98,50 @@ public final class HgDevice {
 
     /** 注册档案的机型（注册体 device_model、公参 device_type 与 medusa 机型字段同源）。 */
     public static String deviceModel() {
-        return MODEL;
+        String v = profile().model;
+        return v == null || v.isEmpty() ? PERSONA_LEGACY.model : v;
     }
 
     /** 注册档案的品牌（注册体 device_brand 与 device_manufacturer 同用此值，medusa 品牌/厂商字段同源）。 */
     public static String deviceBrand() {
-        return BRAND;
+        String v = profile().brand;
+        return v == null || v.isEmpty() ? PERSONA_LEGACY.brand : v;
     }
 
     /** 注册档案的系统版本（注册体/公参 os_version 与 UA 同值，medusa 系统版本字段同源）。 */
     public static String deviceOsVersion() {
-        return OS_VERSION;
+        String v = profile().osVersion;
+        return v == null || v.isEmpty() ? PERSONA_LEGACY.osVersion : v;
     }
 
     /** 注册档案的系统 API 号（公参/注册体 os_api 同值，medusa 字段 24 同源，证据见 HgSign.deviceProto 注释）。 */
     public static int deviceOsApi() {
-        return OS_API;
+        int v = profile().osApi;
+        return v > 0 ? v : PERSONA_LEGACY.osApi;
     }
 
-    /** 设备档案：本地派生标识＋注册回的真 id＋注册回包的游客 Cookie 材料。 */
+    private static String deviceBuild() {
+        String v = profile().build;
+        return v == null || v.isEmpty() ? PERSONA_LEGACY.build : v;
+    }
+
+    private static String deviceResolution() {
+        String v = profile().resolution;
+        return v == null || v.isEmpty() ? PERSONA_LEGACY.resolution : v;
+    }
+
+    private static int deviceDpi() {
+        int v = profile().dpi;
+        return v > 0 ? v : PERSONA_LEGACY.dpi;
+    }
+
+    private static String deviceChannel() {
+        String v = profile().channel;
+        return v == null || v.isEmpty() ? PERSONA_LEGACY.channel : v;
+    }
+
+    /** 设备档案：本地派生标识＋注册回的真 id＋注册回包的游客 Cookie 材料
+     * ＋随身 persona 与指纹种子（生成时掷定、落盘后终身稳定）。 */
     public static final class Profile {
         public String cdid;
         public String openUdid;
@@ -96,6 +150,32 @@ public final class HgDevice {
         public String reqId;
         public String deviceId;
         public String installId;
+        // persona（档案注册时出示的那台手机；存量档案迁移钉 legacy，见类头注）
+        public String brand = "";
+        public String model = "";
+        public String build = "";
+        public String osVersion = "";
+        public int osApi;
+        public String resolution = "";
+        public int dpi;
+        public String channel = "";
+        /** 指纹种子：64 位 hex（32 随机字节），medusa 指纹族按它派生（见 fpBlock）。 */
+        public String fpSeed = "";
+
+        void applyPersona(Persona p) {
+            brand = p.brand;
+            model = p.model;
+            build = p.build;
+            osVersion = p.osVersion;
+            osApi = p.osApi;
+            resolution = p.resolution;
+            dpi = p.dpi;
+            channel = p.channel;
+        }
+
+        boolean hasPersona() {
+            return model != null && !model.isEmpty();
+        }
         /** 注册回包下发的 device_token（请求头 x-tt-dt 的真值来源，见 login-ticket-dig-20261029.md）。 */
         public String deviceToken = "";
         public String ttReq = "";
@@ -126,8 +206,9 @@ public final class HgDevice {
 
     /**
      * 重置设备档案：整份匿名身份作废——本地派生标识（cdid/openudid/
-     * clientudid/oaid/req_id）重新派生，注册回的 device_id/install_id 与
-     * 注册派生的游客 Cookie 材料（ttreq/store-region）随旧档案一并清掉，
+     * clientudid/oaid/req_id）重新派生，persona 与指纹种子一并重掷，
+     * 注册回的 device_id/install_id 与注册派生的游客 Cookie 材料
+     * （ttreq/store-region）随旧档案一并清掉，
      * 落盘后即未注册态；重新注册走 HgApiClient.ensureDevice 既有流程。
      *
      * <p>边界（死线）：这里只动匿名设备档案这一份落盘（PREF_KEY）。
@@ -243,10 +324,99 @@ public final class HgDevice {
         return s == null ? "" : s;
     }
 
-    /** User-Agent（对照 protocol.UserAgent：档案设备代入）。 */
+    // ---------- medusa 指纹族派生（按档案种子，唯一且稳定） ----------
+    //
+    // 2026-10-29 根治（hongguo-profile-rootfix-20261029.md）：此前 deviceProto
+    // 字段 5 的 token、字段 16–21 的传感器浮点、消息字段 16 的 token、消息
+    // 字段 24 JSON 的 un_h/fkd/pd 全部冻结为 openhongguo 抓样那一台样机的
+    // 原值——全网每份档案逐位相同，真机之间不可能共享（传感器校准读数与
+    // 令牌是单机唯一的）。生成规则在官方 metasec 原生库里抠不到（登录线
+    // login-close-loop-20261029.md 第四-2 节同结论），本派生不冒充官方
+    // 算法，只保证三件事：同档案终身稳定（跨请求一致性画像自洽）、跨档案
+    // 互不相同、数值量级与形态照抓样（单样本纹理，未证项记在根治账里）。
+    // 派生：SHA-256(种子字节 ‖ 标签) 取流；种子缺位（不应发生，迁移已补）
+    // 时退用 cdid 字节，仍保持按档案唯一。
+
+    private static byte[] fpBlock(String tag) {
+        try {
+            MessageDigest sha = MessageDigest.getInstance("SHA-256");
+            Profile p = profile();
+            String seed = nz(p.fpSeed);
+            if (seed.length() >= 64) {
+                sha.update(HgSign.hexDecode(seed.substring(0, 64)));
+            } else {
+                sha.update(nz(p.cdid).getBytes(StandardCharsets.UTF_8));
+            }
+            sha.update(tag.getBytes(StandardCharsets.UTF_8));
+            return sha.digest();
+        } catch (Exception e) {
+            throw new IllegalStateException("指纹派生失败", e);
+        }
+    }
+
+    private static long fpU32(String tag) {
+        byte[] b = fpBlock(tag);
+        return ((long) (b[0] & 0xFF) << 24) | ((b[1] & 0xFF) << 16)
+                | ((b[2] & 0xFF) << 8) | (b[3] & 0xFF);
+    }
+
+    private static final String FP_TOKEN_ALPHABET =
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+
+    /** 25 字符令牌（抓样两枚令牌同长同字母表：deviceProto 字段 5、消息字段 16）。 */
+    private static String fpToken(String tag) {
+        byte[] b = fpBlock(tag);
+        StringBuilder sb = new StringBuilder(25);
+        for (int i = 0; i < 25; i++) sb.append(FP_TOKEN_ALPHABET.charAt((b[i] & 0xFF) % 62));
+        return sb.toString();
+    }
+
+    /** medusa 设备 proto 字段 5 的令牌（原抓样冻结值 "Ai6svO3PyrwDOUSmO6ZcResxu" 退役）。 */
+    public static String fpToken5() {
+        return fpToken("device-token-5");
+    }
+
+    /** medusa 消息字段 16 的令牌（原抓样冻结值 "AXYQOS6n2m60x1fVZHIrH3iol" 退役）。 */
+    public static String fpMsgToken() {
+        return fpToken("msg-token-16");
+    }
+
+    // 抓样传感器原值（量级基准）：f16/f17/f18/f19/f20/f21。f18 与 f19 在
+    // 抓样里逐位相同（疑同一底层读数两报），派生保持同源同值。
+    private static final float[] FP_SENSOR_BASE = {
+            255.24993896484375f, 35.58599090576172f, 3.467449188232422f,
+            3.467449188232422f, 255.1754913330078f, 42.17544174194336f};
+
+    /**
+     * medusa 设备 proto 字段 16–21 的传感器浮点（idx 0–5）：以抓样值为
+     * 量级基准、按档案种子做 ±8% 抖动——离抓样足够远（不命中原值比对）、
+     * 又不脱离该量级（不触发量级异常）。语义未证，见根治账未证项。
+     */
+    public static float fpSensor(int idx) {
+        int src = idx == 3 ? 2 : idx;
+        double u = fpU32("sensor-" + src) / 4294967296.0;
+        return (float) (FP_SENSOR_BASE[src] * (0.92 + 0.16 * u));
+    }
+
+    /** 消息字段 24 JSON 的 un_h（抓样 1879194040：正、10 位量级）。 */
+    public static long fpUnH() {
+        return 1000000000L + fpU32("un_h") % 1000000000L;
+    }
+
+    /** 消息字段 24 JSON 的 fkd（抓样 3672518972：uint32 量级、超 int32）。 */
+    public static long fpFkd() {
+        return 2000000000L + fpU32("fkd") % 2000000000L;
+    }
+
+    /** 消息字段 24 JSON 的 pd（抓样 -1872573247：负、10 位量级）。 */
+    public static long fpPd() {
+        return -(1000000000L + fpU32("pd") % 1000000000L);
+    }
+
+    /** User-Agent（对照 protocol.UserAgent：档案 persona 代入）。 */
     public static String userAgent() {
-        return PACKAGE + "/" + VERSION_CODE + " (Linux; U; Android " + OS_VERSION + "; zh_CN; "
-                + MODEL + "; Build/" + BUILD
+        return PACKAGE + "/" + VERSION_CODE + " (Linux; U; Android " + deviceOsVersion() + "; zh_CN; "
+                + deviceModel() + "; Build/" + deviceBuild()
                 + "; Cronet/TTNetVersion:8d40f833 2026-03-03 QuicVersion:21ac1950 2025-11-18)";
     }
 
@@ -266,7 +436,7 @@ public final class HgDevice {
         pairs.add(new String[]{"iid", nz(p.installId)});
         pairs.add(new String[]{"device_id", nz(p.deviceId)});
         pairs.add(new String[]{"ac", "wifi"});
-        pairs.add(new String[]{"channel", CHANNEL});
+        pairs.add(new String[]{"channel", deviceChannel()});
         pairs.add(new String[]{"aid", String.valueOf(AID)});
         pairs.add(new String[]{"app_name", APP_NAME});
         pairs.add(new String[]{"cdid", nz(p.cdid)});
@@ -275,14 +445,14 @@ public final class HgDevice {
         pairs.add(new String[]{"device_platform", DEVICE_PLATFORM});
         pairs.add(new String[]{"os", "android"});
         pairs.add(new String[]{"ssmix", "a"});
-        pairs.add(new String[]{"device_type", MODEL});
-        pairs.add(new String[]{"device_brand", BRAND});
+        pairs.add(new String[]{"device_type", deviceModel()});
+        pairs.add(new String[]{"device_brand", deviceBrand()});
         pairs.add(new String[]{"language", "zh"});
-        pairs.add(new String[]{"os_api", String.valueOf(OS_API)});
-        pairs.add(new String[]{"os_version", OS_VERSION});
+        pairs.add(new String[]{"os_api", String.valueOf(deviceOsApi())});
+        pairs.add(new String[]{"os_version", deviceOsVersion()});
         pairs.add(new String[]{"manifest_version_code", VERSION_CODE});
-        pairs.add(new String[]{"resolution", RESOLUTION});
-        pairs.add(new String[]{"dpi", String.valueOf(DPI)});
+        pairs.add(new String[]{"resolution", deviceResolution()});
+        pairs.add(new String[]{"dpi", String.valueOf(deviceDpi())});
         pairs.add(new String[]{"update_version_code", VERSION_CODE});
         pairs.add(new String[]{"host_abi", "arm64-v8a"});
         pairs.add(new String[]{"dragon_device_type", "phone"});
@@ -305,16 +475,16 @@ public final class HgDevice {
         header.addProperty("manifest_version_code", 73932);
         header.addProperty("app_version_minor", VERSION_NAME);
         header.addProperty("aid", AID);
-        header.addProperty("channel", CHANNEL);
+        header.addProperty("channel", deviceChannel());
         header.addProperty("package", PACKAGE);
         header.addProperty("app_version", VERSION_NAME);
         header.addProperty("version_code", 73932);
         header.addProperty("os", "Android");
-        header.addProperty("os_version", OS_VERSION);
-        header.addProperty("os_api", OS_API);
-        header.addProperty("device_model", MODEL);
-        header.addProperty("device_brand", BRAND);
-        header.addProperty("device_manufacturer", BRAND);
+        header.addProperty("os_version", deviceOsVersion());
+        header.addProperty("os_api", deviceOsApi());
+        header.addProperty("device_model", deviceModel());
+        header.addProperty("device_brand", deviceBrand());
+        header.addProperty("device_manufacturer", deviceBrand());
         header.addProperty("cpu_abi", "arm64-v8a");
         header.addProperty("language", "zh");
         header.addProperty("timezone", 8);
@@ -470,7 +640,7 @@ public final class HgDevice {
     // ---------- 身份派生与持久化 ----------
 
     private static Profile generate() {
-        byte[] raw = new byte[72];
+        byte[] raw = new byte[120];
         new SecureRandom().nextBytes(raw);
         Profile p = new Profile();
         p.cdid = uuid(raw, 0);
@@ -478,6 +648,10 @@ public final class HgDevice {
         p.clientUdid = uuid(raw, 24);
         p.oaid = uuid(raw, 40);
         p.reqId = uuid(raw, 56);
+        // 指纹种子与 persona 同批掷定（根治账）：种子 32 字节取 [72,104)，
+        // persona 池下标取字节 104。新档案自此是一台自洽且唯一的设备。
+        p.fpSeed = hexLower(raw, 72, 32);
+        p.applyPersona(PERSONA_POOL[(raw[104] & 0xFF) % PERSONA_POOL.length]);
         return p;
     }
 
@@ -522,7 +696,30 @@ public final class HgDevice {
             p.ttReq = str(o, "ttreq");
             p.storeRegion = str(o, "store_region");
             p.storeRegionSrc = str(o, "store_region_src");
+            p.brand = str(o, "brand");
+            p.model = str(o, "model");
+            p.build = str(o, "build");
+            p.osVersion = str(o, "os_version");
+            p.osApi = num(o, "os_api");
+            p.resolution = str(o, "resolution");
+            p.dpi = num(o, "dpi");
+            p.channel = str(o, "channel");
+            p.fpSeed = str(o, "fp_seed");
             if (p.cdid == null || p.openUdid == null) return null;
+            // 存量档案迁移（根治账）：旧落盘没有 persona/种子。persona 钉
+            // legacy——旧档案注册时报的就是这台，换台会与已注册的 device_id
+            // 描述打架；种子现补一份随机并落盘，此后指纹族按档案唯一派生。
+            // 本地数据（HgStore 历史/收藏等）与本地登录托管都不经本落盘，
+            // 迁移不丢任何用户数据。
+            if (!p.hasPersona() || p.fpSeed == null || p.fpSeed.isEmpty()) {
+                if (!p.hasPersona()) p.applyPersona(PERSONA_LEGACY);
+                if (p.fpSeed == null || p.fpSeed.isEmpty()) {
+                    byte[] seed = new byte[32];
+                    new SecureRandom().nextBytes(seed);
+                    p.fpSeed = hexLower(seed, 0, 32);
+                }
+                save(p);
+            }
             return p;
         } catch (Exception e) {
             return null;
@@ -532,6 +729,11 @@ public final class HgDevice {
     private static String str(JsonObject o, String key) {
         JsonElement el = o.get(key);
         return el != null && el.isJsonPrimitive() ? el.getAsString() : null;
+    }
+
+    private static int num(JsonObject o, String key) {
+        JsonElement el = o.get(key);
+        return el != null && el.isJsonPrimitive() ? el.getAsInt() : 0;
     }
 
     private static void save(Profile p) {
@@ -547,6 +749,15 @@ public final class HgDevice {
         o.addProperty("ttreq", nz(p.ttReq));
         o.addProperty("store_region", nz(p.storeRegion));
         o.addProperty("store_region_src", nz(p.storeRegionSrc));
+        o.addProperty("brand", nz(p.brand));
+        o.addProperty("model", nz(p.model));
+        o.addProperty("build", nz(p.build));
+        o.addProperty("os_version", nz(p.osVersion));
+        o.addProperty("os_api", p.osApi);
+        o.addProperty("resolution", nz(p.resolution));
+        o.addProperty("dpi", p.dpi);
+        o.addProperty("channel", nz(p.channel));
+        o.addProperty("fp_seed", nz(p.fpSeed));
         Prefers.put(PREF_KEY, o.toString());
     }
 }

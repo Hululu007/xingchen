@@ -85,22 +85,25 @@ public class HgSignTest {
                 medusa.equals(medusa2) && medusa.length() > 100,
                 "实际长度=" + medusa.length());
         Map<Integer, Object> dp = decodeProto(HgSign.deviceProto("7100000000000011", 1700000000123L));
-        check("deviceProto 身份号=入参 deviceId 且指纹 f5 未动",
+        // 指纹 f5 自 2026-10-29 根治起按档案种子派生（hongguo-profile-
+        // rootfix-20261029.md）：断言=与档案派生口同值且非抓样冻结值。
+        check("deviceProto 身份号=入参 deviceId 且指纹 f5=档案派生",
                 "7100000000000011".equals(dp.get(4))
-                        && "Ai6svO3PyrwDOUSmO6ZcResxu".equals(dp.get(5)),
-                "实际 f4=" + dp.get(4));
+                        && HgDevice.fpToken5().equals(dp.get(5))
+                        && !"Ai6svO3PyrwDOUSmO6ZcResxu".equals(dp.get(5)),
+                "实际 f4=" + dp.get(4) + " f5=" + dp.get(5));
+        // persona 自根治起随档案掷定（池内真机元组），不再钉死某一台：
+        // 断言=与档案访问口逐项同值（哪台由档案说了算）。
         check("deviceProto 机型对齐注册档案（f30/32/33=HgDevice 机型）",
-                "23127PN0CC".equals(dp.get(30)) && "23127PN0CC".equals(dp.get(32))
-                        && "23127PN0CC".equals(dp.get(33))
-                        && HgDevice.deviceModel().equals(dp.get(30)),
+                HgDevice.deviceModel().equals(dp.get(30)) && HgDevice.deviceModel().equals(dp.get(32))
+                        && HgDevice.deviceModel().equals(dp.get(33)),
                 "实际 f30=" + dp.get(30));
         check("deviceProto 品牌/厂商对齐注册档案（f31/34/35/36=HgDevice 品牌）",
-                "Xiaomi".equals(dp.get(31)) && "Xiaomi".equals(dp.get(34))
-                        && "Xiaomi".equals(dp.get(35)) && "Xiaomi".equals(dp.get(36))
-                        && HgDevice.deviceBrand().equals(dp.get(31)),
+                HgDevice.deviceBrand().equals(dp.get(31)) && HgDevice.deviceBrand().equals(dp.get(34))
+                        && HgDevice.deviceBrand().equals(dp.get(35)) && HgDevice.deviceBrand().equals(dp.get(36)),
                 "实际 f31=" + dp.get(31));
         check("deviceProto 系统版本对齐注册档案（f22=HgDevice 系统版本）",
-                "14".equals(dp.get(22)) && HgDevice.deviceOsVersion().equals(dp.get(22)),
+                HgDevice.deviceOsVersion().equals(dp.get(22)),
                 "实际 f22=" + dp.get(22));
         check("deviceProto 时间戳=入参时刻（f25/26/27 同值、f28 +2ms）",
                 Long.valueOf(1700000000123L).equals(dp.get(25))
@@ -108,8 +111,11 @@ public class HgSignTest {
                         && Long.valueOf(1700000000123L).equals(dp.get(27))
                         && Long.valueOf(1700000000125L).equals(dp.get(28)),
                 "实际 f25=" + dp.get(25) + " f28=" + dp.get(28));
-        check("deviceProto 指纹浮点未动（f16=抓样值）",
-                Float.valueOf(255.24993896484375f).equals(dp.get(16)),
+        check("deviceProto 指纹浮点=档案派生（f16 与派生口同值、量级贴抓样）",
+                Float.valueOf(HgDevice.fpSensor(0)).equals(dp.get(16))
+                        && dp.get(16) instanceof Float
+                        && (Float) dp.get(16) > 255.24993896484375f * 0.9f
+                        && (Float) dp.get(16) < 255.24993896484375f * 1.1f,
                 "实际 f16=" + dp.get(16));
 
         // 2) 签名确定性：同熵同刻同体 → 两次产出逐字一致；stub 与 body MD5 对齐；
@@ -174,6 +180,11 @@ public class HgSignTest {
         check("档案已派生（cdid/openudid 在位）",
                 p1.cdid != null && p1.cdid.length() == 36 && p1.openUdid != null && p1.openUdid.length() == 16,
                 "cdid=" + p1.cdid);
+        check("档案带 persona 与指纹种子（根治：生成时掷定）",
+                p1.model != null && !p1.model.isEmpty() && p1.osApi > 0
+                        && p1.fpSeed != null && p1.fpSeed.length() == 64,
+                "model=" + p1.model + " osApi=" + p1.osApi + " seedLen="
+                        + (p1.fpSeed == null ? -1 : p1.fpSeed.length()));
         check("未注册时 registered=false", !p1.registered(), null);
         HgDevice.saveRegistered("4175318314922028", "4175318314123324");
         HgDevice.invalidateCache();
@@ -182,6 +193,10 @@ public class HgSignTest {
                 p2.registered() && "4175318314922028".equals(p2.deviceId)
                         && "4175318314123324".equals(p2.installId) && p1.cdid.equals(p2.cdid),
                 "实际=" + p2.deviceId + "/" + p2.installId);
+        check("persona 与指纹种子跨重读稳定（根治：落盘后终身不变）",
+                p1.model.equals(p2.model) && p1.osApi == p2.osApi && p1.fpSeed.equals(p2.fpSeed)
+                        && HgDevice.fpToken5().length() == 25,
+                "model=" + p2.model + " seed=" + (p1.fpSeed.equals(p2.fpSeed) ? "same" : "DIFF"));
         check("有序查询串带真 id",
                 HgDevice.deviceQueryPairs().get(0)[1].equals("4175318314123324")
                         && HgDevice.deviceQueryPairs().get(1)[1].equals("4175318314922028"), null);

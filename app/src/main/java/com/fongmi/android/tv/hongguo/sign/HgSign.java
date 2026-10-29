@@ -957,9 +957,13 @@ public final class HgSign {
      * 设备），故按 os_api 改。证据等级与回退法见
      * login-close-loop-20261029.md。</p>
      *
-     * <p>本刀不动的：字段 5 的 token 串、字段 16–21 的传感器浮点、
-     * 消息字段 24 JSON 的环境哈希（抓样指纹族，生成规则未抠，牵连面
-     * 评估在账内）；字段 23/38 的整数语义未证，同列不动。</p>
+     * <p>指纹族于 2026-10-29 根治单改按档案派生（hongguo-profile-
+     * rootfix-20261029.md）：字段 5 的 token、字段 16–21 的传感器浮点、
+     * 消息字段 16 的 token 与字段 24 JSON 的 un_h/fkd/pd 不再冻结抓样
+     * 原值，改经 {@link HgDevice} 的 fp* 访问口按档案种子派生（同档案
+     * 稳定、跨档案唯一）——全网档案共用一台样机的指纹正是合成设备被
+     * 档案级限流的定根之一（feed-fail-1460-20261029.md）。字段 23/38
+     * 的整数语义未证，仍冻结抓样值，残余风险记在根治账。</p>
      */
     public static byte[] deviceProto(String deviceId, long nowMillis) {
         return concat(
@@ -967,7 +971,7 @@ public final class HgSign {
                 protoSInt(2, 2),
                 protoString(3, APP_ID),
                 protoString(4, deviceId),
-                protoString(5, "Ai6svO3PyrwDOUSmO6ZcResxu"),
+                protoString(5, HgDevice.fpToken5()),
                 protoString(6, "!noperm!"),
                 protoSInt(7, -888888),
                 protoSInt(8, -888888),
@@ -977,12 +981,12 @@ public final class HgSign {
                 protoString(12, "Asia/Shanghai,8"),
                 protoString(13, "zh_CN"),
                 protoSInt(14, 4),
-                protoFloat(16, 255.24993896484375f),
-                protoFloat(17, 35.58599090576172f),
-                protoFloat(18, 3.467449188232422f),
-                protoFloat(19, 3.467449188232422f),
-                protoFloat(20, 255.1754913330078f),
-                protoFloat(21, 42.17544174194336f),
+                protoFloat(16, HgDevice.fpSensor(0)),
+                protoFloat(17, HgDevice.fpSensor(1)),
+                protoFloat(18, HgDevice.fpSensor(2)),
+                protoFloat(19, HgDevice.fpSensor(3)),
+                protoFloat(20, HgDevice.fpSensor(4)),
+                protoFloat(21, HgDevice.fpSensor(5)),
                 protoString(22, HgDevice.deviceOsVersion()),
                 protoSInt(23, 41),
                 protoSInt(24, HgDevice.deviceOsApi()),
@@ -1051,13 +1055,15 @@ public final class HgSign {
                 protoBytes(13, queryBodyTS),
                 protoBytes(14, Arrays.copyOf(querySM3, 6)),
                 protoBytes(15, nested),
-                protoString(16, "AXYQOS6n2m60x1fVZHIrH3iol"),
+                protoString(16, HgDevice.fpMsgToken()),
                 protoSInt(17, khronos & 0xFFFFFFFFL),
                 protoBytes(19, queryHash),
                 protoString(20, "none"),
                 protoSInt(21, 312),
                 protoBytes(23, env),
-                protoString(24, "{\"cmr\":16777216,\"cmr2\":16777216,\"un_h\":1879194040,\"vpn\":0,\"kd\":0,\"fkd\":3672518972,\"pd\":-1872573247,\"dyn\":\"\",\"do\":0,\"tk\":true}"));
+                protoString(24, "{\"cmr\":16777216,\"cmr2\":16777216,\"un_h\":" + HgDevice.fpUnH()
+                        + ",\"vpn\":0,\"kd\":0,\"fkd\":" + HgDevice.fpFkd()
+                        + ",\"pd\":" + HgDevice.fpPd() + ",\"dyn\":\"\",\"do\":0,\"tk\":true}"));
 
         byte[][] hs = keyHash(entropy.random);
         byte[] hash = hs[0];

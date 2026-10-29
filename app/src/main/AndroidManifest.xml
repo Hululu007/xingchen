@@ -51,6 +51,13 @@
         <package android:name="com.oneplus.security" />
         <package android:name="com.meizu.safe" />
         <package android:name="com.android.settings" />
+        <!-- 抖音登录包可见性申报：包名逐字照官方红果 7.2.5.32 清单
+             <queries> 原件（apktool-phoenix 解码清单三条全在）。缺此申报时
+             安卓包可见性过滤令咱家看不见已装的抖音，1.4.61 真机授权页误弹
+             「请安装抖音app」。账 hongguo-douyin-oneshot-prep-20261030。 -->
+        <package android:name="com.ss.android.ugc.aweme" />
+        <package android:name="com.ss.android.ugc.aweme.lite" />
+        <package android:name="com.ss.android.ugc.aweme.hubble" />
     </queries>
 
     <application

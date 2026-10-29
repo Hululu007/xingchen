@@ -144,7 +144,6 @@ app/src/main/res/drawable/bg_hg_follow_btn.xml
 app/src/main/res/drawable/bg_hg_followed_btn.xml
 app/src/main/res/drawable/bg_hg_grab.xml
 app/src/main/res/drawable/bg_hg_login_btn.xml
-app/src/main/res/drawable/bg_hg_mine_card.xml
 app/src/main/res/drawable/bg_hg_mine_badge.xml
 app/src/main/res/drawable/bg_hg_panel_chip_on.xml
 app/src/main/res/drawable/bg_hg_panel_track.xml
@@ -187,8 +186,6 @@ app/src/main/res/drawable/ic_hg_phone.xml
 app/src/main/res/drawable/ic_hg_share.xml
 app/src/main/res/drawable/ic_hg_star.xml
 app/src/main/res/drawable/ic_hg_star_fill.xml
-app/src/main/res/drawable/ic_hg_pref.xml
-app/src/main/res/drawable/ic_hg_feedback.xml
 app/src/main/res/drawable/bg_hg_author_bg_fade.xml
 app/src/main/res/drawable/bg_hg_author_follow_btn.xml
 app/src/main/res/drawable/bg_hg_author_followed_btn.xml
@@ -216,7 +213,6 @@ app/src/main/res/drawable/bg_hg_mine_chip_on.xml
 app/src/main/res/drawable/bg_hg_mine_edit_bar.xml
 app/src/main/res/drawable/bg_hg_mine_header.xml
 app/src/main/res/drawable/bg_hg_mine_page.xml
-app/src/main/res/drawable/bg_hg_mine_sheet.xml
 app/src/main/res/drawable/bg_hg_panel_badge.xml
 app/src/main/res/drawable/bg_hg_panel_card.xml
 app/src/main/res/drawable/bg_hg_panel_sheet.xml

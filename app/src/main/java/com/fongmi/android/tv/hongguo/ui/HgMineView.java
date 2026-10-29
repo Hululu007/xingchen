@@ -151,12 +151,10 @@ public final class HgMineView extends LinearLayout {
         grid.addItemDecoration(new MineGridSpacing());
         findViewById(R.id.hg_mine_login_btn).setOnClickListener(v -> onAccountClick());
         userRow.setOnClickListener(v -> onAccountClick());
-        // 功能卡两格（官方同位）：看剧偏好＝服务端偏好页；反馈与帮助＝
-        // 官方反馈网页（应用内 WebView）。我的下载缺前置未落，见布局注。
-        findViewById(R.id.hg_mine_fn_pref).setOnClickListener(v ->
-                HongguoPreferenceActivity.start(getContext()));
-        findViewById(R.id.hg_mine_fn_feedback).setOnClickListener(v ->
-                HongguoFeedbackActivity.start(getContext()));
+        // 功能卡（看剧偏好/反馈与帮助）已按他 2026-10-29 令整张删除
+        // （「看剧偏好，跟反馈都不要」）：布局与本处接线一并摘除，
+        // HongguoPreferenceActivity/HongguoFeedbackActivity 自此无入口
+        // 成孤儿，按令只留类不删（账 mine-page-his-fix-20261029.md）。
         findViewById(R.id.hg_mine_search).setOnClickListener(v ->
                 getContext().startActivity(new android.content.Intent(
                         getContext(), HongguoSearchActivity.class)));

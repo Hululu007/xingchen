@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 「我的」页底（官方 b93 定版：根底 skin_color_bg_ff_light 白
-     #FFFFFFFF＋头图 259dp 色罩压顶，内容面在其上滚动）。 -->
+     #FFFFFFFF＋头图色罩压顶，内容面在其上滚动）。头图层高官方 259dp，
+     2026-10-29 他装 1.4.59 后亲口「上面那个颜色框，改小一点」「小一点点
+     就行」→ 240dp（−19dp，约 −7%），账 mine-page-his-fix-20261029.md。
+     页签行落位按此层高对齐（见 view_hongguo_mine 头部框注）。 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item>
         <shape android:shape="rectangle">
@@ -10,5 +13,5 @@
     <item
         android:drawable="@drawable/bg_hg_mine_header"
         android:gravity="top"
-        android:height="259dp" />
+        android:height="240dp" />
 </layer-list>

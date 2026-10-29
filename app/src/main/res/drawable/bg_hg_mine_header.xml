@@ -1,14 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 「我的」页头图色罩本体（官方 b93 头图 eq5：高 259dp、
+<!-- 「我的」页头图色罩本体（官方 b93 头图 eq5：
      skin_bg_mine_fragment_header_light，vector alpha 0.6：底 #FFF6F6F6
      ＋多层 aapt 渐变色团，渐变停点 fkj/fkk 逐字＝#FFF2F2F2→#FFF3E0D6→
      #FFF5D2C1→#FFF7C0A5→#FFFAAA82→#FFFD905A→#FFFF8040、fillAlpha
      0.4–0.5）。色团路径弧线是 vector path、shape 无法 1:1 复刻：本件
-     用同停点色的线性渐变近似（橙团聚右上、向左下化开），由
-     bg_hg_mine_page 以官方 259dp 高挂在页顶。 -->
+     用同停点色的线性渐变近似，由 bg_hg_mine_page 挂在页顶（层高
+     240dp，他 2026-10-29 定，见该文件注）。
+     渐变方向 2026-10-29 改：旧 angle 315 的终点色 #F6F6F6 落在右上，
+     顶沿右半实测 (250,242,239) 与白无异，他点名「上面那一块白条」、
+     令顶部颜色从屏幕最上沿开始铺。改 angle 270 自上而下：顶沿整幅＝
+     startColor 桃橙（压白基合成 ≈(255,173,129)），向下化开到 #F6F6F6，
+     顶沿不再留白。账 mine-page-his-fix-20261029.md。 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
     <gradient
-        android:angle="315"
+        android:angle="270"
         android:centerColor="#4DF5D2C1"
         android:endColor="#FFF6F6F6"
         android:startColor="#A6FF8040"

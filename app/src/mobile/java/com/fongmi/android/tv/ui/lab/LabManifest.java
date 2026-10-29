@@ -42,6 +42,9 @@ public class LabManifest {
     public String desc;
     @SerializedName("icon")
     public String icon;
+    /** 上游 Item.icon 的图片地址（URL 形态时）；icon 字仍是自家口径，两者并存 */
+    @SerializedName("iconUrl")
+    public String iconUrl = "";
     @SerializedName("version")
     public String version;
     /** 分组 id（上游 Item.group，如 network；兼容导入时落进来），无分组为空串 */
@@ -90,6 +93,20 @@ public class LabManifest {
         /** 命令变量表（上游 Variable 口径）：text/text_multiline/number/select/switch/file/directory */
         @SerializedName("variables")
         public final List<LabVar> variables = new ArrayList<>();
+        /** 后续操作按钮（上游 Command.clicks 口径）：服务页渲染成可点动作 */
+        @SerializedName("clicks")
+        public final List<LabClick> clicks = new ArrayList<>();
+    }
+
+    /** 上游 Click：title/action/value/style/content/width/height 原形保存 */
+    public static class LabClick {
+        @SerializedName("title") public String title;
+        @SerializedName("action") public String action;
+        @SerializedName("value") public String value;
+        @SerializedName("style") public String style;
+        @SerializedName("content") public String content;
+        @SerializedName("width") public String width;
+        @SerializedName("height") public String height;
     }
 
     /** 命令变量一项（名字＋必填标记渲染；hint 只做输入框 placeholder，不单独成行） */
@@ -146,6 +163,19 @@ public class LabManifest {
         public String extractTo;
         @SerializedName("required")
         public boolean required;
+        /** 上游 CommandDownload.title（依赖名）/ size（展示文本）/ 该 arch 的真 version */
+        @SerializedName("title")
+        public String title;
+        @SerializedName("size")
+        public String size;
+        @SerializedName("version")
+        public String version;
+        /** 第二分片（上游 Download.liburl，如 nodejs 的依赖库包）：主包后同目录再解一份 */
+        @SerializedName("libUrl")
+        public String libUrl;
+        /** 镜像直链（上游 mirrors 是 Map{名:URL}，归一成 URL 列表保存，url 为空时备选） */
+        @SerializedName("mirrors")
+        public final List<String> mirrors = new ArrayList<>();
     }
 
     public static class LabOutput {
@@ -212,6 +242,8 @@ public class LabManifest {
         // 上游写法是 description，自家写法是 desc，两种都吃（与 LabImportCompat 对齐）
         m.desc = o.has("description") ? o.optString("description", "") : o.optString("desc", "");
         m.icon = o.optString("icon", "包");
+        String ic = o.optString("icon", "");
+        m.iconUrl = ic.startsWith("http") ? ic : o.optString("iconUrl", "");
         m.version = o.optString("version", "1.0");
         m.group = o.optString("group", "");
         m.runtime = normalizeRuntime(o.optString("runtime", "none"));
@@ -274,9 +306,16 @@ public class LabManifest {
                     d.extractTo = dl.has("extract_to") ? dl.optString("extract_to", "")
                             : dl.optString("extractTo", "");
                     d.required = dl.optBoolean("required", false);
-                    if (!TextUtils.isEmpty(d.url)) cmd.download = d;
+                    d.title = dl.optString("title", "");
+                    d.size = dl.optString("size", "");
+                    d.version = dl.optString("version", "");
+                    d.libUrl = dl.optString("liburl", dl.optString("libUrl", ""));
+                    d.mirrors.addAll(parseMirrorUrls(dl));
+                    if (TextUtils.isEmpty(d.url) && !d.mirrors.isEmpty()) d.url = d.mirrors.get(0);
+                    if (!TextUtils.isEmpty(d.url) || !TextUtils.isEmpty(d.checkFile)) cmd.download = d;
                 }
                 cmd.variables.addAll(parseVars(c.optJSONArray("variables")));
+                cmd.clicks.addAll(parseClicks(c.optJSONArray("clicks")));
                 m.commands.add(cmd);
             }
         }
@@ -292,6 +331,52 @@ public class LabManifest {
             m.output = op;
         }
         return m;
+    }
+
+    /** 上游 mirrors 双认：Map{名:URL}（默影视真形）与数组（字符串或 {url}）都收成 URL 列表 */
+    public static List<String> parseMirrorUrls(JSONObject dl) {
+        List<String> out = new ArrayList<>();
+        if (dl == null) return out;
+        Object mv = dl.opt("mirrors");
+        if (mv instanceof JSONObject) {
+            JSONObject mo = (JSONObject) mv;
+            java.util.Iterator<String> keys = mo.keys();
+            while (keys.hasNext()) {
+                Object v = mo.opt(keys.next());
+                String u = v instanceof JSONObject ? ((JSONObject) v).optString("url", "").trim()
+                        : (v == null ? "" : String.valueOf(v).trim());
+                if (!u.isEmpty() && !"null".equals(u)) out.add(u);
+            }
+        } else if (mv instanceof JSONArray) {
+            JSONArray arr = (JSONArray) mv;
+            for (int i = 0; i < arr.length(); i++) {
+                Object v = arr.opt(i);
+                String u = v instanceof JSONObject ? ((JSONObject) v).optString("url", "").trim()
+                        : (v == null ? "" : String.valueOf(v).trim());
+                if (!u.isEmpty() && !"null".equals(u)) out.add(u);
+            }
+        }
+        return out;
+    }
+
+    /** 上游 clicks[] 原形解析（width/height 数字与字符串都吃） */
+    public static List<LabClick> parseClicks(JSONArray arr) {
+        List<LabClick> out = new ArrayList<>();
+        if (arr == null) return out;
+        for (int i = 0; i < arr.length(); i++) {
+            JSONObject c = arr.optJSONObject(i);
+            if (c == null) continue;
+            LabClick cl = new LabClick();
+            cl.title = c.optString("title", "");
+            cl.action = c.optString("action", "");
+            cl.value = c.optString("value", "");
+            cl.style = c.optString("style", "");
+            cl.content = c.optString("content", "");
+            cl.width = c.has("width") ? String.valueOf(c.opt("width")) : "";
+            cl.height = c.has("height") ? String.valueOf(c.opt("height")) : "";
+            out.add(cl);
+        }
+        return out;
     }
 
     /** 解析变量表（上游 Variable 口径，子集） */

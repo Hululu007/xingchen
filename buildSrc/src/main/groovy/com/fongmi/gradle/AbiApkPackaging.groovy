@@ -37,7 +37,6 @@ class AbiApkPackaging {
 
     static final Map<String, Map<String, Object>> RUNTIME_PROFILES = [
             python : [packageName: 'com.fongmi.runtime.python', compatibilityId: 'catvod-python-plugin-v2', library: 'libchaquopy_java.so', entryClass: 'com.fongmi.chaquo.RuntimeEntry'],
-            nodejs : [packageName: 'com.fongmi.runtime.nodejs', compatibilityId: 'catvod-nodejs-plugin-v2', library: 'libnode.so', entryClass: 'com.fongmi.nodejs.RuntimeEntry'],
             quickjs: [packageName: 'com.fongmi.runtime.quickjs', compatibilityId: 'fongmi-quickjs-ng-0.17-v11', library: 'libquickjs-wrapper.so', entryClass: 'com.fongmi.quickjs.RuntimeEntry'],
             thunder: [packageName: 'com.fongmi.runtime.thunder', compatibilityId: 'catvod-thunder-plugin-v1', library: 'libxl_thunder_sdk.so', entryClass: 'com.xunlei.downloadlib.RuntimeEntry'],
             mpv    : [packageName: 'com.fongmi.runtime.mpv', compatibilityId: 'mpv-jni-ffmpeg-shared-v1', library: 'libplayer.so', entryClass: null],

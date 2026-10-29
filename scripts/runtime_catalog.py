@@ -15,19 +15,17 @@ from zipfile import BadZipFile, ZIP_STORED, ZipFile
 ABIS = ("arm64-v8a", "armeabi-v7a")
 MODULES = {
     "python": ("catvod-python-plugin-v2", "libchaquopy_java.so"),
-    "nodejs": ("catvod-nodejs-plugin-v2", "libnode.so"),
     "quickjs": ("fongmi-quickjs-ng-0.17-v11", "libquickjs-wrapper.so"),
     "bdj": ("libbluray-1.4.1-openjdk8-zero-v1", None),
     "mpv": ("mpv-jni-ffmpeg-shared-v1", "libplayer.so"),
 }
 LIBRARIES = {
     "python": ("libcrypto_python.so", "libssl_python.so", "libsqlite3_python.so", "libcrypto_chaquopy.so", "libssl_chaquopy.so", "libsqlite3_chaquopy.so", "libpython3.10.so", "libpython3.so", "libchaquopy_java.so"),
-    "nodejs": ("libnode.so", "libnodebridge.so"),
     "quickjs": ("libquickjs-wrapper.so",),
     "mpv": ("libmpv.so", "libplayer.so"),
 }
 PYTHON_ASSETS = ("app.imy", "build.json", "bootstrap.imy", "stdlib-common.imy", "stdlib-{abi}.imy", "requirements-common.imy", "requirements-{abi}.imy", "cacert.pem")
-JAVA_ENTRIES = {"python": "com.fongmi.chaquo.RuntimeEntry", "nodejs": "com.fongmi.nodejs.RuntimeEntry", "quickjs": "com.fongmi.quickjs.RuntimeEntry"}
+JAVA_ENTRIES = {"python": "com.fongmi.chaquo.RuntimeEntry", "quickjs": "com.fongmi.quickjs.RuntimeEntry"}
 BDJ_ARCHIVE = "assets/bdj/runtime.zip"
 BDJ_LIBRARIES = ("libjava.so", "libverify.so", "libzip.so", "libnet.so", "libnio.so", "server/libjvm.so")
 DEFAULT_URL = "https://github.com/FongMi/Release/releases/download/module"
@@ -162,7 +160,7 @@ def verify_payload_path(file, path, module, libraries):
         if path not in libraries:
             raise ValueError(f"{file.name}: invalid runtime library path")
     else:
-        prefix = {"python": "assets/chaquopy/", "quickjs": "assets/js/", "nodejs": "assets/nodejs/"}.get(module)
+        prefix = {"python": "assets/chaquopy/", "quickjs": "assets/js/"}.get(module)
         if prefix is None or not path.startswith(prefix) or ".." in path or "\\" in path or "//" in path or path.endswith("/"):
             raise ValueError(f"{file.name}: invalid runtime asset path")
 
@@ -172,8 +170,6 @@ def verify_required_payloads(file, module, abi, libraries, paths):
         raise ValueError(f"{file.name}: runtime library is missing")
     if module == "python" and any(f"assets/chaquopy/{name.format(abi=abi)}" not in paths for name in PYTHON_ASSETS):
         raise ValueError(f"{file.name}: Python asset is missing")
-    if module == "nodejs" and "assets/nodejs/bootstrap.js" not in paths:
-        raise ValueError(f"{file.name}: Node.js bootstrap is missing")
     if module == "quickjs" and not {"assets/js/lib/net.js", "assets/js/lib/spider.js"} <= paths:
         raise ValueError(f"{file.name}: QuickJS helpers are missing")
 

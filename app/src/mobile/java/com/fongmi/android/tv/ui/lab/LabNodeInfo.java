@@ -5,9 +5,9 @@ import com.fongmi.android.tv.utils.NodeLabInfo;
 
 /**
  * NodeLabInfo 的实验室实现：类加载即自登记（靠 NodeLabInfo 按类名触发，
- * proguard 单独 keep 本类名）。判据与第 1 步 LabNodeHost 同源，只读实验室
- * 自己的账——在场走 LabRuntimeManager.isInstalled、已装版本走 LabRegistry
- * 登记、可用版本走 LabRuntimeManager.catalogVersion。
+ * proguard 单独 keep 本类名）。判据只读实验室自己的账——在场走
+ * LabRuntimeManager.isInstalled、已装版本走 LabRegistry 登记、可用版本走
+ * LabRuntimeManager.catalogVersion。
  */
 public final class LabNodeInfo {
 

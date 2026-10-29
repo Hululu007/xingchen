@@ -130,11 +130,11 @@ public class HomeActivity extends BaseActivity implements XcBottomBar.OnItemSele
         initNavigationInsets();
         PermissionUtil.requestFile(this, allGranted -> PermissionUtil.requestNotify(this));
         initFragment(savedInstanceState);
-        // 实验室自启登记必须抢在 initConfig 之前：schedule 的同步段先把
-        // LabNodeHost 宿主判据登记好（配置加载随时可能调 RuntimeModule
-        // .NODEJS.require，登记晚于首读会误判没装）；延迟 boot 段随后拉起
-        // 服务。此前排在 initConfig 之后，App.onCreate 的反射 kick 又被
-        // R8 改名打死（proguard 已补 LabBoot 保名），冷启只剩这条腿还迟到。
+        // 实验室自启排期必须抢在 initConfig 之前：schedule 的同步段只置
+        // scheduled 防重标记并投递 3 秒延迟 boot，不做任何同步登记；延迟
+        // boot 段随后拉起服务。此前排在 initConfig 之后，App.onCreate 的
+        // 反射 kick 又被 R8 改名打死（proguard 已补 LabBoot 保名），冷启
+        // 只剩这条腿还迟到。
         try {
             com.fongmi.android.tv.ui.lab.LabBoot.schedule(this);
         } catch (Exception ignored) {

@@ -117,7 +117,7 @@ public final class HgCommentParser {
             if (num(common, "status", -1) != 1) continue;
             String id = str(comment, "comment_id");
             JsonObject contentObj = obj(common, "content");
-            String content = contentObj == null ? "" : str(contentObj, "text").trim();
+            String content = contentObj == null ? "" : cleanText(str(contentObj, "text")).trim();
             if (id.isEmpty() || id.length() > 120 || content.isEmpty() || !seen.add(id)) continue;
             JsonObject base = baseInfo(common);
             String avatar = base == null ? "" : str(base, "user_avatar");
@@ -170,7 +170,7 @@ public final class HgCommentParser {
                 if (common == null) continue;
                 String id = str(row, "reply_id");
                 JsonObject contentObj = obj(common, "content");
-                String content = contentObj == null ? "" : str(contentObj, "text").trim();
+                String content = contentObj == null ? "" : cleanText(str(contentObj, "text")).trim();
                 if (id.isEmpty() || id.length() > 120 || content.isEmpty() || !seen.add(id)) continue;
                 JsonObject base = baseInfo(common);
                 String avatar = "";
@@ -326,7 +326,7 @@ public final class HgCommentParser {
             if (comment == null) continue;
             JsonObject common = obj(comment, "common");
             JsonObject content = common == null ? null : obj(common, "content");
-            String body = content == null ? "" : str(content, "text");
+            String body = content == null ? "" : cleanText(str(content, "text"));
             if (body.isEmpty()) continue;
             JsonObject expand = obj(comment, "expand");
             if (expand == null || !expand.has("offset_time")) continue;
@@ -377,6 +377,18 @@ public final class HgCommentParser {
     private static JsonArray arr(JsonObject o, String key) {
         if (o == null || !o.has(key) || !o.get(key).isJsonArray()) return null;
         return o.getAsJsonArray(key);
+    }
+
+    /**
+     * 正文无害化：服务端 content.text 里的图片/表情跨度以 U+FFFC
+     * （OBJECT REPLACEMENT CHARACTER）占位，官方客户端按跨度信息换成
+     * 内联图；咱家未接跨度渲染，原样透传会被系统字体画成 OBJ 缺字
+     * 方框（2026-10-29 静帧 113635 弹幕「真够豪的[OBJ]」实证）。在
+     * 解析层统一剔除占位符，评论与弹幕三处取文共用——只删占位符
+     * 本身，[笑哭] 这类文本表情记号不动。
+     */
+    private static String cleanText(String s) {
+        return s == null ? "" : s.replace("\uFFFC", "");
     }
 
     private static String str(JsonObject o, String key) {

@@ -203,6 +203,18 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
     public void onBindViewHolder(@NonNull Holder holder, int position) {
         HgFeedItem item = items.get(position);
         ItemHongguoFeedBinding b = holder.binding;
+        if (landInstance) {
+            // 横屏实例的竖屏件抑制必须由 bind 自己兜底：XML 缺省全显，
+            // 此前只靠 Activity.setChromeHidden 对 currentHolder() 一次性
+            // 置 GONE——数据到达/富集重绑新建的 holder 带着缺省显隐上屏、
+            // 且 settle 的隐藏调用可能打在空/错位 holder 上，竖屏右列/
+            // 信息摞/选集条便与横排控制条同屏叠压（2026-10-29 他录屏
+            // 《急诊摸鱼王》实证，账 video-issues-20261029.md 第二段①）。
+            // 剧条/弹幕筹/方钮/全屏筹各自已有 landInstance 闸，不在此列。
+            b.hgRightRail.setVisibility(View.GONE);
+            b.hgInfo.setVisibility(View.GONE);
+            b.hgBottomRow.setVisibility(View.GONE);
+        }
         bindCover(b, item);
         b.hgError.setVisibility(View.GONE);
         b.hgPauseIcon.setVisibility(View.GONE);
@@ -580,7 +592,13 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
             rowLp.setMargins(Math.round(12 * density), 0, Math.round(12 * density), Math.round(8 * density));
             rowLp.setMarginStart(Math.round(12 * density));
             rowLp.setMarginEnd(Math.round(12 * density));
-            progressLp.bottomMargin = Math.round(52 * density);
+            // 进度线落选集条（顶 48）与剧条（底 52）之间的 4dp 气口：
+            // 线盒 6dp 底距 48 → 可见 2dp 线在 50..52，正贴剧条底沿之下。
+            // 旧值 52 把线抬进剧条带 54..56——咱家封面仅 44dp、文案列
+            // 居中后副行字形下沿逼近条底，线横穿「更新至N集」与封面下沿
+            // （2026-10-29 静帧 113635 实证）；官方 113630 的线同在剧条
+            // 底沿之下，只是官方封面更高、文案列不下探到线位
+            progressLp.bottomMargin = Math.round(48 * density);
             b.hgSeriesBar.setBackgroundResource(R.drawable.bg_hg_catalog_bar);
             barLp.height = Math.round(40 * density);
             b.hgSeriesBar.setMinimumHeight(0);

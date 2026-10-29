@@ -157,11 +157,10 @@ public enum RuntimeModule {
     private static RuntimeModule moduleForClass(String name) {
         if (name.startsWith("com.fongmi.chaquo.") || name.startsWith("com.chaquo.python.")) return PYTHON;
         if (name.startsWith("com.fongmi.quickjs.") && !name.startsWith("com.fongmi.quickjs.host.")) return QUICKJS;
-        // Node 已改走内置桥（2026-10-24 定案）：com.fongmi.nodejs.* 由宿主内置桥
-        // 提供（脚本进程本体是实验室 bin/node），不再判给 NODEJS 外置模块。
-        // 摘掉映射后类落回宿主类加载器（同下方迅雷 C-10 口径）；entry() 的
-        // NODEJS 分支直接实例化内置入口，不走 createEntry 的外包加载路——
-        // 那条路的「实现类不许来自宿主」断言正是为外包设的，内置走它必抛。
+        // Node 旧桥已整套退场（2026-10-29）：com.fongmi.nodejs.* 本体已删，
+        // Node 改走新链（tv.node＋:nodejs 模块），不再判给 NODEJS 外置模块。
+        // entry() 的 NODEJS 内置入口支已随旧桥删除，getEntryClass 落 default
+        // 返 ""，NODEJS 在本类只余枚举登记口径，无 Java 插件入口。
         // 迅雷已改回内置（2026-10-23 定案）：com.xunlei.downloadlib.* 就在宿主
         // dex 里，不再判给 THUNDER 外置模块。摘掉映射后两个 loader 对 null 的
         // 处理都落回宿主类加载器——SPIDER_LOADER 走 super.loadClass（父加载器

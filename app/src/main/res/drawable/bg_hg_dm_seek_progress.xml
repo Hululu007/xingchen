@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 弹幕滑杆进度（官方 a57 @drawable/add 原样：背景透明，已过段上下内缩 6dp、
+     渐变 #4D757575→#4D454545 横向）。 -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:id="@android:id/background">
+        <shape android:shape="rectangle">
+            <corners android:radius="10dp" />
+            <solid android:color="@android:color/transparent" />
+        </shape>
+    </item>
+    <item android:id="@android:id/progress">
+        <inset android:insetBottom="6dp" android:insetTop="6dp">
+            <clip>
+                <shape android:shape="rectangle">
+                    <corners android:bottomLeftRadius="10dp" android:topLeftRadius="10dp" />
+                    <gradient android:angle="0" android:endColor="#4D454545" android:startColor="#4D757575" />
+                </shape>
+            </clip>
+        </inset>
+    </item>
+</layer-list>

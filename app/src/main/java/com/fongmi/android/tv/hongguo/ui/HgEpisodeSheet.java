@@ -95,8 +95,10 @@ public final class HgEpisodeSheet {
     /**
      * 头部（E6–E9）：封面（详情优先、否则条目）圆角 4dp；剧名只出剧名本体
      * （官方绑 AlbumDetailModel.title，不拼集数/完结文案，E10）；箭头点击
-     * ＝进该剧集流（等价 HongguoFeedActivity.startSeries）；收藏钮走现行
-     * interactions 口子（与系列单同口径，未登录在口子内处理）。
+     * ＝进该剧集流（等价 HongguoFeedActivity.startSeries）；头部钮走现行
+     * interactions 口子，点击前先过登录门（与系列单同口径、照播放页
+     * onAction 门法：未登录拉壳子登录、不落状态——互动层内并无登录处理，
+     * 门只能由调用方守，批三 A/S19）。
      * 作者副行（E8 形态①）：作者名＋2dp 圆点＋sub_title_list[0]，12sp 灰，
      * 哪段有数据显哪段，两段皆空整行不显。sub_title_list 在详情模型里
      * 没有字段位，只能取条目 tags（频道 cell 的 sub_title_list 经
@@ -132,12 +134,18 @@ public final class HgEpisodeSheet {
             // 头部右槽同槽互斥（官方选集弹窗 aib/q7：品牌钮 dll 与追更
             // 药丸 dlw 同槽）：咱家映射——已上线正剧亮追更药丸（走
             // KIND_FOLLOW 管道，与播放页剧条药丸同一动作两态），未上线
-            // 剧维持收藏钮（预约在播放页剧条药丸里办，头部不并排两件）
+            // 剧维持收藏钮（预约在播放页剧条药丸里办，头部不并排两件）。
+            // 批三 A 抠官方定版（账 hongguo-batch3a-slotmap-20261029）：
+            // dll 的文案/动作恒是追剧架那一套（t0 文案提供器＋follow 点击
+            // 链）、从不变预约；canReserve 时官方把 dll 置 INVISIBLE（星钮
+            // 优化件 u2 在场与否影响最终显隐、线上配置未抓到）——证据不支
+            // 持把头部改成预约、也不足以定「隐藏」，本槽映射维持不动。
             if (current.reservable) {
                 binding.hgEpFollow.setVisibility(View.GONE);
                 binding.hgEpFav.setVisibility(View.VISIBLE);
                 bindFav(binding, session.interactions, current.seriesId);
                 binding.hgEpFav.setOnClickListener(v -> {
+                    if (!passLoginGate(activity, session)) return;
                     session.interactions.toggleFavorite(current.seriesId);
                     bindFav(binding, session.interactions, current.seriesId);
                 });
@@ -145,6 +153,7 @@ public final class HgEpisodeSheet {
                 binding.hgEpFav.setVisibility(View.GONE);
                 bindFollowPill(binding, session.interactions, current.seriesId);
                 binding.hgEpFollow.setOnClickListener(v -> {
+                    if (!passLoginGate(activity, session)) return;
                     session.interactions.toggleFollow(current.seriesId);
                     bindFollowPill(binding, session.interactions, current.seriesId);
                 });
@@ -166,6 +175,21 @@ public final class HgEpisodeSheet {
         binding.hgEpAuthorDot.setVisibility(hasAuthor && hasSub ? View.VISIBLE : View.GONE);
         binding.hgEpSub.setVisibility(hasSub ? View.VISIBLE : View.GONE);
         if (hasSub) binding.hgEpSub.setText(sub);
+    }
+
+    /**
+     * 登录门（S19，照 HongguoFeedActivity.onAction 现行门法）：未登录先拉
+     * 壳子统一登录、不调 toggle、不落状态；拉不起来如实提示。宿主 Activity
+     * 由 show() 透传进来（本单是 BottomSheetDialog，宿主同体）。
+     */
+    private static boolean passLoginGate(Activity activity, HgFeedSession session) {
+        if (!session.interactions.requiresLogin()) return true;
+        boolean delivered = com.fongmi.android.tv.login.LoginManager.loginHongguoDelivered();
+        if (!delivered) {
+            android.widget.Toast.makeText(activity, "登录界面暂时打不开，稍后再试",
+                    android.widget.Toast.LENGTH_SHORT).show();
+        }
+        return false;
     }
 
     /** 追更药丸状态回显（官方 dlw 两态同底、只换字：追更/已追更）。 */

@@ -66,6 +66,15 @@ import java.util.Locale;
  * 消失——只记账不搬家（series-detail-corners-20261029.md），接口层
  * HgCommentClient.dislikeSeries 保留待他裁。举报形态走字节 spam SDK
  * 自有链、请求形状未验通，不摆。</p>
+ *
+ * <p>预约动作（2026-10-29 批三 A 补，普查卡 13/S15）：此前可预约剧在本
+ * 页没有任何预约入口；现底栏在收藏钮与播放钮之间加一颗预约钮，只对
+ * 详情回包带 appointment 的剧显示（hasAppointment），走统一互动层
+ * toggleReserve（HgStore reserved 集＋uncover_subscribe），初值由回包
+ * appointmentSubscribed 校准回写 reserved 集（与收藏的 followed 校准
+ * 同型）。官方未上线剧整页形态未抠到（普查册一 #7），本钮只是补「详情
+ * 页上有可达的预约动作」这一实缺，不冒充官方整页形态；底栏收藏钮与
+ * 金钮的位置/文案一概不动（账 hongguo-batch3a-slotmap-20261029）。</p>
  */
 public class HongguoSeriesDetailActivity extends BaseActivity {
 
@@ -120,6 +129,34 @@ public class HongguoSeriesDetailActivity extends BaseActivity {
                     || HgRemoteInteractions.KIND_FOLLOW.equals(kind);
         }
     };
+    private boolean reserved;
+    private boolean reservable;
+    /** 预约同步结果（批三 A）：只收本剧的预约失败回滚/回读裁决——reserved
+     * 集已在互动层内对齐，本面把钮面跟上（回读裁决可能与乐观值不同）。 */
+    private final HgRemoteInteractions.Listener reserveSyncListener = new HgRemoteInteractions.Listener() {
+        @Override
+        public void onSynced(String kind, String sid, boolean state) {
+            if (!HgRemoteInteractions.KIND_RESERVE.equals(kind) || !seriesId.equals(sid)) return;
+            mainHandler.post(() -> {
+                if (isFinishing()) return;
+                reserved = state;
+                paintReserve();
+            });
+        }
+
+        @Override
+        public void onSyncFailed(String kind, String sid, boolean revertedTo, String message) {
+            if (!HgRemoteInteractions.KIND_RESERVE.equals(kind) || !seriesId.equals(sid)) return;
+            mainHandler.post(() -> {
+                if (isFinishing()) return;
+                reserved = revertedTo;
+                paintReserve();
+                Toast.makeText(HongguoSeriesDetailActivity.this,
+                        revertedTo ? "取消预约没成功，再试试" : "预约没成功，再试试",
+                        Toast.LENGTH_SHORT).show();
+            });
+        }
+    };
     private boolean descExpanded;
     private boolean descExpandable;
     private String fullDesc = "";
@@ -165,10 +202,15 @@ public class HongguoSeriesDetailActivity extends BaseActivity {
                         binding.hgSdTitle.getText().toString(),
                         detail != null ? detail.getCoverUrl() : cover));
         binding.hgSdFav.setOnClickListener(v -> toggleFav());
+        binding.hgSdReserve.setOnClickListener(v -> toggleReserve());
         // 星面初值先读追剧架正源（与流页/我的同份），详情回包回来再校准
         fav = HgStore.isFollowed(seriesId);
         paintFav();
+        // 预约钮初值先读 reserved 集；是否显示等详情回包 hasAppointment 定
+        reserved = HgStore.isReserved(seriesId);
+        paintReserve();
         HgFeedSession.get().remoteInteractions.addListener(favSyncListener);
+        HgFeedSession.get().remoteInteractions.addListener(reserveSyncListener);
         // 剧集状态行点按：集条滚到当前集（官方 › 的确切去向未抠到，此为咱家口径）
         binding.hgSdEpStatus.setOnClickListener(v -> scrollStripToCurrent());
         // 集条滚动反推当前分段（手指滑条时页签高亮跟着走）
@@ -323,6 +365,14 @@ public class HongguoSeriesDetailActivity extends BaseActivity {
         fav = d.isFollowed();
         HgStore.setFollowed(seriesId, fav);
         paintFav();
+        // 预约态同型校准：回包带 appointment 才亮钮，订阅态回写 reserved
+        // 集（批三 A，此前本面完全不读详情模型的预约字段，S15）
+        reservable = d.hasAppointment();
+        if (reservable) {
+            reserved = d.isAppointmentSubscribed();
+            HgStore.setReserved(seriesId, reserved);
+        }
+        paintReserve();
     }
 
     /**
@@ -752,9 +802,34 @@ public class HongguoSeriesDetailActivity extends BaseActivity {
         paintFav();
     }
 
+    // ---------- 预约（批三 A：只对回包带 appointment 的剧亮） ----------
+
+    /** 预约钮两态：文案 预约/已预约、状态色对借流页预约卡品牌钮（ks3）。 */
+    private void paintReserve() {
+        if (binding == null) return;
+        binding.hgSdReserve.setVisibility(reservable ? View.VISIBLE : View.GONE);
+        binding.hgSdReserve.setText(reserved ? "已预约" : "预约");
+        binding.hgSdReserve.setBackgroundResource(reserved
+                ? com.fongmi.android.tv.R.drawable.bg_hg_reserve_btn_on
+                : com.fongmi.android.tv.R.drawable.bg_hg_reserve_btn);
+        binding.hgSdReserve.setTextColor(reserved ? 0x66FFFFFF : 0xFFFFFFFF);
+    }
+
+    /** 预约走统一互动层：登录门与收藏同口径，乐观写 reserved 集、服务端
+     * uncover_subscribe、失败回滚＋回读裁决经 reserveSyncListener 回刷。 */
+    private void toggleReserve() {
+        if (HgFeedSession.get().interactions.requiresLogin()) {
+            promptLogin();
+            return;
+        }
+        reserved = HgFeedSession.get().interactions.toggleReserve(seriesId);
+        paintReserve();
+    }
+
     @Override
     protected void onDestroy() {
         HgFeedSession.get().remoteInteractions.removeListener(favSyncListener);
+        HgFeedSession.get().remoteInteractions.removeListener(reserveSyncListener);
         super.onDestroy();
     }
 

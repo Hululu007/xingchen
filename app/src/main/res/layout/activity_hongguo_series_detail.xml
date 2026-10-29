@@ -365,6 +365,22 @@
                 android:textStyle="bold" />
         </LinearLayout>
 
+        <!-- 预约钮（批三 A 补 S15）：只对详情回包带 appointment 的剧显示
+             （代码控显隐，缺省 gone），落点在收藏钮与播放钮之间，不动
+             收藏钮文案与金钮位置；两态色对借流页预约卡品牌钮 ks3 -->
+        <TextView
+            android:id="@+id/hg_sd_reserve"
+            android:layout_width="76dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="12dp"
+            android:background="@drawable/bg_hg_reserve_btn"
+            android:gravity="center"
+            android:text="预约"
+            android:textColor="#FFFFFF"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
+
         <LinearLayout
             android:id="@+id/hg_sd_play"
             android:layout_width="190dp"

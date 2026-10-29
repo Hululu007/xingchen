@@ -159,7 +159,19 @@ public final class HgSeriesSheet {
                 bindAction(b, item, interactions);
                 b.hgRowAction.setOnClickListener(v -> {
                     // 二态钮走互动真口子（只认 seriesId）：预约剧走预约、
-                    // 其余走收藏；未登录在口子内拉登录，点后按本地镜像重绑
+                    // 其余走收藏；点击前先过登录门（S19，照播放页 onAction
+                    // 门法：未登录拉壳子登录、不落状态——互动层内并无登录
+                    // 处理，门只能由调用方守），过门后按本地镜像重绑
+                    if (interactions.requiresLogin()) {
+                        boolean delivered = com.fongmi.android.tv.login.LoginManager
+                                .loginHongguoDelivered();
+                        if (!delivered) {
+                            android.widget.Toast.makeText(activity,
+                                    "登录界面暂时打不开，稍后再试",
+                                    android.widget.Toast.LENGTH_SHORT).show();
+                        }
+                        return;
+                    }
                     if (item.hasAppointment()) interactions.toggleReserve(item.getSeriesId());
                     else interactions.toggleFavorite(item.getSeriesId());
                     bindAction(b, item, interactions);

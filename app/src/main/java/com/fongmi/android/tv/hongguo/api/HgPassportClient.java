@@ -52,6 +52,7 @@ import okhttp3.ResponseBody;
  */
 public final class HgPassportClient {
 
+    private static final String TAG = "HgPassport";
     private static final MediaType FORM = MediaType.parse("application/x-www-form-urlencoded; charset=utf-8");
 
     /** 只借它的设备注册门（ensureDevice），注册身份与全 App 红果链同一份 HgDevice 档案。 */
@@ -193,6 +194,25 @@ public final class HgPassportClient {
         }
     }
 
+    /**
+     * passport 失败回包留痕（2026-10-29）：只记端点路径＋error_code＋服务端
+     * description 两项原文——他下次首登失败时凭这一行就能把错误码钉死（此前
+     * 失败路径不落回包，未列码只能对着 description 猜，见
+     * sms-login-fail-20261029.md 第四节）。成功回包（码 0）不记；请求体一概
+     * 不入日志——手机号、验证码、授权码、mobile_ticket、session_key 都不落。
+     */
+    private static void logFailure(String path, String text) {
+        int code = passportErrorCode(text);
+        if (code == 0) return;
+        JsonObject root = parseRoot(text);
+        JsonObject data = root != null && root.has("data") && root.get("data").isJsonObject()
+                ? root.getAsJsonObject("data") : null;
+        String desc = str(data, "description");
+        if (desc == null) desc = str(root, "description");
+        android.util.Log.w(TAG, path + " passport 失败 error_code=" + code
+                + " description=" + desc);
+    }
+
     // ---------- 传输层（注册门＋签名，与 HgApiClient.postSigned 同路） ----------
 
     private interface BodyHandler {
@@ -235,6 +255,8 @@ public final class HgPassportClient {
                 call.enqueue(new Callback() {
                     @Override
                     public void onFailure(Call c, IOException e) {
+                        android.util.Log.w(TAG, path + " passport 网络失败 "
+                                + e.getClass().getSimpleName());
                         fail.fail(-1, "网络不太顺，请检查网络后再试");
                     }
 
@@ -243,7 +265,9 @@ public final class HgPassportClient {
                         try (Response r = response) {
                             ResponseBody rb2 = r.body();
                             String text = rb2 == null ? "" : rb2.string();
+                            logFailure(path, text);
                             if (!r.isSuccessful() || text.isEmpty()) {
+                                android.util.Log.w(TAG, path + " passport HTTP " + r.code());
                                 fail.fail(r.code(), "服务暂时不可用，请稍后再试");
                             } else {
                                 ok.handle(text, cookiePairs(r));

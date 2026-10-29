@@ -7,9 +7,10 @@ import android.os.Bundle;
 import android.os.Parcelable;
 import android.text.Editable;
 import android.text.TextWatcher;
+import android.view.Gravity;
 import android.view.View;
-import android.view.ViewGroup;
 import android.view.Window;
+import android.view.WindowManager;
 import android.widget.EditText;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -41,6 +42,7 @@ public class SourceSelectDialog extends Dialog {
     private List<Site> filteredSites;
     private SourceSelectAdapter adapter;
     private boolean isSingleColumn = false;
+    private boolean pinnedForEmpty;
     private String currentKey;
 
     public SourceSelectDialog(@NonNull Context context, List<Site> sites, String currentKey) {
@@ -73,11 +75,11 @@ public class SourceSelectDialog extends Dialog {
 
         Window window = getWindow();
         if (window != null) {
-            window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
             // 进出统一口径：淡入淡出 200ms（与 BaseAlertDialog 基类同一套 HkDialogFade）
             window.setWindowAnimations(R.style.HkDialogFade);
         }
+        // 窗口宽高与重力不在这里设：onCreate 末尾由 pinWindowToFinalSize 按终值一次钉死
 
         adapter = new SourceSelectAdapter(filteredSites, currentKey, site -> {
             dismiss();
@@ -99,6 +101,35 @@ public class SourceSelectDialog extends Dialog {
             }
             @Override public void afterTextChanged(Editable s) {}
         });
+
+        pinWindowToFinalSize();
+    }
+
+    /**
+     * 摆位只此一趟，show 之前按终值一次算清（2026-10-29 他真机点名「打开会重摆一次」）：
+     * 旧法窗口高 WRAP_CONTENT、重力走默认居中，高度要等 RecyclerView 布局落定才定型——
+     * 首帧先按矮高出帧（他实拍 113612 里列表区高为 0、整卡只剩搜索行且按矮高居中），
+     * 列表撑起后窗口被重新居中，就是那一下。现：宽＝屏宽减两侧各 24dp（他的定值）；
+     * 高＝按终宽把内容整体预先测一遍得到的实测高；重力显式 CENTER；三值在 show 前
+     * 一次写入窗口属性。show 之后窗口尺寸不再变，打开全程零二次位移；进场动画只是
+     * HkDialogFade 的纯 alpha 淡入，不带位移，保留不动。
+     * 注：布局根上的 layout_marginHorizontal 经 ViewBinding 无父 inflate 会被丢弃、
+     * 从未生效（实拍卡片几乎贴边即为证），左右留白改由这里的窗口宽承担。
+     */
+    private void pinWindowToFinalSize() {
+        Window window = getWindow();
+        if (window == null || binding == null) return;
+        android.util.DisplayMetrics dm = getContext().getResources().getDisplayMetrics();
+        int width = Math.max(0, dm.widthPixels - Math.round(48 * dm.density));
+        View root = binding.getRoot();
+        root.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(dm.heightPixels, View.MeasureSpec.AT_MOST));
+        WindowManager.LayoutParams lp = window.getAttributes();
+        lp.width = width;
+        lp.height = root.getMeasuredHeight();
+        lp.gravity = Gravity.CENTER;
+        window.setAttributes(lp);
+        pinnedForEmpty = adapter == null || adapter.getItemCount() == 0;
     }
 
     private void showExtConfigDialog(Site site) {
@@ -146,7 +177,9 @@ public class SourceSelectDialog extends Dialog {
                 // 进出统一口径：淡入淡出 200ms（与 BaseAlertDialog 基类同一套 HkDialogFade）
                 dialog.getWindow().setWindowAnimations(R.style.HkDialogFade);
                 android.view.WindowManager.LayoutParams lp = dialog.getWindow().getAttributes();
-                lp.width = android.view.WindowManager.LayoutParams.MATCH_PARENT;
+                // 终宽在 show 前一次算清（屏宽减两侧各 24dp）：旧法 show 之后再改宽＝二次摆位，已摘除
+                float d = ctx.getResources().getDisplayMetrics().density;
+                lp.width = (int) (ctx.getResources().getDisplayMetrics().widthPixels - 48 * d);
                 lp.height = android.view.WindowManager.LayoutParams.WRAP_CONTENT;
                 lp.gravity = android.view.Gravity.CENTER;
                 dialog.getWindow().setAttributes(lp);
@@ -226,12 +259,6 @@ public class SourceSelectDialog extends Dialog {
             });
 
             dialog.show();
-            if (dialog.getWindow() != null) {
-                android.view.WindowManager.LayoutParams lp = dialog.getWindow().getAttributes();
-                float d = ctx.getResources().getDisplayMetrics().density;
-                lp.width = (int) (ctx.getResources().getDisplayMetrics().widthPixels - 48 * d);
-                dialog.getWindow().setAttributes(lp);
-            }
         } catch (Exception e) { e.printStackTrace(); }
     }
 
@@ -290,6 +317,11 @@ public class SourceSelectDialog extends Dialog {
                 filter(binding.search.getText() == null ? "" : binding.search.getText().toString());
                 if (scrollState != null && binding.recycler.getLayoutManager() != null) {
                     binding.recycler.getLayoutManager().onRestoreInstanceState(scrollState);
+                }
+                // 仅限「开时列表为空、配置后到」这一路补钉一次高度；开时非空的永不重钉
+                if (pinnedForEmpty && adapter.getItemCount() > 0) {
+                    pinnedForEmpty = false;
+                    pinWindowToFinalSize();
                 }
             }
         } catch (Exception e) {

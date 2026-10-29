@@ -205,7 +205,9 @@ public class SourceScriptsDialog extends Dialog {
                 // 进出统一口径：淡入淡出 200ms（与 BaseAlertDialog 基类同一套 HkDialogFade）
                 dialog.getWindow().setWindowAnimations(R.style.HkDialogFade);
                 android.view.WindowManager.LayoutParams lp = dialog.getWindow().getAttributes();
-                lp.width = android.view.WindowManager.LayoutParams.MATCH_PARENT;
+                // 终宽在 show 前一次算清（屏宽减两侧各 24dp）：旧法 show 之后再改宽＝二次摆位，已摘除
+                float d = ctx.getResources().getDisplayMetrics().density;
+                lp.width = (int) (ctx.getResources().getDisplayMetrics().widthPixels - 48 * d);
                 lp.height = android.view.WindowManager.LayoutParams.WRAP_CONTENT;
                 lp.gravity = android.view.Gravity.CENTER;
                 dialog.getWindow().setAttributes(lp);
@@ -296,13 +298,6 @@ public class SourceScriptsDialog extends Dialog {
             });
 
             dialog.show();
-            // Dialog width: match parent with side margins
-            if (dialog.getWindow() != null) {
-                android.view.WindowManager.LayoutParams lp = dialog.getWindow().getAttributes();
-                float d = ctx.getResources().getDisplayMetrics().density;
-                lp.width = (int) (ctx.getResources().getDisplayMetrics().widthPixels - 48 * d);
-                dialog.getWindow().setAttributes(lp);
-            }
         } catch (Exception e) { e.printStackTrace(); }
     }
 

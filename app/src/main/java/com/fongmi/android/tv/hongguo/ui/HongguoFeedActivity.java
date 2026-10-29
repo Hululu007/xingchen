@@ -197,6 +197,10 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     };
     /** 本页曾被完全遮住（onStop）过：回前台只原地续播、不重拉（见 onResume）。 */
     private boolean stoppedOnce;
+    /** 本实例是集流形态且 init 动表前压过页表快照：销毁时弹栈还表
+     * （串剧定根 video-issues-20261029 V5，与 HgFeedSession 的
+     * snapshotTableForSeries/restoreTableSnapshot 成对）。 */
+    private boolean tableSnapshotPushed;
     /** 进程被杀后重建的首拉：成功后按 HgStore 落盘的流位置落位（仅首拉一次，
      * 切页签/下拉刷新等显式重拉不落位、回顶部）。 */
     private boolean feedPosRestorePending = true;
@@ -492,6 +496,13 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                 refreshSeriesSpeedText();
             }
             String seriesId = getIntent().getStringExtra(EXTRA_SERIES_ID);
+            // 动表前先把在下实例（流页/外层集流）的页表压栈存好：下面整表
+            // 换成自家集表，本实例销毁时不还表，在下实例的画面就与表脱节、
+            // 点击按位置回表取件串进本剧（定根账 video-issues-20261029
+            // V5）。横屏实例同走此路——它落点靠 intent＋HgStore 断点、从
+            // 不读现表，压/还不影响它的接续，只堵它回来时流页同病。
+            session.snapshotTableForSeries();
+            tableSnapshotPushed = true;
             session.items.clear();
             adapter.notifyDataSetChanged();
             if (seriesId != null) {
@@ -3140,6 +3151,15 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         // 此口径覆盖此前「回前台吃新一批」的定罪账修法，冲突见汇总文件。
         if (!stoppedOnce) return;
         stoppedOnce = false;
+        if (mode == MODE_FEED) {
+            // 在上集流实例销毁时页表已弹栈整表恢复，但本实例适配器从没收
+            // 到过任何通知（集流的 clear/notify 只达它自家适配器）：补一次
+            // 整表重绑，让画面与恢复后的表重新对上。数据是本地快照、零
+            // 网络，与上方「回前台不重载」不冲突——不重拉、只重绑（串剧
+            // 定根 video-issues-20261029 V5 修复的另一半；进剧前设的
+            // suppressResumeRefresh 管的是不重拉/不丢位，不挡重绑）。
+            adapter.notifyDataSetChanged();
+        }
         if (authorReturnRefresh) {
             authorReturnRefresh = false;
             HgFeedAdapter.Holder h = currentHolder();
@@ -3579,6 +3599,11 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         }
         binding.hgMine.getRoot().cancelPending();
         session.resolver.closeAll();
+        if (tableSnapshotPushed) {
+            // 还表放在本实例一切读表收口（saveProgress 等）之后：把页表
+            // 恢复成进剧前的样子，在下实例 onResume 只需重绑即可对上画面
+            session.restoreTableSnapshot();
+        }
         super.onDestroy();
     }
 }

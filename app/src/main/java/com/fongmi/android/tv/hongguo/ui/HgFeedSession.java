@@ -49,6 +49,34 @@ public final class HgFeedSession {
 
     /** 当前流页表（主线程限定）。 */
     public final List<HgFeedItem> items = new ArrayList<>();
+    /**
+     * 集流借表快照栈（串剧定根，账 video-issues-20261029 V5）：页表全进程
+     * 一份，集流实例 init 会整表换成自家集表——动表前把在下实例的表压栈
+     * 存好，集流实例销毁时弹栈整表恢复；不恢复则在下流页的画面（它自家
+     * 适配器早先绑好的像素）与表（已成别剧集表）脱节，点击按位置回表取
+     * 件必然串剧。栈式是为嵌套（流→竖屏集流→横屏实例同为集流形态、逐
+     * 层借表逐层还，销毁序与压栈序天然同为后进先出）。只存条目引用副本：
+     * 条目是会话内共享对象，集流只动自家表、不改写流表条目本体（展开/
+     * 富集都发生在当时的共享表上、即集流自己的表），浅拷贝足够。
+     */
+    private final java.util.Deque<List<HgFeedItem>> tableSnapshots = new java.util.ArrayDeque<>();
+
+    /** 集流实例动表前调用：当前页表压栈，与 {@link #restoreTableSnapshot()} 成对。 */
+    public void snapshotTableForSeries() {
+        tableSnapshots.push(new ArrayList<>(items));
+    }
+
+    /**
+     * 集流实例销毁时调用：弹栈把页表整表恢复成借表前的样子。原地
+     * clear＋addAll——各实例的适配器持的是同一份 List 引用，换对象会让
+     * 在下实例的适配器永远指着旧表。没压过栈（不成对）时不动表。
+     */
+    public void restoreTableSnapshot() {
+        List<HgFeedItem> snap = tableSnapshots.poll();
+        if (snap == null) return;
+        items.clear();
+        items.addAll(snap);
+    }
     /** 评论总数（按剧，评论面板真拉到才有；右列计数以此为准，没数不亮）。 */
     public final Map<String, Long> commentCounts = new HashMap<>();
 

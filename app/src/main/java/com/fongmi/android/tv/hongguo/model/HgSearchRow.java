@@ -30,25 +30,35 @@ public final class HgSearchRow {
     /** KIND_POST 的作者 uid（post_data.user_info.user_id，帖子页作者行
      * 落点用）；其余型为空串。 */
     public final String postAuthorUid;
-    /** KIND_BOOK 的小说 id / 书名 / 封面 / 简介 / 连载数（book_data 字段集，
-     * 协议原件 catalogBook 逐字：book_id/book_name/thumb_url/abstract/
-     * serial_count）；其余型为空串/0。 */
+    /** KIND_BOOK 的小说 id / 书名 / 封面 / 简介 / 连载数 / 作者（book_data
+     * 字段集，协议原件 catalogBook 逐字：book_id/book_name/thumb_url/
+     * abstract/serial_count；author 为存档真回包实有键、协议原件未收）；
+     * 其余型为空串/0。 */
     public final String bookId;
     public final String bookTitle;
     public final String bookCover;
     public final String bookAbstract;
     public final int bookSerialCount;
+    public final String bookAuthor;
 
     private HgSearchRow(int kind, HgSeriesItem series, HgAuthorHit user, HgAuthorWork post,
                         String bookId, String bookTitle, String bookCover,
                         String bookAbstract, int bookSerialCount) {
         this(kind, series, user, post, bookId, bookTitle, bookCover, bookAbstract,
-                bookSerialCount, "");
+                bookSerialCount, "", null);
     }
 
     private HgSearchRow(int kind, HgSeriesItem series, HgAuthorHit user, HgAuthorWork post,
                         String bookId, String bookTitle, String bookCover,
                         String bookAbstract, int bookSerialCount, String postAuthorUid) {
+        this(kind, series, user, post, bookId, bookTitle, bookCover, bookAbstract,
+                bookSerialCount, postAuthorUid, null);
+    }
+
+    private HgSearchRow(int kind, HgSeriesItem series, HgAuthorHit user, HgAuthorWork post,
+                        String bookId, String bookTitle, String bookCover,
+                        String bookAbstract, int bookSerialCount, String postAuthorUid,
+                        String bookAuthor) {
         this.kind = kind;
         this.series = series;
         this.user = user;
@@ -59,6 +69,7 @@ public final class HgSearchRow {
         this.bookCover = bookCover == null ? "" : bookCover;
         this.bookAbstract = bookAbstract == null ? "" : bookAbstract;
         this.bookSerialCount = bookSerialCount;
+        this.bookAuthor = bookAuthor == null ? "" : bookAuthor;
     }
 
     public static HgSearchRow ofSeries(HgSeriesItem item) {
@@ -80,7 +91,13 @@ public final class HgSearchRow {
 
     public static HgSearchRow ofBook(String id, String title, String cover,
                                      String abs, int serialCount) {
-        return new HgSearchRow(KIND_BOOK, null, null, null, id, title, cover, abs, serialCount);
+        return ofBook(id, title, cover, abs, serialCount, null);
+    }
+
+    public static HgSearchRow ofBook(String id, String title, String cover,
+                                     String abs, int serialCount, String author) {
+        return new HgSearchRow(KIND_BOOK, null, null, null, id, title, cover, abs,
+                serialCount, "", author);
     }
 
     /** 探针/日志用的一行摘要。 */

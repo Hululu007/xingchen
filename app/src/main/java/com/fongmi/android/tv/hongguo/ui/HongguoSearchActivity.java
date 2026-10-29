@@ -431,11 +431,13 @@ public class HongguoSearchActivity extends BaseActivity {
     }
 
     /**
-     * 综合/讨论/用户签走按型行表（讨论签只有帖行、用户签只有用户行，
-     * 解析层定域收录同口）；剧集/视频签的回包只有剧行、仍走 results。
+     * 综合/讨论/用户/小说签走按型行表（讨论签只有帖行、用户签只有用户行、
+     * 小说签只有书行，解析层定域收录同口）；剧集/视频签的回包只有剧行、
+     * 仍走 results。
      */
     private boolean useRows() {
-        return searchTabType == 11 || searchTabType == 31 || searchTabType == 27;
+        return searchTabType == 11 || searchTabType == 31 || searchTabType == 27
+                || searchTabType == 1;
     }
 
     /**
@@ -492,6 +494,9 @@ public class HongguoSearchActivity extends BaseActivity {
             ItemHongguoSearchBookBinding b = ((BookHolder) holder).binding;
             ImgUtil.load(row.bookTitle, row.bookCover, b.hgSbCover);
             b.hgSbTitle.setText(row.bookTitle);
+            b.hgSbAuthor.setText(row.bookAuthor);
+            b.hgSbAuthor.setVisibility(
+                    row.bookAuthor.isEmpty() ? View.GONE : View.VISIBLE);
             b.hgSbAbstract.setText(row.bookAbstract);
             b.hgSbAbstract.setVisibility(
                     row.bookAbstract.isEmpty() ? View.GONE : View.VISIBLE);
@@ -633,8 +638,11 @@ public class HongguoSearchActivity extends BaseActivity {
                         binding.hgSearchState.setVisibility(View.VISIBLE);
                         // 空态文案按签分化（官方 u2.java 实证）：讨论签走
                         // Community 分支「没有找到相关内容」，其余沿
-                        // 短剧类分支「没有找到相关短剧」
+                        // 短剧类分支「没有找到相关短剧」；小说签专属文案
+                        // 未抠到，借非短剧的通用分支「没有找到相关内容」
+                        // （书不是短剧，不许套短剧文案）
                         binding.hgSearchState.setText(searchTabType == 31
+                                || searchTabType == 1
                                 ? "没有找到相关内容" : "没有找到相关短剧");
                     } else {
                         binding.hgSearchState.setVisibility(View.GONE);

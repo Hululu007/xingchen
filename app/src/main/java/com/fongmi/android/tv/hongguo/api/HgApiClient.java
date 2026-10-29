@@ -763,7 +763,7 @@ public final class HgApiClient {
         searchTab(keyword, offset, 11, cb);
     }
 
-    /** 搜索换页签：tabType 取回包 search_tabs 的 tab_type（11 综合/29 剧集/30 视频/31 讨论/27 用户）。 */
+    /** 搜索换页签：tabType 取回包 search_tabs 的 tab_type（11 综合/29 剧集/30 视频/31 讨论/1 小说/27 用户）。 */
     public void searchTab(String keyword, int offset, int tabType, HgCallback<HgCellPage> cb) {
         getSigned("/reading/bookapi/search/tab/v", HgRequests.searchPairs(keyword, offset, tabType), new BodyCallback() {
             @Override

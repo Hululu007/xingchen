@@ -567,10 +567,9 @@ public final class HgParser {
         List<HgSeriesItem> items = new ArrayList<>();
         List<HgSearchRow> rows = new ArrayList<>();
         JsonObject data = obj(root, "data");
-        // 搜索回包的页签面（data.search_tabs）：收短剧面五签
-        // （11 综合/29 剧集/30 视频/31 讨论/27 用户，批四补讨论与用户），
-        // 顺序照服务端下发；小说(1)/听书(2)是番茄通用面、不在短剧范围
-        // （普查总图待裁），不收
+        // 搜索回包的页签面（data.search_tabs）：收六签（11 综合/29 剧集/
+        // 30 视频/31 讨论/27 用户，批四补讨论与用户；1 小说，2026-10-30
+        // 他亲裁接入），顺序照服务端下发；听书(2)未裁，仍不收不摆位
         List<HgSearchTab> tabs = new ArrayList<>();
         // search_tabs 的挂载层随回包形变（存档真回包在根级、无 data 包裹）：
         // 与 collectSeries 同口径，data 在用 data、否则用根级
@@ -581,7 +580,8 @@ public final class HgParser {
                 JsonObject t = el.getAsJsonObject();
                 int type = intOf(t, "tab_type", -1);
                 String title = str(t, "title");
-                if ((type == 11 || type == 29 || type == 30 || type == 31 || type == 27)
+                if ((type == 11 || type == 29 || type == 30 || type == 31 || type == 27
+                        || type == 1)
                         && title != null && !title.isEmpty()) {
                     tabs.add(new HgSearchTab(type, title));
                 }
@@ -711,7 +711,12 @@ public final class HgParser {
         }
     }
 
-    /** book_data 一员 → 小说行（字段集照协议原件 catalogBook 逐字）。 */
+    /**
+     * book_data 一员 → 小说行（字段集照协议原件 catalogBook 逐字：
+     * book_id/book_name/thumb_url/abstract/serial_count；另 author 一键
+     * 协议原件未收、存档真回包实有（e1_search 综合签段 book_data），
+     * 照实收）。
+     */
     private static HgSearchRow searchBookRow(JsonElement el) {
         if (el == null || !el.isJsonObject()) return null;
         JsonObject b = el.getAsJsonObject();
@@ -720,7 +725,7 @@ public final class HgParser {
         String title = firstStr(b, "book_name", "title");
         if (id == null || title == null) return null;
         return HgSearchRow.ofBook(id, title, firstStr(b, "thumb_url", "cover"),
-                str(b, "abstract"), intOf(b, "serial_count", 0));
+                str(b, "abstract"), intOf(b, "serial_count", 0), str(b, "author"));
     }
 
     /** celebrity_user_list 一员 → 用户行（与 parseUserTab 的抽取同口径）。 */

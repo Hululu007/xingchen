@@ -57,6 +57,18 @@ public class BaseLoader {
         return api.startsWith("csp_");
     }
 
+    // 退桥残留守卫：node: 前缀是旧桥独占的 api 方案（旧 NodeConfigMapper 把
+    // 站 api 统一改写成 node:/spider/<站>/<type> 或 node:/<原 api 路径>，余数
+    // 恒以 / 开头、从不是 py/js 文件引用），旧桥退场后全树再无生产者、新链
+    // 走 http 本机 /spider/ 路由（CatSpider）。但余数里可能带 .js/.py 子串
+    // （如 node:/spider/foo.js/3），若任由下面的子串谓词判型会被 Py/JsLoader
+    // 抢走误分，故凡 node: 开头在分发前一律明确落 SpiderNull／no-op，与
+    // 退桥口径一致。合法 py/js/csp/cat 的 api 都不以 node: 开头（py/js 是
+    // 文件路径或 http 地址、csp 以 csp_ 开头、cat 以 http 开头），不误伤。
+    private static boolean isNode(String api) {
+        return api.startsWith("node:");
+    }
+
     public void clear() {
         clear("unspecified");
     }
@@ -105,7 +117,7 @@ public class BaseLoader {
     }
 
     /**
-     * 统一驱逐分发：类型谓词与顺序严格复用 getSpider（Cat → Py → JS → CSP），
+     * 统一驱逐分发：类型谓词与顺序严格复用 getSpider（Cat → Node(no-op) → Py → JS → CSP），
      * 调用方不许再自维护近似判型（详情空驱逐旧写法只判 .js、其余皆 Py，
      * jar 蜘蛛全误落 PyLoader 空转、.wv 也误分）。jar 必须传 Site 的原串：
      * JarLoader 创建键是对完整原串取 md5，驱逐端任何拆解/归一都会算错键。
@@ -114,6 +126,10 @@ public class BaseLoader {
     public void removeSpider(String key, String api, String jar, String reason) {
         if (api == null) return;
         if (CatSpider.matches(api)) catSpiders.remove(key);
+        else if (isNode(api)) {
+            // node: 蜘蛛已随旧桥退场、无任何缓存表持有它，驱逐为 no-op；
+            // 不加此支，带 .py/.js 子串的 node: 串会误驱逐同 key 的 py/js 蜘蛛。
+        }
         else if (isPy(api)) pyLoader.remove(key, reason);
         else if (isJs(api)) jsLoader.remove(key);
         else if (isCsp(api)) jarLoader.removeSpider(key, api, jar, reason);
@@ -130,6 +146,7 @@ public class BaseLoader {
     public Spider getSpider(String key, String api, String ext, String jar) {
         // 猫源站点 type 也是 3，但 api 指向本机 bundle 的 HTTP 路由，得走协议适配而非本地引擎
         if (CatSpider.matches(api)) return catSpiders.computeIfAbsent(key, k -> new CatSpider(api));
+        if (isNode(api)) return new SpiderNull();
         if (isPy(api)) return pyLoader.getSpider(key, api, ext);
         else if (isJs(api)) return jsLoader.getSpider(key, api, ext, jar);
         else if (isCsp(api)) return jarLoader.getSpider(key, api, ext, jar);
@@ -144,6 +161,7 @@ public class BaseLoader {
      */
     public Spider getSpiderQuiet(String key, String api, String ext, String jar) {
         if (CatSpider.matches(api)) return catSpiders.computeIfAbsent(key, k -> new CatSpider(api));
+        if (isNode(api)) return new SpiderNull();
         if (isPy(api)) return pyLoader.getSpiderQuiet(key, api, ext);
         else if (isJs(api)) return jsLoader.getSpider(key, api, ext, jar);
         else if (isCsp(api)) return jarLoader.getSpider(key, api, ext, jar);
@@ -159,6 +177,7 @@ public class BaseLoader {
     }
 
     public void setRecent(String key, String api, String jar) {
+        if (isNode(api)) return;
         if (isJs(api)) jsLoader.setRecent(key);
         else if (isPy(api)) pyLoader.setRecent(key);
         else if (isCsp(api)) jarLoader.setRecent(Util.md5(jar));

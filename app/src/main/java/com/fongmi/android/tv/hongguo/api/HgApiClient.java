@@ -1189,7 +1189,13 @@ public final class HgApiClient {
                         cb.onFail(r.code(), "HTTP " + r.code());
                     } else if (text.isEmpty()) {
                         android.util.Log.e(TAG, path + " 回包空体 HTTP " + r.code());
-                        cb.onFail(r.code(), "回包空体");
+                        // 200＋字面零字节空体＝网关限流形状（HgPlayResolver
+                        // fetchModel 的定型）：归一成 -2 与 fetchVideoModel
+                        // onBody 的无 model 口径一致，否则解链层拿到
+                        // errCode=200 进不了计数/冷却/换档案自愈（扫查
+                        // H1）。只限 200 这一形，非 200 空体仍按真 HTTP
+                        // 码报，不许把别的 200 错误误归 -2。
+                        cb.onFail(r.code() == 200 ? -2 : r.code(), "回包空体");
                     } else {
                         cb.onBody(text);
                     }

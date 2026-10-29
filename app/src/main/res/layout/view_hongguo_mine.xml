@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 红果「我的」面：嵌在刷剧页壳内（底栏「我的」格），构成＝顶部颜色框
-     （登录区）＋紧贴框下沿的页签排（历史/收藏/点赞/预约，序为他亲定；
+     （登录区）＋紧贴框下沿的页签排（历史/收藏/点赞/预约/追更，序为他亲定；
      预约链已抠实落码 dd184c44）＋海报格子。无自带返回箭头（走系统返回），
      顶部留距由刷剧页按状态栏 insets 注入 padding。
      2026-10-29 他装 1.4.59 后亲口改法（账 mine-page-his-fix-20261029.md）：
@@ -217,9 +217,10 @@
 
     <!-- 页签条（官方 qb3/f：标题 16sp 选中粗体；右端搜索图标 20dp）。
          紧贴颜色框下沿之下（上接头部框、无额外留距），整行坐页底白面。
-         页签＝历史/收藏/点赞/追更/预约（短剧范围；追更原埋收藏子筛，他
-         2026-10-29 亲点升一级页签、紧挨预约放其前一位；国内版预约就是
-         页内页签形态、与功能位「我的预约」互斥，本面取页签形态）。 -->
+         页签＝历史/收藏/点赞/预约/追更（短剧范围；追更原埋收藏子筛，他
+         2026-10-29 亲点升一级页签，位置同日晚订正拍死在预约之后排最末
+         （首落误记预约前一位已改）；国内版预约就是页内页签形态、与功能
+         位「我的预约」互斥，本面取页签形态）。 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -251,8 +252,18 @@
             android:text="点赞"
             android:textSize="16sp" />
 
+        <TextView
+            android:id="@+id/hg_mine_tab_reserve"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:padding="8dp"
+            android:text="预约"
+            android:textSize="16sp" />
+
         <!-- 追更页签＋红点：红点压页签右上角内侧，形态照官方 follow
-             页签红点件（bg_hg_red_dot），亮灭由 HgMineView 控制。 -->
+             页签红点件（bg_hg_red_dot），亮灭由 HgMineView 控制。位置排
+             最末、在预约之后（他 2026-10-29 晚订正「出口在我的页，预约
+             后面」，首落误记预约前一位已改）。 -->
         <FrameLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content">
@@ -275,14 +286,6 @@
                 android:background="@drawable/bg_hg_red_dot"
                 android:visibility="gone" />
         </FrameLayout>
-
-        <TextView
-            android:id="@+id/hg_mine_tab_reserve"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:padding="8dp"
-            android:text="预约"
-            android:textSize="16sp" />
 
         <View
             android:layout_width="0dp"

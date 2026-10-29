@@ -32,10 +32,11 @@ import java.util.Set;
  *
  * <p>构成按国内版官方包源码对照（mine-rework-spec-20261028）＋他的收敛口径：
  * 登录区照官方双态（未登录 c_x／已登录头像 60dp＋昵称）；页签＝历史／收藏／
- * 点赞／追更／预约（官方 qb3/f 标题 16sp＋右端搜索图标；追更原埋收藏页签
- * 的子筛筹，他 2026-10-29 亲点「你放收藏级干啥」「放在预约隔壁不好吗，
- * 我也好找」升为一级页签、紧挨预约放其前一位，2026-10-28 收藏三项口径
- * 就此作废；国内版预约是页内页签形态、与功能位互斥，本面取页签形态）；
+ * 点赞／预约／追更（官方 qb3/f 标题 16sp＋右端搜索图标；追更原埋收藏页签
+ * 的子筛筹，他 2026-10-29 亲点「你放收藏级干啥」升为一级页签；位置经他
+ * 同日晚订正拍死在预约之后、排最末一位（「出口在我的页，预约后面」——
+ * 首落误记成预约前一位，当晚已改），2026-10-28 收藏三项口径就此作废；
+ * 国内版预约是页内页签形态、与功能位互斥，本面取页签形态）；
  * 子筛行照书架壳 auf（42dp＋二级页签 bb8 样式＋编辑 14sp 粗）：历史＝
  * 全部/已看完/未看完、收藏＝全部/真人剧、追更＝全部/已看完/未看完
  * （官方 MineFollowUpdateFilter）、预约＝已上线/待上线。
@@ -54,8 +55,8 @@ public final class HgMineView extends LinearLayout {
     private static final int TAB_HISTORY = 0;
     private static final int TAB_FAV = 1;
     private static final int TAB_LIKE = 2;
-    private static final int TAB_FOLLOW = 3;
-    private static final int TAB_RESERVE = 4;
+    private static final int TAB_RESERVE = 3;
+    private static final int TAB_FOLLOW = 4;
 
     private static final int HIST_ALL = 0;
     private static final int HIST_DONE = 1;
@@ -147,8 +148,8 @@ public final class HgMineView extends LinearLayout {
         tabViews[TAB_HISTORY] = findViewById(R.id.hg_mine_tab_history);
         tabViews[TAB_FAV] = findViewById(R.id.hg_mine_tab_fav);
         tabViews[TAB_LIKE] = findViewById(R.id.hg_mine_tab_like);
-        tabViews[TAB_FOLLOW] = findViewById(R.id.hg_mine_tab_follow);
         tabViews[TAB_RESERVE] = findViewById(R.id.hg_mine_tab_reserve);
+        tabViews[TAB_FOLLOW] = findViewById(R.id.hg_mine_tab_follow);
         RecyclerView grid = findViewById(R.id.hg_mine_grid);
         grid.setLayoutManager(new GridLayoutManager(getContext(), 3));
         grid.setAdapter(adapter);

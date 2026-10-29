@@ -214,6 +214,16 @@ public class HongguoSeriesDetailActivity extends BaseActivity {
                         Color.rgb(Math.max(0, Color.red(c) - 24),
                                 Math.max(0, Color.green(c) - 24),
                                 Math.max(0, Color.blue(c) - 24)));
+                // 播放钮取剧色亮版（官方 113563：页面底是剧色压暗、钮是同族
+                // 亮金，采样差约 +72/+62/+28；单样本推断，无剧色时用布局素金兜底）
+                android.graphics.drawable.GradientDrawable playBg =
+                        new android.graphics.drawable.GradientDrawable();
+                playBg.setCornerRadius(dp(10));
+                playBg.setColor(Color.rgb(
+                        Math.min(255, Color.red(c) + 64),
+                        Math.min(255, Color.green(c) + 56),
+                        Math.min(255, Color.blue(c) + 26)));
+                binding.hgSdPlay.setBackground(playBg);
             } catch (Exception ignored) {
             }
         }

@@ -35,7 +35,7 @@
             android:paddingStart="16dp"
             android:paddingTop="96dp"
             android:paddingEnd="16dp"
-            android:paddingBottom="96dp">
+            android:paddingBottom="84dp">
 
             <!-- 头行：封面小图＋剧名＋副标题段 -->
             <LinearLayout
@@ -355,25 +355,25 @@
             android:src="@drawable/ic_hg_more" />
     </LinearLayout>
 
-    <!-- 底栏：收藏＋继续播放 -->
+    <!-- 底栏：官方 113563 无底色条，收藏横排居中左区＋素金播放钮直接落页面底 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
-        android:background="#E61A1712"
         android:gravity="center_vertical"
         android:orientation="horizontal"
         android:paddingStart="16dp"
-        android:paddingTop="10dp"
+        android:paddingTop="8dp"
         android:paddingEnd="16dp"
-        android:paddingBottom="14dp">
+        android:paddingBottom="12dp">
 
         <LinearLayout
             android:id="@+id/hg_sd_fav"
-            android:layout_width="56dp"
-            android:layout_height="wrap_content"
-            android:gravity="center_horizontal"
-            android:orientation="vertical">
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:orientation="horizontal">
 
             <TextView
                 android:id="@+id/hg_sd_fav_star"
@@ -381,27 +381,27 @@
                 android:layout_height="wrap_content"
                 android:text="☆"
                 android:textColor="#FFFFFFFF"
-                android:textSize="20sp" />
+                android:textSize="22sp" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
                 android:text="收藏"
-                android:textColor="#BFFFFFFF"
-                android:textSize="10sp" />
+                android:textColor="#FFFFFFFF"
+                android:textSize="15sp"
+                android:textStyle="bold" />
         </LinearLayout>
 
         <TextView
             android:id="@+id/hg_sd_play"
-            android:layout_width="0dp"
-            android:layout_height="46dp"
-            android:layout_marginStart="12dp"
-            android:layout_weight="1"
-            android:background="@drawable/bg_hg_follow_btn"
+            android:layout_width="190dp"
+            android:layout_height="40dp"
+            android:background="@drawable/bg_hg_detail_play"
             android:gravity="center"
             android:text="▶ 继续播放"
             android:textColor="#FFFFFFFF"
-            android:textSize="15sp"
+            android:textSize="16sp"
             android:textStyle="bold" />
     </LinearLayout>
 </FrameLayout>

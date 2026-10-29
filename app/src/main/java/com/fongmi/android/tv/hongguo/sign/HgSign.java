@@ -947,9 +947,19 @@ public final class HgSign {
      * 冲突；现取签名时刻 nowMillis（调用方以 khronos 秒 ×1000 传入），
      * 字段 28 照样本形态 +2ms。</p>
      *
+     * <p>字段 24 于 2026-10-29 闭环单改取 {@link HgDevice#deviceOsApi()}
+     * （＝34，与本档案 Android 14 成对）：原抓样值 36 的定性证据链——
+     * openhongguo sign_test.go 的参照抓样与 medusa 抓样出自同一台样机
+     * （25053RT47C），其查询串 os_api=36 / os_version=16 与 medusa
+     * 字段 24=36 / 字段 22="16" 各对一位；官方包 targetSdk=35 已排除
+     * 「应用目标 SDK」这一竞争解释；字段 22/24 又同处设备身份段。
+     * 保留 36 等于让 medusa 自称「Android 14 却 API 36」（不可能的
+     * 设备），故按 os_api 改。证据等级与回退法见
+     * login-close-loop-20261029.md。</p>
+     *
      * <p>本刀不动的：字段 5 的 token 串、字段 16–21 的传感器浮点、
      * 消息字段 24 JSON 的环境哈希（抓样指纹族，生成规则未抠，牵连面
-     * 评估在账内）；字段 23/24/38 的整数语义未证，同列不动。</p>
+     * 评估在账内）；字段 23/38 的整数语义未证，同列不动。</p>
      */
     public static byte[] deviceProto(String deviceId, long nowMillis) {
         return concat(
@@ -975,7 +985,7 @@ public final class HgSign {
                 protoFloat(21, 42.17544174194336f),
                 protoString(22, HgDevice.deviceOsVersion()),
                 protoSInt(23, 41),
-                protoSInt(24, 36),
+                protoSInt(24, HgDevice.deviceOsApi()),
                 protoSInt(25, nowMillis),
                 protoSInt(26, nowMillis),
                 protoSInt(27, nowMillis),

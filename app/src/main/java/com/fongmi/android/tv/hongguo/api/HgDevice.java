@@ -82,6 +82,11 @@ public final class HgDevice {
         return OS_VERSION;
     }
 
+    /** 注册档案的系统 API 号（公参/注册体 os_api 同值，medusa 字段 24 同源，证据见 HgSign.deviceProto 注释）。 */
+    public static int deviceOsApi() {
+        return OS_API;
+    }
+
     /** 设备档案：本地派生标识＋注册回的真 id＋注册回包的游客 Cookie 材料。 */
     public static final class Profile {
         public String cdid;

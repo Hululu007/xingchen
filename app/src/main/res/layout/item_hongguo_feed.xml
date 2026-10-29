@@ -438,10 +438,45 @@
                 android:orientation="horizontal" />
         </LinearLayout>
 
+        <!-- 流页剧名行（官方流页信息摞常设行，官方实拍 113476：剧名粗字
+             ＋「›」在标签行之上、简介之上）：正剧短片（有剧归属、无作者名）
+             才出，作者帖走 @作者行形态（官方实拍 113482）。旧版流页没有
+             这行、正剧条目只剩简介一行（113579 真机点名）。点它进剧详情 -->
+        <LinearLayout
+            android:id="@+id/hg_feed_title_row"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/hg_feed_title"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:shadowColor="#80000000"
+                android:shadowDx="0"
+                android:shadowDy="1"
+                android:shadowRadius="3"
+                android:textColor="#FFFFFF"
+                android:textSize="17sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:text="›"
+                android:textColor="#CCFFFFFF"
+                android:textSize="17sp" />
+        </LinearLayout>
+
         <!-- 集流标题行（官方 InfoPanel 标题位）：角标筹＋剧名 20sp 粗。
-             只集流非专辑款出（专辑款用系列剧款内的标题行、流页不设此行——
-             流页标题在剧条里）；此前集流普通款摞里没有标题行、是缺件。
-             点它开选集单（与选集条同去处） -->
+             只集流非专辑款出（专辑款用系列剧款内的标题行）；此前集流
+             普通款摞里没有标题行、是缺件。点它开选集单（与选集条同去处） -->
         <LinearLayout
             android:id="@+id/hg_ep_title_row"
             android:layout_width="wrap_content"

@@ -257,7 +257,7 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         }
         bindSeriesStyle(b, item, seriesStyle);
         // 集流标题行＋通行标签行（非专辑款）：官方摞里标题/标签是常设位，
-        // 此前只有专辑款有这两样、普通集流条目全缺；流页不设（标题在剧条里）
+        // 此前只有专辑款有这两样、普通集流条目全缺
         if (seriesMode && !seriesStyle) {
             b.hgEpTitleRow.setVisibility(View.VISIBLE);
             b.hgEpTitle.setText(item.title == null ? "" : item.title);
@@ -271,6 +271,20 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         } else {
             b.hgEpTitleRow.setVisibility(View.GONE);
             b.hgTagsRowMain.setVisibility(View.GONE);
+        }
+        // 流页剧名行＋标签行（官方实拍 113476 构成：剧名行在标签/简介之上）：
+        // 正剧短片（有剧归属、无作者名）出此行；作者帖（有作者名）维持
+        // @作者行形态（官方实拍 113482）。旧版流页无此行，正剧条目信息摞
+        // 只剩简介一行（113579 真机点名：剧名不出）
+        boolean feedTitle = !seriesMode && !seriesStyle && item.seriesId != null
+                && item.title != null && !item.title.isEmpty()
+                && (item.authorName == null || item.authorName.isEmpty());
+        if (feedTitle) {
+            b.hgFeedTitleRow.setVisibility(View.VISIBLE);
+            b.hgFeedTitle.setText(item.title);
+            fillTags(b.hgTagsRowMain, item);
+        } else {
+            b.hgFeedTitleRow.setVisibility(View.GONE);
         }
         bindHotRow(holder, item);
         // 次级信息行（官方 recommendReason）：数据一直在条目里、此前从未上屏
@@ -539,6 +553,7 @@ public final class HgFeedAdapter extends RecyclerView.Adapter<HgFeedAdapter.Hold
         b.hgAuthorRow.setOnClickListener(v -> host.onAuthor(holder.getBindingAdapterPosition()));
         b.hgFollowBtn.setOnClickListener(v -> host.onAuthorFollow(holder.getBindingAdapterPosition()));
         b.hgEpTitleRow.setOnClickListener(v -> host.onSeriesDetail(holder.getBindingAdapterPosition()));
+        b.hgFeedTitleRow.setOnClickListener(v -> host.onSeriesDetail(holder.getBindingAdapterPosition()));
         b.hgGuideChip.setOnClickListener(v -> host.onStartFromFirst(holder.getBindingAdapterPosition()));
         b.hgReserve.setOnClickListener(v -> host.onAction(holder.getBindingAdapterPosition(), Action.RESERVE));
         b.hgSeriesBar.setOnClickListener(v -> host.onSeriesBar(holder.getBindingAdapterPosition()));

@@ -246,6 +246,9 @@ public final class LabPackageInstaller {
                                     pkg.runtime = manifest.runtime;
                                     pkg.autoStartDefault = manifest.autoStart;
                                     pkg.installTime = System.currentTimeMillis();
+                                    // 分组与兼容导入路同口径带上：此前原生 zip/.lab 路
+                                    // 漏落，清单里有 group、注册表恒为空串，登记不全
+                                    pkg.group = manifest.group == null ? "" : manifest.group;
                                     LabRegistry.get(ctx).upsertSvc(ctx, pkg);
                                     releasePackageInstall(guard);
                                     ok(listener, pkg);

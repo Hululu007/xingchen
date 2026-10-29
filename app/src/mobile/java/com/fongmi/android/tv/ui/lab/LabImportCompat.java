@@ -19,7 +19,10 @@ import java.util.regex.Pattern;
  * 实验室四路导入兼容：把外面流通的三种服务写法（默影视命令条目 / Termux 服务清单 / 裸脚本文件）
  * 归一到实验室自己的服务模型（LabManifest）。
  *
- * 纯逻辑类，不碰 android.*，可离线单测。
+ * 纯逻辑类，除 Base64 解码外不碰 android.*，可离线单测。Base64 用
+ * android.util.Base64：java.util.Base64 要 API 26、星辰 minSdk 24，
+ * API 24/25 上抛的是 NoClassDefFoundError（Error，调用方 catch Exception
+ * 接不住、直接崩），与 MusicDecrypt 同口径。
  * 路径占位约定（LabRunner.expand 会替换）：{port} {pkgDir} {filesDir} {hostPort}
  */
 public final class LabImportCompat {
@@ -156,6 +159,22 @@ public final class LabImportCompat {
         }
     }
 
+    /**
+     * 导入串 Base64 解码（API 24 起可用）：先归一再解——去掉全部空白（MIME
+     * 形态带换行）、URL-safe 字母表（-/_）翻回标准字母表（+/）、缺填充补齐 =，
+     * 三种野外形状（MIME / URL-safe / 无填充）一份口径全吃。解不开抛
+     * IllegalArgumentException（Exception 的子类），由 parseText 的既有
+     * catch 兜成人话，不许再出现 Error 级穿透。
+     */
+    static byte[] decodeImportBase64(String b64) {
+        String s = b64 == null ? "" : b64.replaceAll("\\s+", "")
+                .replace('-', '+').replace('_', '/');
+        int rem = s.length() % 4;
+        if (rem == 2) s += "==";
+        else if (rem == 3) s += "=";
+        return android.util.Base64.decode(s, android.util.Base64.NO_WRAP);
+    }
+
     // ---------------- 识别＋分发 ----------------
 
     /**
@@ -173,7 +192,7 @@ public final class LabImportCompat {
         if (t.regionMatches(true, 0, "VodPlusLabConfig://", 0, "VodPlusLabConfig://".length())) {
             String b64 = t.substring("VodPlusLabConfig://".length()).trim();
             try {
-                byte[] raw = java.util.Base64.getMimeDecoder().decode(b64);
+                byte[] raw = decodeImportBase64(b64);
                 String json = new String(raw, java.nio.charset.StandardCharsets.UTF_8).trim();
                 ParseResult r = parseJson(json);
                 r.note = "认出来了：默影视实验室包导入串（" + r.items.size() + " 条命令）";

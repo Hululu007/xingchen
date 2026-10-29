@@ -121,6 +121,7 @@ app/src/main/res/drawable/bg_hg_tag.xml
 app/src/main/res/drawable/bg_hg_hot_tag.xml
 app/src/main/res/drawable/bg_hg_cover_r6.xml
 app/src/main/res/drawable/bg_hg_cover_r12.xml
+app/src/main/res/drawable/bg_hg_cover_r4.xml
 app/src/main/res/drawable/bg_hg_detail_card.xml
 app/src/main/res/drawable/bg_hg_detail_cell.xml
 app/src/main/res/drawable/bg_hg_detail_chip.xml

@@ -740,10 +740,12 @@
     </LinearLayout>
 
     <!-- 剧条（集流专款，官方单剧播放页实拍 113630 定版排布）：信息摞
-         之下、选集条之上的一整行——封面 32×44 圆角 6dp＋剧名 14sp
+         之下、选集条之上的一整行——封面 24×32 圆角 4dp＋剧名 16sp
          白粗＋副行 12sp（更新至N集／未上线剧的上线文案）＋右端品牌
-         药丸 48dp（追更与预约同槽互斥：已上线剧＝追更、未上线剧＝
-         预约；两态色对走 ks3、形状全圆药丸）。旧版把追更/预约做成
+         药丸（追更与预约同槽互斥：已上线剧＝追更、未上线剧＝
+         预约；两态色对走 ks3、形状全圆药丸）。封面/剧名数值出处＝
+         官方剧条本体 k4q（布局 dwd／cuc 同值，2026-10-30 抠实，账
+         hongguo-rework-p1b-dramabar）。旧版把追更/预约做成
          信息摞内 54dp 大卡：卡底与选集条只隔 2dp、进度线横穿卡面、
          剧名与集数在摞内重复出现——底部全叠（他 113630 对照点名），
          本批整卡废除、动作收进本条。只集流模式亮（正剧条目），发现
@@ -762,16 +764,16 @@
 
         <ImageView
             android:id="@+id/hg_drama_cover"
-            android:layout_width="32dp"
-            android:layout_height="44dp"
-            android:background="@drawable/bg_hg_cover_r6"
+            android:layout_width="24dp"
+            android:layout_height="32dp"
+            android:background="@drawable/bg_hg_cover_r4"
             android:clipToOutline="true"
             android:contentDescription="@null" />
 
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginStart="10dp"
+            android:layout_marginStart="8dp"
             android:layout_weight="1"
             android:orientation="vertical">
 
@@ -782,7 +784,7 @@
                 android:ellipsize="end"
                 android:maxLines="1"
                 android:textColor="#FFFFFF"
-                android:textSize="14sp"
+                android:textSize="16sp"
                 android:textStyle="bold" />
 
             <TextView

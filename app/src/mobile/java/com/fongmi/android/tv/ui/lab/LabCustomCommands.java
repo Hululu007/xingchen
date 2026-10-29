@@ -86,6 +86,14 @@ public final class LabCustomCommands {
             if (!e.isJsonObject()) continue;
             CustomCommand cc = g.fromJson(e, CustomCommand.class);
             if (cc == null || TextUtils.isEmpty(cc.command)) continue;
+            // 默影视形 description 与星辰形 desc 对名：Gson 只认 desc，
+            // 外部按 description 写的 custom.json 在这里补上，不丢说明
+            if (TextUtils.isEmpty(cc.desc) && e.getAsJsonObject().has("description")) {
+                try {
+                    cc.desc = e.getAsJsonObject().get("description").getAsString();
+                } catch (Exception ignored) {
+                }
+            }
             List<LabManifest.LabVar> vars = new ArrayList<>();
             for (Object vo : rawList(cc.variables)) {
                 LabManifest.LabVar v = g.fromJson(g.toJsonTree(vo), LabManifest.LabVar.class);

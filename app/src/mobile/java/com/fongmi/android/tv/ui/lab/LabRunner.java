@@ -159,10 +159,12 @@ public final class LabRunner {
                 }
                 checkMinVersion(c, cmd);
                 stopKey(c, key);
-                int port = allocPort(c, pkg, readManifestQuiet(c, pkgId));
-                // 包设置值先垫底，同名变量再覆盖（上游变量值缓存复用口径）
-                Map<String, String> merged = new java.util.HashMap<>(LabCustomCommands.settingsOf(c, pkgId));
+                // 变量默认值垫底（此前只有弹窗路才有值、主启路 {root_dir} 等原样残留），
+                // 包设置值再垫一层，同名变量最后覆盖（上游变量值缓存复用口径）
+                Map<String, String> merged = defaultVars(readManifestQuiet(c, pkgId), cmd);
+                merged.putAll(LabCustomCommands.settingsOf(c, pkgId));
                 if (vars != null) merged.putAll(vars);
+                int port = allocPort(c, pkg, readManifestQuiet(c, pkgId), merged.get("port"));
                 ensureDependency(c, pkgId, cmd, port);
                 String command = expand(c, pkgId, cmd.command, port, merged);
                 ERRORS.remove(key);
@@ -213,9 +215,29 @@ public final class LabRunner {
         d.file = expand(c, pkgId, src.file, port);
         d.checkFile = expand(c, pkgId, src.checkFile, port);
         d.extractTo = expand(c, pkgId, src.extractTo, port);
+        d.libUrl = expand(c, pkgId, src.libUrl, port);
         d.required = src.required;
-        if (!LabDepends.needed(pkgDir, d)) return;
-        LabDepends.fetch(pkgDir, c.getCacheDir(), d, LabRunner::downloadFile);
+        boolean mainNeeded = LabDepends.needed(pkgDir, d);
+        boolean libNeeded = d.libUrl != null && !d.libUrl.trim().isEmpty()
+                && LabDepends.needed(pkgDir, libOnly(d));
+        if (!mainNeeded && !libNeeded) return;
+        try {
+            LabDepends.fetch(pkgDir, c.getCacheDir(), d, LabRunner::downloadFile);
+        } catch (Exception e) {
+            // required 消费点（此前收而不用、失败恒抛）：声明必备才拦启动；
+            // 非必备的下载失败只记进运行记录，命令照常起（文件可能已在别处备好）
+            if (src.required) throw e;
+            appendFile(LabProc.logFile(c, pkgId),
+                    "依赖没下下来（声明为非必备，继续启动）：" + e.getMessage() + "\n");
+        }
+    }
+
+    /** 只带第二分片的判定用副本（needed 只看 url/extractTo/标记） */
+    private static LabManifest.LabDownload libOnly(LabManifest.LabDownload d) {
+        LabManifest.LabDownload lib = new LabManifest.LabDownload();
+        lib.url = d.libUrl;
+        lib.extractTo = d.extractTo;
+        return lib;
     }
 
     private static void downloadFile(String url, File dest) throws Exception {
@@ -323,12 +345,16 @@ public final class LabRunner {
                 checkMinVersion(c, cmd);
                 ERRORS.remove(keyOf(pkgId));
                 stop(c, pkgId);
-                int port = allocPort(c, pkg, manifest);
+                // 主启路也填变量默认值＋包设置（此前 vars=null，{root_dir} 原样
+                // 残留在命令里、变量 port 的默认端口也被分配口接管）
+                Map<String, String> merged = defaultVars(manifest, cmd);
+                merged.putAll(LabCustomCommands.settingsOf(c, pkgId));
+                int port = allocPort(c, pkg, manifest, merged.get("port"));
                 // 默认命令路此前不备料也不查版本门：靠 downloads 拿二进制的包
                 // （mihomo/frp/ubuntu 一族）从服务页启动永远缺文件，与按命令启动
                 // 那条路口径对齐（上游运行前统一 prepareDependency）
                 ensureDependency(c, pkgId, cmd, port);
-                String command = expand(c, pkgId, cmd.command, port);
+                String command = expand(c, pkgId, cmd.command, port, merged);
                 runShell(c, pkgId, keyOf(pkgId), command, pkgId, listener);
                 if (listener != null) listener.onOutput("");
             } catch (Exception e) {
@@ -353,6 +379,36 @@ public final class LabRunner {
         String line = "启动失败：" + message + "\n";
         appendLog(key, line);
         appendFile(LabProc.logFile(c, pkgId), line);
+    }
+
+    /** 变量表里名为 port 的变量值（用户填的/默认值）优先于清单端口策略：
+     * 默影视口径里变量 port 就是命令监听口，分配口必须跟它对齐，否则服务页
+     * 登记的口与命令实际绑的口两张皮 */
+    private static int allocPort(Context c, LabRegistry.Svc pkg, LabManifest manifest,
+                                 String preferredPort) throws Exception {
+        if (preferredPort != null && preferredPort.trim().matches("\\d+")) {
+            LabManifest fake = new LabManifest();
+            fake.output = new LabManifest.LabOutput();
+            fake.output.port = preferredPort.trim();
+            return allocPort(c, pkg, fake);
+        }
+        return allocPort(c, pkg, manifest);
+    }
+
+    /** 命令变量默认值表：命令 variables 的 defaultValue + 包 settings 的 defaultValue */
+    private static Map<String, String> defaultVars(LabManifest manifest, LabManifest.LabCommand cmd) {
+        Map<String, String> out = new java.util.HashMap<>();
+        if (manifest != null) {
+            for (LabManifest.LabVar v : manifest.settings) {
+                if (v.key != null && v.defaultValue != null) out.put(v.key, v.defaultValue);
+            }
+        }
+        if (cmd != null) {
+            for (LabManifest.LabVar v : cmd.variables) {
+                if (v.key != null && v.defaultValue != null) out.put(v.key, v.defaultValue);
+            }
+        }
+        return out;
     }
 
     private static int allocPort(Context c, LabRegistry.Svc pkg, LabManifest manifest) throws Exception {
@@ -412,7 +468,9 @@ public final class LabRunner {
      * 命令展开（上游 LabRunner.expand 口径的精简版）：
      * 1) {var} 变量替换（vars 优先，包设置值已在调用方合并进来），支持嵌套（最多 5 层），
      *    ${...} 跳过不碰；没值的占位原样保留（缺失变量由调用方先弹变量表补齐）。
-     * 2) 特殊占位：{serverPort}＝本次分配端口；{hostPort}＝宿主 Nano 服务口
+     * 2) 特殊占位：{serverPort}＝壳子文件服务口（默影视语义，与 {hostPort} 同值，
+     *    即 Proxy.getPort()；此前误换成本次分配口，默影视包里靠它下 EnvFiles 的
+     *    地址永远连不上）；{hostPort}＝宿主 Nano 服务口
      *    （Proxy.getPort()，与点播链 NodeBoot 给 bundle 的 catDartServerPort
      *    同一个值；服务没起来时为 -1，与 NodeBoot 直传同口径）；
      *    {tvPath}{dataPath}{cachePath}
@@ -425,7 +483,7 @@ public final class LabRunner {
         File pkgDir = LabPaths.packageDir(c, pkgId);
         File labRoot = LabPaths.root(c);
         return out
-                .replace("{serverPort}", String.valueOf(port))
+                .replace("{serverPort}", String.valueOf(Proxy.getPort()))
                 .replace("{hostPort}", String.valueOf(Proxy.getPort()))
                 .replace("{tvPath}", new File(c.getFilesDir(), "TV").getAbsolutePath())
                 .replace("{dataPath}", new File(pkgDir, "data").getAbsolutePath())

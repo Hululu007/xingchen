@@ -104,6 +104,20 @@ public final class LabDepends {
      * 所有落点先过 guard（包目录/公共目录之外拒绝）。
      */
     public static void fetch(File pkgDir, File cacheDir, LabManifest.LabDownload d, Downloader dl) throws Exception {
+        // 主/次两片各自判缺：主包已备好时只补第二分片，不重下主包
+        if (needed(pkgDir, d)) fetchOne(pkgDir, cacheDir, d, dl);
+        // 第二分片（liburl）：主包落完后按同一落点再备一份（依赖库包与主包同目录
+        // 合并）。第二分片自己不再带 liburl，不会递归
+        if (d.libUrl != null && !d.libUrl.trim().isEmpty()) {
+            LabManifest.LabDownload lib = new LabManifest.LabDownload();
+            lib.url = d.libUrl.trim();
+            lib.extractTo = d.extractTo;
+            lib.required = d.required;
+            if (needed(pkgDir, lib)) fetchOne(pkgDir, cacheDir, lib, dl);
+        }
+    }
+
+    private static void fetchOne(File pkgDir, File cacheDir, LabManifest.LabDownload d, Downloader dl) throws Exception {
         String url = d.url.trim();
         String name = fileNameOf(url);
         File tmp = new File(cacheDir, "lab_dep_" + sanitize(name));

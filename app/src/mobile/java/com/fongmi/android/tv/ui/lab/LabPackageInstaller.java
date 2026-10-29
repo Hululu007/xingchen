@@ -496,7 +496,30 @@ public final class LabPackageInstaller {
                     pkg.autoStartDefault = m.autoStart;
                     pkg.installTime = System.currentTimeMillis();
                     pkg.needsReview = it.needsReview;
+                    pkg.group = m.group == null ? "" : m.group;
                     LabRegistry.get(ctx).upsertSvc(ctx, pkg);
+                    // 离线包 commands.json 的自建命令：写进本包 custom.json（同 id 不重复写，
+                    // 重装不叠份）；LabCustomCommands 的 desc 字段与转入时已对好名
+                    if (it.customCommands != null && !it.customCommands.isEmpty()) {
+                        java.util.Set<String> have = new java.util.HashSet<>();
+                        for (LabCustomCommands.CustomCommand old : LabCustomCommands.list(ctx, m.id)) {
+                            if (old.id != null) have.add(old.id);
+                        }
+                        for (LabManifest.LabCommand cc : it.customCommands) {
+                            if (cc.id != null && have.contains(cc.id)) continue;
+                            LabCustomCommands.CustomCommand nc = new LabCustomCommands.CustomCommand();
+                            nc.id = cc.id;
+                            nc.name = cc.name;
+                            nc.desc = cc.desc;
+                            nc.command = cc.command;
+                            nc.background = cc.background;
+                            nc.autoExecute = cc.autoExecute;
+                            nc.showOutput = cc.showOutput;
+                            nc.minVersion = cc.minVersion;
+                            nc.variables.addAll(cc.variables);
+                            LabCustomCommands.add(ctx, m.id, nc);
+                        }
+                    }
                     releasePackageInstall(guard);
                     // 安装流程中不直接拉起服务：自启标记已随 manifest/注册表落盘，
                     // 由 LabBoot（开机/进实验室）与用户手动启动消费。曾在这里逐条

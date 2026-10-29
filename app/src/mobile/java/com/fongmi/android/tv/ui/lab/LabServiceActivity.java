@@ -485,6 +485,19 @@ public class LabServiceActivity extends AppCompatActivity {
             }
         }
 
+        // 后续操作（上游 clicks）：每条渲染成可点行，按 action 分发处置
+        if (manifest != null) {
+            boolean clickHead = false;
+            for (LabManifest.LabCommand c : manifest.commands) {
+                if (c.clicks == null || c.clicks.isEmpty()) continue;
+                if (!clickHead) {
+                    inner.addView(sectionLabel("后续操作"));
+                    clickHead = true;
+                }
+                for (LabManifest.LabClick cl : c.clicks) inner.addView(clickRow(c, cl));
+            }
+        }
+
         inner.addView(advRow("添加命令", () -> showCustomCommandDialog(null)));
         if (manifest != null && !manifest.settings.isEmpty()) {
             inner.addView(advRow("包设置", () -> {
@@ -570,6 +583,98 @@ public class LabServiceActivity extends AppCompatActivity {
             });
         }
         return row;
+    }
+
+    private View clickRow(LabManifest.LabCommand owner, LabManifest.LabClick cl) {
+        TextView row = new TextView(this);
+        row.setText((cl.title == null || cl.title.isEmpty()) ? "操作" : cl.title);
+        row.setTextSize(14);
+        row.setTextColor(LabSkin.TEXT_ON_DARK);
+        row.setBackground(LabSkin.rowDark(this));
+        row.setPadding(dp(14), dp(11), dp(14), dp(11));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.bottomMargin = dp(8);
+        row.setLayoutParams(lp);
+        row.setClickable(true);
+        row.setFocusable(true);
+        row.setOnClickListener(v -> dispatchClick(owner, cl));
+        return row;
+    }
+
+    /** click 的 value/content 里 {var} 占位：用变量缓存＋包设置＋当前端口展开 */
+    private String expandClickText(String text) {
+        if (text == null) return "";
+        String out = text;
+        Map<String, String> vals = new HashMap<>(LabCustomCommands.settingsOf(this, pkgId));
+        vals.putAll(LabCustomCommands.varCache(this, pkgId));
+        for (Map.Entry<String, String> e : vals.entrySet()) {
+            if (e.getValue() != null) out = out.replace("{" + e.getKey() + "}", e.getValue());
+        }
+        LabRegistry.Svc s = LabRegistry.get(this).svc(pkgId);
+        if (s != null && s.port > 0) out = out.replace("{port}", String.valueOf(s.port));
+        return out;
+    }
+
+    /** clicks 七种样本 action 的处置（＋log/run/stop/restart）；没有对应处置的明说 */
+    private void dispatchClick(LabManifest.LabCommand owner, LabManifest.LabClick cl) {
+        String action = cl.action == null ? "" : cl.action.trim().toLowerCase();
+        String value = expandClickText(cl.value);
+        switch (action) {
+            case "open":
+            case "webview": {
+                if (TextUtils.isEmpty(value)) { Notify.show("这个按钮没给地址"); return; }
+                try {
+                    startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(value)));
+                } catch (Exception e) {
+                    Notify.show("打不开这个地址");
+                }
+                return;
+            }
+            case "copy": {
+                android.content.ClipboardManager cm = (android.content.ClipboardManager)
+                        getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+                if (cm != null) cm.setPrimaryClip(android.content.ClipData.newPlainText("lab", value));
+                Notify.show("复制好了");
+                return;
+            }
+            case "qrcode": {
+                if (TextUtils.isEmpty(value)) { Notify.show("这个按钮没给内容"); return; }
+                showQr(value);
+                return;
+            }
+            case "share":
+                LabOutputBridge.shareText(this, value);
+                return;
+            case "alert": {
+                String msg = value;
+                if (cl.content != null && !cl.content.isEmpty()) {
+                    msg = msg + (msg.isEmpty() ? "" : "\n") + expandClickText(cl.content);
+                }
+                LabInstallDialog.showConfirm(this,
+                        (cl.title == null || cl.title.isEmpty()) ? "说明" : cl.title, msg, "知道了", () -> { });
+                return;
+            }
+            case "toast":
+                Notify.show(value);
+                return;
+            case "log":
+                LabLogActivity.start(this, pkgId, owner.name == null ? "" : owner.name);
+                return;
+            case "run":
+                runCommandWithVars(owner);
+                return;
+            case "stop":
+                LabRunner.stopCommand(this, pkgId, owner.id);
+                reload();
+                return;
+            case "restart":
+                LabRunner.stopCommand(this, pkgId, owner.id);
+                runCommandWithVars(owner);
+                return;
+            default:
+                Notify.show("这个按钮的动作（" + action + "）星辰还没有对应处置");
+        }
     }
 
     private LabCustomCommands.CustomCommand findCustom(String id) {

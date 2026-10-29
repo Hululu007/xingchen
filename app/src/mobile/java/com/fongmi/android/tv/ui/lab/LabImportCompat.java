@@ -484,6 +484,12 @@ public final class LabImportCompat {
         // Item 级 downloads[]（靠下载落二进制的服务，如 lxserver/drpy-node）：解析一次套到每条命令。
         // 此前整段没读，装完没二进制还不吭声；读不通的也必须进 needsReview 明说
         ItemDownloads itemDls = parseItemDownloads(o);
+        // 展示版本优先用选中 arch 那条 downloads 的真 version（默影视口径：
+        // php 的 Item 写 7.3.22、arm64 包真版是 7.3.33，展示/更新判定认后者）
+        if (itemDls.download != null && itemDls.download.version != null
+                && !itemDls.download.version.isEmpty()) {
+            version = itemDls.download.version;
+        }
         // 包级 settings（上游按环境变量注入）：并入每条命令的变量表，语义差异如实提示；
         // 同时原形存 pkgSettings，toManifest 落 manifest.settings，服务页「包设置」行才有入口
         List<LabManifest.LabVar> pkgVars = parseLabVarList(o.optJSONArray("settings"));

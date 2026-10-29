@@ -341,8 +341,12 @@ public class HongguoAuthorActivity extends BaseActivity {
                     if (p.blueVip && p.vipIconUrl != null && !p.vipIconUrl.isEmpty()) {
                         binding.hgAuthorVipBadge.setVisibility(View.VISIBLE);
                         ImgUtil.load("", p.vipIconUrl, binding.hgAuthorVipBadge);
+                        // 悬浮卡头像同带 V 标（官方实拍 113562 卡内头像有 V）
+                        binding.hgAuthorFloatVipBadge.setVisibility(View.VISIBLE);
+                        ImgUtil.load("", p.vipIconUrl, binding.hgAuthorFloatVipBadge);
                     } else {
                         binding.hgAuthorVipBadge.setVisibility(View.GONE);
+                        binding.hgAuthorFloatVipBadge.setVisibility(View.GONE);
                     }
                     // 页头底（ax8 定版）：bg_color 只作头图衬色垫在图下，
                     // bg_covers 全幅全不透明垫底（390dp 头图层），不再压淡

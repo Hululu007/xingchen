@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 发评论/回复编辑层白底（评论面白口径；与弹幕编辑层的深底 bg_hg_dialog_dark 分开，不串）。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <corners android:radius="16dp" />
+    <solid android:color="#FFFFFFFF" />
+</shape>

@@ -88,6 +88,8 @@ app/src/main/res/layout/dialog_hongguo_land_episodes.xml
 app/src/main/res/layout/dialog_hongguo_land_list.xml
 app/src/main/res/layout/dialog_hongguo_subscribe_recall.xml
 app/src/main/res/layout/item_hongguo_comment.xml
+app/src/main/res/layout/item_hongguo_reply.xml
+app/src/main/res/layout/item_hongguo_replies_more.xml
 app/src/main/res/layout/item_hongguo_episode.xml
 app/src/main/res/layout/item_hongguo_feed.xml
 app/src/main/res/layout/item_hongguo_mine_card.xml
@@ -157,7 +159,11 @@ app/src/main/res/drawable/ic_hg_close.xml
 app/src/main/res/drawable/ic_hg_check_on.xml
 app/src/main/res/drawable/ic_hg_detail_arrow.xml
 app/src/main/res/drawable/ic_hg_now_playing.xml
+app/src/main/res/drawable/ic_hg_chevron_down.xml
 app/src/main/res/drawable/ic_hg_comment.xml
+app/src/main/res/drawable/ic_hg_emoji.xml
+app/src/main/res/drawable/ic_hg_image.xml
+app/src/main/res/drawable/ic_hg_like.xml
 app/src/main/res/drawable/ic_hg_fullscreen.xml
 app/src/main/res/drawable/ic_hg_heart.xml
 app/src/main/res/drawable/ic_hg_battery.xml
@@ -194,7 +200,10 @@ app/src/main/res/drawable/bg_hg_author_series_card.xml
 app/src/main/res/drawable/bg_hg_author_sheet.xml
 app/src/main/res/drawable/bg_hg_book_chip.xml
 app/src/main/res/drawable/bg_hg_book_searchbar.xml
+app/src/main/res/drawable/bg_hg_comment_editor.xml
+app/src/main/res/drawable/bg_hg_comment_field.xml
 app/src/main/res/drawable/bg_hg_comment_input.xml
+app/src/main/res/drawable/bg_hg_comments_sheet.xml
 app/src/main/res/drawable/bg_hg_comment_replies.xml
 app/src/main/res/drawable/bg_hg_dm_seek_bg.xml
 app/src/main/res/drawable/bg_hg_dm_seek_progress.xml

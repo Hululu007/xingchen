@@ -1,52 +1,64 @@
 package com.fongmi.android.tv.hongguo.ui;
 
 import android.app.Activity;
+import android.graphics.Typeface;
+import android.text.Layout;
+import android.text.SpannableString;
+import android.text.Spanned;
+import android.text.style.ForegroundColorSpan;
+import android.text.style.RelativeSizeSpan;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
+import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.databinding.DialogHongguoCommentEditorBinding;
 import com.fongmi.android.tv.databinding.DialogHongguoCommentsBinding;
 import com.fongmi.android.tv.databinding.ItemHongguoCommentBinding;
+import com.fongmi.android.tv.databinding.ItemHongguoRepliesMoreBinding;
+import com.fongmi.android.tv.databinding.ItemHongguoReplyBinding;
+import com.fongmi.android.tv.hongguo.HgEmoji;
+import com.fongmi.android.tv.hongguo.HgFormat;
+import com.fongmi.android.tv.hongguo.HgTimeText;
 import com.fongmi.android.tv.hongguo.api.HgCallback;
+import com.fongmi.android.tv.hongguo.api.HgCommentClient;
 import com.fongmi.android.tv.hongguo.api.HgLoginAuthProvider;
 import com.fongmi.android.tv.hongguo.model.HgComment;
 import com.fongmi.android.tv.login.LoginManager;
 import com.fongmi.android.tv.utils.ImgUtil;
-import com.fongmi.android.tv.utils.ImgUtil;
 import com.google.android.material.bottomsheet.BottomSheetBehavior;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.LongConsumer;
 import java.util.function.LongSupplier;
 
 /**
- * 评论面板（四阶段灌实）：单集评论列表＋上滑翻页＋回复展开，全走 hongguo 包
- * 自有 {@link com.fongmi.android.tv.hongguo.api.HgCommentClient}（协议出处见
- * 该类类头；不直连规则年代的 api/HongguoCommentApi，理由同在该类类头）。
+ * 评论面板（官方实拍 113610 白面口径完工版）：白底圆角顶、头部左 ⌄ 收起
+ * ＋居中双页签「评论 N／剧评 M」——评论＝单集评论、剧评＝整剧评论，两套
+ * 数据各自翻页/回复/点赞；行构成＝头像＋灰名＋正文（表情码渲染成图形、
+ * 长文 4 行截断带「… 展开」）＋短时间＋回复入口＋右列点赞（心形＋数，
+ * comment/do_action 乐观更新、失败回滚）；楼层回复是独立缩进行、逐条
+ * 可赞可回；底部浅灰胶囊输入条（单集语境才显）点开白面编辑层（带表情
+ * 条）发评论，回复走 reply/add 二级链。数据全走 hongguo 包自有
+ * {@link HgCommentClient}（协议出处见该类；不直连规则年代
+ * api/HongguoCommentApi）。弹幕不在本面（发表走独立弹幕编辑层，与评论
+ * 两条链，口径不串）。
  *
- * <p>发评论（单集）：请求档位已由续挖定版（dig-search2-20261028.md §7：
- * commit_source 3/group_type 30/data_type 4/comment_type 不填），面板底部
- * 假输入条点开编辑层发送，成功后整表刷新；整剧剧评（评分帖）是另一条链，
- * 不在此面发送，剧评面不显输入条。回复发送（commit_source 9）未接。</p>
- *
- * <p>线程口径：翻页与回复都在 OkHttp 分发线程拉取，回调里只把结果贴回主线程
- * 更新适配器，主线程不做网络与解析。评论总数经 onTotal 回报页面——右列评论
- * 计数以此为准（数据驱动，没数不亮）。</p>
+ * <p>线程口径：拉取在 OkHttp 分发线程，回调里只把结果贴回主线程更新
+ * 适配器。评论总数（单集档）经 onTotal 回报页面右列计数。</p>
  */
 public final class HgCommentsPanel {
 
@@ -55,9 +67,9 @@ public final class HgCommentsPanel {
 
     // ---------- 第一页进程内缓存（评论打开慢对策，定根 comment-open-slow-dig） ----------
     // 接口首包固有约 1.4–1.9s 且宿主是独占冷域名，零缓存时每次打开全价重付。
-    // 按 seriesId+vid 缓存第一页 45 秒（报告建议区间 30–60 秒取中值）：
-    // 重开先显缓存、后台静默刷新替换；当前播放条目空闲期预拉一页填缓存
-    // （该接口已实证同档案连发无恙，预拉每条目只发一次、失败不重试）。
+    // 按 seriesId+vid 缓存第一页 45 秒：重开先显缓存、后台静默刷新替换；
+    // 当前播放条目空闲期预拉一页填缓存（每条目只发一次、失败不重试）。
+    // 双页签后两个档各用自己的键：单集＝seriesId|vid、剧评＝seriesId|series。
 
     private static final long FIRST_PAGE_TTL_MS = 45_000;
 
@@ -80,9 +92,9 @@ public final class HgCommentsPanel {
     private static final Map<String, FirstPage> FIRST_PAGE_CACHE = new HashMap<>();
     private static final Set<String> PREFETCHING = new HashSet<>();
 
-    private static String cacheKey(HgFeedItem item) {
-        boolean ep = item.videoId != null && !item.videoId.isEmpty();
-        return item.seriesId + "|" + (ep ? item.videoId : "series");
+    private static String cacheKey(HgFeedItem item, boolean series) {
+        if (series) return item.seriesId + "|series";
+        return item.seriesId + "|" + item.videoId;
     }
 
     private static FirstPage cacheGet(String key) {
@@ -110,7 +122,7 @@ public final class HgCommentsPanel {
         boolean ep = item.videoId != null && !item.videoId.isEmpty();
         if (ep && (item.commentCount == null || item.commentCount.trim().isEmpty()
                 || "0".equals(item.commentCount.trim()))) return;
-        String key = cacheKey(item);
+        String key = item.seriesId + "|" + (ep ? item.videoId : "series");
         if (cacheGet(key) != null) return;
         synchronized (FIRST_PAGE_CACHE) {
             if (!PREFETCHING.add(key)) return;
@@ -145,7 +157,7 @@ public final class HgCommentsPanel {
     }
 
     /**
-     * @param positionSupplier 发表时取当前播放进度（毫秒）喂 business.offset；
+     * @param positionSupplier 发表评论时取当前播放进度（毫秒）喂 business.offset；
      *                         不给时按 0。评论面板自身不持有播放器，由宿主喂。
      */
     public static void show(Activity activity, HgFeedItem item, LongConsumer onTotal,
@@ -154,11 +166,12 @@ public final class HgCommentsPanel {
                 LayoutInflater.from(activity));
         BottomSheetDialog dialog = new BottomSheetDialog(activity);
         dialog.setContentView(binding.getRoot());
-        binding.hgCmClose.setOnClickListener(v -> dialog.dismiss());
+        binding.hgCmCollapse.setOnClickListener(v -> dialog.dismiss());
         int half = (int) (activity.getResources().getDisplayMetrics().heightPixels * 0.6f);
         dialog.setOnShowListener(d -> {
             FrameLayout sheet = dialog.findViewById(com.google.android.material.R.id.design_bottom_sheet);
             if (sheet == null) return;
+            sheet.setBackgroundColor(android.graphics.Color.TRANSPARENT);
             try {
                 BottomSheetBehavior<FrameLayout> behavior = BottomSheetBehavior.from(sheet);
                 behavior.setPeekHeight(half);
@@ -167,34 +180,49 @@ public final class HgCommentsPanel {
             }
         });
         Loader loader = new Loader(activity, binding, item, onTotal);
-        boolean episode = item.videoId != null && !item.videoId.isEmpty();
-        binding.hgCmInputBar.setVisibility(episode ? View.VISIBLE : View.GONE);
-        if (episode) {
-            binding.hgCmInputBar.setOnClickListener(v -> {
-                // 未登录先拉壳子统一登录（与互动四件同口径），不开编辑层
-                if (!HgLoginAuthProvider.isLoggedIn()) {
-                    if (!LoginManager.loginHongguoDelivered()) {
-                        android.widget.Toast.makeText(activity,
-                                "登录界面暂时打不开，稍后再试",
-                                android.widget.Toast.LENGTH_SHORT).show();
-                    }
-                    return;
-                }
-                showCommentEditor(activity, loader, item, positionSupplier);
-            });
-        }
+        binding.hgCmTabEpisode.setOnClickListener(v -> loader.switchTab(false));
+        binding.hgCmTabSeries.setOnClickListener(v -> loader.switchTab(true));
+        binding.hgCmInputBar.setOnClickListener(v -> {
+            // 未登录先拉壳子统一登录（与互动四件同口径），不开编辑层
+            if (!HgLoginAuthProvider.isLoggedIn()) {
+                pullLogin(activity);
+                return;
+            }
+            showEditor(activity, loader, loader.epTab(), null, positionSupplier);
+        });
         dialog.show();
         loader.start();
     }
 
+    /** 未登录拉壳子统一登录托管；投递不出去时如实提示（与流页互动同文案）。 */
+    private static void pullLogin(Activity activity) {
+        if (!LoginManager.loginHongguoDelivered()) {
+            android.widget.Toast.makeText(activity, "登录界面暂时打不开，稍后再试",
+                    android.widget.Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /** 回复目标：根评论 id＋被点的那条（评论本体或某条楼层回复）。 */
+    private static final class ReplyTarget {
+        final String rootId;
+        final HgComment target;
+
+        ReplyTarget(String rootId, HgComment target) {
+            this.rootId = rootId;
+            this.target = target;
+        }
+    }
+
     /**
-     * 发评论编辑层（自家小 Dialog，深底照红果面口径；官方框体是社区
-     * Compose 编辑器、无经典布局可抄）：构成照发弹幕编辑层——空文本发表
-     * 不可点、发送中禁用防连点、失败不关层提示再试；成功关层、提示已发表
-     * 并整表刷新（新评论由服务端列表回带，不在本地编造一条）。
+     * 评论/回复编辑层（白面小 Dialog）：空文本发表不可点、发送中禁用防
+     * 连点、失败不关层提示再试；表情条 53 码点插 [码] 文本（与官方同存
+     * 码机制）；评论成功关层＋整表刷新（新评论由服务端回带、不本地编
+     * 造），回复成功关层＋根评论回复数本地 +1 并刷新其楼层。
+     *
+     * @param reply 非空＝回复模式（标题「回复 @名」、走 reply/add）。
      */
-    private static void showCommentEditor(Activity activity, Loader loader, HgFeedItem item,
-                                          LongSupplier positionSupplier) {
+    private static void showEditor(Activity activity, Loader loader, Loader.TabState tab,
+                                   ReplyTarget reply, LongSupplier positionSupplier) {
         DialogHongguoCommentEditorBinding eb = DialogHongguoCommentEditorBinding.inflate(
                 LayoutInflater.from(activity));
         android.app.Dialog dialog = new android.app.Dialog(activity);
@@ -202,8 +230,34 @@ public final class HgCommentsPanel {
         if (dialog.getWindow() != null) {
             dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(
                     android.graphics.Color.TRANSPARENT));
-            int w = (int) (activity.getResources().getDisplayMetrics().widthPixels * 0.85f);
+            int w = (int) (activity.getResources().getDisplayMetrics().widthPixels * 0.88f);
             dialog.getWindow().setLayout(w, ViewGroup.LayoutParams.WRAP_CONTENT);
+            dialog.getWindow().setSoftInputMode(
+                    android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE);
+        }
+        HgFeedItem item = loader.item;
+        if (reply != null) {
+            String name = reply.target.author == null || reply.target.author.isEmpty()
+                    ? "红果用户" : reply.target.author;
+            eb.hgCeTitle.setText("回复 @" + name);
+            eb.hgCeInput.setHint("回复 @" + name);
+        }
+        // 表情条：53 个字形钮横排，点一下把 [码] 插到光标处
+        float density = activity.getResources().getDisplayMetrics().density;
+        for (int i = 0; i < HgEmoji.NAMES.length; i++) {
+            final String code = "[" + HgEmoji.NAMES[i] + "]";
+            TextView tv = new TextView(activity);
+            tv.setText(HgEmoji.GLYPHS[i]);
+            tv.setTextSize(22);
+            int pad = Math.round(7 * density);
+            tv.setPadding(pad, Math.round(4 * density), pad, Math.round(4 * density));
+            tv.setOnClickListener(v -> {
+                int at = Math.max(0, eb.hgCeInput.getSelectionStart());
+                String cur = eb.hgCeInput.getText() == null ? "" : eb.hgCeInput.getText().toString();
+                eb.hgCeInput.setText(cur.substring(0, at) + code + cur.substring(at));
+                eb.hgCeInput.setSelection(Math.min(eb.hgCeInput.getText().length(), at + code.length()));
+            });
+            eb.hgCeEmojiRow.addView(tv);
         }
         final boolean[] sending = {false};
         android.text.TextWatcher watcher = new android.text.TextWatcher() {
@@ -232,63 +286,102 @@ public final class HgCommentsPanel {
             eb.hgCePublish.setEnabled(false);
             eb.hgCePublish.setAlpha(0.45f);
             eb.hgCeError.setVisibility(View.GONE);
-            final long offsetMs = positionSupplier == null ? 0
-                    : Math.max(0, positionSupplier.getAsLong());
-            loader.session.fqClient.publishComment(item.seriesId, item.videoId, text, offsetMs,
-                    new HgCallback<Void>() {
-                        @Override
-                        public void onSuccess(Void ignored) {
-                            activity.runOnUiThread(() -> {
-                                if (activity.isFinishing() || activity.isDestroyed()) return;
-                                dialog.dismiss();
-                                android.widget.Toast.makeText(activity, "已发表",
-                                        android.widget.Toast.LENGTH_SHORT).show();
-                                loader.refreshAfterPost();
-                            });
-                        }
-
-                        @Override
-                        public void onError(int httpCode, String message) {
-                            activity.runOnUiThread(() -> {
-                                if (activity.isFinishing() || activity.isDestroyed()
-                                        || !dialog.isShowing()) return;
-                                sending[0] = false;
-                                eb.hgCeError.setVisibility(View.VISIBLE);
-                                watcher.afterTextChanged(eb.hgCeInput.getText());
-                            });
-                        }
+            HgCallback<Void> cb = new HgCallback<Void>() {
+                @Override
+                public void onSuccess(Void ignored) {
+                    activity.runOnUiThread(() -> {
+                        if (activity.isFinishing() || activity.isDestroyed()) return;
+                        dialog.dismiss();
+                        android.widget.Toast.makeText(activity, "已发表",
+                                android.widget.Toast.LENGTH_SHORT).show();
+                        if (reply == null) loader.refreshAfterPost();
+                        else loader.afterReplyPosted(tab, reply.rootId);
                     });
+                }
+
+                @Override
+                public void onError(int httpCode, String message) {
+                    activity.runOnUiThread(() -> {
+                        if (activity.isFinishing() || activity.isDestroyed()
+                                || !dialog.isShowing()) return;
+                        if (httpCode == HgCommentClient.CODE_NOT_LOGIN) {
+                            dialog.dismiss();
+                            pullLogin(activity);
+                            return;
+                        }
+                        sending[0] = false;
+                        eb.hgCeError.setVisibility(View.VISIBLE);
+                        watcher.afterTextChanged(eb.hgCeInput.getText());
+                    });
+                }
+            };
+            if (reply == null) {
+                final long offsetMs = positionSupplier == null ? 0
+                        : Math.max(0, positionSupplier.getAsLong());
+                loader.session.fqClient.publishComment(item.seriesId, item.videoId, text, offsetMs, cb);
+            } else {
+                loader.session.fqClient.publishReply(tab.series, item.seriesId, item.videoId,
+                        reply.rootId, reply.target.id, reply.target.userId, text, cb);
+            }
         });
         dialog.show();
+        eb.hgCeInput.requestFocus();
     }
 
-    /** 面板一份数据的加载与列表状态（随面板生灭，不进会话）。 */
+    /** 面板数据与列表状态（随面板生灭，不进会话）：两个页签各一份。 */
     private static final class Loader {
         private final Activity activity;
         private final DialogHongguoCommentsBinding binding;
         private final HgFeedItem item;
         private final LongConsumer onTotal;
         private final HgFeedSession session = HgFeedSession.get();
-        private final List<HgComment> comments = new ArrayList<>();
-        private final Map<String, List<HgComment>> repliesCache = new HashMap<>();
-        private final Map<String, String> repliesCursor = new HashMap<>();
-        private final Set<String> repliesMore = new HashSet<>();
-        private final Set<String> expanded = new HashSet<>();
-        private final Set<String> repliesLoading = new HashSet<>();
+        private final TabState epTab;
+        private final TabState srTab;
+        private TabState active;
         private Adapter adapter;
-        private String cursor = "";
-        private boolean hasMore;
-        private boolean loading;
-        private boolean firstLoaded;
-        /** 已种缓存、正在后台静默刷新第一页：回包整表替换、失败保留缓存不报错。 */
-        private boolean refreshing;
         private android.view.View skeleton;
+
+        /** 一个页签的全部列表状态。 */
+        static final class TabState {
+            final boolean series;
+            final List<HgComment> comments = new ArrayList<>();
+            final Map<String, List<HgComment>> repliesCache = new HashMap<>();
+            final Map<String, String> repliesCursor = new HashMap<>();
+            final Set<String> repliesMore = new HashSet<>();
+            final Set<String> expanded = new HashSet<>();
+            final Set<String> repliesLoading = new HashSet<>();
+            final Set<String> contentExpanded = new HashSet<>();
+            final Set<String> contentTruncated = new HashSet<>();
+            /** 点赞本地镜像（id → [digged, 计数]）：乐观更新与失败回滚都走它，全量刷新时清。 */
+            final Map<String, long[]> likes = new HashMap<>();
+            String cursor = "";
+            boolean hasMore;
+            boolean loading;
+            boolean loaded;
+            /** 已种缓存、正在后台静默刷新第一页：回包整表替换、失败保留缓存不报错。 */
+            boolean refreshing;
+            boolean failed;
+            long total = -1;
+
+            TabState(boolean series) {
+                this.series = series;
+            }
+        }
 
         Loader(Activity activity, DialogHongguoCommentsBinding binding, HgFeedItem item, LongConsumer onTotal) {
             this.activity = activity;
             this.binding = binding;
             this.item = item;
             this.onTotal = onTotal;
+            boolean hasEpisode = item.videoId != null && !item.videoId.isEmpty();
+            this.epTab = hasEpisode ? new TabState(false) : null;
+            this.srTab = new TabState(true);
+            this.active = hasEpisode ? epTab : srTab;
+            binding.hgCmTabEpisode.setVisibility(hasEpisode ? View.VISIBLE : View.GONE);
+        }
+
+        TabState epTab() {
+            return epTab;
         }
 
         void start() {
@@ -299,34 +392,100 @@ public final class HgCommentsPanel {
             binding.hgCmList.addOnScrollListener(new RecyclerView.OnScrollListener() {
                 @Override
                 public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
-                    if (dy <= 0 || loading || !hasMore) return;
+                    if (dy <= 0 || active.loading || !active.hasMore) return;
                     int last = lm.findLastVisibleItemPosition();
-                    if (last >= comments.size() - 3) loadNext();
+                    if (last >= adapter.rows.size() - 3) loadNext(active);
                 }
             });
-            FirstPage hit = cacheGet(cacheKey(item));
-            if (hit != null) {
-                // 先显缓存（45 秒内），再后台静默刷新替换——重开不再全价等首包
-                comments.addAll(hit.items);
-                cursor = hit.nextCursor;
-                hasMore = hit.hasMore;
-                firstLoaded = true;
-                if (onTotal != null) onTotal.accept(hit.total);
-                binding.hgCmTitle.setText(hit.total > 0 ? hit.total + "条评论" : "评论");
-                binding.hgCmEmpty.setVisibility(View.GONE);
-                binding.hgCmList.setVisibility(View.VISIBLE);
-                adapter.notifyDataSetChanged();
-                refreshing = true;
-                loadNext();
-            } else {
-                showSkeleton();
-                loadNext();
+            syncTabs();
+            activate(active);
+        }
+
+        void switchTab(boolean series) {
+            TabState target = series ? srTab : epTab;
+            if (target == null || target == active) return;
+            active = target;
+            syncTabs();
+            if (!target.loaded && !target.loading) activate(target);
+            else {
+                adapter.rebuild();
+                syncChrome();
             }
         }
 
-        /** 空白期骨架行（头像块＋两行灰条 ×3）：替代纯文字「加载中…」，感知空白更短。 */
+        /** 页签样式与输入条显隐跟当前档走：输入条只在单集评论档。 */
+        private void syncTabs() {
+            paintTab(binding.hgCmTabEpisode, "评论", epTab == null ? -1 : epTab.total, active == epTab);
+            paintTab(binding.hgCmTabSeries, "剧评", srTab.total, active == srTab);
+            binding.hgCmInputBar.setVisibility(active == epTab && epTab != null
+                    ? View.VISIBLE : View.GONE);
+        }
+
+        private void paintTab(TextView tv, String name, long total, boolean selected) {
+            if (tv.getVisibility() != View.VISIBLE) return;
+            String label = total >= 0 ? name + " " + HgFormat.countLine(total) : name;
+            SpannableString span = new SpannableString(label);
+            if (total >= 0) {
+                span.setSpan(new RelativeSizeSpan(0.78f), name.length(), label.length(),
+                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            }
+            tv.setText(span);
+            tv.setTextColor(selected ? 0xFF1F1F1F : 0xFF9A9A9A);
+            tv.setTextSize(selected ? 16 : 15);
+            tv.setTypeface(selected ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
+        }
+
+        /** 首次激活一个页签：有缓存先种＋静默刷新，没缓存显骨架拉第一页。 */
+        private void activate(TabState tab) {
+            FirstPage hit = cacheGet(cacheKey(item, tab.series));
+            if (hit != null) {
+                tab.comments.addAll(hit.items);
+                tab.cursor = hit.nextCursor;
+                tab.hasMore = hit.hasMore;
+                tab.total = hit.total;
+                tab.loaded = true;
+                if (tab == epTab && onTotal != null) onTotal.accept(hit.total);
+                syncTabs();
+                adapter.rebuild();
+                syncChrome();
+                tab.refreshing = true;
+                loadNext(tab);
+            } else {
+                syncChrome();
+                loadNext(tab);
+            }
+        }
+
+        /** 空态/骨架/列表三者的显隐跟当前档状态走。 */
+        private void syncChrome() {
+            if (!active.comments.isEmpty()) {
+                hideSkeleton();
+                binding.hgCmEmptyBox.setVisibility(View.GONE);
+                binding.hgCmList.setVisibility(View.VISIBLE);
+                return;
+            }
+            binding.hgCmList.setVisibility(View.GONE);
+            if (active.loading || active.refreshing) {
+                binding.hgCmEmptyBox.setVisibility(View.GONE);
+                showSkeleton();
+                return;
+            }
+            hideSkeleton();
+            binding.hgCmEmptyBox.setVisibility(View.VISIBLE);
+            if (active.failed) {
+                binding.hgCmEmptyTitle.setText((active.series ? "剧评" : "评论") + "加载失败，稍后再试");
+                binding.hgCmEmptySub.setVisibility(View.GONE);
+            } else {
+                binding.hgCmEmptyTitle.setText(active.series ? "暂无剧评" : "暂无评论");
+                binding.hgCmEmptySub.setVisibility(View.VISIBLE);
+                binding.hgCmEmptySub.setText(active.series
+                        ? "期待你的第一条剧评" : "期待你的第一条评论");
+            }
+        }
+
+        /** 空白期骨架行（浅灰头像块＋两行灰条 ×3，白面版）。 */
         private void showSkeleton() {
-            binding.hgCmEmpty.setVisibility(View.GONE);
+            if (skeleton != null) return;
             android.widget.LinearLayout box = new android.widget.LinearLayout(activity);
             box.setOrientation(android.widget.LinearLayout.VERTICAL);
             float d = activity.getResources().getDisplayMetrics().density;
@@ -336,7 +495,7 @@ public final class HgCommentsPanel {
                 android.view.View avatar = new android.view.View(activity);
                 android.graphics.drawable.GradientDrawable avBg = new android.graphics.drawable.GradientDrawable();
                 avBg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
-                avBg.setColor(0x33FFFFFF);
+                avBg.setColor(0xFFF0F0F0);
                 avatar.setBackground(avBg);
                 row.addView(avatar, new android.widget.LinearLayout.LayoutParams(
                         Math.round(36 * d), Math.round(36 * d)));
@@ -347,11 +506,11 @@ public final class HgCommentsPanel {
                 lp.setMarginStart(Math.round(10 * d));
                 lines.setLayoutParams(lp);
                 android.view.View line1 = new android.view.View(activity);
-                line1.setBackgroundColor(0x2EFFFFFF);
+                line1.setBackgroundColor(0xFFF2F2F2);
                 lines.addView(line1, new android.widget.LinearLayout.LayoutParams(
                         Math.round(90 * d), Math.round(10 * d)));
                 android.view.View line2 = new android.view.View(activity);
-                line2.setBackgroundColor(0x24FFFFFF);
+                line2.setBackgroundColor(0xFFF5F5F5);
                 android.widget.LinearLayout.LayoutParams l2 = new android.widget.LinearLayout.LayoutParams(
                         Math.round(200 * d), Math.round(10 * d));
                 l2.topMargin = Math.round(8 * d);
@@ -375,43 +534,36 @@ public final class HgCommentsPanel {
             }
         }
 
-        private boolean episodeMode() {
-            return item.videoId != null && !item.videoId.isEmpty();
-        }
-
-        private void loadNext() {
-            if (loading) return;
-            loading = true;
-            // 静默刷新走第一页口径（cursor 空串），与续页分开记账
-            final boolean isRefresh = refreshing;
-            final String reqCursor = isRefresh ? "" : cursor;
+        private void loadNext(TabState tab) {
+            if (tab.loading) return;
+            tab.loading = true;
+            final boolean isRefresh = tab.refreshing;
+            final String reqCursor = isRefresh ? "" : tab.cursor;
             HgCallback<HgComment.Page> cb = new HgCallback<HgComment.Page>() {
                 @Override
                 public void onSuccess(HgComment.Page page) {
                     activity.runOnUiThread(() -> {
-                        loading = false;
-                        hideSkeleton();
-                        if (reqCursor.isEmpty()) cachePut(cacheKey(item), page);
+                        tab.loading = false;
+                        if (reqCursor.isEmpty()) cachePut(cacheKey(item, tab.series), page);
                         if (isRefresh) {
-                            refreshing = false;
-                            comments.clear();
+                            tab.refreshing = false;
+                            tab.comments.clear();
+                            tab.likes.clear();
                         }
-                        comments.addAll(page.items);
-                        cursor = page.nextCursor;
-                        hasMore = page.hasMore;
-                        if (!firstLoaded || isRefresh) {
-                            firstLoaded = true;
-                            if (onTotal != null) onTotal.accept(page.total);
-                            binding.hgCmTitle.setText(page.total > 0 ? page.total + "条评论" : "评论");
+                        tab.comments.addAll(page.items);
+                        tab.cursor = page.nextCursor;
+                        tab.hasMore = page.hasMore;
+                        boolean firstLanding = !tab.loaded;
+                        tab.loaded = true;
+                        tab.failed = false;
+                        tab.total = page.total;
+                        if (tab == epTab && (firstLanding || isRefresh) && onTotal != null) {
+                            onTotal.accept(page.total);
                         }
-                        if (comments.isEmpty()) {
-                            binding.hgCmEmpty.setVisibility(View.VISIBLE);
-                            binding.hgCmEmpty.setText("暂无评论");
-                            binding.hgCmList.setVisibility(View.GONE);
-                        } else {
-                            binding.hgCmEmpty.setVisibility(View.GONE);
-                            binding.hgCmList.setVisibility(View.VISIBLE);
-                            adapter.notifyDataSetChanged();
+                        syncTabs();
+                        if (tab == active) {
+                            adapter.rebuild();
+                            syncChrome();
                         }
                     });
                 }
@@ -419,170 +571,408 @@ public final class HgCommentsPanel {
                 @Override
                 public void onError(int httpCode, String message) {
                     activity.runOnUiThread(() -> {
-                        loading = false;
+                        tab.loading = false;
                         if (isRefresh) {
                             // 静默刷新失败：保留已种的缓存内容，不报错、不清表
-                            refreshing = false;
+                            tab.refreshing = false;
                             return;
                         }
-                        hideSkeleton();
-                        if (comments.isEmpty()) {
-                            binding.hgCmEmpty.setVisibility(View.VISIBLE);
-                            binding.hgCmEmpty.setText("评论加载失败，稍后再试");
-                        }
+                        if (tab.comments.isEmpty()) tab.failed = true;
+                        if (tab == active) syncChrome();
                     });
                 }
             };
-            if (episodeMode()) session.fqClient.episodeComments(item.seriesId, item.videoId, reqCursor, cb);
-            else session.fqClient.seriesComments(item.seriesId, reqCursor, cb);
+            if (tab.series) session.fqClient.seriesComments(item.seriesId, reqCursor, cb);
+            else session.fqClient.episodeComments(item.seriesId, item.videoId, reqCursor, cb);
         }
 
-        /** 发表成功后整表从头刷新：新评论与新总数都以服务端回带为准。 */
+        /** 发表评论成功后整表从头刷新：新评论与新总数都以服务端回带为准。 */
         void refreshAfterPost() {
-            if (loading) return;
-            comments.clear();
-            cursor = "";
-            hasMore = false;
-            firstLoaded = false;
-            adapter.notifyDataSetChanged();
-            loadNext();
+            TabState tab = epTab;
+            if (tab == null || tab.loading) return;
+            tab.comments.clear();
+            tab.repliesCache.clear();
+            tab.repliesCursor.clear();
+            tab.repliesMore.clear();
+            tab.expanded.clear();
+            tab.likes.clear();
+            tab.cursor = "";
+            tab.hasMore = false;
+            tab.loaded = false;
+            if (tab == active) {
+                adapter.rebuild();
+                syncChrome();
+            }
+            loadNext(tab);
         }
 
-        private void toggleReplies(HgComment comment) {
-            String id = comment.id;
-            if (expanded.contains(id)) {
-                expanded.remove(id);
-                adapter.notifyDataSetChanged();
-                return;
+        /** 回复发表成功：根评论回复数 +1、其楼层缓存作废（展开着就重拉）。 */
+        void afterReplyPosted(TabState tab, String rootId) {
+            for (int i = 0; i < tab.comments.size(); i++) {
+                HgComment c = tab.comments.get(i);
+                if (c.id.equals(rootId)) {
+                    tab.comments.set(i, c.withReplyCount(c.replyCount + 1));
+                    break;
+                }
             }
-            expanded.add(id);
-            if (repliesCache.containsKey(id)) {
-                adapter.notifyDataSetChanged();
-                return;
-            }
-            loadReplies(comment, false);
+            tab.repliesCache.remove(rootId);
+            tab.repliesCursor.remove(rootId);
+            tab.repliesMore.remove(rootId);
+            if (tab.expanded.contains(rootId)) loadReplies(tab, rootId, false);
+            if (tab == active) adapter.rebuild();
         }
 
-        private void loadReplies(HgComment comment, boolean more) {
+        private void toggleReplies(TabState tab, HgComment comment) {
             String id = comment.id;
-            if (!repliesLoading.add(id)) return;
-            String cur = more ? repliesCursor.getOrDefault(id, "") : "";
+            if (tab.expanded.contains(id)) {
+                tab.expanded.remove(id);
+                adapter.rebuild();
+                return;
+            }
+            tab.expanded.add(id);
+            if (tab.repliesCache.containsKey(id)) {
+                adapter.rebuild();
+                return;
+            }
+            adapter.rebuild();
+            loadReplies(tab, id, false);
+        }
+
+        private void loadReplies(TabState tab, String commentId, boolean more) {
+            if (!tab.repliesLoading.add(commentId)) return;
+            String cur = more ? tab.repliesCursor.getOrDefault(commentId, "") : "";
             HgCallback<HgComment.Page> cb = new HgCallback<HgComment.Page>() {
                 @Override
                 public void onSuccess(HgComment.Page page) {
                     activity.runOnUiThread(() -> {
-                        repliesLoading.remove(id);
-                        List<HgComment> list = repliesCache.computeIfAbsent(id, k -> new ArrayList<>());
+                        tab.repliesLoading.remove(commentId);
+                        List<HgComment> list = tab.repliesCache.computeIfAbsent(
+                                commentId, k -> new ArrayList<>());
                         list.addAll(page.items);
-                        repliesCursor.put(id, page.nextCursor);
-                        if (page.hasMore) repliesMore.add(id);
-                        else repliesMore.remove(id);
-                        adapter.notifyDataSetChanged();
+                        tab.repliesCursor.put(commentId, page.nextCursor);
+                        if (page.hasMore) tab.repliesMore.add(commentId);
+                        else tab.repliesMore.remove(commentId);
+                        if (tab == active) adapter.rebuild();
                     });
                 }
 
                 @Override
                 public void onError(int httpCode, String message) {
                     activity.runOnUiThread(() -> {
-                        repliesLoading.remove(id);
-                        adapter.notifyDataSetChanged();
+                        tab.repliesLoading.remove(commentId);
+                        if (tab == active) adapter.rebuild();
                     });
                 }
             };
-            if (episodeMode()) session.fqClient.episodeReplies(item.seriesId, item.videoId, id, cur, cb);
-            else session.fqClient.seriesReplies(item.seriesId, id, cur, cb);
+            if (tab.series) session.fqClient.seriesReplies(item.seriesId, commentId, cur, cb);
+            else session.fqClient.episodeReplies(item.seriesId, item.videoId, commentId, cur, cb);
         }
 
-        private final class Adapter extends RecyclerView.Adapter<Holder> {
-            @NonNull
-            @Override
-            public Holder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-                return new Holder(ItemHongguoCommentBinding.inflate(
-                        LayoutInflater.from(parent.getContext()), parent, false));
+        /** 点赞列绑定：本地镜像优先于回包值，两态心形＋计数上下排。 */
+        private void bindLike(View box, ImageView icon, TextView count,
+                              TabState tab, HgComment c, boolean isReply) {
+            long[] st = tab.likes.get(c.id);
+            boolean digged = st != null ? st[0] == 1 : c.digged;
+            long likes = st != null ? st[1] : c.likes;
+            icon.setImageResource(digged ? R.drawable.ic_hg_heart_fill : R.drawable.ic_hg_like);
+            count.setText(HgFormat.countLine(likes));
+            count.setTextColor(digged ? 0xFFFF3B5C : 0xFF8A8A8A);
+            box.setOnClickListener(v -> toggleLike(tab, c, isReply));
+        }
+
+        /** 行内「回复」入口：未登录先拉登录，已登录开回复模式编辑层。 */
+        private void openReplyEditor(TabState tab, HgComment root, HgComment target) {
+            if (!HgLoginAuthProvider.isLoggedIn()) {
+                pullLogin(activity);
+                return;
+            }
+            showEditor(activity, this, tab, new ReplyTarget(root.id, target), null);
+        }
+
+        /** 点赞/取消赞：本地镜像先翻、服务端回执失败再翻回（与流页互动同口径）。 */
+        private void toggleLike(TabState tab, HgComment target, boolean isReply) {
+            if (!HgLoginAuthProvider.isLoggedIn()) {
+                pullLogin(activity);
+                return;
+            }
+            long[] prev = tab.likes.get(target.id);
+            boolean curDigged = prev != null ? prev[0] == 1 : target.digged;
+            long curLikes = prev != null ? prev[1] : target.likes;
+            boolean next = !curDigged;
+            tab.likes.put(target.id, new long[]{next ? 1 : 0, Math.max(0, curLikes + (next ? 1 : -1))});
+            adapter.rebuild();
+            session.fqClient.doCommentAction(next, target.id,
+                    isReply ? HgCommentClient.OBJECT_REPLY : HgCommentClient.OBJECT_COMMENT,
+                    new HgCallback<Void>() {
+                        @Override
+                        public void onSuccess(Void ignored) {
+                        }
+
+                        @Override
+                        public void onError(int httpCode, String message) {
+                            activity.runOnUiThread(() -> {
+                                if (prev == null) tab.likes.remove(target.id);
+                                else tab.likes.put(target.id, prev);
+                                if (tab == active) adapter.rebuild();
+                                if (httpCode == HgCommentClient.CODE_NOT_LOGIN) {
+                                    pullLogin(activity);
+                                } else {
+                                    android.widget.Toast.makeText(activity,
+                                            "点赞没成功，已恢复原来的状态",
+                                            android.widget.Toast.LENGTH_SHORT).show();
+                                }
+                            });
+                        }
+                    });
+        }
+
+        /** 行模型：评论行／楼层回复行／展开更多回复尾行，切换状态后整体重建。 */
+        private static final class Row {
+            static final int COMMENT = 0;
+            static final int REPLY = 1;
+            static final int MORE = 2;
+            final int type;
+            final HgComment comment;
+            /** REPLY/MORE 行所属根评论。 */
+            final HgComment parent;
+
+            Row(int type, HgComment comment, HgComment parent) {
+                this.type = type;
+                this.comment = comment;
+                this.parent = parent;
+            }
+        }
+
+        private final class Adapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
+            final List<Row> rows = new ArrayList<>();
+
+            void rebuild() {
+                rows.clear();
+                TabState tab = active;
+                for (HgComment c : tab.comments) {
+                    rows.add(new Row(Row.COMMENT, c, null));
+                    if (!tab.expanded.contains(c.id)) continue;
+                    List<HgComment> replies = tab.repliesCache.get(c.id);
+                    if (replies != null) {
+                        for (HgComment r : replies) rows.add(new Row(Row.REPLY, r, c));
+                    }
+                    if (tab.repliesLoading.contains(c.id)
+                            || tab.repliesMore.contains(c.id)) {
+                        rows.add(new Row(Row.MORE, null, c));
+                    }
+                }
+                notifyDataSetChanged();
             }
 
             @Override
-            public void onBindViewHolder(@NonNull Holder holder, int position) {
-                HgComment c = comments.get(position);
-                ItemHongguoCommentBinding b = holder.binding;
-                if (c.avatar != null && !c.avatar.isEmpty()) {
-                    b.hgCAvatar.setVisibility(View.VISIBLE);
-                    ImgUtil.loadCircle("", c.avatar, b.hgCAvatar);
-                } else {
-                    b.hgCAvatar.setVisibility(View.GONE);
+            public int getItemViewType(int position) {
+                return rows.get(position).type;
+            }
+
+            @NonNull
+            @Override
+            public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+                LayoutInflater inflater = LayoutInflater.from(parent.getContext());
+                if (viewType == Row.REPLY) {
+                    return new ReplyHolder(ItemHongguoReplyBinding.inflate(inflater, parent, false));
                 }
-                b.hgCAuthor.setText(c.author == null || c.author.isEmpty() ? "红果用户" : c.author);
-                // 点头像/名进作者页（与流页同一去处；uid 没带不挂假入口）
-                if (c.userId != null && !c.userId.isEmpty()) {
-                    View.OnClickListener goAuthor = v -> HongguoAuthorActivity.start(
-                            holder.itemView.getContext(), c.userId, c.author, c.avatar, null);
-                    b.hgCAvatar.setOnClickListener(goAuthor);
-                    b.hgCAuthor.setOnClickListener(goAuthor);
-                } else {
-                    b.hgCAvatar.setOnClickListener(null);
-                    b.hgCAuthor.setOnClickListener(null);
+                if (viewType == Row.MORE) {
+                    return new MoreHolder(ItemHongguoRepliesMoreBinding.inflate(inflater, parent, false));
                 }
-                b.hgCContent.setText(c.content);
-                StringBuilder meta = new StringBuilder();
-                if (c.created > 0) meta.append(formatTime(c.created));
-                if (c.likes > 0) {
-                    if (meta.length() > 0) meta.append(" · ");
-                    meta.append("赞 ").append(c.likes);
-                }
-                b.hgCMeta.setText(meta.toString());
-                boolean open = expanded.contains(c.id);
-                if (c.replyCount > 0) {
-                    b.hgCRepliesBtn.setVisibility(View.VISIBLE);
-                    b.hgCRepliesBtn.setText(open ? "收起回复" : "展开" + c.replyCount + "条回复");
-                    b.hgCRepliesBtn.setOnClickListener(v -> toggleReplies(c));
-                } else {
-                    b.hgCRepliesBtn.setVisibility(View.GONE);
-                }
-                List<HgComment> replies = repliesCache.get(c.id);
-                if (open && replies != null && !replies.isEmpty()) {
-                    b.hgCReplies.setVisibility(View.VISIBLE);
-                    StringBuilder sb = new StringBuilder();
-                    for (HgComment r : replies) {
-                        if (sb.length() > 0) sb.append("\n\n");
-                        sb.append(r.author == null || r.author.isEmpty() ? "红果用户" : r.author);
-                        if (r.replyTo != null && !r.replyTo.isEmpty()) sb.append(" 回复 ").append(r.replyTo);
-                        sb.append("：").append(r.content);
-                    }
-                    if (repliesMore.contains(c.id)) sb.append("\n\n展开更多回复");
-                    b.hgCReplies.setText(sb.toString());
-                    b.hgCReplies.setOnClickListener(v -> {
-                        if (repliesMore.contains(c.id)) loadReplies(c, true);
-                    });
-                } else if (open && repliesLoading.contains(c.id)) {
-                    b.hgCReplies.setVisibility(View.VISIBLE);
-                    b.hgCReplies.setText("回复加载中…");
-                    b.hgCReplies.setOnClickListener(null);
-                } else {
-                    b.hgCReplies.setVisibility(View.GONE);
-                }
+                return new CommentHolder(ItemHongguoCommentBinding.inflate(inflater, parent, false));
+            }
+
+            @Override
+            public void onBindViewHolder(@NonNull RecyclerView.ViewHolder holder, int position) {
+                Row row = rows.get(position);
+                if (holder instanceof CommentHolder) bindComment((CommentHolder) holder, row.comment);
+                else if (holder instanceof ReplyHolder) bindReply((ReplyHolder) holder, row);
+                else if (holder instanceof MoreHolder) bindMore((MoreHolder) holder, row.parent);
             }
 
             @Override
             public int getItemCount() {
-                return comments.size();
+                return rows.size();
+            }
+
+            private void bindComment(CommentHolder holder, HgComment c) {
+                ItemHongguoCommentBinding b = holder.binding;
+                TabState tab = active;
+                bindAvatar(b.hgCAvatar, c);
+                b.hgCAuthor.setText(authorName(c));
+                View.OnClickListener goAuthor = authorClick(holder, c);
+                b.hgCAvatar.setOnClickListener(goAuthor);
+                b.hgCAuthor.setOnClickListener(goAuthor);
+                // 剧评档带评分：十分制折五星（与作者页剧评行同口径）
+                if (tab.series && c.score >= 0) {
+                    b.hgCStars.setVisibility(View.VISIBLE);
+                    paintStars(b.hgCStars, c.score);
+                } else {
+                    b.hgCStars.setVisibility(View.GONE);
+                }
+                bindContent(b.hgCContent, b.hgCExpand, b.hgCCollapse, tab, c);
+                b.hgCTime.setText(HgTimeText.commentTime(c.created));
+                b.hgCReply.setOnClickListener(v -> openReplyEditor(tab, c, c));
+                bindLike(b.hgCLikeBox, b.hgCLikeIcon, b.hgCLikeCount, tab, c, false);
+                boolean open = tab.expanded.contains(c.id);
+                if (c.replyCount > 0) {
+                    b.hgCRepliesBtn.setVisibility(View.VISIBLE);
+                    b.hgCRepliesText.setText(open ? "收起" : "展开" + c.replyCount + "条回复");
+                    b.hgCRepliesChev.setVisibility(open ? View.GONE : View.VISIBLE);
+                    b.hgCRepliesBtn.setOnClickListener(v -> toggleReplies(tab, c));
+                } else {
+                    b.hgCRepliesBtn.setVisibility(View.GONE);
+                }
+            }
+
+            private void bindReply(ReplyHolder holder, Row row) {
+                ItemHongguoReplyBinding b = holder.binding;
+                TabState tab = active;
+                HgComment r = row.comment;
+                bindAvatar(b.hgRAvatar, r);
+                b.hgRAuthor.setText(authorName(r));
+                View.OnClickListener goAuthor = authorClick(holder, r);
+                b.hgRAvatar.setOnClickListener(goAuthor);
+                b.hgRAuthor.setOnClickListener(goAuthor);
+                bindContent(b.hgRContent, b.hgRExpand, b.hgRCollapse, tab, r, replyPrefix(r));
+                b.hgRTime.setText(HgTimeText.commentTime(r.created));
+                b.hgRReply.setOnClickListener(v -> openReplyEditor(tab, row.parent, r));
+                bindLike(b.hgRLikeBox, b.hgRLikeIcon, b.hgRLikeCount, tab, r, true);
+            }
+
+            private void bindMore(MoreHolder holder, HgComment parent) {
+                ItemHongguoRepliesMoreBinding b = holder.binding;
+                TabState tab = active;
+                boolean loadingNow = tab.repliesLoading.contains(parent.id);
+                b.hgMText.setText(loadingNow ? "回复加载中…" : "展开更多回复");
+                b.hgMChev.setVisibility(loadingNow ? View.GONE : View.VISIBLE);
+                holder.itemView.setOnClickListener(loadingNow ? null
+                        : v -> loadReplies(tab, parent.id, true));
             }
         }
 
-        private static final class Holder extends RecyclerView.ViewHolder {
+        private static final class CommentHolder extends RecyclerView.ViewHolder {
             final ItemHongguoCommentBinding binding;
 
-            Holder(ItemHongguoCommentBinding binding) {
+            CommentHolder(ItemHongguoCommentBinding binding) {
+                super(binding.getRoot());
+                this.binding = binding;
+            }
+        }
+
+        private static final class ReplyHolder extends RecyclerView.ViewHolder {
+            final ItemHongguoReplyBinding binding;
+
+            ReplyHolder(ItemHongguoReplyBinding binding) {
+                super(binding.getRoot());
+                this.binding = binding;
+            }
+        }
+
+        private static final class MoreHolder extends RecyclerView.ViewHolder {
+            final ItemHongguoRepliesMoreBinding binding;
+
+            MoreHolder(ItemHongguoRepliesMoreBinding binding) {
                 super(binding.getRoot());
                 this.binding = binding;
             }
         }
     }
 
-    private static String formatTime(long epochSec) {
-        try {
-            return new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(new Date(epochSec * 1000L));
-        } catch (Exception e) {
-            return "";
+    // ---------- 行内共用绑定 ----------
+
+    private static String authorName(HgComment c) {
+        return c.author == null || c.author.isEmpty() ? "红果用户" : c.author;
+    }
+
+    private static void bindAvatar(ImageView view, HgComment c) {
+        if (c.avatar != null && !c.avatar.isEmpty()) {
+            view.setVisibility(View.VISIBLE);
+            ImgUtil.loadCircle("", c.avatar, view);
+        } else {
+            view.setVisibility(View.GONE);
         }
+    }
+
+    /** 点头像/名进作者页（与流页同一去处；uid 没带不挂假入口）。 */
+    private static View.OnClickListener authorClick(RecyclerView.ViewHolder holder, HgComment c) {
+        if (c.userId == null || c.userId.isEmpty()) return null;
+        return v -> HongguoAuthorActivity.start(
+                holder.itemView.getContext(), c.userId, c.author, c.avatar, null);
+    }
+
+    /** 十分制折五星（满星橘、空星灰，与作者页剧评行 paintStars 同口径）。 */
+    private static void paintStars(android.widget.LinearLayout row, int scoreTen) {
+        int filled = Math.round(scoreTen / 2f);
+        if (filled < 0) filled = 0;
+        if (filled > 5) filled = 5;
+        for (int i = 0; i < row.getChildCount(); i++) {
+            ((ImageView) row.getChildAt(i)).setImageResource(i < filled
+                    ? R.drawable.ic_hg_author_star_on
+                    : R.drawable.ic_hg_author_star_off);
+        }
+    }
+
+    private static CharSequence replyPrefix(HgComment r) {
+        if (r.replyTo == null || r.replyTo.isEmpty()) return null;
+        String prefix = "回复 " + r.replyTo + "：";
+        SpannableString span = new SpannableString(prefix);
+        span.setSpan(new ForegroundColorSpan(0xFF6B7F99), 0, prefix.length(),
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        return span;
+    }
+
+    /**
+     * 正文绑定：表情码渲染成图形；折叠态 4 行截断，布局后量到省略号才亮
+     * 末行右端「… 展开」盖钮；展开态全显、曾截断过的给「收起」。
+     *
+     * @param prefix 非空时拼在正文前（如回复行的「回复 X：」彩色前缀）。
+     */
+    private static void bindContent(TextView tv, TextView expandBtn, TextView collapseBtn,
+                                    Loader.TabState tab, HgComment c, CharSequence prefix) {
+        CharSequence body = HgEmoji.render(c.content);
+        if (prefix != null) {
+            android.text.SpannableStringBuilder sb = new android.text.SpannableStringBuilder();
+            sb.append(prefix);
+            sb.append(body);
+            tv.setText(sb);
+        } else {
+            tv.setText(body);
+        }
+        boolean open = tab.contentExpanded.contains(c.id);
+        tv.setMaxLines(open ? Integer.MAX_VALUE : 4);
+        expandBtn.setVisibility(View.GONE);
+        collapseBtn.setVisibility(open && tab.contentTruncated.contains(c.id)
+                ? View.VISIBLE : View.GONE);
+        tv.setTag(c.id);
+        if (!open) {
+            tv.post(() -> {
+                if (!c.id.equals(tv.getTag())) return;
+                Layout layout = tv.getLayout();
+                if (layout != null && layout.getLineCount() >= 4
+                        && layout.getEllipsisCount(3) > 0) {
+                    tab.contentTruncated.add(c.id);
+                    expandBtn.setVisibility(View.VISIBLE);
+                }
+            });
+        }
+        expandBtn.setOnClickListener(v -> {
+            tab.contentExpanded.add(c.id);
+            // 展开只影响本行：直接改本行形态，不整表重建（保滚动位）
+            tv.setMaxLines(Integer.MAX_VALUE);
+            expandBtn.setVisibility(View.GONE);
+            collapseBtn.setVisibility(View.VISIBLE);
+        });
+        collapseBtn.setOnClickListener(v -> {
+            tab.contentExpanded.remove(c.id);
+            tv.setMaxLines(4);
+            collapseBtn.setVisibility(View.GONE);
+            expandBtn.setVisibility(View.VISIBLE);
+        });
+    }
+
+    private static void bindContent(TextView tv, TextView expandBtn, TextView collapseBtn,
+                                    Loader.TabState tab, HgComment c) {
+        bindContent(tv, expandBtn, collapseBtn, tab, c, null);
     }
 }

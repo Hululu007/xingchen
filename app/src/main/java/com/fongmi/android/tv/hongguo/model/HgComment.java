@@ -19,15 +19,23 @@ public final class HgComment {
     public final String userId;
     /** 剧评评分（十分制，expand.score；剧评条目才有）；没带为 -1。 */
     public final int score;
+    /** 当前用户是否已赞（comment.user_action.user_digg，官方回包实证）；没带为 false。 */
+    public final boolean digged;
 
     public HgComment(String id, String author, String avatar, String content,
                      long created, long likes, long replyCount, String replyTo) {
-        this(id, author, avatar, content, created, likes, replyCount, replyTo, "", -1);
+        this(id, author, avatar, content, created, likes, replyCount, replyTo, "", -1, false);
     }
 
     public HgComment(String id, String author, String avatar, String content,
                      long created, long likes, long replyCount, String replyTo,
                      String userId, int score) {
+        this(id, author, avatar, content, created, likes, replyCount, replyTo, userId, score, false);
+    }
+
+    public HgComment(String id, String author, String avatar, String content,
+                     long created, long likes, long replyCount, String replyTo,
+                     String userId, int score, boolean digged) {
         this.id = id;
         this.author = author;
         this.avatar = avatar;
@@ -38,6 +46,13 @@ public final class HgComment {
         this.replyTo = replyTo;
         this.userId = userId == null ? "" : userId;
         this.score = score;
+        this.digged = digged;
+    }
+
+    /** 回复发表成功后本地回复数换新值的副本（其余字段照旧）。 */
+    public HgComment withReplyCount(long newReplyCount) {
+        return new HgComment(id, author, avatar, content, created, likes,
+                newReplyCount, replyTo, userId, score, digged);
     }
 
     /** 评论一页：条目＋总数＋下一页游标（hasMore=false 时游标为空串）。 */

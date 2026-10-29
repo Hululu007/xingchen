@@ -1073,6 +1073,88 @@ public class HgOfflineTest {
             }
         }
 
+        // §32 评论面完工批（2026-10-29）：回复 payload 两档、评论点赞
+        //     payload、user_digg 解析、表情码渲染、时间短格式。
+        {
+            com.google.gson.JsonObject rp = com.fongmi.android.tv.hongguo.api.HgCommentClient
+                    .replyPostPayload(false, "7697561772433099800", "7697606592786598936",
+                            "c100", "c100", "4242", "同感");
+            com.google.gson.JsonObject rbiz = rp.getAsJsonObject("business_param");
+            check("§32 回复·单集档档位", rp.get("commit_source").getAsInt() == 9
+                            && rp.get("group_type").getAsInt() == 30
+                            && rp.get("data_type").getAsInt() == 4
+                            && "7697606592786598936".equals(rp.get("group_id").getAsString())
+                            && "c100".equals(rp.get("reply_to_comment_id").getAsString())
+                            && "c100".equals(rp.get("reply_to_replyid").getAsString())
+                            && "4242".equals(rp.get("reply_to_userid").getAsString())
+                            && rp.get("aid").getAsInt() == 8662,
+                    rp.toString());
+            check("§32 回复·business 只两件", "7697561772433099800".equals(rbiz.get("book_id").getAsString())
+                            && rbiz.has("shark_param") && !rbiz.has("offset")
+                            && !rp.has("parent_reply_id"),
+                    rp.toString());
+            com.google.gson.JsonObject rp2 = com.fongmi.android.tv.hongguo.api.HgCommentClient
+                    .replyPostPayload(true, "7697561772433099800", "", "c200", "r55", "", "顶");
+            check("§32 回复·剧评档档位", rp2.get("commit_source").getAsInt() == 13
+                            && rp2.get("group_type").getAsInt() == 1
+                            && rp2.get("data_type").getAsInt() == 3
+                            && "7697561772433099800".equals(rp2.get("group_id").getAsString())
+                            && "r55".equals(rp2.get("reply_to_replyid").getAsString())
+                            && !rp2.has("reply_to_userid"),
+                    rp2.toString());
+            com.google.gson.JsonObject ap = com.fongmi.android.tv.hongguo.api.HgCommentClient
+                    .commentActionPayload(true, "c100", com.fongmi.android.tv.hongguo.api.HgCommentClient.OBJECT_COMMENT);
+            com.google.gson.JsonObject ap2 = com.fongmi.android.tv.hongguo.api.HgCommentClient
+                    .commentActionPayload(false, "r55", com.fongmi.android.tv.hongguo.api.HgCommentClient.OBJECT_REPLY);
+            check("§32 点赞 payload 档位", ap.get("action_type").getAsInt() == 8
+                            && ap.get("object_type").getAsInt() == 2
+                            && "c100".equals(ap.get("object_id").getAsString())
+                            && ap2.get("action_type").getAsInt() == 9
+                            && ap2.get("object_type").getAsInt() == 8,
+                    ap + " / " + ap2);
+            String listJson = "{\"code\":0,\"data\":{\"common_list_info\":{\"has_more\":false,"
+                    + "\"cursor\":\"\",\"total\":1},\"data_list\":[{\"comment\":{\"comment_id\":\"c1\","
+                    + "\"common\":{\"group_id\":\"vid1\",\"status\":1,\"create_timestamp\":1700000000,"
+                    + "\"content\":{\"text\":\"好[赞]\"},\"user_info\":{\"base_info\":{\"user_name\":\"甲\","
+                    + "\"user_id\":\"42\",\"user_avatar\":\"https://a/b.png\"}}},"
+                    + "\"expand\":{\"book_id\":\"s1\"},\"stat\":{\"digg_count\":5,\"reply_count\":2},"
+                    + "\"user_action\":{\"user_digg\":true}}}]}}";
+            com.fongmi.android.tv.hongguo.model.HgComment.Page lp = com.fongmi.android.tv.hongguo.api.HgCommentParser
+                    .parseList(listJson, "s1", "vid1", "", false);
+            check("§32 列表解析 user_digg", lp != null && lp.items.size() == 1
+                            && lp.items.get(0).digged && lp.items.get(0).likes == 5
+                            && lp.items.get(0).replyCount == 2,
+                    lp == null ? "page=null" : "n=" + lp.items.size());
+            String replyJson = "{\"code\":0,\"data\":{\"comment_list_info\":{\"has_more\":false,"
+                    + "\"cursor\":\"0\",\"total\":1},\"reply_list\":[{\"reply_id\":\"r1\","
+                    + "\"common\":{\"create_timestamp\":1700000100,\"content\":{\"text\":\"回\"},"
+                    + "\"user_info\":{\"base_info\":{\"user_name\":\"乙\",\"user_id\":\"7\"}}},"
+                    + "\"stat\":{\"digg_count\":3,\"reply_count\":0},\"user_action\":{\"user_digg\":true}}]}}";
+            com.fongmi.android.tv.hongguo.model.HgComment.Page rpl = com.fongmi.android.tv.hongguo.api.HgCommentParser
+                    .parseReplies(replyJson, "s1", "vid1", "");
+            check("§32 回复解析 user_digg", rpl != null && rpl.items.size() == 1
+                            && rpl.items.get(0).digged && rpl.items.get(0).likes == 3,
+                    rpl == null ? "page=null" : "n=" + rpl.items.size());
+            check("§32 表情码表 53 码对齐", com.fongmi.android.tv.hongguo.HgEmoji.NAMES.length == 53
+                            && com.fongmi.android.tv.hongguo.HgEmoji.GLYPHS.length == 53,
+                    null);
+            String rendered = com.fongmi.android.tv.hongguo.HgEmoji.render("爽[爽]看[鼓掌]，[不存在的码]留着");
+            check("§32 表情渲染真图形", rendered.contains("😆") && rendered.contains("👏")
+                            && rendered.contains("[不存在的码]") && !rendered.contains("[爽]"),
+                    rendered);
+            long nowSec = System.currentTimeMillis() / 1000L;
+            check("§32 时间·刚刚/分钟/小时", "刚刚".equals(com.fongmi.android.tv.hongguo.HgTimeText.commentTime(nowSec - 30))
+                            && "5分钟前".equals(com.fongmi.android.tv.hongguo.HgTimeText.commentTime(nowSec - 300))
+                            && "3小时前".equals(com.fongmi.android.tv.hongguo.HgTimeText.commentTime(nowSec - 3 * 3600)),
+                    null);
+            check("§32 时间·1天前", "1天前".equals(com.fongmi.android.tv.hongguo.HgTimeText.commentTime(nowSec - 26 * 3600)), null);
+            long fiveDays = nowSec - 5L * 86400;
+            String expectDate = new java.text.SimpleDateFormat("MM-dd", java.util.Locale.US)
+                    .format(new java.util.Date(fiveDays * 1000L));
+            check("§32 时间·日期档", expectDate.equals(com.fongmi.android.tv.hongguo.HgTimeText.commentTime(fiveDays)),
+                    expectDate);
+        }
+
         System.out.println(fail == 0 ? "ALL PASS" : ("FAILURES=" + fail));
         System.exit(fail == 0 ? 0 : 1);
     }

@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 发单集评论编辑层（自家小 Dialog，深底照红果面口径）：点评论面板底部
-     假输入条打开，构成照发弹幕编辑层——输入框（hint 照官方串「发条友善的
-     评论吧」，dig-comment-danmaku.md 评论节）＋发表/取消，失败提示行默认藏。
-     官方框体是社区 Compose 编辑器、无经典布局可抄。 -->
+<!-- 发评论/回复编辑层（白面版，评论面专用；与弹幕编辑层的深底小 Dialog 是
+     两件，不串）：标题（发评论／回复 @名）、浅灰输入框（hint 照官方串
+     「发条友善的评论吧」）、表情条（53 码照官方 emoji_config.json，点插
+     [码] 文本、与官方同存码机制）、发表/取消。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="@drawable/bg_hg_dialog_dark"
+    android:background="@drawable/bg_hg_comment_editor"
     android:orientation="vertical"
     android:paddingStart="16dp"
     android:paddingTop="16dp"
@@ -14,10 +14,11 @@
     android:paddingBottom="14dp">
 
     <TextView
+        android:id="@+id/hg_ce_title"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="发评论"
-        android:textColor="#FFFFFF"
+        android:textColor="#FF1F1F1F"
         android:textSize="16sp"
         android:textStyle="bold" />
 
@@ -26,17 +27,30 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="12dp"
-        android:background="@drawable/bg_hg_editor_input"
+        android:background="@drawable/bg_hg_comment_field"
         android:hint="发条友善的评论吧"
         android:inputType="text"
-        android:maxLines="3"
+        android:maxLines="4"
         android:paddingStart="12dp"
         android:paddingTop="10dp"
         android:paddingEnd="12dp"
         android:paddingBottom="10dp"
-        android:textColor="#FFFFFF"
-        android:textColorHint="#99FFFFFF"
+        android:textColor="#FF1F1F1F"
+        android:textColorHint="#FF9A9A9A"
         android:textSize="15sp" />
+
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:id="@+id/hg_ce_emoji_row"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal" />
+    </HorizontalScrollView>
 
     <TextView
         android:id="@+id/hg_ce_error"
@@ -44,14 +58,14 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
         android:text="没发出去，再试试"
-        android:textColor="#FFFF6B6B"
+        android:textColor="#FFE64340"
         android:textSize="13sp"
         android:visibility="gone" />
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="14dp"
+        android:layout_marginTop="10dp"
         android:gravity="end|center_vertical"
         android:orientation="horizontal">
 
@@ -64,7 +78,7 @@
             android:paddingEnd="12dp"
             android:paddingBottom="8dp"
             android:text="取消"
-            android:textColor="#99FFFFFF"
+            android:textColor="#FF5C5C5C"
             android:textSize="15sp" />
 
         <TextView

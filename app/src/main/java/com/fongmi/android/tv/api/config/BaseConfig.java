@@ -137,7 +137,9 @@ abstract class BaseConfig {
                 if (taskId.get() != id) return;
                 if (config.equals(this.config)) config.update();
                 onLoadSuccess();
-                App.post(() -> Notify.show(config.getNotice()));
+                // 接口公告不再弹（2026-10-31 他点名「删了还一直弹」）：notice 是接口
+                // 配置自带的内容，加载成功就弹一次，删净前会反复出现；显示权在咱这边，
+                // 索性关掉——任何接口的公告都不再弹出。
                 App.post(callback::success);
                 success = true;
             } catch (Throwable e) {

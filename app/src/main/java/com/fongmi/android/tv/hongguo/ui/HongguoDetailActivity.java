@@ -108,11 +108,6 @@ public class HongguoDetailActivity extends AppCompatActivity {
     /** 相关作品两路快照：null＝未回；空表＝回了但无条目。 */
     private List<DramaDetail.RelatedWork> planRelated;
     private List<DramaDetail.RelatedWork> albumRelated;
-    private LinearLayout playBtn;
-    private TextView playLabel;
-    private LinearLayout favBtn;
-    private ImageView favBtnStar;
-    private TextView favBtnLabel;
     private final ExecutorService worker = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "hg-detail");
         t.setDaemon(true);
@@ -182,7 +177,7 @@ public class HongguoDetailActivity extends AppCompatActivity {
         scroll.setFillViewport(true);
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
-        col.setPadding(0, statusBarHeight() + dp(6), 0, dp(96) + navBarHeight());
+        col.setPadding(0, statusBarHeight() + dp(6), 0, dp(28) + navBarHeight());
 
         // 顶栏（定稿 .d-top）：三枚玻璃圆钮 38dp（底 rgba(20,12,6,
         // .28)＋内环），行内距 14。
@@ -422,67 +417,9 @@ public class HongguoDetailActivity extends AppCompatActivity {
         scroll.addView(col);
         rootFrame.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
 
-        // 底部固定（定稿 .d-bottom）：半透深棕底 rgba(24,13,6,.66)
-        // ＋顶线；开始播放＝红渐变圆 14＋播标 16；收藏＝62 宽描边
-        // 玻璃格（星 21＋签 10sp），已收藏转金。
-        LinearLayout bottom = new LinearLayout(this);
-        bottom.setOrientation(LinearLayout.VERTICAL);
-        bottom.setBackgroundColor(0xA8180D06);
-        View bottomLine = new View(this);
-        bottomLine.setBackgroundColor(0x17FFFFFF);
-        bottom.addView(bottomLine, new LinearLayout.LayoutParams(-1, 1));
-        LinearLayout bottomRow = new LinearLayout(this);
-        bottomRow.setOrientation(LinearLayout.HORIZONTAL);
-        bottomRow.setGravity(Gravity.CENTER_VERTICAL);
-        bottomRow.setPadding(dp(18), dp(11), dp(18), dp(13) + navBarHeight());
-        playBtn = new LinearLayout(this);
-        playBtn.setOrientation(LinearLayout.HORIZONTAL);
-        playBtn.setGravity(Gravity.CENTER);
-        playBtn.setPadding(0, dp(13), 0, dp(13));
-        GradientDrawable playBg = new GradientDrawable(
-                GradientDrawable.Orientation.TL_BR,
-                new int[]{0xFFF2543F, 0xFFD92C1C});
-        playBg.setCornerRadius(dp(14));
-        playBtn.setBackground(playBg);
-        ImageView playIcon = new ImageView(this);
-        playIcon.setImageResource(R.drawable.ic_drama_play);
-        playIcon.setColorFilter(Color.WHITE);
-        playBtn.addView(playIcon, new LinearLayout.LayoutParams(dp(16), dp(16)));
-        playLabel = new TextView(this);
-        playLabel.setText("开始播放");
-        playLabel.setTextColor(Color.WHITE);
-        playLabel.setTextSize(15.5f);
-        playLabel.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        LinearLayout.LayoutParams pllp = new LinearLayout.LayoutParams(-2, -2);
-        pllp.leftMargin = dp(7);
-        playBtn.addView(playLabel, pllp);
-        playBtn.setOnClickListener(v -> {
-            if (detail == null) return;
-            HongguoFeedActivity.startSeries(this, seriesId, detail.getTitle(), currentEpisode);
-        });
-        bottomRow.addView(playBtn, new LinearLayout.LayoutParams(0, -2, 1f));
-        favBtn = new LinearLayout(this);
-        favBtn.setOrientation(LinearLayout.VERTICAL);
-        favBtn.setGravity(Gravity.CENTER);
-        favBtn.setPadding(0, dp(7), 0, dp(7));
-        favBtn.setBackground(roundBgStroke(0x1AFFFFFF, dp(14), 0x29FFFFFF));
-        favBtnStar = new ImageView(this);
-        favBtnStar.setImageResource(R.drawable.ic_drama_star);
-        favBtn.addView(favBtnStar, new LinearLayout.LayoutParams(dp(21), dp(21)));
-        favBtnLabel = new TextView(this);
-        favBtnLabel.setText("收藏");
-        favBtnLabel.setTextSize(10);
-        LinearLayout.LayoutParams fllp = new LinearLayout.LayoutParams(-2, -2);
-        fllp.topMargin = dp(3);
-        favBtn.addView(favBtnLabel, fllp);
-        favBtn.setOnClickListener(v -> toggleFav());
-        LinearLayout.LayoutParams fblp = new LinearLayout.LayoutParams(dp(62), -2);
-        fblp.leftMargin = dp(12);
-        bottomRow.addView(favBtn, fblp);
-        bottom.addView(bottomRow);
-        FrameLayout.LayoutParams blp2 = new FrameLayout.LayoutParams(-1, -2);
-        blp2.gravity = Gravity.BOTTOM;
-        rootFrame.addView(bottom, blp2);
+        // 底部固定条已摘（他 2026-10-31 亲令：最底下的开始播放跟收藏
+        // 拿掉——收藏用头部金钮、播放入口另定）。页面滚到底即可，
+        // 底部留白只剩手势区让位＋收尾间距（见 col 底部 padding）。
 
         setContentView(rootFrame);
         styleFav(HgStore.isFaved(seriesId));
@@ -617,11 +554,6 @@ public class HongguoDetailActivity extends AppCompatActivity {
             bigFavStar.setColorFilter(faved ? 0xFFFFF8EC : 0xFFFFFFFF);
             bigFavBtn.setBackground(goldBg(faved));
         }
-        if (favBtn != null) {
-            favBtnStar.setColorFilter(faved ? 0xFFFFC44D : Color.WHITE);
-            favBtnLabel.setTextColor(faved ? 0xFFFFC44D : Color.WHITE);
-            favBtnLabel.setText(faved ? "已收藏" : "收藏");
-        }
     }
 
     /** 大收藏钮金渐变（定稿 .btn-fav-big）：未收藏暖金、已收藏亮金。 */
@@ -657,7 +589,6 @@ public class HongguoDetailActivity extends AppCompatActivity {
             if (seriesId != null) {
                 HgStore.removeHistory(seriesId);
                 currentEpisode = 1;
-                refreshPlayLabel(false);
                 Toast.makeText(this, "已清除", Toast.LENGTH_SHORT).show();
             }
         }));
@@ -806,13 +737,8 @@ public class HongguoDetailActivity extends AppCompatActivity {
         HgStore.Progress p = HgStore.progressOf(seriesId);
         currentEpisode = p != null ? Math.max(1, p.episodeIndex) : 1;
         if (total > 0) currentEpisode = Math.min(currentEpisode, total);
-        refreshPlayLabel(p != null && p.positionMs > 0);
         styleFav(HgStore.isFaved(seriesId));
         loadComments();
-    }
-
-    private void refreshPlayLabel(boolean resume) {
-        playLabel.setText(resume ? "继续播放 第" + currentEpisode + "集" : "开始播放");
     }
 
     private void addStat(String value, String label) {

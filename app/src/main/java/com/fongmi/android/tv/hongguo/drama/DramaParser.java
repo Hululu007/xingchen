@@ -1804,10 +1804,14 @@ public final class DramaParser {
         String vid = firstStr(o, "vid", "video_id");
         JsonObject tagInfo = obj(o, "tag_info");
         String badge = tagInfo == null ? null : str(tagInfo, "text");
+        // 角标底色与文案同源同读（tag_info.bg_color 首色，频道回包
+        // 实证：爆剧 #FF6868／新剧 #00AE83；热榜 hotItems 同读法）
+        String badgeColor = tagInfo == null ? null : firstBgColor(tagInfo);
         if (badge == null) {
             JsonArray ctl = arr(o, "cover_tag_info_list");
             if (ctl != null && ctl.size() > 0 && ctl.get(0).isJsonObject()) {
                 badge = str(ctl.get(0).getAsJsonObject(), "text");
+                badgeColor = firstBgColor(ctl.get(0).getAsJsonObject());
             }
         }
         // video_data 条目的角标/筹行还藏在 recommend_reason_list（字符串化
@@ -1815,7 +1819,10 @@ public final class DramaParser {
         JsonObject rrl = parseStringifiedObj(o.get("recommend_reason_list"));
         if (badge == null && rrl != null) {
             JsonObject rti = obj(rrl, "tag_info");
-            if (rti != null) badge = str(rti, "text");
+            if (rti != null) {
+                badge = str(rti, "text");
+                badgeColor = firstBgColor(rti);
+            }
         }
         // 热度文案：rec_text 直字段没带时退 rec_tags 的非榜单条目
         // （「共X万人在追」「X万热度」，存档回包实证）
@@ -1936,6 +1943,7 @@ public final class DramaParser {
                 authorName, authorAvatar,
                 authorUid, authorDesc,
                 firstStr(o, "publisher", "copyright"));
+        item.badgeColor = badgeColor;
         item.vidIndex = intOf(o, "vid_index", -1);
         item.authorRelationType = authorRelationType;
         item.authorCanFollow = authorCanFollow;
@@ -2031,6 +2039,16 @@ public final class DramaParser {
         return text != null && text.contains("榜") && text.contains("No.");
     }
 
+    /** tag_info 底色首色（bg_color[0]，热榜 hotItems 同读法）；没带为 null。 */
+    private static String firstBgColor(JsonObject tagInfo) {
+        if (tagInfo == null) return null;
+        JsonArray bg = arr(tagInfo, "bg_color");
+        if (bg != null && bg.size() > 0 && bg.get(0).isJsonPrimitive()) {
+            return bg.get(0).getAsString();
+        }
+        return null;
+    }
+
     /**
      * 信息摞后置填充（筹行/榜单条/追更数，存档频道回包逐字实证）：
      * 筹行＝secondary_infos（直数组优先，其次 recommend_reason_list 的
@@ -2039,7 +2057,9 @@ public final class DramaParser {
      * （99）、3＝题材、33＝演员；官方筹行按 KeepPriority 降序（稳定
      * 排序，同级保回包序）：实拍两例（评分/季/题材/演员 与 题材组/演员）
      * 都与此序一致。榜单条＝rec_tags 的榜单条目，渐变色与图标随条目
-     * 下发、原样带走。followed_cnt＝官方右列星数（追更/收藏人数）。
+     * 下发、原样带走。系列剧药丸＝rec_tags 的 rec_type=15 条目
+     * （recommend_reason＋content 两段与 rec_reason_style 的单色底，
+     * 频道回包逐字实证）。followed_cnt＝官方右列星数（追更/收藏人数）。
      */
     private static void fillInfoStack(DramaItem item, JsonObject o, JsonObject rrl) {
         JsonArray infos = arr(o, "secondary_infos");
@@ -2069,12 +2089,37 @@ public final class DramaParser {
             for (JsonElement te : recTags) {
                 if (!te.isJsonObject()) continue;
                 JsonObject t = te.getAsJsonObject();
+                // 系列剧药丸：rec_type=15 一条（两段文案＋单色底样式，
+                // 频道回包逐字实证；与榜单条同条共存回包零例，流页同位二选一）
+                if (intOf(t, "rec_type", -1) == 15 && item.seriesReason == null) {
+                    item.seriesReason = str(t, "recommend_reason");
+                    item.seriesContent = str(t, "content");
+                    JsonObject sstyle = obj(t, "rec_reason_style");
+                    if (sstyle != null) {
+                        item.seriesColor = str(sstyle, "rec_style_background_color");
+                        if (item.seriesColor == null) {
+                            item.seriesColor = str(sstyle, "rec_style_dark_background_color");
+                        }
+                        item.seriesAlpha = str(sstyle, "rec_style_background_transparency");
+                    }
+                }
                 // 条面文案两形：content 直接是榜单形，或 recommend_reason
                 // 是榜单形（此时 content 是热度文案、已归 recText）
                 String rankStr = null;
+                boolean rankFromReason = false;
                 if (isRankText(str(t, "content"))) rankStr = str(t, "content");
-                else if (isRankText(str(t, "recommend_reason"))) rankStr = str(t, "recommend_reason");
+                else if (isRankText(str(t, "recommend_reason"))) {
+                    rankStr = str(t, "recommend_reason");
+                    rankFromReason = true;
+                }
                 if (rankStr == null || item.rankText != null) continue;
+                // reason 榜单形时 content 是同条的热度段：官方药丸两段
+                // 同显（「真人剧热播榜 No.7｜5593万热度」，rec_divider_type
+                // =1 分隔，存档回包实证），合成一条带走
+                if (rankFromReason) {
+                    String heat = str(t, "content");
+                    if (heat != null && !heat.isEmpty()) rankStr = rankStr + "｜" + heat;
+                }
                 item.rankText = rankStr;
                 item.rankIconUrl = str(t, "rec_icon_url");
                 JsonObject style = obj(t, "rec_reason_style");

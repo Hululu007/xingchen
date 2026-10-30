@@ -174,7 +174,7 @@ public final class HgFeedPanels {
 
     private static android.widget.ImageView chevron(AppCompatActivity a) {
         android.widget.ImageView iv = new android.widget.ImageView(a);
-        iv.setImageResource(R.drawable.ic_drama_back);
+        iv.setImageResource(R.drawable.ic_drama_chev);
         iv.setColorFilter(0xFFC9C9CF);
         iv.setRotation(180);
         return iv;

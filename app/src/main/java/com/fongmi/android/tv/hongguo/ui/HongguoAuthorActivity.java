@@ -192,7 +192,11 @@ public class HongguoAuthorActivity extends AppCompatActivity {
                 }
             }
         });
-        root.addView(grid, new LinearLayout.LayoutParams(-1, 0, 1f));
+        // 状态字（加载中/暂无作品/失败）盖在网格区正中，与剧场同改
+        // （他 2026-10-31 点名：加载中不许在最底下）
+        android.widget.FrameLayout stage = new android.widget.FrameLayout(this);
+        stage.addView(grid, new android.widget.FrameLayout.LayoutParams(-1, -1));
+        root.addView(stage, new LinearLayout.LayoutParams(-1, 0, 1f));
 
         stateText = new TextView(this);
         stateText.setTextColor(0xFF8A8A93);
@@ -203,7 +207,7 @@ public class HongguoAuthorActivity extends AppCompatActivity {
         stateText.setOnClickListener(v -> {
             if (works.isEmpty()) loadWorks(true);
         });
-        root.addView(stateText);
+        stage.addView(stateText, new android.widget.FrameLayout.LayoutParams(-1, -1));
 
         setContentView(root);
 

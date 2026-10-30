@@ -460,6 +460,17 @@ public final class DramaClient {
      * 仍无可播档且模型带 fallback_api 时直取 fplay。
      */
     public static void fetchModelForPlay(String vid, int contentType, HgCallback<DramaVideoModel> cb) {
+        fetchModelForPlay(vid, contentType, cb, false);
+    }
+
+    /**
+     * speculative=true＝预热发（尾段预取下一集专用口）：全链走推测口，
+     * 撞空不写不清播放冷却。2026-10-31 自查定根：尾段预取原先借正片
+     * 口 resolve()，一发空就把自家脸打进 15 分钟冷却、窗内正片全被
+     * 赶去共享面——与刷流预取/全集预取的推测口纪律对齐。
+     */
+    public static void fetchModelForPlay(String vid, int contentType,
+                                         HgCallback<DramaVideoModel> cb, boolean speculative) {
         if (vid == null || vid.isEmpty()) {
             cb.onError(-1, "videoId 为空");
             return;
@@ -479,17 +490,22 @@ public final class DramaClient {
                     cb.onSuccess(m);
                     return;
                 }
-                fetchSingle(vid, m, cb);
+                fetchSingle(vid, m, cb, speculative);
             }
 
             @Override
             public void onError(int code, String message) {
-                fetchSingle(vid, null, cb);
+                fetchSingle(vid, null, cb, speculative);
             }
-        });
+        }, speculative);
     }
 
     private static void fetchSingle(String vid, DramaVideoModel partial, HgCallback<DramaVideoModel> cb) {
+        fetchSingle(vid, partial, cb, false);
+    }
+
+    private static void fetchSingle(String vid, DramaVideoModel partial,
+                                    HgCallback<DramaVideoModel> cb, boolean speculative) {
         postModel(HgDevice.PATH_PLAYBACK, singleBody(vid), new Sink() {
             @Override
             public void body(String text) {
@@ -503,7 +519,7 @@ public final class DramaClient {
                 if (partial != null) settlePlayModel(vid, partial, cb);
                 else cb.onError(code, msg);
             }
-        });
+        }, speculative);
     }
 
     private static void settlePlayModel(String vid, DramaVideoModel m, HgCallback<DramaVideoModel> cb) {

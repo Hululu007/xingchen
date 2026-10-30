@@ -262,7 +262,10 @@ public class HongguoSearchActivity extends AppCompatActivity {
                 if (last >= rows.size() - 4) runSearch(false);
             }
         });
-        root.addView(list, new LinearLayout.LayoutParams(-1, 0, 1f));
+        // 状态字盖在结果区正中（与剧场/作者页同改：加载中不许在最底下）
+        android.widget.FrameLayout stage = new android.widget.FrameLayout(this);
+        stage.addView(list, new android.widget.FrameLayout.LayoutParams(-1, -1));
+        root.addView(stage, new LinearLayout.LayoutParams(-1, 0, 1f));
 
         stateText = new TextView(this);
         stateText.setTextColor(0xFF9A9AA2);
@@ -270,7 +273,7 @@ public class HongguoSearchActivity extends AppCompatActivity {
         stateText.setGravity(Gravity.CENTER);
         stateText.setPadding(0, dp(14), 0, dp(14));
         stateText.setVisibility(View.GONE);
-        root.addView(stateText);
+        stage.addView(stateText, new android.widget.FrameLayout.LayoutParams(-1, -1));
 
         setContentView(root);
 

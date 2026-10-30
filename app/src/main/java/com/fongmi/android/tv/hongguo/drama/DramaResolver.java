@@ -52,6 +52,11 @@ public final class DramaResolver {
     }
 
     public void resolve(String videoId, int contentType, Listener listener) {
+        resolveInternal(videoId, contentType, listener, false);
+    }
+
+    private void resolveInternal(String videoId, int contentType, Listener listener,
+                                 boolean speculative) {
         if (videoId == null || videoId.isEmpty()) {
             if (listener != null) main.post(() -> listener.onFailed(videoId, null, "videoId 为空"));
             return;
@@ -80,7 +85,7 @@ public final class DramaResolver {
             public void onError(int code, String message) {
                 finish(videoId, null, "E1");
             }
-        });
+        }, speculative);
     }
 
     /** 以指定档重解（清晰度切换）：落偏好、回收旧流后重走解链。 */
@@ -91,7 +96,11 @@ public final class DramaResolver {
         resolve(videoId, contentType, listener);
     }
 
-    /** 预热一条流（解链注册后 warm 代理层）。 */
+    /**
+     * 预热一条流（解链注册后 warm 代理层）。无 token 时走推测口解链
+     * （speculative=true，2026-10-31 补）：预热撞空不许写播放冷却——
+     * 原先直借正片 resolve()，一发空就把正片全赶去共享面 15 分钟。
+     */
     public void warm(String videoId, int contentType) {
         if (videoId == null) return;
         String token = tokenByVideo.get(videoId);
@@ -99,7 +108,7 @@ public final class DramaResolver {
             registry.warmAsync(token);
             return;
         }
-        resolve(videoId, contentType, null);
+        resolveInternal(videoId, contentType, null, true);
     }
 
     /** 回收一条流。选档偏好保留，实际档记录清掉。 */

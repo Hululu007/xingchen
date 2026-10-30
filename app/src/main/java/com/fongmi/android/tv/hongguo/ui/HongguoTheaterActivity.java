@@ -4,6 +4,7 @@ import android.content.Intent;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.Outline;
 import android.graphics.Path;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
@@ -11,6 +12,7 @@ import android.os.Bundle;
 import android.os.Parcelable;
 import android.view.Gravity;
 import android.view.View;
+import android.view.ViewOutlineProvider;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
@@ -189,14 +191,6 @@ public class HongguoTheaterActivity extends AppCompatActivity {
         title.setTypeface(SERIF_BLACK);
         title.setIncludeFontPadding(false);
         titleRow.addView(title);
-        TextView sub = new TextView(this);
-        sub.setText("真人剧 · 漫剧 · AI剧 · 视频");
-        sub.setTextColor(0xFF8A8A93);
-        sub.setTextSize(12.5f);
-        sub.setIncludeFontPadding(false);
-        LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(-2, -2);
-        subLp.leftMargin = dp(10);
-        titleRow.addView(sub, subLp);
         top.addView(titleRow, new LinearLayout.LayoutParams(0, -2, 1f));
         ImageView search = new ImageView(this);
         search.setImageResource(R.drawable.ic_drama_search);
@@ -268,7 +262,11 @@ public class HongguoTheaterActivity extends AppCompatActivity {
                 if (last >= count - 6) load(false);
             }
         });
-        root.addView(grid, new LinearLayout.LayoutParams(-1, 0, 1f));
+        // 状态字（加载中/暂无/失败）盖在网格区正中——原先它排在网格
+        // 后面、被顶到屏幕最底下（他 2026-10-31 点名：加载中该在中间）
+        android.widget.FrameLayout stage = new android.widget.FrameLayout(this);
+        stage.addView(grid, new android.widget.FrameLayout.LayoutParams(-1, -1));
+        root.addView(stage, new LinearLayout.LayoutParams(-1, 0, 1f));
 
         stateText = new TextView(this);
         stateText.setTextColor(0xFF8A8A93);
@@ -279,7 +277,7 @@ public class HongguoTheaterActivity extends AppCompatActivity {
         stateText.setOnClickListener(v -> {
             if ((channel == TAB_CLIPS ? clips : items).isEmpty()) load(true);
         });
-        root.addView(stateText);
+        stage.addView(stateText, new android.widget.FrameLayout.LayoutParams(-1, -1));
 
         root.addView(buildBottomBar());
         setContentView(root);
@@ -919,12 +917,19 @@ public class HongguoTheaterActivity extends AppCompatActivity {
         @NonNull
         @Override
         public H onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-            // 定稿 .card：海报 aspect 3/3.6、圆 16、占位 #E8E6E2；右上
-            // 评分角标（金字深底）；底部渐变条左集数右热度；卡下标题
-            // 15/700＋简介两行 12.5 sub。
+            // 海报 aspect 1.43（实测封面 400×572）、整框裁圆 16、
+            // 占位 #E8E6E2；右上评分角标（金字深底）；底部渐变条左
+            // 集数右热度；卡下标题 15/700＋简介两行 12.5 sub。
             LinearLayout cell = new LinearLayout(HongguoTheaterActivity.this);
             cell.setOrientation(LinearLayout.VERTICAL);
             FrameLayout box = new FrameLayout(HongguoTheaterActivity.this);
+            box.setOutlineProvider(new ViewOutlineProvider() {
+                @Override
+                public void getOutline(View view, Outline outline) {
+                    outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), dp(16));
+                }
+            });
+            box.setClipToOutline(true);
             ImageView cover = new ImageView(HongguoTheaterActivity.this);
             cover.setTag("cover");
             cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
@@ -974,7 +979,7 @@ public class HongguoTheaterActivity extends AppCompatActivity {
             stripLp.gravity = Gravity.BOTTOM;
             box.addView(strip, stripLp);
             int w = (getResources().getDisplayMetrics().widthPixels - dp(48)) / 2;
-            cell.addView(box, new LinearLayout.LayoutParams(-1, (int) (w * 1.2f)));
+            cell.addView(box, new LinearLayout.LayoutParams(-1, (int) (w * 1.43f)));
             TextView title = new TextView(HongguoTheaterActivity.this);
             title.setTag("title");
             title.setTextColor(0xFF1B1B1F);

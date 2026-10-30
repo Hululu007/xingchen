@@ -91,6 +91,16 @@ public final class DramaItem {
     public List<String> rankColors;
     /** 榜单条奖杯图标址（rec_icon_url）；没带为 null。 */
     public String rankIconUrl;
+    /** 系列剧药丸主文案（rec_tags 中 rec_type=15 的 recommend_reason，如「系列剧·已上线6季」）；没带为 null。 */
+    public String seriesReason;
+    /** 系列剧药丸副文案（rec_tags 中 rec_type=15 的 content，如「共888万人在追」）；没带为 null。 */
+    public String seriesContent;
+    /** 系列剧药丸底色（rec_reason_style 的 rec_style_background_color 原样串）；没带为 null。 */
+    public String seriesColor;
+    /** 系列剧药丸底色透明度（rec_style_background_transparency 原样串，如「0.4」）；没带为 null。 */
+    public String seriesAlpha;
+    /** 角标底色（tag_info.bg_color 首色，与 badge 同源同读，如爆剧 #FF6868／新剧 #00AE83）；没带为 null。 */
+    public String badgeColor;
     /** 追更/收藏人数原值（cell video_detail.followed_cnt）；没带为 -1。 */
     public long followedCnt = -1;
     /**

@@ -47,14 +47,33 @@ public final class DramaSeriesPrefetch {
             DramaClient.fetchModels(slice, new HgCallback<Map<String, DramaVideoModel>>() {
                 @Override
                 public void onSuccess(Map<String, DramaVideoModel> r) {
+                    stopIfSliceEmpty(slice);
                     done.run();
                 }
 
                 @Override
                 public void onError(int c, String m) {
+                    stopIfSliceEmpty(slice);
                     done.run();
                 }
             }, true);
+
+    /**
+     * 一批拉完零落盘就停整个会话（2026-10-31 自查补）：脸已回空时
+     * 后续批全是空发、只烧计次（513 集≈26 批）；停在这里，后面的集
+     * 等真看到时再走正片链。已缓存命中的批落盘数＞0，不会误停。
+     */
+    private static void stopIfSliceEmpty(List<DramaClient.ModelRequest> slice) {
+        if (slice == null || slice.isEmpty()) return;
+        for (DramaClient.ModelRequest r : slice) {
+            if (r != null && r.vid != null && DramaCache.get(r.vid) != null) return;
+        }
+        synchronized (LOCK) {
+            generation++;
+            activeKey = null;
+            activeSeriesId = null;
+        }
+    }
 
     private static final ScheduledExecutorService TIMER =
             Executors.newSingleThreadScheduledExecutor(r -> {

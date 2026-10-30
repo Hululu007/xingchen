@@ -11,7 +11,7 @@
 #   - 红果本体包 app/src/main/java/com/fongmi/android/tv/hongguo/（api/book/crypto/
 #     drama/model/proxy/sign/ui 全包，短剧与小说同在内）与离线单测 app/src/test/hongguo/；
 #   - mobile 源集的红果两目录（book 浏览页 + HongguoNovelDetailActivity）；
-#   - 本体资源（main 源集）：ic_drama_* 图标 15 份（重建新页自绘）、小说面共用
+#   - 本体资源（main 源集）：ic_drama_* 图标 16 份（重建新页自绘）、小说面共用
 #     图形 5 份＋ic_hg_search_gray＋item_hongguo_search_book.xml（官方版里是小说
 #     线共用件、保留；朋友版小说同剥、无人引用，一并删）；
 #   - Nano 本地服务器的红果代理解密 process（HongguoStream 本体＋Nano 的 import 与注册行）；
@@ -74,6 +74,7 @@ grep -qF "android:name=\"com.fongmi.android.tv.hongguo.book.HgAudioPlayActivity\
 # ---- 本体资源清单（main/mobile 源集，逐份核在再删） ----
 RES_FILES="
 app/src/main/res/drawable/ic_drama_back.xml
+app/src/main/res/drawable/ic_drama_chev.xml
 app/src/main/res/drawable/ic_drama_close.xml
 app/src/main/res/drawable/ic_drama_comment.xml
 app/src/main/res/drawable/ic_drama_exitfull.xml

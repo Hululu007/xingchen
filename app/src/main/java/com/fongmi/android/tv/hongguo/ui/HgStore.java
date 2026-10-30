@@ -197,6 +197,41 @@ public final class HgStore {
         if (speed > 0) Prefers.put(K_SPEED, speed);
     }
 
+    // ---------- 定时关闭（更多面板接线，2026-10-30 UI 同步批） ----------
+    // 档义走 HgPanelLogic（关/播完本剧/30 分钟/自定义）；计时档在设档
+    // 当刻把截止时刻落盘，播放页 tick 到点停播并清档；「播完本剧」无
+    // 截止时刻，由播放页在本剧最后一集播完时拦截连播。
+
+    private static final String K_TIMER_MODE = "hongguo_timer_mode";
+    private static final String K_TIMER_MINUTES = "hongguo_timer_minutes";
+    private static final String K_TIMER_DEADLINE = "hongguo_timer_deadline";
+
+    public static int getTimerMode() {
+        return Prefers.getInt(K_TIMER_MODE, HgPanelLogic.TIMER_OFF);
+    }
+
+    public static int getTimerMinutes() {
+        return Prefers.getInt(K_TIMER_MINUTES, 0);
+    }
+
+    /** 设档即重算截止时刻（非计时档清零）。 */
+    public static void setTimer(int mode, int minutes) {
+        Prefers.put(K_TIMER_MODE, mode);
+        Prefers.put(K_TIMER_MINUTES, minutes);
+        long delay = HgPanelLogic.timerDelayMs(mode, minutes);
+        Prefers.put(K_TIMER_DEADLINE,
+                delay > 0 ? System.currentTimeMillis() + delay : 0L);
+    }
+
+    public static long getTimerDeadline() {
+        return Prefers.getLong(K_TIMER_DEADLINE, 0L);
+    }
+
+    public static void clearTimer() {
+        Prefers.put(K_TIMER_MODE, HgPanelLogic.TIMER_OFF);
+        Prefers.put(K_TIMER_DEADLINE, 0L);
+    }
+
     // ---------- 「启动直达短剧」开关（抽屉第一项，他亲定名） ----------
 
     public static boolean isLaunchDirect() {

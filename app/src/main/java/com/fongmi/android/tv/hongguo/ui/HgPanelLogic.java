@@ -134,6 +134,33 @@ public final class HgPanelLogic {
         return -1;
     }
 
+    // ---------- 集数与条文案（2026-10-30 定稿口径，全局统一） ----------
+
+    /** 集数短文案：完结「全N集」、未完结「更新至N集」；总数未知返回空串。 */
+    public static String countText(boolean finished, int total) {
+        if (total <= 0) return "";
+        return finished ? "全" + total + "集" : "更新至" + total + "集";
+    }
+
+    /**
+     * 首页观看完整条文案：短剧/漫剧按 contentType 分（1004=漫剧，与
+     * DramaItem 侧判读同值），合集走「观看完整视频」；带集数后缀。
+     */
+    public static String watchBarText(boolean album, int contentType,
+                                      boolean finished, int total) {
+        String head = album ? "观看完整视频"
+                : contentType == 1004 ? "观看完整漫剧" : "观看完整短剧";
+        String count = countText(finished, total);
+        return count.isEmpty() ? head : head + " · " + count;
+    }
+
+    /** 播放页选集条文案：选集 · 已完结 · 全N集 ／ 选集 · 更新至N集。 */
+    public static String episodeBarText(boolean finished, int total) {
+        if (total <= 0) return "选集";
+        return finished ? "选集 · 已完结 · 全" + total + "集"
+                : "选集 · 更新至" + total + "集";
+    }
+
     // ---------- 弹幕设置（竖屏：面板弹幕开后出的「弹幕设置」行 → 设置单） ----------
     // 构成照官方 DanmakuOptionDialog 竖屏形态定版（dig 账
     // panel-danmaku-settings-20261028.md）：不透明度/移动速度/显示区域/

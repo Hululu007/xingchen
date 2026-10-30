@@ -17,7 +17,7 @@
 #   - Nano 本地服务器的红果代理解密 process（HongguoStream 本体＋Nano 的 import 与注册行）；
 #   - 底栏短剧格：HomeActivity 的 import／注册行／点击分发支／启动直达块、
 #     isHongguoTabEnabled 改回 false（格子不注册）、ic_nav_duanju 双态图标、nav_duanju 字符串；
-#   - Manifest（mobile）里红果九个 Activity＋书城浏览页的登记。
+#   - Manifest（mobile）里红果十个 Activity＋书城浏览页的登记。
 #
 # 不许误伤的共用件（海阔规则年代就有的壳子件，只是名字里带 Hongguo，与本功能无关，留）：
 #   - com.fongmi.android.tv.api.HongguoCommentApi / HongguoDanmakuApi / FqCommentSigner
@@ -28,7 +28,7 @@
 #   - 登录框架本体（LoginManager 注册表与通用口、各提供方）、
 #     底栏组件本体（XcBottomBar/BottomTabs 与 ids.xml 的 hongguo 预声明 id——无害占位）、
 #     Nano 其余 process。
-# 终检只认本功能专属标识（tv.hongguo 包名与九个 Activity 名、HongguoStream、
+# 终检只认本功能专属标识（tv.hongguo 包名与十个 Activity 名、HongguoStream、
 # ic_nav_duanju/nav_duanju、ic_drama_），不认泛 Hongguo 字样，
 # 免得把上面的共用件误报成残留。
 set -euo pipefail
@@ -64,7 +64,7 @@ grep -qF "<string name=\"nav_duanju\">短剧</string>" "$MSTRINGS" || fail "短�
 if grep -q "Hongguo" "$LM"; then
   fail "LoginManager 出现红果字样（重建后应为零，疑回潮）"
 fi
-for a in HongguoFeedActivity HongguoDetailActivity HongguoTheaterActivity HongguoSearchActivity HongguoAuthorActivity HongguoMineActivity HongguoLandActivity HongguoNovelDetailActivity; do
+for a in HongguoFeedActivity HongguoDetailActivity HongguoTheaterActivity HongguoSearchActivity HongguoAuthorActivity HongguoMineActivity HongguoMineEditActivity HongguoLandActivity HongguoNovelDetailActivity; do
   grep -qF "android:name=\"com.fongmi.android.tv.hongguo.ui.$a\"" "$MANIFEST" || fail "Manifest 的红果登记对不上：$a"
 done
 grep -qF "android:name=\"com.fongmi.android.tv.hongguo.book.HgBookBrowseActivity\"" "$MANIFEST" || fail "Manifest 的红果书城浏览页登记对不上"
@@ -92,6 +92,11 @@ app/src/main/res/drawable/bg_hg_cover_r6.xml
 app/src/main/res/drawable/bg_hg_follow_btn.xml
 app/src/main/res/drawable/ic_hg_search_gray.xml
 app/src/main/res/layout/item_hongguo_search_book.xml
+app/src/main/res/anim/hg_push_in.xml
+app/src/main/res/anim/hg_pop_out.xml
+app/src/main/res/anim/hg_fade_in.xml
+app/src/main/res/anim/hg_fade_out.xml
+app/src/main/res/anim/hg_hold.xml
 app/src/mobile/res/drawable/ic_nav_duanju_outline.xml
 app/src/mobile/res/drawable/ic_nav_duanju_filled.xml
 "
@@ -167,7 +172,7 @@ if hlines[k + 1].strip() != "return true;":
 hlines[k + 1] = "        return false;"
 save(home_path, "\n".join(hlines))
 
-# ---- Manifest：红果登记注释与九个 Activity＋书城浏览页逐个删（每个必须恰好一处） ----
+# ---- Manifest：红果登记注释与十个 Activity＋书城浏览页逐个删（每个必须恰好一处） ----
 manifest = load(manifest_path)
 manifest = cut_exact(manifest, """        <!-- 红果刷剧页（2026-10-30 从零重建）：竖屏刷剧流，独立一套
              界面与控制，不借 VideoActivity。窗口不转：screenOrientation
@@ -181,7 +186,7 @@ manifest = cut_exact(manifest, """        <!-- 红果横屏页（2026-10-30 重�
 """, "横屏页登记注释")
 manifest = cut_exact(manifest, """        <!-- 红果书城浏览（内置小说/听书源点进去的面） -->
 """, "书城浏览页登记注释")
-for name in ("HongguoFeedActivity", "HongguoDetailActivity", "HongguoTheaterActivity", "HongguoSearchActivity", "HongguoAuthorActivity", "HongguoMineActivity", "HongguoNovelDetailActivity", "HongguoLandActivity"):
+for name in ("HongguoFeedActivity", "HongguoDetailActivity", "HongguoTheaterActivity", "HongguoSearchActivity", "HongguoAuthorActivity", "HongguoMineActivity", "HongguoMineEditActivity", "HongguoNovelDetailActivity", "HongguoLandActivity"):
     pattern = r"<activity\s+android:name=\"com\.fongmi\.android\.tv\.hongguo\.ui\." + name + r"\"[^>]*/>"
     manifest, n = re.subn(pattern, "", manifest)
     if n != 1:

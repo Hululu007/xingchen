@@ -9,6 +9,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
 import android.view.MotionEvent;
+import android.view.OrientationEventListener;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.animation.AccelerateInterpolator;
@@ -72,8 +73,9 @@ import java.util.concurrent.Executors;
  * 必须分得开）；条目左下只有剧名＋题材标签筹＋AI 声明（数据驱动），
  * 右列头像在最上＋收藏＋评论裸图标。播放页顶栏玻璃圆返回＋「第N集」
  * ＋玻璃圆更多钮（倍速只走更多面板，顶栏倍速字钮已摘），整宽选集条
- * 贴底（清屏钮入条右端、只此一面），横屏入口只留画面下方居中
- * 「全屏观看」钮（传感器横转已摘）。视频页左下作者行＋标题＋文案，
+ * 贴底（清屏钮入条右端、只此一面），横屏入口两路：画面下方居中
+ * 「全屏观看」钮＋传感器横转直进（UI同步C 曾摘传感器路，
+ * 2026-10-31 他拍板加回、按官方直接旋转）。视频页左下作者行＋标题＋文案，
  * 底部合集条＋进度线。手势：单击播放/暂停、长按中部开更多面板、
  * 长按其余处 2 倍速（松手恢复）。弹幕走 PlayerView 自带层（数据源
  * HongguoDanmakuApi 落盘 XML）；「发弹幕」药丸整件已摘（他定版：
@@ -288,8 +290,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
     /** 高光片段到点守卫已触发的 vid（防 tick 重复走完播路）；playVid 换条即失效（按 vid 比对）。 */
     private String highlightEndFiredVid;
     private static final long FEED_WATCHDOG_MS = 20_000;
-    // 横屏交接（阶段8）：泊出旗/列表静止旗/最近一集画幅/弹窗守卫
-    // （传感器横转入口已按定稿摘掉，横屏只从「全屏观看」钮进）
+    // 横屏交接（阶段8）：泊出旗/列表静止旗/最近一集画幅/弹窗守卫/朝向监视
     private boolean engineParked;
     /** 离开本页前是否在播（回来续播守卫，见 onPause/onResume）。 */
     private boolean resumeOnReturn;
@@ -297,6 +298,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
     private int lastVideoW;
     private int lastVideoH;
     private long panelGuardUntil;
+    private OrientationEventListener orientationListener;
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
@@ -322,6 +324,15 @@ public class HongguoFeedActivity extends AppCompatActivity {
             else loadUgc();
         }
         main.post(ticker);
+        // 传感器横转直进横屏（他 2026-10-31 拍板加回，恢复 UI同步C
+        // 摘除前的原接法）：朝向落横向带即走 enterLand(false)，
+        // 横版门＋总闸在 enterLand 内与钮路同口径把关。
+        orientationListener = new OrientationEventListener(this) {
+            @Override
+            public void onOrientationChanged(int orientation) {
+                if (DramaLandLogic.orientationBand(orientation) == 1) enterLand(false);
+            }
+        };
     }
 
     // ---------- 横屏交接（阶段8） ----------
@@ -411,6 +422,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        if (orientationListener != null) orientationListener.enable();
         if (engineParked) {
             reclaimFromLand();
             return;
@@ -2493,6 +2505,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
     @Override
     protected void onPause() {
         super.onPause();
+        if (orientationListener != null) orientationListener.disable();
         stopBoost();
         saveProgressNow();
         saveFeedPos();

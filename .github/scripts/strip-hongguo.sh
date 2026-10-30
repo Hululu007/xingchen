@@ -17,7 +17,8 @@
 #   - Nano 本地服务器的红果代理解密 process（HongguoStream 本体＋Nano 的 import 与注册行）；
 #   - 底栏短剧格：HomeActivity 的 import／注册行／点击分发支／启动直达块、
 #     isHongguoTabEnabled 改回 false（格子不注册）、ic_nav_duanju 双态图标、nav_duanju 字符串；
-#   - Manifest（mobile）里红果十个 Activity＋书城浏览页的登记。
+#   - Manifest（mobile）里红果十个 Activity＋书城浏览页＋红果听书播放页
+#     （2026-10-30 听书分家新增 HgAudioPlayActivity）的登记。
 #
 # 不许误伤的共用件（海阔规则年代就有的壳子件，只是名字里带 Hongguo，与本功能无关，留）：
 #   - com.fongmi.android.tv.api.HongguoCommentApi / HongguoDanmakuApi / FqCommentSigner
@@ -68,6 +69,7 @@ for a in HongguoFeedActivity HongguoDetailActivity HongguoTheaterActivity Honggu
   grep -qF "android:name=\"com.fongmi.android.tv.hongguo.ui.$a\"" "$MANIFEST" || fail "Manifest 的红果登记对不上：$a"
 done
 grep -qF "android:name=\"com.fongmi.android.tv.hongguo.book.HgBookBrowseActivity\"" "$MANIFEST" || fail "Manifest 的红果书城浏览页登记对不上"
+grep -qF "android:name=\"com.fongmi.android.tv.hongguo.book.HgAudioPlayActivity\"" "$MANIFEST" || fail "Manifest 的红果听书播放页登记对不上"
 
 # ---- 本体资源清单（main/mobile 源集，逐份核在再删） ----
 RES_FILES="
@@ -187,6 +189,8 @@ manifest = cut_exact(manifest, """        <!-- 红果横屏页（2026-10-30 重�
 """, "横屏页登记注释")
 manifest = cut_exact(manifest, """        <!-- 红果书城浏览（内置小说/听书源点进去的面） -->
 """, "书城浏览页登记注释")
+manifest = cut_exact(manifest, """        <!-- 红果听书单独的播放页（分家令：不与普通听书共用播放页） -->
+""", "红果听书播放页登记注释")
 for name in ("HongguoFeedActivity", "HongguoDetailActivity", "HongguoTheaterActivity", "HongguoSearchActivity", "HongguoAuthorActivity", "HongguoMineActivity", "HongguoMineEditActivity", "HongguoNovelDetailActivity", "HongguoLandActivity"):
     pattern = r"<activity\s+android:name=\"com\.fongmi\.android\.tv\.hongguo\.ui\." + name + r"\"[^>]*/>"
     manifest, n = re.subn(pattern, "", manifest)
@@ -196,6 +200,10 @@ pattern = r"<activity\s+android:name=\"com\.fongmi\.android\.tv\.hongguo\.book\.
 manifest, n = re.subn(pattern, "", manifest)
 if n != 1:
     sys.exit("python: Manifest 红果登记对不上（HgBookBrowseActivity，命中 %d 处）" % n)
+pattern = r"<activity\s+android:name=\"com\.fongmi\.android\.tv\.hongguo\.book\.HgAudioPlayActivity\"[^>]*/>"
+manifest, n = re.subn(pattern, "", manifest)
+if n != 1:
+    sys.exit("python: Manifest 红果登记对不上（HgAudioPlayActivity，命中 %d 处）" % n)
 save(manifest_path, manifest)
 PYEOF
 

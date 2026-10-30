@@ -1068,9 +1068,48 @@ public final class DramaParser {
             }
             cont = extractContinuation(tab, tabType);
         }
+        List<DramaCategory> categories = new ArrayList<>();
+        collectCategories(root, categories, new java.util.HashSet<>(), 0);
         return new DramaCellPage(code, msg, items, root, hasMore,
                 cont == null ? null : cont.getOffset(),
-                cont == null ? null : cont.getSessionId(), cont);
+                cont == null ? null : cont.getSessionId(), cont,
+                Collections.emptyList(), Collections.emptyList(), categories);
+    }
+
+    /** 小分类筛选落地页回包 → 条目页（全树走同一套单元格抽取）。 */
+    public static DramaCellPage parseLandingPage(String json) {
+        JsonObject root = JsonParser.parseString(json).getAsJsonObject();
+        int code = intOf(root, "code", 0);
+        String msg = str(root, "message");
+        List<DramaItem> items = new ArrayList<>();
+        collectDiscoverCells(root, items, 0);
+        return new DramaCellPage(code, msg, items, root);
+    }
+
+    /** 分类面抽取（与小说线同口径：递归找 category_id + 名称的对象，去重）。 */
+    private static void collectCategories(JsonElement el, List<DramaCategory> out,
+                                          java.util.Set<String> seen, int depth) {
+        if (el == null || depth > 10) return;
+        if (el.isJsonArray()) {
+            for (JsonElement child : el.getAsJsonArray()) {
+                collectCategories(child, out, seen, depth);
+            }
+            return;
+        }
+        if (!el.isJsonObject()) return;
+        JsonObject o = el.getAsJsonObject();
+        String cid = firstStr(o, "category_id");
+        String name = firstStr(o, "name", "title", "category_name");
+        if (cid != null && !cid.isEmpty() && name != null && !name.isEmpty()
+                && seen.add(cid)) {
+            DramaCategory c = new DramaCategory();
+            c.id = cid;
+            c.name = name;
+            out.add(c);
+        }
+        for (Map.Entry<String, JsonElement> en : o.entrySet()) {
+            collectCategories(en.getValue(), out, seen, depth + 1);
+        }
     }
 
     /**

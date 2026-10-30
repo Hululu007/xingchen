@@ -31,6 +31,8 @@ public final class DramaCellPage {
      * hasMore/nextOffset 即签段服务端下发的续拉口径（has_more/next_offset），
      * 搜索续拉以此为准、不按条数自算。其余面为空表）。 */
     private final List<DramaSearchRow> searchRows;
+    /** 小分类面（频道回包递归抽取 category_id+名称；其余面为空表）。 */
+    private final List<DramaCategory> categories;
 
     DramaCellPage(int code, String message, List<DramaItem> items, JsonObject raw) {
         this(code, message, items, raw, false, null, null, null);
@@ -54,6 +56,14 @@ public final class DramaCellPage {
                boolean hasMore, String nextOffset, String sessionId,
                HgContinuation continuation, List<DramaSearchTab> tabs,
                List<DramaSearchRow> searchRows) {
+        this(code, message, items, raw, hasMore, nextOffset, sessionId, continuation,
+                tabs, searchRows, Collections.emptyList());
+    }
+
+    DramaCellPage(int code, String message, List<DramaItem> items, JsonObject raw,
+               boolean hasMore, String nextOffset, String sessionId,
+               HgContinuation continuation, List<DramaSearchTab> tabs,
+               List<DramaSearchRow> searchRows, List<DramaCategory> categories) {
         this.code = code;
         this.message = message;
         this.items = Collections.unmodifiableList(items);
@@ -64,6 +74,7 @@ public final class DramaCellPage {
         this.continuation = continuation;
         this.tabs = Collections.unmodifiableList(tabs);
         this.searchRows = Collections.unmodifiableList(searchRows);
+        this.categories = Collections.unmodifiableList(categories);
     }
 
     public int getCode() { return code; }
@@ -76,4 +87,5 @@ public final class DramaCellPage {
     public HgContinuation getContinuation() { return continuation; }
     public List<DramaSearchTab> getTabs() { return tabs; }
     public List<DramaSearchRow> getSearchRows() { return searchRows; }
+    public List<DramaCategory> getCategories() { return categories; }
 }

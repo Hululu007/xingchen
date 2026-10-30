@@ -583,6 +583,19 @@ public final class DramaClient {
                 sinkOf(cb, DramaParser::parseCellChange));
     }
 
+    private static final String PATH_LANDING = "/reading/bookapi/new_category/landing/v1/";
+
+    /** 小分类筛选（数据源既有口径：landing 口 + category_id，单选一类一拉）。 */
+    public static void fetchCategoryLanding(String categoryId, int offset,
+                                            HgCallback<DramaCellPage> cb) {
+        List<String[]> pairs = HgDevice.deviceQueryPairs();
+        pairs.add(new String[]{"category_id", categoryId});
+        pairs.add(new String[]{"query_gender", "8"});
+        pairs.add(new String[]{"offset", String.valueOf(offset)});
+        pairs.add(new String[]{"count", "20"});
+        getBrowse(PATH_LANDING, pairs, false, sinkOf(cb, DramaParser::parseLandingPage));
+    }
+
     // ---------- 搜索 ----------
 
     /** 搜索结果页签（tabType：11 综合/29 剧集/30 视频/1 小说/27 用户）。 */
@@ -596,6 +609,55 @@ public final class DramaClient {
     public static void searchUsers(String keyword, HgCallback<List<DramaAuthorHit>> cb) {
         getBrowse("/reading/bookapi/search/tab/v", HgRequests.searchPairs(keyword, 0, 27), true,
                 sinkOf(cb, DramaParser::parseUserTab));
+    }
+
+    /** 作者作品流（评论栈 user/profile 口，tab_type=11 作品签，cursor 翻页）。 */
+    public static void fetchAuthorWorks(String userId, String cursor, HgCallback<DramaWork.Page> cb) {
+        if (userId == null || userId.isEmpty()) {
+            cb.onError(-1, "user_id 为空");
+            return;
+        }
+        JsonObject payload = new JsonObject();
+        payload.addProperty("comment_source", 1506);
+        payload.addProperty("count", 18);
+        if (cursor != null && !cursor.isEmpty()) payload.addProperty("cursor", cursor);
+        payload.addProperty("sort", "time_desc");
+        payload.addProperty("tab_type", 11);
+        payload.addProperty("target_user_id", userId);
+        DramaCommentTransport.post("user/profile/" + userId, payload.toString(),
+                new DramaCommentTransport.Sink() {
+                    @Override
+                    public void onText(String text) {
+                        DramaWork.Page page;
+                        try {
+                            page = DramaParser.parseAuthorWorks(text);
+                        } catch (Exception e) {
+                            cb.onError(-2, "作品回包解析失败");
+                            return;
+                        }
+                        if (page == null) cb.onError(-2, "作品回包解析失败");
+                        else cb.onSuccess(page);
+                    }
+
+                    @Override
+                    public void onFail(int code, String msg) {
+                        cb.onError(code, msg);
+                    }
+                });
+    }
+
+    /** 作者剧集架（bookshelf/video/info 签名 GET，offset 翻页）。 */
+    public static void fetchAuthorShelf(String userId, int offset, HgCallback<DramaWork.Page> cb) {
+        if (userId == null || userId.isEmpty()) {
+            cb.onError(-1, "user_id 为空");
+            return;
+        }
+        List<String[]> pairs = new ArrayList<>(HgDevice.deviceQueryPairs());
+        pairs.add(new String[]{"target_user_id", userId});
+        pairs.add(new String[]{"count", "18"});
+        pairs.add(new String[]{"offset", String.valueOf(Math.max(0, offset))});
+        getBrowse("/reading/bookapi/bookshelf/video/info/v1/", pairs, false,
+                sinkOf(cb, DramaParser::parseAuthorShelf));
     }
 
     /** 作者资料（作者页头部）。 */

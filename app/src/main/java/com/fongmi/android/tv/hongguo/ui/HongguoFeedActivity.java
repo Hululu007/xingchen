@@ -998,7 +998,8 @@ public class HongguoFeedActivity extends AppCompatActivity {
             if (start < 0 || start >= items.size()) start = 0;
             feedStartPending = true;
             pager.scrollToPosition(start);
-            main.post(() -> settleTo(start));
+            final int startPos = start;
+            main.post(() -> settleTo(startPos));
         }
     }
 

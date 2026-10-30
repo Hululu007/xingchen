@@ -40,12 +40,29 @@ public class HongguoMineActivity extends AppCompatActivity {
     private static final int MODE_FAV = 2;
     private static final int MODE_NOVEL = 3;
 
+    /** 直达入口（定稿：历史页/收藏页是两个独立页）：带此附加打开即落列表、返回即退页。 */
+    public static final String EXTRA_INITIAL = "hg_mine_initial";
+
+    public static void startHistory(android.content.Context context) {
+        android.content.Intent intent = new android.content.Intent(context, HongguoMineActivity.class);
+        intent.putExtra(EXTRA_INITIAL, MODE_HISTORY);
+        context.startActivity(intent);
+    }
+
+    public static void startFav(android.content.Context context) {
+        android.content.Intent intent = new android.content.Intent(context, HongguoMineActivity.class);
+        intent.putExtra(EXTRA_INITIAL, MODE_FAV);
+        context.startActivity(intent);
+    }
+
     private TextView titleText;
     private LinearLayout homeBox;
     private RecyclerView list;
     private RowAdapter adapter;
     private TextView emptyText;
     private int mode = MODE_HOME;
+    /** 直达列表模式（抽屉两行进入）：返回直接退页，不回「我的」格。 */
+    private boolean directList;
     private final List<Row> rows = new ArrayList<>();
 
     private static final class Row {
@@ -137,6 +154,14 @@ public class HongguoMineActivity extends AppCompatActivity {
         root.addView(emptyText);
 
         setContentView(root);
+        int initial = getIntent().getIntExtra(EXTRA_INITIAL, MODE_HOME);
+        if (initial == MODE_HISTORY) {
+            directList = true;
+            openList(MODE_HISTORY, "观看历史");
+        } else if (initial == MODE_FAV) {
+            directList = true;
+            openList(MODE_FAV, "我的收藏");
+        }
     }
 
     private View entryRow(String label, View.OnClickListener click) {
@@ -159,7 +184,9 @@ public class HongguoMineActivity extends AppCompatActivity {
     }
 
     private void onBackRow() {
-        if (mode != MODE_HOME) {
+        if (mode != MODE_HOME && directList) {
+            finish();
+        } else if (mode != MODE_HOME) {
             mode = MODE_HOME;
             titleText.setText("我的");
             list.setVisibility(View.GONE);

@@ -26,7 +26,8 @@ import java.util.Set;
 
 /**
  * 播放页的三个小面板（2026-10-30 从零重建，简单口径）：更多面板
- * （清晰度/倍速/弹幕开关＋设置/选集入口）、弹幕设置（四滑杆＋两开关）、
+ * （倍速/清晰度/弹幕开关＋设置/定时关闭，UI 同步批按定稿行序重排、
+ * 摘选集行——播放页有整宽选集条）、弹幕设置（四滑杆＋两开关）、
  * 发弹幕框。都只干一件事，不堆装饰。
  */
 public final class HgFeedPanels {
@@ -48,6 +49,10 @@ public final class HgFeedPanels {
         void setSpeed(float speed);
 
         void openEpisodes();
+
+        /** 定时关闭设档后回调（宿主可据此提示/重排检查）；缺省无动作。 */
+        default void onTimerChanged() {
+        }
 
         void openDanmakuSettings();
 
@@ -126,29 +131,8 @@ public final class HgFeedPanels {
         head.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         root.addView(head);
 
-        // 清晰度（当前模型实有档）
-        DramaVideoModel model = host.currentModel();
-        if (model != null && !model.getEntries().isEmpty()) {
-            sectionTitle(a, root, "清晰度");
-            Set<String> defs = new LinkedHashSet<>();
-            for (DramaEntry e : model.getEntries()) {
-                if (e.getDefinition() != null && e.isPlayableCodec()) defs.add(e.getDefinition());
-            }
-            List<TextView> chips = new ArrayList<>();
-            String cur = host.currentDefinition();
-            for (String def : defs) {
-                TextView c = chip(a, defLabel(def), def.equals(cur));
-                c.setOnClickListener(v -> {
-                    dialog.dismiss();
-                    host.changeDefinition(def);
-                });
-                chips.add(c);
-            }
-            addChips(a, root, chips);
-        }
-
-        // 倍速
-        sectionTitle(a, root, "倍速");
+        // 当前倍速（定稿行序：倍速在前，六段 0.75/1/1.25/1.5/2/3，默认 1x）
+        sectionTitle(a, root, "当前倍速");
         List<TextView> speedChips = new ArrayList<>();
         float curSpeed = HgStore.getSpeed();
         for (float s : HgPanelLogic.SPEEDS) {
@@ -160,6 +144,27 @@ public final class HgFeedPanels {
             speedChips.add(c);
         }
         addChips(a, root, speedChips);
+
+        // 清晰度（当前模型实有档，官方序高→低；缺省取最高档≈1080P 优先）
+        DramaVideoModel model = host.currentModel();
+        if (model != null && !model.getEntries().isEmpty()) {
+            sectionTitle(a, root, "清晰度");
+            Set<String> defs = new LinkedHashSet<>();
+            for (DramaEntry e : model.getEntries()) {
+                if (e.getDefinition() != null && e.isPlayableCodec()) defs.add(e.getDefinition());
+            }
+            List<TextView> chips = new ArrayList<>();
+            String cur = host.currentDefinition();
+            for (String def : HgPanelLogic.orderedDefinitions(defs)) {
+                TextView c = chip(a, defLabel(def), def.equals(cur));
+                c.setOnClickListener(v -> {
+                    dialog.dismiss();
+                    host.changeDefinition(def);
+                });
+                chips.add(c);
+            }
+            addChips(a, root, chips);
+        }
 
         // 弹幕行：开关＋设置
         LinearLayout dmRow = new LinearLayout(a);
@@ -189,21 +194,99 @@ public final class HgFeedPanels {
         dmRow.addView(dmSwitch, swlp);
         root.addView(dmRow, dlp);
 
-        // 选集行
-        TextView episodes = new TextView(a);
-        episodes.setText("选集");
-        episodes.setTextColor(0xFFEEEEEE);
-        episodes.setTextSize(14.5f);
-        episodes.setPadding(0, dp(a, 16), 0, dp(a, 4));
-        episodes.setOnClickListener(v -> {
+        // 定时关闭行（状态文案在右；投屏行不落——壳子投屏组件在 mobile
+        // 源集、红果在 main 源集跨集不可引，见 hongguo-ui-sync 账）
+        LinearLayout timerRow = new LinearLayout(a);
+        timerRow.setOrientation(LinearLayout.HORIZONTAL);
+        timerRow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(-1, -2);
+        tlp.topMargin = dp(a, 18);
+        TextView timerLabel = new TextView(a);
+        timerLabel.setText("定时关闭");
+        timerLabel.setTextColor(0xFFEEEEEE);
+        timerLabel.setTextSize(14.5f);
+        timerRow.addView(timerLabel, new LinearLayout.LayoutParams(0, -2, 1f));
+        TextView timerState = new TextView(a);
+        timerState.setText(HgPanelLogic.timerStateText(
+                HgStore.getTimerMode(), HgStore.getTimerMinutes()));
+        timerState.setTextColor(0xFF9E9EA7);
+        timerState.setTextSize(13.5f);
+        timerRow.addView(timerState);
+        timerRow.setOnClickListener(v -> {
             dialog.dismiss();
-            host.openEpisodes();
+            showTimerOptions(a, host);
         });
-        root.addView(episodes);
+        root.addView(timerRow, tlp);
 
         dialog.setContentView(root);
         dialog.show();
         clearSheetBg(dialog);
+    }
+
+    // ---------- 定时关闭选项 ----------
+
+    public static void showTimerOptions(AppCompatActivity a, Host host) {
+        BottomSheetDialog dialog = new BottomSheetDialog(a);
+        LinearLayout root = sheetRoot(a);
+        TextView head = new TextView(a);
+        head.setText("定时关闭");
+        head.setTextColor(Color.WHITE);
+        head.setTextSize(16);
+        head.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        root.addView(head);
+
+        int cur = HgStore.getTimerMode();
+        List<TextView> chips = new ArrayList<>();
+        String[] labels = {"关闭", "播完本剧", HgPanelLogic.FIXED_MINUTES + "分钟", "自定义"};
+        int[] modes = {HgPanelLogic.TIMER_OFF, HgPanelLogic.TIMER_SERIES_END,
+                HgPanelLogic.TIMER_FIXED, HgPanelLogic.TIMER_CUSTOM};
+        for (int i = 0; i < labels.length; i++) {
+            final int m = modes[i];
+            TextView c = chip(a, labels[i], m == cur);
+            c.setOnClickListener(v -> {
+                if (m == HgPanelLogic.TIMER_CUSTOM) {
+                    dialog.dismiss();
+                    showTimerCustom(a, host);
+                    return;
+                }
+                HgStore.setTimer(m, HgStore.getTimerMinutes());
+                host.onTimerChanged();
+                dialog.dismiss();
+            });
+            chips.add(c);
+        }
+        addChips(a, root, chips);
+
+        dialog.setContentView(root);
+        dialog.show();
+        clearSheetBg(dialog);
+    }
+
+    private static void showTimerCustom(AppCompatActivity a, Host host) {
+        EditText input = new EditText(a);
+        input.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        input.setHint("分钟数");
+        input.setTextColor(Color.WHITE);
+        input.setHintTextColor(0xFF77777F);
+        int cur = HgStore.getTimerMinutes();
+        if (cur > 0) input.setText(String.valueOf(cur));
+        new androidx.appcompat.app.AlertDialog.Builder(a)
+                .setTitle("自定义定时（分钟）")
+                .setView(input)
+                .setNegativeButton("取消", null)
+                .setPositiveButton("确定", (d, w) -> {
+                    int minutes = 0;
+                    try {
+                        minutes = Integer.parseInt(
+                                input.getText() == null ? "" : input.getText().toString().trim());
+                    } catch (Exception ignored) {
+                    }
+                    if (minutes > 0) {
+                        HgStore.setTimer(HgPanelLogic.TIMER_CUSTOM, minutes);
+                        host.onTimerChanged();
+                    }
+                })
+                .show();
     }
 
     private static String defLabel(String def) {

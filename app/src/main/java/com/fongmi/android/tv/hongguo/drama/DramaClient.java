@@ -441,6 +441,27 @@ public final class DramaClient {
         });
     }
 
+    /** fallback_api 直取（无签名 GET，fplay 形态模型；解链层加密兜底用）。 */
+    public static void fetchFplay(String fallbackApiUrl, HgCallback<DramaVideoModel> cb) {
+        if (fallbackApiUrl == null || fallbackApiUrl.isEmpty()) {
+            cb.onError(-1, "fallback_api 为空");
+            return;
+        }
+        enqueue(OkHttp.newCall(fallbackApiUrl, new LinkedHashMap<>()), new Sink() {
+            @Override
+            public void body(String text) {
+                DramaVideoModel m = DramaParser.parseFplay(text);
+                if (m == null) cb.onError(-2, "fplay 回包解析失败");
+                else cb.onSuccess(m);
+            }
+
+            @Override
+            public void fail(int code, String msg) {
+                cb.onError(code, msg);
+            }
+        });
+    }
+
     // ---------- 详情 ----------
 
     private static JsonObject seriesBody(String seriesId) {

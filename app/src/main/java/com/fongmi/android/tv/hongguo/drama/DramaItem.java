@@ -192,6 +192,19 @@ public final class DramaItem {
         this.publisher = publisher;
     }
 
+    /** 由详情面拼一个流页条目（集流页首条/详情页入流用）：字段取详情口径。 */
+    public static DramaItem fromDetail(String seriesId, String title, String coverUrl, String desc,
+                                       int episodeCount, String firstVid, Integer seriesStatus,
+                                       String authorName, String authorAvatar, String authorUid,
+                                       int contentType, long commentCount) {
+        DramaItem item = new DramaItem(seriesId, title, coverUrl, desc, episodeCount,
+                false, false, null, firstVid, null, null, Collections.emptyList(), null,
+                false, null, -1, Collections.emptyList(), commentCount, -1, seriesStatus,
+                null, authorName, authorAvatar, authorUid, null, null);
+        item.contentType = contentType;
+        return item;
+    }
+
     /** 补完结态的副本（字段后补场景：如半屏单里当前行由页面条目拼装）。 */
     public DramaItem withSeriesStatus(Integer status) {
         DramaItem copy = new DramaItem(seriesId, title, coverUrl, desc, episodeCount,

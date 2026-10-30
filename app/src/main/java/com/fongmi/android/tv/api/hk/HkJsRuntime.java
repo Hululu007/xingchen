@@ -4819,6 +4819,7 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
     private String readFileContent(String absPath, String charset) {
         try {
             File f = new File(absPath);
+            hkSeedRestorePath(absPath, f);
             if (!f.exists() || !f.isFile()) return "";
             byte[] bytes = java.nio.file.Files.readAllBytes(f.toPath());
             Charset cs = Charset.forName("UTF-8");
@@ -5012,6 +5013,79 @@ public class HkJsRuntime implements HkSelector.JsEvaluator, Parser.JsEvaluator {
             return f.exists() ? f.getAbsolutePath() : null;
         } catch (Throwable ignored) {
             return null;
+        }
+    }
+
+    /**
+     * 种子数据文件表：hiker://files/ 相对路径 → 内置 asset 路径。
+     * 磁力君.简 的站点表文件：规则本体只带壳，configs 页
+     * $.require("rules").rrules 的数据靠这份文件——rules 页先读本地、
+     * 没有就从 raw.githubusercontent.com/ApolloRino/R 现下。该账号
+     * 已整体注销（2026-10-31 实测 GitHub API/raw/jsDelivr/各存档
+     * 全 404），本地再丢（2026-10-26 那回小程序数据被清）就永久
+     * 缺失，rrules 恒未定义、rules.map 必炸，且失败回写还会把 404
+     * 正文写进本地文件变成空壳。种子内容＝潇洒哥自己 2026-10-03
+     * 备份里同规则 v223 版的内联站点表（27 条）按现行消费口径
+     * （$.exports＝{rrules, version}）重封装，账在
+     * ~/workspace/magnet-rrules/PROVENANCE.md；不是远端原文件
+     * （原文件已无存），表是 v223 快照、个别站点域名可能已失效。
+     */
+    private static final String[][] HK_SEED_FILES = {
+            {"rules/Apollo/磁力君.简.js", "hk-seeds/rules/Apollo/磁力君.简.js"},
+    };
+
+    /** url 命中种子表才返回 asset 路径（只认 hiker://files/ 原形，去 query/fragment 后比对，含 URL 编码形）。 */
+    private static String hkSeedAssetFor(String url) {
+        if (url == null || !url.startsWith("hiker://files/")) return null;
+        String rel = url.substring("hiker://files/".length());
+        int q = rel.indexOf('?');
+        if (q >= 0) rel = rel.substring(0, q);
+        int h = rel.indexOf('#');
+        if (h >= 0) rel = rel.substring(0, h);
+        String dec = android.net.Uri.decode(rel);
+        for (String[] row : HK_SEED_FILES) {
+            if (row[0].equals(rel) || row[0].equals(dec)) return row[1];
+        }
+        return null;
+    }
+
+    /** fetch 读路入口：命中种子表才回补，其余路径零动作。 */
+    private void hkSeedRestore(String url, java.io.File target) {
+        String asset = hkSeedAssetFor(url);
+        if (asset != null) hkSeedWriteIfInvalid(asset, target);
+    }
+
+    /** readFile 读路入口：按文件系统路径尾段命中同一种子表。 */
+    private void hkSeedRestorePath(String absPath, java.io.File target) {
+        if (absPath == null) return;
+        String norm = absPath.replace('\\', '/');
+        for (String[] row : HK_SEED_FILES) {
+            if (norm.endsWith("/" + row[0])) {
+                hkSeedWriteIfInvalid(row[1], target);
+                return;
+            }
+        }
+    }
+
+    /**
+     * 目标缺失、或内容不含标志串 rrules（只剩 404 正文等空壳）时，
+     * 把内置种子原样写回目标。有效内容（含 rrules 的正版/更新件）
+     * 永不覆盖。全程吞异常：回补失败保持原缺失语义（读回 ""）。
+     */
+    private void hkSeedWriteIfInvalid(String asset, java.io.File target) {
+        try {
+            if (target.exists()) {
+                String cur = fileToString(target, null, true);
+                if (cur != null && cur.contains("rrules")) return;
+            }
+            String code = loadAsset(asset);
+            if (code == null || !code.contains("rrules")) return;
+            java.io.File parent = target.getParentFile();
+            if (parent != null) parent.mkdirs();
+            java.io.FileOutputStream out = new java.io.FileOutputStream(target, false);
+            out.write(code.getBytes("UTF-8"));
+            out.close();
+        } catch (Throwable ignored) {
         }
     }
 
@@ -8177,6 +8251,9 @@ private Object fetchByHiker(String url, Object options, boolean toHex, boolean i
         // file branch
         String path = getFilePath(url);
         java.io.File f = new java.io.File(path);
+        // 种子回补（命中种子表才动作，见 hkSeedAssetFor）：目标缺失或
+        // 只剩失败回写的空壳时，先按内置种子原样补回再走原读路。
+        hkSeedRestore(url, f);
         if (!f.exists()) {
             // $.require(http) 全局 libs 缓存 miss 时回退按规则 libs（.hkzip 自带库）
             String alt = resolvePerRuleLibFile(url);

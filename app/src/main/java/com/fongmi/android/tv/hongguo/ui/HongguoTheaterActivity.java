@@ -648,7 +648,7 @@ public class HongguoTheaterActivity extends AppCompatActivity {
             }
             int added = 0;
             for (DramaItem it : page.getItems()) {
-                if (it.kind == DramaItemKind.SERIES) continue;
+                if (!isVideoSide(it)) continue;
                 String key = it.getVid() != null ? it.getVid() : it.getSeriesId();
                 if (key == null || !seen.add(key)) continue;
                 clips.add(it);
@@ -724,6 +724,25 @@ public class HongguoTheaterActivity extends AppCompatActivity {
                 load(false);
             }
         }
+    }
+
+    /**
+     * 视频格放行判据（纯度单 hongguo-video-purity-20261030，他定
+     * 「只要视频流不混入短剧就行」、宁可错杀）：kind 是解析入口的
+     * 定型结论，这里再用条目自带的协议原值复核一遍——剧类
+     * content_type（1/1004/1007）或剧类服务端类型类（cct＝
+     * 1/1004/1004_ai_video）一票否决，防定型被单字段带偏时短剧
+     * 漏进；短片须 kind＝UGC_CLIP 且 content_type＝1001 双合，
+     * 合集须 kind＝ALBUM 且专辑身份在位，其余（定型含糊、字段
+     * 缺失）一律不进本格。
+     */
+    private static boolean isVideoSide(DramaItem it) {
+        if (it.contentType == 1 || it.contentType == 1004 || it.contentType == 1007) return false;
+        String cct = it.contentCategoryType;
+        if ("1".equals(cct) || "1004".equals(cct) || "1004_ai_video".equals(cct)) return false;
+        if (it.kind == DramaItemKind.UGC_CLIP) return it.contentType == 1001;
+        if (it.kind == DramaItemKind.ALBUM) return it.getAlbumId() != null;
+        return false;
     }
 
     /** 定稿：点封面直接进播放页开播（从断点集），不绕详情页。 */

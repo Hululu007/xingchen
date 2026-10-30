@@ -491,7 +491,10 @@ public class AudioBookActivity extends Activity implements ServiceConnection {
         opts.addView(autoCapsule());
         body.addView(opts);
 
-        // 音色
+        // 音色：只给要朗读的专辑（文字章靠 TTS 念）。海阔电台这类真人录音
+        // 专辑（hkRule 非空）章章都是真音频，音色挑选是死段——挂在电台页
+        // 上只会让人以为进错了播放页（他 2026-10-31 录屏点名），整段不建。
+        if (album.hkRule == null || album.hkRule.isEmpty()) {
         body.addView(ReadingSkin.sectionHeader(this, "音色",
                 null, null));
         TextView vhint = new TextView(this);
@@ -531,6 +534,7 @@ public class AudioBookActivity extends Activity implements ServiceConnection {
         nlp.rightMargin = dp(20);
         nlp.topMargin = dp(10);
         body.addView(vnote, nlp);
+        }
 
         // 底部：选集 / 回书架（毛玻璃底；听书历史走书架在看列表，稿的历史按钮无对应功能位，未加）
         android.widget.LinearLayout sheet =

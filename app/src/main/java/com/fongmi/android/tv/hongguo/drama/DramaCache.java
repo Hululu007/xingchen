@@ -10,12 +10,12 @@ import com.google.gson.JsonParser;
  * （DramaVideoModel.sourceJson）＋过期时刻，Prefers 单键存一本 JSON 账。
  * 命中且未过期直接以 DramaParser.buildModel 重建（与回包解析同路）；
  * 过期按 url_expire 语义失效（模型自带过期优先，缺失时给 10 分钟保底）。
- * 条数上限 120，超限淘汰最早写入的。
+ * 条数上限 400，超限淘汰最早写入的。
  */
 public final class DramaCache {
 
     private static final String KEY = "drama_models_v1";
-    private static final int MAX_ENTRIES = 120;
+    private static final int MAX_ENTRIES = 400;
     private static final long FALLBACK_TTL_MS = 10L * 60 * 1000;
 
     private DramaCache() {

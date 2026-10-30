@@ -51,6 +51,18 @@ import okhttp3.ResponseBody;
  * multi 不是同一件；取模型改批量优先、单集口降为兜底，消耗面从
  * 1 份/集降到 1 份/批。</p>
  *
+ * <p>共享档案＋自动兜底（2026-10-30，他点定，账
+ * hongguo-shared-profile-impl-20261030.md）：取模型面（批量＋单集）
+ * 与搜索面默认改走红果果同款公开共享档案呈现（HgDevice 的共享
+ * 模式：整套呈现原子切换、不发注册请求）；自家注册档案降为兜底——
+ * 共享回身份层拒绝（110001）立即以自家重发同批并锁存自家优先，
+ * 共享回空体而自家同批能出货同样锁存，双空不锁存（配额问题不是
+ * 身份问题）。锁存落盘在 HgDevice、只由抽屉「刷新设备档案」清。
+ * 本机海外出口探针里共享身份全灭（110001/空体），但出口类别能翻
+ * 结论有前科、他录屏里红果果在国内真机全链能播——终判在国内真机，
+ * 兜底保证最差不差于现状。feed 频道/详情/专辑等面与登录链不切
+ * 共享，维持自家呈现。</p>
+ *
  * <p>feed 面重建（2026-10-28，tab-fail-dig-20261028.md 两案定罪）：漫剧/
  * 真人剧页签原接的 new_category/front 是小说分类页壳接口（结构上永远不带
  * 剧条目）且无签名发法恒回空体；推荐页签走的 plan/无参 bookmall/tab 不是
@@ -106,6 +118,12 @@ public final class HgApiClient {
     /** 无类型面时的整批分组键：探针亲验该键对真人剧 vid 同样出模型（跨类型批量成立，定根账 §四-3）。 */
     private static final String MULTI_GROUP_DEFAULT = "1004";
 
+    /** 身份层拒绝业务码（模型口 BaseResp 信封的 Code/StatusCode，探针
+     * 实录体见 hongguo-shared-profile-20261030.md 第二节）：与限流空体
+     * （-2）分家——它说的是「这份身份不被承认」，换自家身份重发才有
+     * 意义；空体说的是「这份身份的额度没到」，换谁都得等回补。 */
+    private static final int IDENTITY_REJECT_CODE = 110001;
+
     /**
      * 批量取多集播放模型（预取面）：批量优先——一发签名 multi 把当批
      * vid 全装上（配额按成功请求计，定根账 §四-3）；批量口传输/业务
@@ -138,7 +156,56 @@ public final class HgApiClient {
     }
 
     /**
-     * 签名批量口取模型（纯 multi，不带兜底）：POST host b
+     * 签名批量口取模型（呈现兜底状态机入口）：默认模式未锁存时先走
+     * 共享呈现整批；全批无模型且首因是身份层拒绝（110001）→ 锁存
+     * 自家优先（{@link HgDevice#latchOwnProfile}）并立即以自家呈现
+     * 重发同一批；首因是空体（-2）→ 以自家呈现重发同一批，自家出
+     * 货则锁存、自家也空则不锁存按 -2 收口（双空＝配额未到、不是
+     * 身份问题，下次仍共享优先）；其余失败形状原样回调（上层
+     * fetchVideoModels/解链层再按既有口径走单集兜底）。已锁存时
+     * 直接自家呈现、与旧行为一致，不再每批白烧一发共享请求。
+     */
+    public void fetchVideoModelsGrouped(Map<String, List<String>> grouped,
+                                        HgCallback<Map<String, HgVideoModel>> cb) {
+        if (!HgDevice.sharedPreferred()) {
+            fetchGroupedMode(HgDevice.MODE_OWN, grouped, cb);
+            return;
+        }
+        fetchGroupedMode(HgDevice.MODE_SHARED, grouped, new HgCallback<Map<String, HgVideoModel>>() {
+            @Override
+            public void onSuccess(Map<String, HgVideoModel> result) {
+                cb.onSuccess(result);
+            }
+
+            @Override
+            public void onError(int httpCode, String message) {
+                if (httpCode == IDENTITY_REJECT_CODE) {
+                    HgDevice.latchOwnProfile();
+                    android.util.Log.w(TAG, "共享档案取模型被身份层拒绝(110001)，锁存自家优先并重发本批");
+                    fetchGroupedMode(HgDevice.MODE_OWN, grouped, cb);
+                } else if (httpCode == -2) {
+                    fetchGroupedMode(HgDevice.MODE_OWN, grouped, new HgCallback<Map<String, HgVideoModel>>() {
+                        @Override
+                        public void onSuccess(Map<String, HgVideoModel> result) {
+                            HgDevice.latchOwnProfile();
+                            android.util.Log.w(TAG, "共享档案取模型回空体而自家同批出货，锁存自家优先");
+                            cb.onSuccess(result);
+                        }
+
+                        @Override
+                        public void onError(int code2, String message2) {
+                            cb.onError(code2, message2);
+                        }
+                    });
+                } else {
+                    cb.onError(httpCode, message);
+                }
+            }
+        });
+    }
+
+    /**
+     * 单一呈现模式的批量取模型（纯 multi，不带兜底）：POST host b
      * /novel/player/multi_video_model/v1/，体照
      * {@link HgRequests#multiPlaybackBody}（红果果体）。入参按
      * content_type 分组；总量超 {@link #MAX_MULTI_IDS_PER_REQUEST}
@@ -146,8 +213,8 @@ public final class HgApiClient {
      * 表；全部分片皆空/皆败才回调错误（首个错误码：空体归 -2、结构
      * 化拒绝回业务码、传输失败回其码）。
      */
-    public void fetchVideoModelsGrouped(Map<String, List<String>> grouped,
-                                        HgCallback<Map<String, HgVideoModel>> cb) {
+    private void fetchGroupedMode(int mode, Map<String, List<String>> grouped,
+                                  HgCallback<Map<String, HgVideoModel>> cb) {
         List<Map<String, List<String>>> chunks = chunkGroups(grouped);
         if (chunks.isEmpty()) {
             cb.onError(-1, "videoIds 为空");
@@ -156,10 +223,10 @@ public final class HgApiClient {
         Map<String, HgVideoModel> out = Collections.synchronizedMap(new LinkedHashMap<>());
         int[] firstError = {-1};
         String[] firstMessage = {null};
-        runMultiChunk(chunks, 0, out, firstError, firstMessage, cb);
+        runMultiChunk(mode, chunks, 0, out, firstError, firstMessage, cb);
     }
 
-    private void runMultiChunk(List<Map<String, List<String>>> chunks, int idx,
+    private void runMultiChunk(int mode, List<Map<String, List<String>>> chunks, int idx,
                                Map<String, HgVideoModel> out, int[] firstError, String[] firstMessage,
                                HgCallback<Map<String, HgVideoModel>> cb) {
         if (idx >= chunks.size()) {
@@ -167,8 +234,8 @@ public final class HgApiClient {
             else cb.onError(firstError[0], firstMessage[0] == null ? "取模型全灭" : firstMessage[0]);
             return;
         }
-        postSigned(HgDevice.API_HOST_B, HgDevice.PATH_PLAYBACK_MULTI,
-                HgRequests.multiPlaybackBody(chunks.get(idx)), new BodyCallback() {
+        postSignedMode(HgDevice.API_HOST_B, HgDevice.PATH_PLAYBACK_MULTI,
+                HgRequests.multiPlaybackBody(chunks.get(idx)), mode, new BodyCallback() {
                     @Override
                     void onBody(String text) {
                         Map<String, HgVideoModel> part = null;
@@ -185,13 +252,13 @@ public final class HgApiClient {
                                     biz > 0 ? biz : -2,
                                     biz > 0 ? "服务端拒绝 code=" + biz : "回包无 video_model");
                         }
-                        runMultiChunk(chunks, idx + 1, out, firstError, firstMessage, cb);
+                        runMultiChunk(mode, chunks, idx + 1, out, firstError, firstMessage, cb);
                     }
 
                     @Override
                     void onFail(int code, String msg) {
                         recordMultiError(firstError, firstMessage, code, msg);
-                        runMultiChunk(chunks, idx + 1, out, firstError, firstMessage, cb);
+                        runMultiChunk(mode, chunks, idx + 1, out, firstError, firstMessage, cb);
                     }
                 });
     }
@@ -258,12 +325,58 @@ public final class HgApiClient {
     }
 
     /**
-     * 单集取模型 POST /novel/player/video_model/v1/（fqnovel 已签名口，
-     * HgRequests.playbackBody 口径）：定罪修法的主路（见类头注）。
-     * 回包 data.video_model 解析见 HgParser.parseSingleVideoModel。
+     * 单集取模型（呈现兜底状态机入口，判据与批量口同构，见
+     * {@link #fetchVideoModelsGrouped}）：未锁存时先走共享呈现；
+     * 身份层拒绝（110001）→ 锁存并以自家呈现重发；空体（-2）→
+     * 以自家呈现重发，出货锁存、双空不锁存按 -2 收口；其余形状
+     * 原样回调（解链层的重试口径只认 -1/5xx、不受影响）。
      */
     public void fetchVideoModel(String videoId, HgCallback<HgVideoModel> cb) {
-        postSigned(HgDevice.PATH_PLAYBACK, HgRequests.playbackBody(videoId), new BodyCallback() {
+        if (!HgDevice.sharedPreferred()) {
+            fetchSingleMode(HgDevice.MODE_OWN, videoId, cb);
+            return;
+        }
+        fetchSingleMode(HgDevice.MODE_SHARED, videoId, new HgCallback<HgVideoModel>() {
+            @Override
+            public void onSuccess(HgVideoModel m) {
+                cb.onSuccess(m);
+            }
+
+            @Override
+            public void onError(int httpCode, String message) {
+                if (httpCode == IDENTITY_REJECT_CODE) {
+                    HgDevice.latchOwnProfile();
+                    android.util.Log.w(TAG, "共享档案单集取模型被身份层拒绝(110001)，锁存自家优先并重发");
+                    fetchSingleMode(HgDevice.MODE_OWN, videoId, cb);
+                } else if (httpCode == -2) {
+                    fetchSingleMode(HgDevice.MODE_OWN, videoId, new HgCallback<HgVideoModel>() {
+                        @Override
+                        public void onSuccess(HgVideoModel m) {
+                            HgDevice.latchOwnProfile();
+                            android.util.Log.w(TAG, "共享档案单集取模型回空体而自家出货，锁存自家优先");
+                            cb.onSuccess(m);
+                        }
+
+                        @Override
+                        public void onError(int code2, String message2) {
+                            cb.onError(code2, message2);
+                        }
+                    });
+                } else {
+                    cb.onError(httpCode, message);
+                }
+            }
+        });
+    }
+
+    /**
+     * 单一呈现模式的单集取模型 POST /novel/player/video_model/v1/
+     * （fqnovel 已签名口，HgRequests.playbackBody 口径）：定罪修法
+     * 的主路（见类头注）。回包 data.video_model 解析见
+     * HgParser.parseSingleVideoModel。
+     */
+    private void fetchSingleMode(int mode, String videoId, HgCallback<HgVideoModel> cb) {
+        postSignedMode(HgDevice.PATH_PLAYBACK, HgRequests.playbackBody(videoId), mode, new BodyCallback() {
             @Override
             void onBody(String text) {
                 HgVideoModel m = HgParser.parseSingleVideoModel(text, videoId);
@@ -430,20 +543,22 @@ public final class HgApiClient {
     }
 
     /**
-     * 重置设备档案并重新注册（档案级限流自愈用，定根账
-     * feed-item-fetch-fail-20261029 §6：play 类接口对旧档案回空体、
-     * 换档案即愈）：作废 HgDevice 整份匿名身份后走 ensureDevice 既有
-     * 注册流程拿新档案，结果经 cb 回（口径同 ensureDevice）。
+     * 抽屉「刷新设备档案」（2026-10-30 语义改，共享档案单）：＝清
+     * 兜底锁存＋重置自家档案，回到共享优先。旧语义（重置后立即重
+     * 注册一份新自家档案当主身份、结果经注册成败回）随主身份改成
+     * 共享档案而废：自家档案只作兜底，不在此急注册——兜底路径
+     * （postSignedMode 的自家模式）经 ensureDevice 现场注册，新装
+     * 机同路。本地重置不会失败，恒回成功；调用方收口（清运行时
+     * 缓存＋重拉）与旧版成败同路不变。
      *
      * <p>边界（死线）：只动匿名设备档案；账号登录态（passport 会话
      * Cookie 在壳子账号托管 CloudAccountStore）不在此列，重置不读
-     * 不写，换档案后登录不掉。若恰有一轮注册在途，HgDevice 代次已变，
-     * 那一轮的回包会被 doRegister 的代次校验作废并按新档案自动重注册，
-     * 在途等待者与本次 cb 都等新档案的结果。</p>
+     * 不写。若恰有一轮自家注册在途，HgDevice 代次已变，那一轮的
+     * 回包会被 doRegister 的代次校验作废并按新档案自动重注册。</p>
      */
     public void resetDeviceProfile(HgCallback<Boolean> cb) {
         HgDevice.resetProfile();
-        ensureDevice(cb);
+        cb.onSuccess(Boolean.TRUE);
     }
 
     private void doRegister() {
@@ -543,7 +658,7 @@ public final class HgApiClient {
     }
 
     /**
-     * 已签名 POST（取址链专用）：先确保设备注册，再用注册身份＋有序查询串
+     * 已签名 POST（取址链专用，自家呈现）：先确保设备注册，再用注册身份＋有序查询串
      * 逐请求签名（HgSign），发往 fqnovel 宿主。签名覆盖的 body 字节与实际
      * 发送字节为同一串（bodyObj.toString 的 UTF-8 编码）。
      */
@@ -553,30 +668,30 @@ public final class HgApiClient {
 
     /** 已签名 POST 的指定宿主版（批量取模型口走 sinfonlineb，其余同 {@link #postSigned(String, JsonObject, BodyCallback)}）。 */
     private void postSigned(String host, String path, JsonObject bodyObj, BodyCallback cb) {
+        postSignedMode(host, path, bodyObj, HgDevice.MODE_OWN, cb);
+    }
+
+    /** 已签名 POST 的呈现模式版（路径版，宿主默认 fqnovel a 面）。 */
+    private void postSignedMode(String path, JsonObject bodyObj, int mode, BodyCallback cb) {
+        postSignedMode(HgDevice.API_HOST, path, bodyObj, mode, cb);
+    }
+
+    /**
+     * 已签名 POST 的呈现模式版：共享模式不发注册请求（身份是现成的、
+     * 注册反而污染共享画像），直接在共享作用域里组装发送；自家模式
+     * 先 ensureDevice、再在自家作用域里组装（与旧 postSigned 同路）。
+     * 作用域只罩「组装＋签名＋入队」这段同步代码，呈现整套同进同退
+     * 的保证在 HgDevice 的作用域机制上（见其类注）。
+     */
+    private void postSignedMode(String host, String path, JsonObject bodyObj, int mode, BodyCallback cb) {
+        if (mode == HgDevice.MODE_SHARED) {
+            dispatchSignedPost(host, path, bodyObj, mode, cb);
+            return;
+        }
         ensureDevice(new HgCallback<Boolean>() {
             @Override
             public void onSuccess(Boolean ok) {
-                String body = bodyObj.toString();
-                byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
-                long ticket = System.currentTimeMillis();
-                HgSign.Signed signed = HgSign.signPost(path, HgDevice.deviceQueryPairs(), ticket,
-                        HgDevice.profile().deviceId, HgDevice.VERSION_NAME, bodyBytes, null);
-                String url = host + path + "?" + signed.query;
-                Map<String, String> h = headers();
-                h.put("user-agent", HgDevice.userAgent());
-                h.putAll(signed.headers);
-                // Content-Type 由 RequestBody 承载（值同为 application/json; charset=UTF-8）
-                h.remove("Content-Type");
-                if (!h.containsKey("Cookie")) {
-                    String guest = HgDevice.guestCookieHeader();
-                    if (guest != null) h.put("Cookie", guest);
-                }
-                h.put("x-ss-dp", "8662");
-                h.put("lc", "101");
-                h.put("x-reading-request", HgDevice.readingRequestId(ticket));
-                RequestBody rb = RequestBody.create(body, JSON);
-                Call call = OkHttp.newCall(url, h, rb);
-                enqueue(call, cb, path);
+                dispatchSignedPost(host, path, bodyObj, mode, cb);
             }
 
             @Override
@@ -586,32 +701,59 @@ public final class HgApiClient {
         });
     }
 
+    private void dispatchSignedPost(String host, String path, JsonObject bodyObj, int mode, BodyCallback cb) {
+        int prev = HgDevice.beginPresentation(mode);
+        try {
+            String body = bodyObj.toString();
+            byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
+            long ticket = System.currentTimeMillis();
+            HgSign.Signed signed = HgSign.signPost(path, HgDevice.deviceQueryPairs(), ticket,
+                    HgDevice.activeDeviceId(), HgDevice.activeVersionName(), bodyBytes, null);
+            String url = host + path + "?" + signed.query;
+            Map<String, String> h = headers(mode != HgDevice.MODE_SHARED);
+            h.put("user-agent", HgDevice.userAgent());
+            h.putAll(signed.headers);
+            // Content-Type 由 RequestBody 承载（值同为 application/json; charset=UTF-8）
+            h.remove("Content-Type");
+            if (!h.containsKey("Cookie")) {
+                String guest = HgDevice.guestCookieHeader();
+                if (guest != null) h.put("Cookie", guest);
+            }
+            h.put("x-ss-dp", "8662");
+            h.put("lc", "101");
+            h.put("x-reading-request", HgDevice.readingRequestId(ticket));
+            RequestBody rb = RequestBody.create(body, JSON);
+            Call call = OkHttp.newCall(url, h, rb);
+            enqueue(call, cb, path);
+        } finally {
+            HgDevice.endPresentation(prev);
+        }
+    }
+
     /**
-     * 已签名 GET（feed 频道面专用）：与 postSigned 同路——先确保设备注册，
+     * 已签名 GET（自家呈现）：与 postSigned 同路——先确保设备注册，
      * 再用注册身份对有序参数逐请求签名（HgSign.signGet 传真实路径），
      * 发往 fqnovel 宿主；头组装照 openhongguo anonymousHeaders 口径
      * （UA 换设备面 UA、x-ss-dp / lc / x-reading-request、游客 Cookie 兜底）。
+     * feed 频道面走此口、恒自家呈现；搜索面走 {@link #getSignedMode}
+     * 按默认模式（共享未锁存时走 drpys 搜索变体呈现）。
      */
     private void getSigned(String path, List<String[]> pairs, BodyCallback cb) {
+        getSignedMode(path, pairs, HgDevice.MODE_OWN, false, cb);
+    }
+
+    /** 已签名 GET 的呈现模式版：mode/searchFace 必须与 pairs 的组装
+     * 模式一致（HgApiClient 搜索面同点取 HgDevice.defaultMode() 一次、
+     * 同时喂 pairs 构造与本方法），签名里的版本名/UA 按同一模式对齐。 */
+    private void getSignedMode(String path, List<String[]> pairs, int mode, boolean searchFace, BodyCallback cb) {
+        if (mode == HgDevice.MODE_SHARED) {
+            dispatchSignedGet(path, pairs, mode, searchFace, cb);
+            return;
+        }
         ensureDevice(new HgCallback<Boolean>() {
             @Override
             public void onSuccess(Boolean ok) {
-                long ticket = System.currentTimeMillis();
-                HgSign.Signed signed = HgSign.signGet(path, pairs, ticket,
-                        HgDevice.profile().deviceId, HgDevice.VERSION_NAME, null);
-                String url = HgDevice.API_HOST + path + "?" + signed.query;
-                Map<String, String> h = headers();
-                h.put("user-agent", HgDevice.userAgent());
-                h.putAll(signed.headers);
-                if (!h.containsKey("Cookie")) {
-                    String guest = HgDevice.guestCookieHeader();
-                    if (guest != null) h.put("Cookie", guest);
-                }
-                h.put("x-ss-dp", "8662");
-                h.put("lc", "101");
-                h.put("x-reading-request", HgDevice.readingRequestId(ticket));
-                Call call = OkHttp.newCall(url, h);
-                enqueue(call, cb, path);
+                dispatchSignedGet(path, pairs, mode, searchFace, cb);
             }
 
             @Override
@@ -619,6 +761,33 @@ public final class HgApiClient {
                 cb.onFail(httpCode, message);
             }
         });
+    }
+
+    private void dispatchSignedGet(String path, List<String[]> pairs, int mode, boolean searchFace, BodyCallback cb) {
+        int prev = HgDevice.beginPresentation(mode);
+        try {
+            long ticket = System.currentTimeMillis();
+            String versionName = mode == HgDevice.MODE_SHARED
+                    ? (searchFace ? HgDevice.SHARED_SEARCH_VERSION_NAME : HgDevice.SHARED_VERSION_NAME)
+                    : HgDevice.VERSION_NAME;
+            HgSign.Signed signed = HgSign.signGet(path, pairs, ticket,
+                    HgDevice.activeDeviceId(), versionName, null);
+            String url = HgDevice.API_HOST + path + "?" + signed.query;
+            Map<String, String> h = headers(mode != HgDevice.MODE_SHARED);
+            h.put("user-agent", HgDevice.uaFor(mode, searchFace));
+            h.putAll(signed.headers);
+            if (!h.containsKey("Cookie")) {
+                String guest = HgDevice.guestCookieHeader();
+                if (guest != null) h.put("Cookie", guest);
+            }
+            h.put("x-ss-dp", "8662");
+            h.put("lc", "101");
+            h.put("x-reading-request", HgDevice.readingRequestId(ticket));
+            Call call = OkHttp.newCall(url, h);
+            enqueue(call, cb, path);
+        } finally {
+            HgDevice.endPresentation(prev);
+        }
     }
 
     // ---------- 同步口（阅读管线等阻塞调用方用；签名/头组装仍走上面同一套，不许另抄一份） ----------
@@ -820,7 +989,8 @@ public final class HgApiClient {
      * 探针实跑回 63,856 字节真结果。路径尾段字面 v 同频道面口径。
      */
     public void searchTab(String keyword, HgCallback<HgCellPage> cb) {
-        getSigned("/reading/bookapi/search/tab/v", HgRequests.searchPairs(keyword), new BodyCallback() {
+        int mode = HgDevice.defaultMode();
+        getSignedMode("/reading/bookapi/search/tab/v", HgRequests.searchPairs(mode, keyword), mode, true, new BodyCallback() {
             @Override
             void onBody(String text) {
                 cb.onSuccess(HgParser.parseCellPage(text, 11));
@@ -845,7 +1015,8 @@ public final class HgApiClient {
      */
     public void searchUsers(String keyword,
                             HgCallback<java.util.List<com.fongmi.android.tv.hongguo.model.HgAuthorHit>> cb) {
-        getSigned("/reading/bookapi/search/tab/v", HgRequests.searchPairs(keyword, 0, 27), new BodyCallback() {
+        int mode = HgDevice.defaultMode();
+        getSignedMode("/reading/bookapi/search/tab/v", HgRequests.searchPairs(mode, keyword, 0, 27), mode, true, new BodyCallback() {
             @Override
             void onBody(String text) {
                 cb.onSuccess(HgParser.parseUserTab(text));
@@ -863,7 +1034,8 @@ public final class HgApiClient {
      * 形同门回空体、界面也从没用过，已换签名口（openhongguo SearchCues 同口）。
      */
     public void searchCues(HgCallback<java.util.List<String>> cb) {
-        getSigned("/reading/bookapi/search/cue/v1/", HgRequests.cuePairs(), new BodyCallback() {
+        int mode = HgDevice.defaultMode();
+        getSignedMode("/reading/bookapi/search/cue/v1/", HgRequests.cuePairs(mode), mode, true, new BodyCallback() {
             @Override
             void onBody(String text) {
                 cb.onSuccess(com.fongmi.android.tv.hongguo.model.HgParser.parseCue(text));
@@ -882,7 +1054,8 @@ public final class HgApiClient {
      * openhongguo Suggest 同口实跑可回（词条含直达剧的 id）。
      */
     public void searchSuggest(String prefix, HgCallback<java.util.List<com.fongmi.android.tv.hongguo.model.HgSuggestion>> cb) {
-        getSigned("/reading/bookapi/search/suggest/v1/", HgRequests.suggestPairs(prefix), new BodyCallback() {
+        int mode = HgDevice.defaultMode();
+        getSignedMode("/reading/bookapi/search/suggest/v1/", HgRequests.suggestPairs(prefix, mode), mode, true, new BodyCallback() {
             @Override
             void onBody(String text) {
                 cb.onSuccess(com.fongmi.android.tv.hongguo.model.HgParser.parseSuggest(text));
@@ -904,7 +1077,8 @@ public final class HgApiClient {
      * 侧静默不显（落地态只显历史，与联想失败同口径）。
      */
     public void fetchHotSearch(HgCallback<com.fongmi.android.tv.hongguo.model.HgHotSearch> cb) {
-        getSigned(HgDevice.PATH_PLAN, HgRequests.hotSearchPairs(), new BodyCallback() {
+        int mode = HgDevice.defaultMode();
+        getSignedMode(HgDevice.PATH_PLAN, HgRequests.hotSearchPairs(mode), mode, true, new BodyCallback() {
             @Override
             void onBody(String text) {
                 cb.onSuccess(HgParser.parseHotSearch(text));
@@ -924,7 +1098,8 @@ public final class HgApiClient {
 
     /** 搜索换页签：tabType 取回包 search_tabs 的 tab_type（11 综合/29 剧集/30 视频/31 讨论/1 小说/27 用户）。 */
     public void searchTab(String keyword, int offset, int tabType, HgCallback<HgCellPage> cb) {
-        getSigned("/reading/bookapi/search/tab/v", HgRequests.searchPairs(keyword, offset, tabType), new BodyCallback() {
+        int mode = HgDevice.defaultMode();
+        getSignedMode("/reading/bookapi/search/tab/v", HgRequests.searchPairs(mode, keyword, offset, tabType), mode, true, new BodyCallback() {
             @Override
             void onBody(String text) {
                 cb.onSuccess(HgParser.parseCellPage(text, tabType));
@@ -1428,9 +1603,19 @@ public final class HgApiClient {
     }
 
     private Map<String, String> headers() {
+        return headers(true);
+    }
+
+    /**
+     * @param withAuth false＝不带登录态：共享呈现专用——drpys 全程
+     * 游客、无任何 Cookie；且把他的账号 Cookie 挂到全网共用的共享
+     * 身份上等于在服务端把账号与这份公共身份绑在一起，不许。
+     * 自家呈现恒 true、与旧口径逐字一致。
+     */
+    private Map<String, String> headers(boolean withAuth) {
         Map<String, String> h = new HashMap<>();
         h.put("user-agent", HgRequests.UA);
-        HgAuthProvider auth = authProvider;
+        HgAuthProvider auth = withAuth ? authProvider : null;
         if (auth != null) {
             Map<String, String> extra = auth.headers();
             if (extra != null) h.putAll(extra);

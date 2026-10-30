@@ -75,7 +75,18 @@ public final class HgParser {
         if (json == null || json.isEmpty()) return 0;
         try {
             JsonObject root = JsonParser.parseString(json).getAsJsonObject();
-            return root == null ? 0 : intOf(root, "code", 0);
+            if (root == null) return 0;
+            int code = intOf(root, "code", 0);
+            if (code != 0) return code;
+            // 模型口的拒绝回包是 BaseResp 信封形（探针实录 125B，
+            // hongguo-shared-profile-20261030.md 第二节）：顶层 "Code"
+            // ＋BaseResp.StatusCode（如 110001 身份层拒绝）。只认小写
+            // code 会把它读成 0、与限流空体同形——取模型兜底状态机
+            // 靠本函数分「身份被拒」与「额度空体」，故补认信封两键。
+            code = intOf(root, "Code", 0);
+            if (code != 0) return code;
+            JsonObject base = obj(root, "BaseResp");
+            return base == null ? 0 : intOf(base, "StatusCode", 0);
         } catch (Exception e) {
             return 0;
         }

@@ -975,6 +975,13 @@ public final class HgSign {
      * 的整数语义未证，仍冻结抓样值，残余风险记在根治账。</p>
      */
     public static byte[] deviceProto(String deviceId, long nowMillis) {
+        // 共享呈现作用域（2026-10-30，hongguo-shared-profile-impl-
+        // 20261030.md）：字段 25–28 经 HgDevice.medusaTsBase 换 drpys
+        // 冻结时间戳、字段 34 经 HgDevice.deviceManufacturer 换 Xiaomi，
+        // 指纹族各字段经 HgDevice 的 fp* 访问口在作用域内自动回冻结值；
+        // 自家作用域下 medusaTsBase 恒等、deviceManufacturer＝品牌，
+        // 与此前逐字一致（HgSignTest 的档案对齐断言即按自家口径验）。
+        long tsBase = HgDevice.medusaTsBase(nowMillis);
         return concat(
                 protoSInt(1, 1),
                 protoSInt(2, 2),
@@ -999,16 +1006,16 @@ public final class HgSign {
                 protoString(22, HgDevice.deviceOsVersion()),
                 protoSInt(23, 41),
                 protoSInt(24, HgDevice.deviceOsApi()),
-                protoSInt(25, nowMillis),
-                protoSInt(26, nowMillis),
-                protoSInt(27, nowMillis),
-                protoSInt(28, nowMillis + 2),
+                protoSInt(25, tsBase),
+                protoSInt(26, tsBase),
+                protoSInt(27, tsBase),
+                protoSInt(28, tsBase + 2),
                 protoSInt(29, -1),
                 protoString(30, HgDevice.deviceModel()),
                 protoString(31, HgDevice.deviceBrand()),
                 protoString(32, HgDevice.deviceModel()),
                 protoString(33, HgDevice.deviceModel()),
-                protoString(34, HgDevice.deviceBrand()),
+                protoString(34, HgDevice.deviceManufacturer()),
                 protoString(35, HgDevice.deviceBrand()),
                 protoString(36, HgDevice.deviceBrand()),
                 protoSInt(38, 31));

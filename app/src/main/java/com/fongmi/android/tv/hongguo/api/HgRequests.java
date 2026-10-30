@@ -324,7 +324,12 @@ public final class HgRequests {
      * cue_type=1、limit=20、search_source=1、tab_name=feed、user_is_login=0。
      */
     public static java.util.List<String[]> cuePairs() {
-        java.util.List<String[]> pairs = HgDevice.deviceQueryPairs();
+        return cuePairs(HgDevice.MODE_OWN);
+    }
+
+    /** 呈现模式版（搜索面：共享模式走 drpys 搜索变体查询串，见 HgDevice.queryPairsForMode）。 */
+    public static java.util.List<String[]> cuePairs(int mode) {
+        java.util.List<String[]> pairs = HgDevice.queryPairsForMode(mode, true);
         pairs.add(new String[]{"cue_type", "1"});
         pairs.add(new String[]{"limit", "20"});
         pairs.add(new String[]{"search_source", "1"});
@@ -347,7 +352,12 @@ public final class HgRequests {
      * 同口径，登录态另由 getSigned 的 headers() Cookie 通道带。
      */
     public static java.util.List<String[]> hotSearchPairs() {
-        java.util.List<String[]> pairs = HgDevice.deviceQueryPairs();
+        return hotSearchPairs(HgDevice.MODE_OWN);
+    }
+
+    /** 呈现模式版（口径同 {@link #cuePairs(int)}）。 */
+    public static java.util.List<String[]> hotSearchPairs(int mode) {
+        java.util.List<String[]> pairs = HgDevice.queryPairsForMode(mode, true);
         pairs.add(new String[]{"user_is_login", "0"});
         pairs.add(new String[]{"bookstore_tab", "16"});
         pairs.add(new String[]{"bookstore_tab_type", "16"});
@@ -370,7 +380,12 @@ public final class HgRequests {
      * user_is_login=0。
      */
     public static java.util.List<String[]> suggestPairs(String prefix) {
-        java.util.List<String[]> pairs = HgDevice.deviceQueryPairs();
+        return suggestPairs(prefix, HgDevice.MODE_OWN);
+    }
+
+    /** 呈现模式版（口径同 {@link #cuePairs(int)}）。 */
+    public static java.util.List<String[]> suggestPairs(String prefix, int mode) {
+        java.util.List<String[]> pairs = HgDevice.queryPairsForMode(mode, true);
         pairs.add(new String[]{"query", prefix == null ? "" : prefix});
         pairs.add(new String[]{"count", "10"});
         pairs.add(new String[]{"search_source", "1"});
@@ -379,7 +394,12 @@ public final class HgRequests {
     }
 
     public static java.util.List<String[]> searchPairs(String keyword) {
-        java.util.List<String[]> pairs = HgDevice.deviceQueryPairs();
+        return searchPairs(HgDevice.MODE_OWN, keyword);
+    }
+
+    /** 呈现模式版（mode 前置以避与 offset 版重载撞名；口径同 {@link #cuePairs(int)}）。 */
+    public static java.util.List<String[]> searchPairs(int mode, String keyword) {
+        java.util.List<String[]> pairs = HgDevice.queryPairsForMode(mode, true);
         pairs.add(new String[]{"query", keyword == null ? "" : keyword});
         pairs.add(new String[]{"tab_type", "11"});
         pairs.add(new String[]{"count", "20"});
@@ -393,9 +413,14 @@ public final class HgRequests {
         return pairs;
     }
 
-    /** 换页签：同翻页口径再换 tab_type（回包 search_tabs 的 tab_type 与请求同键）。 */
+    /** 换页签：同翻页口径再换 tab_type（回包 search tabs 的 tab_type 与请求同键）。 */
     public static java.util.List<String[]> searchPairs(String keyword, int offset, int tabType) {
-        java.util.List<String[]> base = searchPairs(keyword, offset);
+        return searchPairs(HgDevice.MODE_OWN, keyword, offset, tabType);
+    }
+
+    /** 换页签呈现模式版（口径同 {@link #cuePairs(int)}）。 */
+    public static java.util.List<String[]> searchPairs(int mode, String keyword, int offset, int tabType) {
+        java.util.List<String[]> base = searchPairs(mode, keyword, offset);
         java.util.List<String[]> out = new java.util.ArrayList<>(base.size());
         for (String[] kv : base) {
             out.add("tab_type".equals(kv[0])
@@ -406,7 +431,12 @@ public final class HgRequests {
 
     /** 翻页：同 searchPairs、offset 换成已取条数（openhongguo SearchOffset 口径）。 */
     public static java.util.List<String[]> searchPairs(String keyword, int offset) {
-        java.util.List<String[]> base = searchPairs(keyword);
+        return searchPairs(HgDevice.MODE_OWN, keyword, offset);
+    }
+
+    /** 翻页呈现模式版（口径同 {@link #cuePairs(int)}）。 */
+    public static java.util.List<String[]> searchPairs(int mode, String keyword, int offset) {
+        java.util.List<String[]> base = searchPairs(mode, keyword);
         if (offset <= 0) return base;
         java.util.List<String[]> out = new java.util.ArrayList<>(base.size());
         for (String[] kv : base) {

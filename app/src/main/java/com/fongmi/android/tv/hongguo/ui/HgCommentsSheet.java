@@ -277,10 +277,17 @@ public final class HgCommentsSheet {
                         return;
                     }
                     if (page.total > 0) {
-                        headInfo.setText("· " + HongguoFeedActivity.HgTimeTextCount.format(page.total) + " 条");
-                        // D6：真实 total 回写宿主当前条，关面板后右列
-                        // 计数与面板同源，不再停在 cell 下发旧数
-                        if (onTotal != null) onTotal.onTotal(page.total);
+                        // 计数回写单独隔离：格式化/宿主回调哪一步抛了，
+                        // 都不许连坐下面的入列与 notify（否则面板只剩
+                        // 计数、列表全白——真机空白面板的候选链之一，
+                        // 账 hongguo-comments-blank-20261031）。
+                        try {
+                            headInfo.setText("· " + HongguoFeedActivity.HgTimeTextCount.format(page.total) + " 条");
+                            // D6：真实 total 回写宿主当前条，关面板后右列
+                            // 计数与面板同源，不再停在 cell 下发旧数
+                            if (onTotal != null) onTotal.onTotal(page.total);
+                        } catch (Throwable ignored) {
+                        }
                     }
                     for (HongguoCommentApi.Comment c : page.items) rows.add(new Row(c, false));
                     cursor = page.nextCursor;

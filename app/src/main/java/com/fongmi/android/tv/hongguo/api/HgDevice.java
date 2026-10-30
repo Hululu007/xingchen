@@ -29,16 +29,9 @@ import java.util.zip.Deflater;
  *
  * <p>身份持久化走 Prefers（键 hongguo_device_profile_v1），注册一次全局复用。</p>
  *
- * <p>共享档案呈现（2026-10-30，他点定「跟红果果一样用公开共享档案＋
- * 自动兜底」，账 hongguo-shared-profile-impl-20261030.md）：在自家注册
- * 档案之外并列第二种呈现——红果果[短]（drpys）全网共用的那份写死身份
- * 整套（探针账 hongguo-shared-profile-20261030.md 第一节逐字核对）。
- * 呈现经线程级作用域整套切换（{@link #beginPresentation}），只活在
- * HgApiClient 显式开启的取模型/搜索面；作用域外恒自家呈现，登录/
- * 评论/书城链的呈现一字不变。自家档案不删、只降为兜底：共享被身份
- * 层拒绝或空体而自家同批能出货时由 HgApiClient 锁存自家优先
- * （{@link #latchOwnProfile}），锁存只由 {@link #resetProfile}
- * （抽屉「刷新设备档案」）清除。</p>
+ * <p>共享档案呈现与永久锁存已于 2026-10-30 短剧重建时整件摘除：
+ * 共享身份改由短剧新层 drama/DramaSign 呈现、兜底改冷却降级
+ * （drama/DramaFetchPolicy），本类只剩自家注册档案一职（小说共用）。</p>
  */
 public final class HgDevice {
 
@@ -113,141 +106,23 @@ public final class HgDevice {
 
     private static final String PREF_KEY = "hongguo_device_profile_v1";
 
-    // ---------- 共享档案呈现（drpys 全保真，探针账第一节逐字表） ----------
-
-    /** 呈现模式：自家注册档案。 */
-    public static final int MODE_OWN = 0;
-    /** 呈现模式：公开共享档案。 */
-    public static final int MODE_SHARED = 1;
-
-    public static final String SHARED_DEVICE_ID = "1905892595378490";
-    public static final String SHARED_INSTALL_ID = "1905892595382586";
-    /** 播放面版本（drpys DEVICE：7.1.3.32 / 71332）。 */
-    public static final String SHARED_VERSION_NAME = "7.1.3.32";
-    public static final String SHARED_VERSION_CODE = "71332";
-    /** 搜索面版本变体（drpys APP_DEVICE：同 device_id、仅版本换 7.2.2.32 / 72232）。 */
-    public static final String SHARED_SEARCH_VERSION_NAME = "7.2.2.32";
-    public static final String SHARED_SEARCH_VERSION_CODE = "72232";
-    /** 播放面 UA（drpys VIDEO_UA 字面串逐字）。 */
-    public static final String SHARED_UA =
-            "com.phoenix.read/71332 (Linux; U; Android 16; zh_CN; 25053RT47C; Build/BP2A.250605.031.A3; Cronet/TTNetVersion:04657795 2026-01-23 QuicVersion:c67e9834 2025-09-08)";
-    /** 搜索面 UA：drpys 原件已不在本机，此串由播放面字面串按搜索变体
-     * 只换版本号（71332→72232）派生、非逐字原件，边界记 impl 账。 */
-    public static final String SHARED_SEARCH_UA =
-            "com.phoenix.read/72232 (Linux; U; Android 16; zh_CN; 25053RT47C; Build/BP2A.250605.031.A3; Cronet/TTNetVersion:04657795 2026-01-23 QuicVersion:c67e9834 2025-09-08)";
-    /** 共享 persona（drpys DEVICE 逐字；与池 1 同机型，channel 是 update_64 不是 xiaomi_8662_64）。 */
-    private static final Persona PERSONA_SHARED = new Persona(
-            "Redmi", "25053RT47C", "BP2A.250605.031.A3", "16", 36, "1280*2772", 520, "update_64");
-    /** medusa 厂商位（字段 34）：drpys 冻结呈现里是 Xiaomi，与 device_brand=Redmi 分家。 */
-    private static final String SHARED_MANUFACTURER = "Xiaomi";
-    /** medusa 字段 25–28 的冻结时间戳基（drpys 抓样原值，字段 28 照例 +2）。 */
-    private static final long SHARED_MEDUSA_TS = 1728388016635L;
-    // medusa 指纹族抓样冻结值（drpys 逐字；自家模式同名字段走种子派生，见 fp* 方法）
-    private static final String SHARED_FP_TOKEN5 = "Ai6svO3PyrwDOUSmO6ZcResxu";
-    private static final String SHARED_FP_MSG_TOKEN = "AXYQOS6n2m60x1fVZHIrH3iol";
-    private static final long SHARED_FP_UN_H = 1879194040L;
-    private static final long SHARED_FP_FKD = 3672518972L;
-    private static final long SHARED_FP_PD = -1872573247L;
-
-    /** 兜底锁存落盘键：空＝共享优先；"own@<锁存时刻millis>"＝已锁存自家优先。 */
-    private static final String PREF_KEY_MODE = "hongguo_profile_mode_v1";
-
-    // 呈现作用域（线程级）：HgApiClient 组装一发已签名请求时开启、发完
-    // 即收。组装全程同步（HgSign 拼 medusa 时回调本类各访问口），作用域
-    // 保证同一发请求内呈现整套同进同退、并发请求互不串味。
-    private static final ThreadLocal<Integer> PRESENTATION = new ThreadLocal<>();
-
-    /** 开呈现作用域，返回上一层值（-1＝此前无作用域），供 {@link #endPresentation} 还原。 */
-    public static int beginPresentation(int mode) {
-        Integer prev = PRESENTATION.get();
-        PRESENTATION.set(mode);
-        return prev == null ? -1 : prev;
+    /** 签名用的 device_id（自家注册档案）。 */
+    public static String signDeviceId() {
+        return nz(profile().deviceId);
     }
 
-    public static void endPresentation(int prev) {
-        if (prev < 0) PRESENTATION.remove();
-        else PRESENTATION.set(prev);
-    }
-
-    /** 当前呈现：作用域内听作用域；作用域外恒自家（登录等链呈现不变的保证）。 */
-    public static int presentation() {
-        Integer v = PRESENTATION.get();
-        return v == null ? MODE_OWN : v;
-    }
-
-    public static boolean sharedActive() {
-        return presentation() == MODE_SHARED;
-    }
-
-    /**
-     * 兜底锁存是否已立：立了＝共享身份已被证伪（取模型面回身份层拒绝
-     * 110001，或回空体而自家同批能出货，判据在 HgApiClient 状态机），
-     * 默认改走自家优先、不再每批白烧一发共享请求。锁存只由状态机立、
-     * 只由 {@link #resetProfile}（抽屉「刷新设备档案」）清。
-     */
-    public static synchronized boolean ownLatched() {
-        String v = Prefers.getString(PREF_KEY_MODE);
-        return v != null && v.startsWith("own@");
-    }
-
-    /** 锁存时刻（未锁存回 0）。 */
-    public static synchronized long ownLatchedAtMs() {
-        String v = Prefers.getString(PREF_KEY_MODE);
-        if (v == null || !v.startsWith("own@")) return 0;
-        try {
-            return Long.parseLong(v.substring(4));
-        } catch (Exception e) {
-            return 0;
-        }
-    }
-
-    public static synchronized void latchOwnProfile() {
-        Prefers.put(PREF_KEY_MODE, "own@" + System.currentTimeMillis());
-    }
-
-    private static synchronized void clearOwnLatch() {
-        Prefers.put(PREF_KEY_MODE, "");
-    }
-
-    /** 作用域面（取模型/搜索）的默认模式：未锁存＝共享优先，锁存后＝自家优先。 */
-    public static int defaultMode() {
-        return ownLatched() ? MODE_OWN : MODE_SHARED;
-    }
-
-    public static boolean sharedPreferred() {
-        return defaultMode() == MODE_SHARED;
-    }
-
-    /** 签名用的 device_id（共享作用域＝共享 id，自家＝档案注册 id）。 */
-    public static String activeDeviceId() {
-        return sharedActive() ? SHARED_DEVICE_ID : nz(profile().deviceId);
-    }
-
-    /** 签名用的版本名（共享作用域＝7.1.3.32；搜索面变体由查询串与签名入参显式对齐）。 */
-    public static String activeVersionName() {
-        return sharedActive() ? SHARED_VERSION_NAME : VERSION_NAME;
-    }
-
-    /** medusa 厂商位（字段 34）：共享＝Xiaomi；自家＝注册体 device_manufacturer 口径同品牌。 */
+    /** medusa 厂商位（字段 34）：注册体 device_manufacturer 口径＝品牌。 */
     public static String deviceManufacturer() {
-        return sharedActive() ? SHARED_MANUFACTURER : deviceBrand();
+        return deviceBrand();
     }
 
-    /** medusa 字段 25–28 的时间戳基：共享＝drpys 冻结值；自家＝签名时刻入参。 */
+    /** medusa 字段 25–28 的时间戳基：签名时刻入参。 */
     public static long medusaTsBase(long nowMillis) {
-        return sharedActive() ? SHARED_MEDUSA_TS : nowMillis;
+        return nowMillis;
     }
 
-    /** 按模式与面取 UA（不依赖作用域，供 HgApiClient 组装请求头时显式取）。 */
-    public static String uaFor(int mode, boolean searchFace) {
-        if (mode == MODE_SHARED) return searchFace ? SHARED_SEARCH_UA : SHARED_UA;
-        return userAgent();
-    }
-
-    /** 按模式与面取设备查询串（搜索面 pairs 在签名之前由 HgRequests 组装、
-     * 等不到作用域，故按模式显式取；OWN＝自家档案口径逐字）。 */
-    public static List<String[]> queryPairsForMode(int mode, boolean searchFace) {
-        if (mode == MODE_SHARED) return sharedQueryPairs(searchFace);
+    /** 搜索面设备查询串（自家档案口径）。 */
+    public static List<String[]> searchQueryPairs() {
         return ownQueryPairs();
     }
 
@@ -256,52 +131,44 @@ public final class HgDevice {
 
     /** 注册档案的机型（注册体 device_model、公参 device_type 与 medusa 机型字段同源）。 */
     public static String deviceModel() {
-        if (sharedActive()) return PERSONA_SHARED.model;
         String v = profile().model;
         return v == null || v.isEmpty() ? PERSONA_LEGACY.model : v;
     }
 
     /** 注册档案的品牌（注册体 device_brand 与 device_manufacturer 同用此值，medusa 品牌/厂商字段同源）。 */
     public static String deviceBrand() {
-        if (sharedActive()) return PERSONA_SHARED.brand;
         String v = profile().brand;
         return v == null || v.isEmpty() ? PERSONA_LEGACY.brand : v;
     }
 
     /** 注册档案的系统版本（注册体/公参 os_version 与 UA 同值，medusa 系统版本字段同源）。 */
     public static String deviceOsVersion() {
-        if (sharedActive()) return PERSONA_SHARED.osVersion;
         String v = profile().osVersion;
         return v == null || v.isEmpty() ? PERSONA_LEGACY.osVersion : v;
     }
 
     /** 注册档案的系统 API 号（公参/注册体 os_api 同值，medusa 字段 24 同源，证据见 HgSign.deviceProto 注释）。 */
     public static int deviceOsApi() {
-        if (sharedActive()) return PERSONA_SHARED.osApi;
         int v = profile().osApi;
         return v > 0 ? v : PERSONA_LEGACY.osApi;
     }
 
     private static String deviceBuild() {
-        if (sharedActive()) return PERSONA_SHARED.build;
         String v = profile().build;
         return v == null || v.isEmpty() ? PERSONA_LEGACY.build : v;
     }
 
     private static String deviceResolution() {
-        if (sharedActive()) return PERSONA_SHARED.resolution;
         String v = profile().resolution;
         return v == null || v.isEmpty() ? PERSONA_LEGACY.resolution : v;
     }
 
     private static int deviceDpi() {
-        if (sharedActive()) return PERSONA_SHARED.dpi;
         int v = profile().dpi;
         return v > 0 ? v : PERSONA_LEGACY.dpi;
     }
 
     private static String deviceChannel() {
-        if (sharedActive()) return PERSONA_SHARED.channel;
         String v = profile().channel;
         return v == null || v.isEmpty() ? PERSONA_LEGACY.channel : v;
     }
@@ -379,16 +246,11 @@ public final class HgDevice {
      *
      * <p>边界（死线）：这里只动匿名设备档案这一份落盘（PREF_KEY）。
      * 账号登录态是另一回事——passport 会话 Cookie 由壳子账号托管
-     * （CloudAccountStore，见 HongguoLoginProvider）独立存储，本方法
-     * 不读不写；换档案后已登录账号不掉线，只是后续请求改用新设备 id
-     * 签名（签名时现读档案，天然跟随）。</p>
+     * 不读不写（短剧重建后已无登录链）。</p>
      */
     public static synchronized void resetProfile() {
         generation++;
-        // 抽屉「刷新设备档案」的新语义（2026-10-30 共享档案单）：重置
-        // 自家档案的同时清兜底锁存——回到共享优先，共享若再被拒由
-        // 取模型状态机重新锁存。
-        clearOwnLatch();
+        // 抽屉「刷新设备档案」：重置自家档案（新种子重新派生）。
         Profile p = generate();
         save(p);
         cached = p;
@@ -449,9 +311,6 @@ public final class HgDevice {
 
     /** 档案现存的 device_token（x-tt-dt 填值口）；没刷到过时为空串。 */
     public static String deviceToken() {
-        // 共享呈现没有注册 token（drpys 恒发空串），不许把自家档案的
-        // token 漏到共享请求上——那是画像混搭、且把两份身份绑一起。
-        if (sharedActive()) return "";
         return nz(profile().deviceToken);
     }
 
@@ -486,8 +345,6 @@ public final class HgDevice {
 
     /** 游客 Cookie 头（ttreq 非空才有，对照 sdk guestCookie 口径）；无则 null。 */
     public static String guestCookieHeader() {
-        // 共享呈现从未注册、没有游客 Cookie 材料（drpys 不发此头）。
-        if (sharedActive()) return null;
         Profile p = profile();
         if (p.ttReq == null || p.ttReq.isEmpty()) return null;
         return "passport_csrf_token=; passport_csrf_token_default=; store-region=" + nz(p.storeRegion)
@@ -546,16 +403,13 @@ public final class HgDevice {
         return sb.toString();
     }
 
-    /** medusa 设备 proto 字段 5 的令牌（自家＝档案种子派生；共享作用域
-     * ＝drpys 抓样冻结值——共享呈现里它没退役、全网同值正是其画像）。 */
+    /** medusa 设备 proto 字段 5 的令牌（档案种子派生）。 */
     public static String fpToken5() {
-        if (sharedActive()) return SHARED_FP_TOKEN5;
         return fpToken("device-token-5");
     }
 
     /** medusa 消息字段 16 的令牌（口径同 {@link #fpToken5}）。 */
     public static String fpMsgToken() {
-        if (sharedActive()) return SHARED_FP_MSG_TOKEN;
         return fpToken("msg-token-16");
     }
 
@@ -572,33 +426,27 @@ public final class HgDevice {
      */
     public static float fpSensor(int idx) {
         int src = idx == 3 ? 2 : idx;
-        // 共享作用域＝抓样原值逐位（无抖动，drpys 冻结呈现）。
-        if (sharedActive()) return FP_SENSOR_BASE[src];
         double u = fpU32("sensor-" + src) / 4294967296.0;
         return (float) (FP_SENSOR_BASE[src] * (0.92 + 0.16 * u));
     }
 
-    /** 消息字段 24 JSON 的 un_h（自家＝种子派生；共享＝抓样冻结 1879194040）。 */
+    /** 消息字段 24 JSON 的 un_h（种子派生）。 */
     public static long fpUnH() {
-        if (sharedActive()) return SHARED_FP_UN_H;
         return 1000000000L + fpU32("un_h") % 1000000000L;
     }
 
-    /** 消息字段 24 JSON 的 fkd（自家＝种子派生；共享＝抓样冻结 3672518972）。 */
+    /** 消息字段 24 JSON 的 fkd（种子派生）。 */
     public static long fpFkd() {
-        if (sharedActive()) return SHARED_FP_FKD;
         return 2000000000L + fpU32("fkd") % 2000000000L;
     }
 
-    /** 消息字段 24 JSON 的 pd（自家＝种子派生；共享＝抓样冻结 -1872573247）。 */
+    /** 消息字段 24 JSON 的 pd（种子派生）。 */
     public static long fpPd() {
-        if (sharedActive()) return SHARED_FP_PD;
         return -(1000000000L + fpU32("pd") % 1000000000L);
     }
 
-    /** User-Agent（自家＝对照 protocol.UserAgent 档案 persona 代入；共享作用域＝drpys 字面串）。 */
+    /** User-Agent（对照 protocol.UserAgent，档案 persona 代入）。 */
     public static String userAgent() {
-        if (sharedActive()) return SHARED_UA;
         return PACKAGE + "/" + VERSION_CODE + " (Linux; U; Android " + deviceOsVersion() + "; zh_CN; "
                 + deviceModel() + "; Build/" + deviceBuild()
                 + "; Cronet/TTNetVersion:8d40f833 2026-03-03 QuicVersion:21ac1950 2025-11-18)";
@@ -612,11 +460,9 @@ public final class HgDevice {
 
     /**
      * 有序设备查询串（对照 DeviceQueryPairs，31 对、序即签名的一部分）。
-     * ts 与 _rticket 由签名器在末尾追加，这里不带。共享作用域内回共享
-     * 呈现串（见 {@link #sharedQueryPairs}），其余＝自家档案串。
+     * ts 与 _rticket 由签名器在末尾追加，这里不带。
      */
     public static List<String[]> deviceQueryPairs() {
-        if (sharedActive()) return sharedQueryPairs(false);
         return ownQueryPairs();
     }
 
@@ -653,46 +499,6 @@ public final class HgDevice {
         pairs.add(new String[]{"player_so_load", "1"});
         pairs.add(new String[]{"is_android_pad_screen", "0"});
         pairs.add(new String[]{"openudid", nz(p.openUdid)});
-        return pairs;
-    }
-
-    /**
-     * 共享呈现查询串（drpys 口径：与自家同序、去掉 cdid/openudid 两对，
-     * 共 29 对；ids/persona/channel 全共享常量，version_code/version_name
-     * 与 manifest/update/pv_player 按面取——播放面 71332/7.1.3.32、
-     * 搜索面 72232/7.2.2.32）。ts 与 _rticket 同理由签名器末尾追加。
-     */
-    private static List<String[]> sharedQueryPairs(boolean searchFace) {
-        String vc = searchFace ? SHARED_SEARCH_VERSION_CODE : SHARED_VERSION_CODE;
-        String vn = searchFace ? SHARED_SEARCH_VERSION_NAME : SHARED_VERSION_NAME;
-        List<String[]> pairs = new ArrayList<>(29);
-        pairs.add(new String[]{"iid", SHARED_INSTALL_ID});
-        pairs.add(new String[]{"device_id", SHARED_DEVICE_ID});
-        pairs.add(new String[]{"ac", "wifi"});
-        pairs.add(new String[]{"channel", PERSONA_SHARED.channel});
-        pairs.add(new String[]{"aid", String.valueOf(AID)});
-        pairs.add(new String[]{"app_name", APP_NAME});
-        pairs.add(new String[]{"version_code", vc});
-        pairs.add(new String[]{"version_name", vn});
-        pairs.add(new String[]{"device_platform", DEVICE_PLATFORM});
-        pairs.add(new String[]{"os", "android"});
-        pairs.add(new String[]{"ssmix", "a"});
-        pairs.add(new String[]{"device_type", PERSONA_SHARED.model});
-        pairs.add(new String[]{"device_brand", PERSONA_SHARED.brand});
-        pairs.add(new String[]{"language", "zh"});
-        pairs.add(new String[]{"os_api", String.valueOf(PERSONA_SHARED.osApi)});
-        pairs.add(new String[]{"os_version", PERSONA_SHARED.osVersion});
-        pairs.add(new String[]{"manifest_version_code", vc});
-        pairs.add(new String[]{"resolution", PERSONA_SHARED.resolution});
-        pairs.add(new String[]{"dpi", String.valueOf(PERSONA_SHARED.dpi)});
-        pairs.add(new String[]{"update_version_code", vc});
-        pairs.add(new String[]{"host_abi", "arm64-v8a"});
-        pairs.add(new String[]{"dragon_device_type", "phone"});
-        pairs.add(new String[]{"pv_player", vc});
-        pairs.add(new String[]{"compliance_status", "0"});
-        pairs.add(new String[]{"need_personal_recommend", "1"});
-        pairs.add(new String[]{"player_so_load", "1"});
-        pairs.add(new String[]{"is_android_pad_screen", "0"});
         return pairs;
     }
 

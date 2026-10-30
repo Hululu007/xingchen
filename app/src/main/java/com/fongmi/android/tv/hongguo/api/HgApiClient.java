@@ -210,18 +210,13 @@ public final class HgApiClient {
     }
 
     /**
-     * 抽屉「刷新设备档案」（2026-10-30 语义改，共享档案单）：＝清
-     * 兜底锁存＋重置自家档案，回到共享优先。旧语义（重置后立即重
-     * 注册一份新自家档案当主身份、结果经注册成败回）随主身份改成
-     * 共享档案而废：自家档案只作兜底，不在此急注册——兜底路径
-     * （postSignedMode 的自家模式）经 ensureDevice 现场注册，新装
-     * 机同路。本地重置不会失败，恒回成功；调用方收口（清运行时
-     * 缓存＋重拉）与旧版成败同路不变。
+     * 抽屉「刷新设备档案」：重置自家档案（新种子重新派生＋清注册
+     * 态），后续自家签名请求经 ensureDevice 现场重新注册。本地重置
+     * 不会失败，恒回成功；调用方收口（清运行时缓存＋重拉）不变。
      *
-     * <p>边界（死线）：只动匿名设备档案；账号登录态（passport 会话
-     * Cookie 在壳子账号托管 CloudAccountStore）不在此列，重置不读
-     * 不写。若恰有一轮自家注册在途，HgDevice 代次已变，那一轮的
-     * 回包会被 doRegister 的代次校验作废并按新档案自动重注册。</p>
+     * <p>边界：只动匿名设备档案。若恰有一轮自家注册在途，HgDevice
+     * 代次已变，那一轮的回包会被 doRegister 的代次校验作废并按新
+     * 档案自动重注册。</p>
      */
     public void resetDeviceProfile(HgCallback<Boolean> cb) {
         HgDevice.resetProfile();
@@ -335,30 +330,10 @@ public final class HgApiClient {
 
     /** 已签名 POST 的指定宿主版（批量取模型口走 sinfonlineb，其余同 {@link #postSigned(String, JsonObject, BodyCallback)}）。 */
     private void postSigned(String host, String path, JsonObject bodyObj, BodyCallback cb) {
-        postSignedMode(host, path, bodyObj, HgDevice.MODE_OWN, cb);
-    }
-
-    /** 已签名 POST 的呈现模式版（路径版，宿主默认 fqnovel a 面）。 */
-    private void postSignedMode(String path, JsonObject bodyObj, int mode, BodyCallback cb) {
-        postSignedMode(HgDevice.API_HOST, path, bodyObj, mode, cb);
-    }
-
-    /**
-     * 已签名 POST 的呈现模式版：共享模式不发注册请求（身份是现成的、
-     * 注册反而污染共享画像），直接在共享作用域里组装发送；自家模式
-     * 先 ensureDevice、再在自家作用域里组装（与旧 postSigned 同路）。
-     * 作用域只罩「组装＋签名＋入队」这段同步代码，呈现整套同进同退
-     * 的保证在 HgDevice 的作用域机制上（见其类注）。
-     */
-    private void postSignedMode(String host, String path, JsonObject bodyObj, int mode, BodyCallback cb) {
-        if (mode == HgDevice.MODE_SHARED) {
-            dispatchSignedPost(host, path, bodyObj, mode, cb);
-            return;
-        }
         ensureDevice(new HgCallback<Boolean>() {
             @Override
             public void onSuccess(Boolean ok) {
-                dispatchSignedPost(host, path, bodyObj, mode, cb);
+                dispatchSignedPost(host, path, bodyObj, cb);
             }
 
             @Override
@@ -368,33 +343,28 @@ public final class HgApiClient {
         });
     }
 
-    private void dispatchSignedPost(String host, String path, JsonObject bodyObj, int mode, BodyCallback cb) {
-        int prev = HgDevice.beginPresentation(mode);
-        try {
-            String body = bodyObj.toString();
-            byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
-            long ticket = System.currentTimeMillis();
-            HgSign.Signed signed = HgSign.signPost(path, HgDevice.deviceQueryPairs(), ticket,
-                    HgDevice.activeDeviceId(), HgDevice.activeVersionName(), bodyBytes, null);
-            String url = host + path + "?" + signed.query;
-            Map<String, String> h = headers(mode != HgDevice.MODE_SHARED);
-            h.put("user-agent", HgDevice.userAgent());
-            h.putAll(signed.headers);
-            // Content-Type 由 RequestBody 承载（值同为 application/json; charset=UTF-8）
-            h.remove("Content-Type");
-            if (!h.containsKey("Cookie")) {
-                String guest = HgDevice.guestCookieHeader();
-                if (guest != null) h.put("Cookie", guest);
-            }
-            h.put("x-ss-dp", "8662");
-            h.put("lc", "101");
-            h.put("x-reading-request", HgDevice.readingRequestId(ticket));
-            RequestBody rb = RequestBody.create(body, JSON);
-            Call call = OkHttp.newCall(url, h, rb);
-            enqueue(call, cb, path);
-        } finally {
-            HgDevice.endPresentation(prev);
+    private void dispatchSignedPost(String host, String path, JsonObject bodyObj, BodyCallback cb) {
+        String body = bodyObj.toString();
+        byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
+        long ticket = System.currentTimeMillis();
+        HgSign.Signed signed = HgSign.signPost(path, HgDevice.deviceQueryPairs(), ticket,
+                HgDevice.signDeviceId(), HgDevice.VERSION_NAME, bodyBytes, null);
+        String url = host + path + "?" + signed.query;
+        Map<String, String> h = headers(true);
+        h.put("user-agent", HgDevice.userAgent());
+        h.putAll(signed.headers);
+        // Content-Type 由 RequestBody 承载（值同为 application/json; charset=UTF-8）
+        h.remove("Content-Type");
+        if (!h.containsKey("Cookie")) {
+            String guest = HgDevice.guestCookieHeader();
+            if (guest != null) h.put("Cookie", guest);
         }
+        h.put("x-ss-dp", "8662");
+        h.put("lc", "101");
+        h.put("x-reading-request", HgDevice.readingRequestId(ticket));
+        RequestBody rb = RequestBody.create(body, JSON);
+        Call call = OkHttp.newCall(url, h, rb);
+        enqueue(call, cb, path);
     }
 
     /**
@@ -402,25 +372,14 @@ public final class HgApiClient {
      * 再用注册身份对有序参数逐请求签名（HgSign.signGet 传真实路径），
      * 发往 fqnovel 宿主；头组装照 openhongguo anonymousHeaders 口径
      * （UA 换设备面 UA、x-ss-dp / lc / x-reading-request、游客 Cookie 兜底）。
-     * feed 频道面走此口、恒自家呈现；搜索面走 {@link #getSignedMode}
-     * 按默认模式（共享未锁存时走 drpys 搜索变体呈现）。
+     * feed 频道面与搜索面（自家口径）走此口；短剧新层的共享呈现
+     * 在 drama/DramaClient，不经本类。
      */
     private void getSigned(String path, List<String[]> pairs, BodyCallback cb) {
-        getSignedMode(path, pairs, HgDevice.MODE_OWN, false, cb);
-    }
-
-    /** 已签名 GET 的呈现模式版：mode/searchFace 必须与 pairs 的组装
-     * 模式一致（HgApiClient 搜索面同点取 HgDevice.defaultMode() 一次、
-     * 同时喂 pairs 构造与本方法），签名里的版本名/UA 按同一模式对齐。 */
-    private void getSignedMode(String path, List<String[]> pairs, int mode, boolean searchFace, BodyCallback cb) {
-        if (mode == HgDevice.MODE_SHARED) {
-            dispatchSignedGet(path, pairs, mode, searchFace, cb);
-            return;
-        }
         ensureDevice(new HgCallback<Boolean>() {
             @Override
             public void onSuccess(Boolean ok) {
-                dispatchSignedGet(path, pairs, mode, searchFace, cb);
+                dispatchSignedGet(path, pairs, cb);
             }
 
             @Override
@@ -430,31 +389,23 @@ public final class HgApiClient {
         });
     }
 
-    private void dispatchSignedGet(String path, List<String[]> pairs, int mode, boolean searchFace, BodyCallback cb) {
-        int prev = HgDevice.beginPresentation(mode);
-        try {
-            long ticket = System.currentTimeMillis();
-            String versionName = mode == HgDevice.MODE_SHARED
-                    ? (searchFace ? HgDevice.SHARED_SEARCH_VERSION_NAME : HgDevice.SHARED_VERSION_NAME)
-                    : HgDevice.VERSION_NAME;
-            HgSign.Signed signed = HgSign.signGet(path, pairs, ticket,
-                    HgDevice.activeDeviceId(), versionName, null);
-            String url = HgDevice.API_HOST + path + "?" + signed.query;
-            Map<String, String> h = headers(mode != HgDevice.MODE_SHARED);
-            h.put("user-agent", HgDevice.uaFor(mode, searchFace));
-            h.putAll(signed.headers);
-            if (!h.containsKey("Cookie")) {
-                String guest = HgDevice.guestCookieHeader();
-                if (guest != null) h.put("Cookie", guest);
-            }
-            h.put("x-ss-dp", "8662");
-            h.put("lc", "101");
-            h.put("x-reading-request", HgDevice.readingRequestId(ticket));
-            Call call = OkHttp.newCall(url, h);
-            enqueue(call, cb, path);
-        } finally {
-            HgDevice.endPresentation(prev);
+    private void dispatchSignedGet(String path, List<String[]> pairs, BodyCallback cb) {
+        long ticket = System.currentTimeMillis();
+        HgSign.Signed signed = HgSign.signGet(path, pairs, ticket,
+                HgDevice.signDeviceId(), HgDevice.VERSION_NAME, null);
+        String url = HgDevice.API_HOST + path + "?" + signed.query;
+        Map<String, String> h = headers(true);
+        h.put("user-agent", HgDevice.userAgent());
+        h.putAll(signed.headers);
+        if (!h.containsKey("Cookie")) {
+            String guest = HgDevice.guestCookieHeader();
+            if (guest != null) h.put("Cookie", guest);
         }
+        h.put("x-ss-dp", "8662");
+        h.put("lc", "101");
+        h.put("x-reading-request", HgDevice.readingRequestId(ticket));
+        Call call = OkHttp.newCall(url, h);
+        enqueue(call, cb, path);
     }
 
     // ---------- 同步口（阅读管线等阻塞调用方用；签名/头组装仍走上面同一套，不许另抄一份） ----------
@@ -467,6 +418,11 @@ public final class HgApiClient {
     /** 已签名 POST（JSON 体）的同步版：回包原文；失败抛异常。 */
     public String postSignedSync(String path, JsonObject bodyObj) throws Exception {
         return syncCall(cb -> postSigned(path, bodyObj, cb));
+    }
+
+    /** 已签名 POST 的同步版（指定宿主：批量取模型口走 sinfonlineb）。 */
+    public String postSignedSync(String host, String path, JsonObject bodyObj) throws Exception {
+        return syncCall(cb -> postSigned(host, path, bodyObj, cb));
     }
 
     private interface SyncStarter {

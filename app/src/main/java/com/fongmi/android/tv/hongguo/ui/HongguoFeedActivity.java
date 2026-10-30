@@ -1083,6 +1083,37 @@ public class HongguoFeedActivity extends AppCompatActivity {
         main.post(() -> settleTo(0));
     }
 
+    /**
+     * 合集行播放：行是剧集卡（无 vid），先取该行详情定首集 vid 再播
+     * （UGC 合集每行＝一条单集视频的 series，详情回包带其 vid/模型）。
+     */
+    private void playAlbumRow(DramaItem item) {
+        if (item.getVid() != null && !item.getVid().isEmpty()) {
+            playVid(item.getVid(), item.contentType, 0);
+            return;
+        }
+        String sid = item.getSeriesId();
+        if (sid == null) {
+            FeedAdapter.Holder h = currentHolder();
+            if (h != null) {
+                h.spin.setVisibility(View.GONE);
+                h.fail.setVisibility(View.VISIBLE);
+            }
+            return;
+        }
+        ensureDetail(sid, detail -> {
+            if (detail == null || detail.getEpisodes().isEmpty()) {
+                FeedAdapter.Holder h = currentHolder();
+                if (h != null) {
+                    h.spin.setVisibility(View.GONE);
+                    h.fail.setVisibility(View.VISIBLE);
+                }
+                return;
+            }
+            playVid(detail.getEpisodes().get(0).getVideoId(), detail.getContentType(), 0);
+        });
+    }
+
     /** 合集条点开：同系列列表，点行跳播。 */
     private void openAlbumSheet() {
         panelGuardUntil = System.currentTimeMillis() + 1500;
@@ -1155,6 +1186,9 @@ public class HongguoFeedActivity extends AppCompatActivity {
         updateWatchBar();
         if (mode == MODE_SERIES) {
             playEpisode(currentEpisodeIndex, true);
+        } else if (mode == MODE_VIDEO && videoAlbumId != null) {
+            currentEpisodeIndex = 1;
+            playAlbumRow(item);
         } else if (mode == MODE_UGC || mode == MODE_VIDEO) {
             currentEpisodeIndex = 1;
             playVid(item.getVid(), item.contentType, 0);

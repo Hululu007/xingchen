@@ -154,17 +154,32 @@ lm = cut_exact(lm, """        if (QQLoginProvider.ID.equals(providerId)) {
 lines = lm.split("\n")
 
 # ---- LoginManager：loginQQ 实例方法（含 javadoc）整段删 ----
-# 结束锚点＝紧随其后的 loginHongguo 方法 javadoc 起始行（loginHongguo 是后来插入
-# loginQQ 与 openMethod 之间的，旧锚点 openMethod 会把红果方法整段吞掉——
-# 1.4.60 朋友版首编实证）；删到人家的 /** 之前为止，并断言删除段内不含红果标识。
+# 结束锚点分两种形态：
+# (a) loginHongguo 还在（旧形态）：它后来插入 loginQQ 与 openMethod 之间，结束锚点＝
+#     其 javadoc 起始行，删到人家的 /** 之前为止（旧锚点 openMethod 会把红果方法
+#     整段吞掉——1.4.60 朋友版首编实证），并断言删除段内不含红果标识。
+# (b) loginHongguo 已随红果重建整段删除（现形态，2026-10-30 1.4.63 朋友版首编实证：
+#     旧锚命中 0 处、python 中途退出、&& 链断在 strip-hongguo 之前、朋友版带着红果
+#     编成）：loginQQ 之后紧跟 openMethod（无 javadoc），结束锚点＝openMethod 声明行，
+#     删到它之前为止；断言段尾＝loginQQ 收尾括号＋空行、段内不含 openMethod/红果标识。
 i = find_line(lines, "弹 QQ 音乐网页登录框：走壳子统一弹窗", "loginQQ javadoc")
-j = find_line(lines, "弹红果官方形态登录页（{@link HongguoLoginPage}", "loginHongguo javadoc")
-if not (i < j - 1 and lines[i - 1].strip() == "/**" and lines[j - 1].strip() == "/**"):
-    sys.exit("python: loginQQ 段落形状对不上")
-seg = "\n".join(lines[i - 1:j - 1])
-if "loginHongguo" in seg or "HongguoLoginPage" in seg:
-    sys.exit("python: loginQQ 删除段越界（段内含红果标识）")
-lines = lines[:i - 1] + lines[j - 1:]
+hg = [k for k, ln in enumerate(lines) if "弹红果官方形态登录页（{@link HongguoLoginPage}" in ln]
+if hg:
+    j = hg[0]
+    if not (i < j - 1 and lines[i - 1].strip() == "/**" and lines[j - 1].strip() == "/**"):
+        sys.exit("python: loginQQ 段落形状对不上")
+    seg = "\n".join(lines[i - 1:j - 1])
+    if "loginHongguo" in seg or "HongguoLoginPage" in seg:
+        sys.exit("python: loginQQ 删除段越界（段内含红果标识）")
+    lines = lines[:i - 1] + lines[j - 1:]
+else:
+    k = find_line(lines, "    private void openMethod(", "openMethod 声明")
+    if not (i < k and lines[i - 1].strip() == "/**" and lines[k - 1].strip() == "" and lines[k - 2].strip() == "}"):
+        sys.exit("python: loginQQ 段落形状对不上（无红果形态）")
+    seg = "\n".join(lines[i - 1:k])
+    if "openMethod" in seg or "loginHongguo" in seg or "HongguoLoginPage" in seg:
+        sys.exit("python: loginQQ 删除段越界（无红果形态）")
+    lines = lines[:i - 1] + lines[k:]
 
 # ---- LoginManager：loginQQ/loginQQDelivered 静态桥整段删（单行 javadoc，起始行即注释行本身） ----
 i = find_line(lines, "弹壳子统一的 QQ 音乐网页登录框（异步）", "loginQQ 静态桥 javadoc")

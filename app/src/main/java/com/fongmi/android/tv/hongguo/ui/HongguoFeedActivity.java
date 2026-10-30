@@ -49,6 +49,7 @@ import com.fongmi.android.tv.hongguo.ui.HgPanelLogic;
 import com.fongmi.android.tv.player.PlayerEngine;
 import com.fongmi.android.tv.player.engine.ExoPlayerEngine;
 import com.fongmi.android.tv.setting.PlayerSetting;
+import com.fongmi.android.tv.ui.dialog.CastDialog;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -77,7 +78,7 @@ import java.util.concurrent.Executors;
  * DramaResolver；历史/断点/收藏走 HgStore 本地。无登录/追更/点赞/
  * 预约/关注任何入口。</p>
  */
-public class HongguoFeedActivity extends AppCompatActivity {
+public class HongguoFeedActivity extends AppCompatActivity implements CastDialog.Listener {
 
     public static final String EXTRA_MODE = "hg_mode";
     public static final String EXTRA_SERIES_ID = "hg_series_id";
@@ -1761,6 +1762,23 @@ public class HongguoFeedActivity extends AppCompatActivity {
             }
 
             @Override
+            public void openCast() {
+                if (currentVid == null || player == null) return;
+                String url = resolver.readyUrl(currentVid);
+                if (url == null) {
+                    Toast.makeText(HongguoFeedActivity.this, "视频未就绪，无法投屏", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                DramaItem item = currentIndex >= 0 && currentIndex < items.size()
+                        ? items.get(currentIndex) : null;
+                String title = item == null || item.getTitle() == null ? "" : item.getTitle();
+                if (item != null && item.kind == DramaItemKind.SERIES && currentEpisodeIndex >= 1) {
+                    title = title + " 第" + currentEpisodeIndex + "集";
+                }
+                HgCaster.cast(HongguoFeedActivity.this, title, url, player.getCurrentPosition());
+            }
+
+            @Override
             public void onDanmakuOptionsChanged() {
                 applyDanmakuConfig();
                 applyDanmakuVisibility();
@@ -1780,6 +1798,17 @@ public class HongguoFeedActivity extends AppCompatActivity {
     private void showMorePanel() {
         panelGuardUntil = System.currentTimeMillis() + 1500;
         HgFeedPanels.showMore(this, host());
+    }
+
+    /** 投屏成功回调（壳子 CastDialog 契约）：本机停播省电省声，但绝不关
+     *  解链流——电视正经本机代理（/hongguo/stream 的 token）拉解密流，
+     *  关了电视立刻断。流的回收仍走 onDestroy/同集重试的既有口径。 */
+    @Override
+    public void onCasted() {
+        if (player != null) {
+            player.setPlayWhenReady(false);
+            player.pause();
+        }
     }
 
     public void showEpisodeSheet() {

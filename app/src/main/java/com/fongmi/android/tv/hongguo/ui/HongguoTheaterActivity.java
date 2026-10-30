@@ -23,29 +23,38 @@ import androidx.recyclerview.widget.StaggeredGridLayoutManager;
 import com.bumptech.glide.Glide;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.hongguo.api.HgCallback;
-import com.fongmi.android.tv.hongguo.drama.DramaCategory;
 import com.fongmi.android.tv.hongguo.drama.DramaCellPage;
 import com.fongmi.android.tv.hongguo.drama.DramaClient;
+import com.fongmi.android.tv.hongguo.drama.DramaFilterRow;
 import com.fongmi.android.tv.hongguo.drama.DramaItem;
 import com.fongmi.android.tv.hongguo.drama.DramaItemKind;
 import com.fongmi.android.tv.hongguo.model.HgContinuation;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
  * 剧场页（2026-10-30 从零重建，他亲定底栏第二签）：简单分类浏览。
  * 大分类四格（他 2026-10-30 改口径，旧「AI 归漫剧侧」作废）：真人剧/
- * 漫剧/AI剧/视频，各配一行小分类筹（单选、无数据整行不显）＋网格/瀑布。
+ * 漫剧/AI剧/视频，各配两行小分类筹（主题＋设定、跨行单选、无数据
+ * 整行不显）＋网格/瀑布。
  * 数据分法（分类探针实拉配对定版，账 hongguo-theater-ai-20261030）：
  * 服务端类型类 content_category_type——「1」真人剧走 39 频道、
  * 「1004」漫剧走 36 频道（漫剧格剔除 AI 类收纯）、「1004_ai_video」
  * AI剧在 36 频道里实拉为零、只在发现流（-1,16）成量出现，AI 格即
  * 发现流按该字段过滤成格；ai_usage_type 是作者声明标记、两类都带，
- * 不是分家字段。筹面各走各格数据源：真人/漫剧筹取自各自频道回包
- * 抽取，AI 筹只取本格 AI 条目自带的 category_schema，不借别格类目。
+ * 不是分家字段。小分类筹走官方筛选面（distribution landpage，他
+ * 2026-10-30 发官方实图亲证、探针账 hongguo-chip-fix-20261030）：
+ * 面板按格 scene 下发维度表，筹落两行——全部主题
+ * （category_dim_theme）＋全部设定（category_dim_role），跨行单选
+ * （他亲令），点筹走同口内容路按 scene 分格取数；面板拉不到筹行
+ * 整行不显、频道流照常。频道/发现流续页：开页 tab 级 has_more 恒
+ * false，靠续页凭证在位判有下页＋continuation 逐页推进（旧版两处
+ * 皆断、网格卡死开页，同账 §三）。
  * 视频格：UGC 短片/合集双列瀑布卡。点封面直接进播放页开播，不绕
  * 详情页（定稿口径）；底栏白色（定稿），与首页黑块底栏分开。
  */
@@ -62,19 +71,30 @@ public class HongguoTheaterActivity extends AppCompatActivity {
     private ClipAdapter clipAdapter;
     private TextView[] tabViews;
     private TextView stateText;
-    private HorizontalScrollView chipScroll;
-    private LinearLayout chipRow;
-    private final List<TextView> chipViews = new ArrayList<>();
-    private final List<DramaCategory> categories = new ArrayList<>();
-    private String activeCategoryId;
+    private LinearLayout chipArea;
+    private HorizontalScrollView themeScroll;
+    private HorizontalScrollView roleScroll;
+    private LinearLayout themeRow;
+    private LinearLayout roleRow;
+    private final List<TextView> themeChipViews = new ArrayList<>();
+    private final List<TextView> roleChipViews = new ArrayList<>();
+    /** 筛选面面板按格缓存（key＝格下标）；pending 防重入、dead 拉败后本页内不重试。 */
+    private final Map<Integer, List<DramaFilterRow>> panelCache = new HashMap<>();
+    private final Set<Integer> panelPending = new HashSet<>();
+    private final Set<Integer> panelDead = new HashSet<>();
+    /** 跨行单选的当前筛选（维度键＋值），皆 null＝未筛。 */
+    private String activeDimKey;
+    private String activeDimValue;
     private final List<DramaItem> items = new ArrayList<>();
     private final List<DramaItem> clips = new ArrayList<>();
     private int channel = 0;
     private HgContinuation continuation;
     private boolean hasMore;
     private boolean loading;
-    private boolean reqLanding;
-    private int landingOffset;
+    private boolean reqFilter;
+    private int filterOffset;
+    private String filterSession;
+    private final List<String> filterSeen = new ArrayList<>();
     private int clipChain;
     private int aiChain;
 
@@ -132,12 +152,13 @@ public class HongguoTheaterActivity extends AppCompatActivity {
             t.setOnClickListener(v -> {
                 if (channel != idx) {
                     channel = idx;
-                    activeCategoryId = null;
-                    categories.clear();
+                    activeDimKey = null;
+                    activeDimValue = null;
                     rebuildChips();
                     selectTab();
                     applyLayout();
                     load(true);
+                    ensurePanel(idx);
                 }
             });
             tabViews[i] = t;
@@ -145,14 +166,24 @@ public class HongguoTheaterActivity extends AppCompatActivity {
         }
         root.addView(tabs);
 
-        chipScroll = new HorizontalScrollView(this);
-        chipScroll.setHorizontalScrollBarEnabled(false);
-        chipScroll.setVisibility(View.GONE);
-        chipRow = new LinearLayout(this);
-        chipRow.setOrientation(LinearLayout.HORIZONTAL);
-        chipRow.setPadding(dp(12), dp(2), dp(12), dp(6));
-        chipScroll.addView(chipRow);
-        root.addView(chipScroll);
+        chipArea = new LinearLayout(this);
+        chipArea.setOrientation(LinearLayout.VERTICAL);
+        chipArea.setVisibility(View.GONE);
+        themeRow = new LinearLayout(this);
+        themeRow.setOrientation(LinearLayout.HORIZONTAL);
+        themeRow.setPadding(dp(12), dp(2), dp(12), dp(3));
+        themeScroll = new HorizontalScrollView(this);
+        themeScroll.setHorizontalScrollBarEnabled(false);
+        themeScroll.addView(themeRow);
+        chipArea.addView(themeScroll);
+        roleRow = new LinearLayout(this);
+        roleRow.setOrientation(LinearLayout.HORIZONTAL);
+        roleRow.setPadding(dp(12), dp(3), dp(12), dp(6));
+        roleScroll = new HorizontalScrollView(this);
+        roleScroll.setHorizontalScrollBarEnabled(false);
+        roleScroll.addView(roleRow);
+        chipArea.addView(roleScroll);
+        root.addView(chipArea);
 
         grid = new RecyclerView(this);
         grid.setPadding(dp(8), dp(2), dp(8), dp(8));
@@ -186,6 +217,7 @@ public class HongguoTheaterActivity extends AppCompatActivity {
         selectTab();
         applyLayout();
         load(true);
+        ensurePanel(channel);
     }
 
     private int lastVisiblePosition() {
@@ -208,11 +240,11 @@ public class HongguoTheaterActivity extends AppCompatActivity {
             grid.setLayoutManager(new StaggeredGridLayoutManager(2,
                     StaggeredGridLayoutManager.VERTICAL));
             grid.setAdapter(clipAdapter);
-            chipScroll.setVisibility(View.GONE);
+            chipArea.setVisibility(View.GONE);
         } else {
             grid.setLayoutManager(new GridLayoutManager(this, 3));
             grid.setAdapter(gridAdapter);
-            chipScroll.setVisibility(categories.isEmpty() ? View.GONE : View.VISIBLE);
+            rebuildChips();
         }
     }
 
@@ -262,22 +294,84 @@ public class HongguoTheaterActivity extends AppCompatActivity {
         return g;
     }
 
-    // ---------- 小分类筹 ----------
+    // ---------- 小分类筹（官方筛选面两行：主题＋设定） ----------
+
+    private static final String DIM_THEME = "category_dim_theme";
+    private static final String DIM_ROLE = "category_dim_role";
+
+    /** 格下标→体裁（筛选面 genre 取值兼 scene 映射源）；视频格无筛选面。 */
+    private static String genreOf(int ch) {
+        if (ch == 0) return "short_play";
+        if (ch == TAB_MANJU) return "comic_series";
+        if (ch == TAB_AI) return "ai_series";
+        return null;
+    }
+
+    private DramaFilterRow panelRow(int ch, String dimKey) {
+        List<DramaFilterRow> rows = panelCache.get(ch);
+        if (rows == null) return null;
+        for (DramaFilterRow r : rows) if (dimKey.equals(r.key)) return r;
+        return null;
+    }
+
+    /** 面板按格拉一份（内存缓存）；拉败不显筹、频道流照常，本页内不重试。 */
+    private void ensurePanel(final int ch) {
+        String genre = genreOf(ch);
+        if (genre == null || panelCache.containsKey(ch)
+                || panelPending.contains(ch) || panelDead.contains(ch)) return;
+        panelPending.add(ch);
+        DramaClient.fetchFilterPanel(genre, new HgCallback<List<DramaFilterRow>>() {
+            @Override
+            public void onSuccess(List<DramaFilterRow> rows) {
+                runOnUiThread(() -> {
+                    panelPending.remove(ch);
+                    panelCache.put(ch, rows);
+                    if (channel == ch) rebuildChips();
+                });
+            }
+
+            @Override
+            public void onError(int code, String msg) {
+                runOnUiThread(() -> {
+                    panelPending.remove(ch);
+                    panelDead.add(ch);
+                });
+            }
+        });
+    }
 
     private void rebuildChips() {
-        chipRow.removeAllViews();
-        chipViews.clear();
-        if (categories.isEmpty() || channel == TAB_CLIPS) {
-            chipScroll.setVisibility(View.GONE);
+        themeRow.removeAllViews();
+        roleRow.removeAllViews();
+        themeChipViews.clear();
+        roleChipViews.clear();
+        if (channel == TAB_CLIPS) {
+            chipArea.setVisibility(View.GONE);
             return;
         }
-        chipScroll.setVisibility(View.VISIBLE);
-        addChip(null, "全部");
-        for (DramaCategory c : categories) addChip(c.id, c.name);
+        boolean themeShown = fillChipRow(themeRow, themeChipViews, panelRow(channel, DIM_THEME));
+        boolean roleShown = fillChipRow(roleRow, roleChipViews, panelRow(channel, DIM_ROLE));
+        themeScroll.setVisibility(themeShown ? View.VISIBLE : View.GONE);
+        roleScroll.setVisibility(roleShown ? View.VISIBLE : View.GONE);
+        chipArea.setVisibility(themeShown || roleShown ? View.VISIBLE : View.GONE);
         styleChips();
     }
 
-    private void addChip(String id, String name) {
+    /** 一行筹：行首「全部」（清本行筛选）＋面板选项；行无选项整行不显。 */
+    private boolean fillChipRow(LinearLayout rowView, List<TextView> views, DramaFilterRow row) {
+        if (row == null || row.options.isEmpty()) return false;
+        final String dimKey = row.key;
+        views.add(makeChip(dimKey, null, "全部"));
+        rowView.addView(views.get(0));
+        for (DramaFilterRow.Option op : row.options) {
+            TextView t = makeChip(dimKey, op.value, op.name);
+            views.add(t);
+            rowView.addView(t);
+        }
+        return true;
+    }
+
+    private TextView makeChip(final String dimKey, final String value, String name) {
         TextView t = new TextView(this);
         t.setText(name);
         t.setTextSize(12.5f);
@@ -285,23 +379,35 @@ public class HongguoTheaterActivity extends AppCompatActivity {
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
         lp.rightMargin = dp(8);
         t.setLayoutParams(lp);
+        t.setTag(value);
         t.setOnClickListener(v -> {
-            boolean same = (id == null && activeCategoryId == null)
-                    || (id != null && id.equals(activeCategoryId));
-            if (same) return;
-            activeCategoryId = id;
+            // 跨行单选（他亲令）：选任一维度的值即按它筛、另一行清选；
+            // 点任一行「全部」清筛选回本格默认流；同值再点无动作。
+            if (value == null) {
+                if (activeDimKey == null) return;
+                activeDimKey = null;
+                activeDimValue = null;
+            } else {
+                if (dimKey.equals(activeDimKey) && value.equals(activeDimValue)) return;
+                activeDimKey = dimKey;
+                activeDimValue = value;
+            }
             styleChips();
             load(true);
         });
-        chipViews.add(t);
-        chipRow.addView(t);
+        return t;
     }
 
     private void styleChips() {
-        for (int i = 0; i < chipViews.size(); i++) {
-            boolean on = (i == 0 && activeCategoryId == null)
-                    || (i > 0 && categories.get(i - 1).id.equals(activeCategoryId));
-            TextView t = chipViews.get(i);
+        styleChipRow(themeChipViews, DIM_THEME);
+        styleChipRow(roleChipViews, DIM_ROLE);
+    }
+
+    private void styleChipRow(List<TextView> views, String dimKey) {
+        for (int i = 0; i < views.size(); i++) {
+            TextView t = views.get(i);
+            boolean on = i == 0 ? activeDimKey == null
+                    : dimKey.equals(activeDimKey) && String.valueOf(activeDimValue).equals(t.getTag());
             t.setTextColor(on ? Color.WHITE : 0xFFB9B9C0);
             t.setBackground(roundBg(on ? 0xFFE8402F : 0xFF232328, dp(13)));
         }
@@ -312,14 +418,16 @@ public class HongguoTheaterActivity extends AppCompatActivity {
     private void load(boolean first) {
         if (loading) return;
         loading = true;
-        reqLanding = activeCategoryId != null && channel != TAB_CLIPS;
+        reqFilter = activeDimValue != null && channel != TAB_CLIPS;
         if (first) {
             items.clear();
             clips.clear();
             gridAdapter.notifyDataSetChanged();
             clipAdapter.notifyDataSetChanged();
             continuation = null;
-            landingOffset = 0;
+            filterOffset = 0;
+            filterSession = null;
+            filterSeen.clear();
             clipChain = 0;
             aiChain = 0;
             hasMore = false;
@@ -346,13 +454,17 @@ public class HongguoTheaterActivity extends AppCompatActivity {
         if (channel == TAB_CLIPS) {
             if (first || continuation == null) DramaClient.fetchChannel(-1, 16, cb);
             else DramaClient.fetchChannelMore(continuation, cb);
-        } else if (channel == TAB_AI && !reqLanding) {
+        } else if (reqFilter) {
+            // 筛选路：官方筛选面内容口，游标（offset/session/已展示表）
+            // 由本页持有递进；服务端按 scene 分格，回包不再客户端分格。
+            DramaClient.fetchFilterList(genreOf(channel), activeDimKey, activeDimValue,
+                    first ? 0 : filterOffset, first ? null : filterSession,
+                    new ArrayList<>(filterSeen), cb);
+        } else if (channel == TAB_AI) {
             // AI剧格数据源＝发现流（与视频格同口），回包在 onPage 按
             // 服务端类型类 1004_ai_video 过滤成格。
             if (first || continuation == null) DramaClient.fetchChannel(-1, 16, cb);
             else DramaClient.fetchChannelMore(continuation, cb);
-        } else if (reqLanding) {
-            DramaClient.fetchCategoryLanding(activeCategoryId, first ? 0 : landingOffset, cb);
         } else if (first || continuation == null) {
             int[] ch = CHANNELS[channel];
             DramaClient.fetchChannel(ch[0], ch[1], cb);
@@ -361,11 +473,25 @@ public class HongguoTheaterActivity extends AppCompatActivity {
         }
     }
 
+    /**
+     * 频道/发现流续页推进（旧版两断已修，账 hongguo-chip-fix-20261030
+     * §三）：开页 tab 级 has_more 恒 false，靠续页凭证在位判有下页；
+     * 续页回包自带真实 has_more 与 next_offset，凭证逐页推进
+     * （HgContinuation.advanced——旧版从不推进、续拉恒拉同一页）。
+     */
+    private void advanceContinuation(DramaCellPage page, boolean first) {
+        if (page.getContinuation() != null) {
+            continuation = page.getContinuation();
+        } else if (!first && continuation != null && page.getNextOffset() != null) {
+            continuation = continuation.advanced(page.getNextOffset(), page.getSessionId());
+        }
+        hasMore = page.isHasMore() || (first && continuation != null);
+    }
+
     private void onPage(DramaCellPage page, boolean first) {
         loading = false;
         if (channel == TAB_CLIPS) {
-            hasMore = page.isHasMore();
-            if (page.getContinuation() != null) continuation = page.getContinuation();
+            advanceContinuation(page, first);
             Set<String> seen = new HashSet<>();
             for (DramaItem it : clips) {
                 String key = it.getVid() != null ? it.getVid() : it.getSeriesId();
@@ -389,32 +515,39 @@ public class HongguoTheaterActivity extends AppCompatActivity {
             }
             return;
         }
-        if (reqLanding) {
-            landingOffset += page.getItems().size();
-            hasMore = !page.getItems().isEmpty();
-        } else {
-            hasMore = page.isHasMore();
-            if (page.getContinuation() != null) continuation = page.getContinuation();
-            // AI 格的筹不取频道回包抽取（那是发现流的混合面），只取
-            // 本格条目自带分类，见 rebuildAiCategories；其余格照旧。
-            if (first && channel != TAB_AI && !page.getCategories().isEmpty()) {
-                categories.clear();
-                categories.addAll(page.getCategories());
-                rebuildChips();
+        if (reqFilter) {
+            // 筛选游标递进：offset/session 取回包；已展示 id 全数登记
+            // （含被下方去重跳过的——服务端按 filter_ids 排除，登记
+            // 越全翻页越不重）。筛选回包按 scene 天然分格，不再走
+            // 下面的客户端分格过滤。
+            String no = page.getNextOffset();
+            if (no != null) {
+                try {
+                    filterOffset = Integer.parseInt(no);
+                } catch (NumberFormatException e) {
+                    filterOffset += page.getItems().size();
+                }
+            } else {
+                filterOffset += page.getItems().size();
             }
+            if (page.getSessionId() != null) filterSession = page.getSessionId();
+            hasMore = page.isHasMore();
+            for (DramaItem it : page.getItems()) {
+                if (it.getSeriesId() != null) filterSeen.add(it.getSeriesId());
+            }
+        } else {
+            advanceContinuation(page, first);
         }
         // 分格过滤（服务端类型类为准，不靠标题猜）：AI 格只收
         // 1004_ai_video（频道面另加 SERIES 型门），漫剧格剔除 AI 类收纯。
         List<DramaItem> src = page.getItems();
-        if (channel == TAB_AI) {
+        if (!reqFilter && channel == TAB_AI) {
             List<DramaItem> f = new ArrayList<>();
             for (DramaItem it : src) {
-                boolean keep = reqLanding ? it.isAiDrama()
-                        : (it.kind == DramaItemKind.SERIES && it.isAiDrama());
-                if (keep) f.add(it);
+                if (it.kind == DramaItemKind.SERIES && it.isAiDrama()) f.add(it);
             }
             src = f;
-        } else if (channel == TAB_MANJU && !reqLanding) {
+        } else if (!reqFilter && channel == TAB_MANJU) {
             List<DramaItem> f = new ArrayList<>();
             for (DramaItem it : src) if (!it.isAiDrama()) f.add(it);
             src = f;
@@ -431,8 +564,7 @@ public class HongguoTheaterActivity extends AppCompatActivity {
         gridAdapter.notifyDataSetChanged();
         stateText.setVisibility(items.isEmpty() ? View.VISIBLE : View.GONE);
         if (items.isEmpty()) stateText.setText("暂时没有内容，点按重试");
-        if (channel == TAB_AI) {
-            if (!reqLanding) rebuildAiCategories();
+        if (channel == TAB_AI && !reqFilter) {
             if (added > 0) aiChain = 0;
             // 整页被过滤光但还有下页：自动续拉（最多连 4 页），免得
             // AI 格假空（与短片格 clipChain 同法）。
@@ -440,28 +572,6 @@ public class HongguoTheaterActivity extends AppCompatActivity {
                 aiChain++;
                 load(false);
             }
-        }
-    }
-
-    /** AI剧格筹面：只取本格已收 AI 条目自带的分类（category_schema 的
-     * id＋名），逐条攒齐去重；不借真人/漫剧任何一格的类目。 */
-    private void rebuildAiCategories() {
-        List<DramaCategory> union = new ArrayList<>();
-        Set<String> seen = new HashSet<>();
-        for (DramaItem it : items) {
-            if (it.itemCategories == null) continue;
-            for (DramaCategory c : it.itemCategories) {
-                if (c.id != null && !c.id.isEmpty() && seen.add(c.id)) union.add(c);
-            }
-        }
-        StringBuilder now = new StringBuilder();
-        for (DramaCategory c : categories) now.append(c.id).append(',');
-        StringBuilder next = new StringBuilder();
-        for (DramaCategory c : union) next.append(c.id).append(',');
-        if (!now.toString().equals(next.toString())) {
-            categories.clear();
-            categories.addAll(union);
-            rebuildChips();
         }
     }
 

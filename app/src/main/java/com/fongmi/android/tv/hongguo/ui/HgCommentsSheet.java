@@ -47,6 +47,7 @@ public final class HgCommentsSheet {
     }
 
     public static void show(AppCompatActivity activity, String seriesId, String vid, String title) {
+        if (activity.isFinishing() || activity.isDestroyed()) return;
         BottomSheetDialog dialog = new BottomSheetDialog(activity);
         float density = activity.getResources().getDisplayMetrics().density;
         java.util.function.IntUnaryOperator dp = v -> (int) (v * density + 0.5f);

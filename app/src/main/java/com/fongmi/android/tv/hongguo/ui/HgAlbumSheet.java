@@ -37,6 +37,7 @@ public final class HgAlbumSheet {
 
     public static void show(AppCompatActivity activity, DramaAlbumDetail album,
                             int currentIndex, OnPick onPick) {
+        if (activity.isFinishing() || activity.isDestroyed()) return;
         BottomSheetDialog dialog = new BottomSheetDialog(activity);
         float density = activity.getResources().getDisplayMetrics().density;
         java.util.function.IntUnaryOperator dp = v -> (int) (v * density + 0.5f);

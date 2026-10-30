@@ -46,8 +46,8 @@ import com.fongmi.android.tv.hongguo.drama.DramaResolver;
 import com.fongmi.android.tv.hongguo.drama.DramaVideoModel;
 import com.fongmi.android.tv.hongguo.model.HgContinuation;
 import com.fongmi.android.tv.hongguo.ui.HgPanelLogic;
-import com.fongmi.android.tv.player.PlayerEngine;
 import com.fongmi.android.tv.player.engine.ExoPlayerEngine;
+import com.fongmi.android.tv.player.engine.PlayerEngine;
 import com.fongmi.android.tv.setting.PlayerSetting;
 
 import java.util.ArrayList;

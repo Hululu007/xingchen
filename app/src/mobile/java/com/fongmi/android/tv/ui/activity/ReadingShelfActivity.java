@@ -317,11 +317,11 @@ public class ReadingShelfActivity extends AppCompatActivity {
                 for (ReadingStore.Record r : novels) contentBox.addView(bookCard(r, false));
             } else {
                 // 在看区只露 3 本的高度，多的在区域内滑动看（他 2026-10-31
-                // 亲口纠正：留 3＋多的可以滑动，不是折叠走全部页——初版
-                // 只渲染 3 本是助手会错意，已按原话重落）。全量仍可走
-                // 标题栏「全部 ›」。内层 NestedScrollView 嵌在页面
-                // ScrollView 里：手势一落在本区，先禁外层拦截，
-                // 保证拖动滚的是书单而不是整页。
+                // 亲口纠正：留 3＋多的可以滑动；标题栏「全部 ›」是另一个
+                // 独立入口、跟本区的滑动不搭界，不是谁的折叠去处——初版
+                // 只渲染 3 本、拿全部页当折叠去处，是助手会错意，已重落）。
+                // 内层 NestedScrollView 嵌在页面 ScrollView 里：手势一落
+                // 在本区，先禁外层拦截，保证拖动滚的是书单而不是整页。
                 LinearLayout novelList = new LinearLayout(this);
                 novelList.setOrientation(LinearLayout.VERTICAL);
                 for (ReadingStore.Record r : novels) novelList.addView(bookCard(r, false));

@@ -40,13 +40,14 @@ import java.util.Set;
  * 剧场页（2026-10-30 从零重建，他亲定底栏第二签）：简单分类浏览。
  * 大分类只有两个（他亲令）：真人剧/漫剧——各配一行小分类筹（数据源
  * 分类面回包抽取、单选、无数据整行不显）＋三列海报网格；AI 剧数据
- * 归漫剧侧呈现。第三签「短片」是剧场内附加格（不是第三个大分类）：
- * UGC 短片/合集双列瀑布卡，点卡进竖屏流播该条。底栏与首页同构。
+ * 归漫剧侧呈现。第三签「视频」（UI 同步批由「短片」改名，内容不变）：
+ * UGC 短片/合集双列瀑布卡。点封面直接进播放页开播，不绕详情页
+ * （定稿口径）；底栏白色（定稿），与首页黑块底栏分开。
  */
 public class HongguoTheaterActivity extends AppCompatActivity {
 
     private static final int[][] CHANNELS = {{39, 39}, {36, 36}};
-    private static final String[] CHANNEL_NAMES = {"真人剧", "漫剧", "短片"};
+    private static final String[] CHANNEL_NAMES = {"真人剧", "漫剧", "视频"};
     private static final int TAB_CLIPS = 2;
 
     private RecyclerView grid;
@@ -210,11 +211,12 @@ public class HongguoTheaterActivity extends AppCompatActivity {
     }
 
     private View buildBottomBar() {
+        // 定稿：剧场底栏白色（与首页黑块底栏分开），选中深色、未选灰
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.HORIZONTAL);
-        bar.setBackgroundColor(0xFF17171A);
+        bar.setBackgroundColor(Color.WHITE);
         bar.setPadding(0, 0, 0, navBarHeight());
-        LinearLayout.LayoutParams cell = new LinearLayout.LayoutParams(0, dp(52), 1f);
+        LinearLayout.LayoutParams cell = new LinearLayout.LayoutParams(0, dp(50), 1f);
         bar.addView(bottomCell(R.drawable.ic_drama_home, "首页", false, v -> finish()), cell);
         bar.addView(bottomCell(R.drawable.ic_drama_theater, "剧场", true, null), cell);
         return bar;
@@ -226,12 +228,12 @@ public class HongguoTheaterActivity extends AppCompatActivity {
         c.setGravity(Gravity.CENTER);
         ImageView iv = new ImageView(this);
         iv.setImageResource(icon);
-        iv.setColorFilter(selected ? 0xFFFF5A4E : 0xFFBDBDBD);
+        iv.setColorFilter(selected ? 0xFF111114 : 0xFF8E8E96);
         c.addView(iv, new LinearLayout.LayoutParams(dp(22), dp(22)));
         TextView t = new TextView(this);
         t.setText(label);
         t.setTextSize(10);
-        t.setTextColor(selected ? 0xFFFF5A4E : 0xFFBDBDBD);
+        t.setTextColor(selected ? 0xFF111114 : 0xFF8E8E96);
         c.addView(t);
         if (click != null) c.setOnClickListener(click);
         return c;
@@ -399,23 +401,19 @@ public class HongguoTheaterActivity extends AppCompatActivity {
         if (items.isEmpty()) stateText.setText("暂时没有内容，点按重试");
     }
 
+    /** 定稿：点封面直接进播放页开播（从断点集），不绕详情页。 */
     private void openDrama(DramaItem item) {
-        if (item.getAlbumId() != null && item.isMultiSeason()) {
-            HongguoDetailActivity.start(this, item.getSeriesId(), item.getTitle(),
-                    item.getAlbumId());
-        } else {
-            HongguoDetailActivity.start(this, item.getSeriesId(), item.getTitle(), null);
-        }
+        if (item.getSeriesId() == null) return;
+        HongguoFeedActivity.startSeries(this, item.getSeriesId(), item.getTitle(), 0);
     }
 
+    /** 定稿：视频签点卡进视频页——合集走专辑队列、单条走单条形态。 */
     private void openClip(DramaItem item) {
-        if (item.kind == DramaItemKind.ALBUM && item.getAlbumId() != null) {
-            HongguoDetailActivity.start(this, item.getSeriesId(), item.getTitle(),
-                    item.getAlbumId());
+        if (item.kind == DramaItemKind.ALBUM) {
+            HongguoFeedActivity.startVideoAlbum(this, item);
             return;
         }
-        HongguoFeedActivity.startUgc(this, item.getVid(), item.getSeriesId(),
-                item.getTitle(), item.getCoverUrl(), item.contentType);
+        HongguoFeedActivity.startVideo(this, item);
     }
 
     // ---------- 正剧网格 ----------

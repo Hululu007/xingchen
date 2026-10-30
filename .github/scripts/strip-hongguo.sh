@@ -86,6 +86,7 @@ app/src/main/res/drawable/ic_drama_play.xml
 app/src/main/res/drawable/ic_drama_search.xml
 app/src/main/res/drawable/ic_drama_star.xml
 app/src/main/res/drawable/ic_drama_theater.xml
+app/src/main/res/drawable/bg_hg_badge.xml
 app/src/main/res/drawable/bg_hg_book_chip.xml
 app/src/main/res/drawable/bg_hg_book_searchbar.xml
 app/src/main/res/drawable/bg_hg_cover_r6.xml

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 系列剧款角标底：橙红渐变小筹（官方实拍「经典爆剧」款，账 §5.2）。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <gradient
+        android:angle="0"
+        android:endColor="#F43F5E"
+        android:startColor="#F97316" />
+    <corners android:radius="4dp" />
+</shape>

@@ -310,7 +310,8 @@ public class NovelReaderActivity extends AppCompatActivity {
         bar.setOrientation(LinearLayout.VERTICAL);
         android.graphics.drawable.GradientDrawable bg =
                 new android.graphics.drawable.GradientDrawable();
-        bg.setColor(0xC7121219);
+        // C7 太透：浅纸正文会透进面板跟面板字打架（2026-10-31 录屏），提到 E0
+        bg.setColor(0xE0121219);
         bg.setCornerRadii(new float[]{dp(24), dp(24), dp(24), dp(24), 0, 0, 0, 0});
         bg.setStroke(dp(2), 0x2EFFFFFF);
         bar.setBackground(bg);
@@ -648,6 +649,7 @@ public class NovelReaderActivity extends AppCompatActivity {
 
     /** 换音色：与 TtsReadActivity 同口径（改共享默认，本段起生效）。 */
     private void pickVoice() {
+        dismissBarsForDialog();
         java.util.List<com.fongmi.android.tv.tts.EdgeVoice> voices =
                 com.fongmi.android.tv.tts.EdgeVoiceCatalog.builtIn();
         if (voices.isEmpty()) {
@@ -676,6 +678,7 @@ public class NovelReaderActivity extends AppCompatActivity {
     // ---------------- 设置 ----------------
 
     private void showSettings() {
+        dismissBarsForDialog();
         String[] items = {
                 "翻页模式：" + new String[]{"纵滑", "覆盖", "滑动"}[pageMode()],
                 "字体：" + new String[]{"默认", "衬线", "等宽", "导入的字体"}[prefs.getInt(KEY_FONT, 0)],
@@ -761,6 +764,7 @@ public class NovelReaderActivity extends AppCompatActivity {
     }
 
     private void showBookmarks() {
+        dismissBarsForDialog();
         java.util.List<com.fongmi.android.tv.read.ReadingBookmarkStore.Mark> marks =
                 com.fongmi.android.tv.read.ReadingBookmarkStore.list(bookKey());
         com.fongmi.android.tv.read.ReaderDialogs.showBookmarks(this, session.bookTitle, marks,
@@ -1351,7 +1355,17 @@ public class NovelReaderActivity extends AppCompatActivity {
         loadChapter(index, false);
     }
 
+    /**
+     * 弹窗与顶/底栏互斥：栏和弹窗都是半透深色，叠在一起正文、栏字、弹窗字
+     * 三层互相透（他 2026-10-31 录屏点名）。凡从栏里点开的弹窗，开前先收栏；
+     * 弹窗关后不自动恢复——正文区点一下栏就回来，读完一章回干净页面正好。
+     */
+    private void dismissBarsForDialog() {
+        if (barsShown) setBarsVisible(false);
+    }
+
     private void showChapters() {
+        dismissBarsForDialog();
         if (session.chapters.isEmpty()) {
             ToastUtil.show(this, "没有章节列表", Toast.LENGTH_SHORT);
             return;

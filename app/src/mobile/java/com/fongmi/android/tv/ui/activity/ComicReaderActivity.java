@@ -441,6 +441,7 @@ public class ComicReaderActivity extends AppCompatActivity {
     // ---------------- 设置 ----------------
 
     private void showSettings() {
+        if (barsShown) setBarsVisible(false);
         String[] items = {
                 "从右往左：" + (rtl() ? "开" : "关") + "（横向阅读时）",
                 "横屏双页：" + (dualPage() ? "开" : "关"),
@@ -492,6 +493,8 @@ public class ComicReaderActivity extends AppCompatActivity {
     }
 
     private void showBookmarks() {
+        // 与小说阅读器同令：弹窗开前先收栏，免半透层叠透（2026-10-31）
+        if (barsShown) setBarsVisible(false);
         java.util.List<com.fongmi.android.tv.read.ReadingBookmarkStore.Mark> marks =
                 com.fongmi.android.tv.read.ReadingBookmarkStore.list(bookKey());
         com.fongmi.android.tv.read.ReaderDialogs.showBookmarks(this, session.bookTitle, marks,
@@ -734,6 +737,7 @@ public class ComicReaderActivity extends AppCompatActivity {
     }
 
     private void showChapters() {
+        if (barsShown) setBarsVisible(false);
         if (session.chapters.isEmpty()) {
             ToastUtil.show(this, "没有章节列表", Toast.LENGTH_SHORT);
             return;

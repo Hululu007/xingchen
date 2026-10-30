@@ -47,10 +47,13 @@ public class ConfigAdapter extends RecyclerView.Adapter<ConfigAdapter.ViewHolder
         return this;
     }
 
-    public int remove(Config item) {
+    public int remove(Config item, int type) {
         int position = mItems.indexOf(item);
         if (position == -1) return -1;
-        item.delete();
+        // 与手机端同口径：名单内删条目走全清（Config.deleteEntry），
+        // 不许再用实例 delete() 的三连删连带观看历史/收藏。
+        Config.deleteEntry(item.getUrl(), type, false);
+        if (type == 0) com.fongmi.android.tv.api.CatSource.discardBundleIfOrphaned(item.getUrl());
         mItems.remove(position);
         notifyItemRemoved(position);
         return getItemCount();

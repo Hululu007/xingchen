@@ -118,8 +118,15 @@ public class ConfigSourceActivity extends BaseActivity {
                         int pos = vh.getAdapterPosition();
                         if (pos == RecyclerView.NO_POSITION) return;
                         com.fongmi.android.tv.bean.Config c = historyAdapter.getItem(pos);
-                        com.fongmi.android.tv.db.AppDatabase.get().getConfigDao().delete(c.getUrl(), 0);
+                        // 名单内亲手删条目走全清（Config.deleteEntry）：行、派生直播行、
+                        // 当前指针、已清空标记一次清干净；删中当前条目时内存态一起清，
+                        // 不许冷启被剩余行顶替出已删来源的公告，也不许本会话还供着已删配置。
+                        boolean wasCurrent = c.getUrl() != null && c.getUrl().equals(VodConfig.get().getConfig().getUrl());
+                        boolean slotHit = com.fongmi.android.tv.bean.Config.deleteEntry(c.getUrl(), 0, wasCurrent);
+                        com.fongmi.android.tv.api.CatSource.discardBundleIfOrphaned(c.getUrl());
                         historyAdapter.remove(pos);
+                        if (slotHit) clearCurrentVod();
+                        com.fongmi.android.tv.utils.Notify.show("已删除");
                     }
                 });
                 helper.attachToRecyclerView(binding.rvHistory);
@@ -128,10 +135,18 @@ public class ConfigSourceActivity extends BaseActivity {
                         .setTitle("清空历史")
                         .setMessage("确定要清空全部历史记录吗？")
                         .setPositiveButton("确定", (d, w) -> {
-                            for (com.fongmi.android.tv.bean.Config c : com.fongmi.android.tv.db.AppDatabase.get().getConfigDao().findByType(0)) {
-                                com.fongmi.android.tv.db.AppDatabase.get().getConfigDao().delete(c.getUrl(), 0);
+                            // 清空同样走全清：逐条 deleteEntry，当前条目在内时落已清空标记、
+                            // 清内存态；猫源 bundle 孤儿清理等行全删完再做。
+                            String currentUrl = VodConfig.get().getConfig().getUrl();
+                            boolean slotHit = false;
+                            java.util.List<com.fongmi.android.tv.bean.Config> all = com.fongmi.android.tv.db.AppDatabase.get().getConfigDao().findByType(0);
+                            for (com.fongmi.android.tv.bean.Config c : all) {
+                                slotHit |= com.fongmi.android.tv.bean.Config.deleteEntry(c.getUrl(), 0, c.getUrl() != null && c.getUrl().equals(currentUrl));
                             }
+                            for (com.fongmi.android.tv.bean.Config c : all) com.fongmi.android.tv.api.CatSource.discardBundleIfOrphaned(c.getUrl());
+                            if (slotHit) clearCurrentVod();
                             updateHistory();
+                            com.fongmi.android.tv.utils.Notify.show("已清空");
                         })
                         .setNegativeButton("取消", null)
                         .show();
@@ -146,6 +161,16 @@ public class ConfigSourceActivity extends BaseActivity {
         } catch (Exception e) {
             e.printStackTrace();
         }
+    }
+
+    /**
+     * 名单里删掉的正是当前点播条目：内存态清回无配置（Config.vod() 已因
+     * deleteEntry 落的已清空标记回空，与冷启同一个状态），发与切线成功同一条
+     * ConfigEvent 通路，首页落到空首页，不许停在已删配置的旧内容上。
+     */
+    private void clearCurrentVod() {
+        VodConfig.get().clear().config(com.fongmi.android.tv.bean.Config.vod());
+        com.fongmi.android.tv.event.ConfigEvent.vod();
     }
 
     /**

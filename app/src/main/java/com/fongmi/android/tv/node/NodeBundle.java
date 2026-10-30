@@ -255,6 +255,18 @@ public final class NodeBundle {
         return read(sourceStamp(dir(context)));
     }
 
+    /**
+     * 条目删除后的孤儿清盘：已安装的正是这个来源时，整目录清掉（脚本、配置、
+     * 校验戳、来源戳一并走，删了的猫源不许在盘上留一份还能被起起来的全尸）。
+     * 单槽同一时刻只装一份，来源键对不上说明槽里装的是别的源，一律不碰。
+     * 调用方须先确认再没有任何配置条目指向同一个 bundle。
+     */
+    public static synchronized void discardIfOrphaned(Context context, String url) {
+        if (TextUtils.isEmpty(url)) return;
+        if (!sourceKey(url).equals(installedSourceKey(context))) return;
+        cleanup(dir(context));
+    }
+
     // 以下都按运行目录取文件，而不是按 Context——单测无法构造 Context（抽象方法太多），
     // 但只要能传目录，ensure/install/isCached/sweep 全都可以做真实行为测试。
 

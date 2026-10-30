@@ -221,6 +221,25 @@ public final class NodeRuntime {
     }
 
     /**
+     * 条目被亲手删掉、且删的正是当前在服务的 bundle 时停掉 :node（收口形态照
+     * {@link #timeout}）：已删来源不许在本进程里继续被复用或被探活复活。
+     * 不是它在服务时什么都不动。
+     */
+    public static synchronized void stopIfServing(Context context, String url) {
+        if (!running || !same(url)) return;
+        START_GENERATION.incrementAndGet();
+        STARTING.set(false);
+        quietRound = false;
+        NodeService.stop(context);
+        running = false;
+        servingUrl = "";
+        servingSourceKey = "";
+        port = 0;
+        pendingCallback = null;
+        replyMessenger = null;
+    }
+
+    /**
      * @param force 跳过复用捷径、强制走一遍杀旧起新的完整流程。{@link #ensureReady}
      *              探活已确认服务不答时用：进程级存活（{@link #serviceAlive}）过不了
      *              探活这一关，不能再用「进程在＋同一 bundle」把死服务当成就绪返回。

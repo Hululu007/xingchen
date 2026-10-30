@@ -3,6 +3,7 @@ package com.fongmi.android.tv.api;
 import android.text.TextUtils;
 
 import com.fongmi.android.tv.App;
+import com.fongmi.android.tv.bean.Config;
 import com.fongmi.android.tv.node.NodeBundle;
 import com.fongmi.android.tv.node.NodeRuntime;
 import com.github.catvod.crawler.SpiderDebug;
@@ -64,6 +65,26 @@ public class CatSource {
         }
         if (error.get() != null) throw new Exception("猫源启动失败: " + error.get());
         return NodeRuntime.configUrl();
+    }
+
+    /**
+     * 条目被亲手删掉后的猫源残留清理（只许名单删除路调用，撤下不许走这里）：
+     * 删的条目是 bundle 地址、且再没有任何配置条目指向同一个 bundle 时，
+     * 停掉正在服务的 :node 并清掉已安装的 bundle——删了的猫源不许留盘、
+     * 不许在本进程里继续被当成现成服务复用。还有别的条目指向同一 bundle
+     * （如同一包又登记了一份）时什么都不动。失败只记日志，不挡删除本身。
+     */
+    public static void discardBundleIfOrphaned(String url) {
+        if (!isBundle(url)) return;
+        try {
+            String bundle = NodeBundle.bundleUrl(url);
+            for (Config item : Config.getAll(0)) if (bundle.equals(NodeBundle.bundleUrl(item.getUrl()))) return;
+            for (Config item : Config.getAll(1)) if (bundle.equals(NodeBundle.bundleUrl(item.getUrl()))) return;
+            NodeRuntime.stopIfServing(App.get(), url);
+            NodeBundle.discardIfOrphaned(App.get(), url);
+        } catch (Throwable e) {
+            SpiderDebug.log("cat-source", "discard orphaned bundle failed url=%s err=%s", url, e.toString());
+        }
     }
 
     /** 本机跑的 bundle 按媒体类型分组，点播站点在这个键下面。 */

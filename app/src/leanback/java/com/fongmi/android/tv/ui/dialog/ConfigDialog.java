@@ -202,9 +202,9 @@ public class ConfigDialog extends BaseAlertDialog {
         if (text.isEmpty()) {
             if (!edit) return null;
             if (!TextUtils.isEmpty(url)) {
-                Config.delete(url, type);
-                // 与 mobile 清槽位同口径：删的正是当前生效这条，必须落已清空标记，
-                // 否则 getStoredConfig() 当场就把下一条历史顶上来，重进也一样。
+                // 与 mobile 撤下同口径（2026-10-30 定案）：只落已清空标记取消在用，
+                // 名单条目保留不删行——条目只有在名单内亲手删除才消失；
+                // 不落标记的话 getStoredConfig() 当场就把下一条顶上来，重进也一样。
                 Config.markCleared(type);
             }
             return getStoredConfig();

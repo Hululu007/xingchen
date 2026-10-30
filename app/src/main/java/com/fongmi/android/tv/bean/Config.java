@@ -97,6 +97,39 @@ public class Config {
     }
 
     /**
+     * 名单内亲手删条目的「全清」口径（与 {@link #markCleared} 的撤下严格分开：
+     * 撤下只落标记，条目和它的残留全留；本方法只许名单里的删除动作调用）。
+     * 删一个条目，要跟它一起清干净的残留：
+     * <ul>
+     *   <li>配置行本身；点播条目还要带走同 URL 的派生直播行——加载点播配置时
+     *   initLive 按同 URL 建的 type=1 行，删点播不带走它，冷启 LiveConfig 还会
+     *   拿着已删点播的地址当独立直播配置继续加载。</li>
+     *   <li>Prefers 里指着它的 {@code config_<type>} 指针：不清的话冷启
+     *   {@link #lastActive} 按指针找行落空、回退 findOne 把同类型剩余的最新一行
+     *   静默顶成当前配置——删掉的接口「阴魂不散」、顶上来的配置每次冷启弹它
+     *   自己的公告，断点就在这里；顶替者加载成功后又经 update() 改写指针、
+     *   刷新 time，顶替还会自我锁定。</li>
+     *   <li>删的正是当前条目（或指针正指着它）时落 {@link #markCleared}：
+     *   冷启回空配置，不许任何剩余行顶替生效。</li>
+     * </ul>
+     * 观看历史与收藏是用户自己的数据，不归本方法管，一条不碰。
+     * 猫源 bundle 的落盘与在服务进程由调用方另走 CatSource 的孤儿清理。
+     *
+     * @param wasCurrent 调用方按内存态判定的「删的是不是当前在用条目」
+     * @return 当前槽位是否被这次删除影响（调用方据此清内存态、发刷新事件）
+     */
+    public static boolean deleteEntry(String url, int type, boolean wasCurrent) {
+        if (TextUtils.isEmpty(url)) return false;
+        AppDatabase.get().getConfigDao().delete(url, type);
+        if (type == 0) AppDatabase.get().getConfigDao().delete(url, 1);
+        boolean pointed = url.equals(Prefers.getString("config_" + type));
+        if (pointed) Prefers.remove("config_" + type);
+        boolean slotHit = wasCurrent || pointed;
+        if (slotHit) markCleared(type);
+        return slotHit;
+    }
+
+    /**
      * 用户亲手清掉当前槽位的持久标记。findOne 取的是历史表里 time 最新的一行，
      * 清掉当前行后下一条历史就会顶上来当当前配置——清槽位的口径是「清成空、
      * 不自动切别的线路」，所以清空动作必须落这个标记：vod()/live()/wall() 见标记

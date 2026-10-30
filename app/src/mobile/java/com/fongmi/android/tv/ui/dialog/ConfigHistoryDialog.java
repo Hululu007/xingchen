@@ -24,6 +24,8 @@ import com.fongmi.android.tv.databinding.DialogConfigHistoryBinding;
 import com.fongmi.android.tv.db.AppDatabase;
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.ai.AiFloatManager;
+import com.fongmi.android.tv.api.CatSource;
+import com.fongmi.android.tv.api.config.LiveConfig;
 import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.emby.EmbyMode;
 import com.fongmi.android.tv.emby.EmbyStore.EmbyServer;
@@ -115,15 +117,22 @@ public class ConfigHistoryDialog extends DialogFragment {
                 int pos = vh.getAdapterPosition();
                 if (pos == RecyclerView.NO_POSITION) return;
                 Config config = adapter.getItem(pos);
-                boolean wasCurrent = isCurrentVodConfig(config);
-                AppDatabase.get().getConfigDao().delete(config.getUrl(), type);
+                boolean wasCurrent = isCurrentConfig(config);
+                // 名单内亲手删条目走全清（Config.deleteEntry）：行、派生行、当前指针、
+                // 已清空标记一次清干净，不许冷启再被剩余行顶替出已删来源的公告；
+                // 猫源条目再清 bundle 落盘与在服务进程。
+                boolean slotHit = Config.deleteEntry(config.getUrl(), type, wasCurrent);
+                if (type == 0) CatSource.discardBundleIfOrphaned(config.getUrl());
+                if (slotHit && type == 1) clearCurrentLiveConfig();
                 adapter.remove(pos);
                 if (adapter.getItemCount() == 0) {
                     binding.empty.setVisibility(View.VISIBLE);
                     binding.recycler.setVisibility(View.GONE);
                 }
-                // 左滑删行与确认删行同款处理：删的是当前线路也要切到剩余线路
+                // 左滑删行与确认删行同款处理：删的是当前线路也要切到剩余线路；
+                // 删的是普通条目同样提示「已删除」（提示只许出现在真删除上，撤接口那条路不许有）
                 if (wasCurrent) switchAfterActiveDelete();
+                else Notify.show("已删除");
             }
         });
         helper.attachToRecyclerView(binding.recycler);
@@ -226,9 +235,12 @@ public class ConfigHistoryDialog extends DialogFragment {
             .setTitle("删除线路")
             .setMessage("确定要删除该线路吗？" + (active ? "\n（这是当前正在使用的线路）" : "") + "\n" + config.getDesc())
             .setPositiveButton("删除", (d, w) -> {
-                AppDatabase.get().getConfigDao().delete(config.getUrl(), type);
+                boolean wasCurrent = isCurrentConfig(config);
+                boolean slotHit = Config.deleteEntry(config.getUrl(), type, wasCurrent);
+                if (type == 0) CatSource.discardBundleIfOrphaned(config.getUrl());
+                if (slotHit && type == 1) clearCurrentLiveConfig();
                 refreshList();
-                if (isCurrentVodConfig(config)) switchAfterActiveDelete();
+                if (wasCurrent) switchAfterActiveDelete();
                 else Notify.show("已删除");
             })
             .setNegativeButton("取消", null)
@@ -244,6 +256,25 @@ public class ConfigHistoryDialog extends DialogFragment {
         } catch (Exception e) {
             return false;
         }
+    }
+
+    /** 按本名单的类型判「删的是不是当前在用条目」（删除全清的 wasCurrent 入参）。 */
+    private boolean isCurrentConfig(Config config) {
+        if (type == 1) {
+            try {
+                String url = LiveConfig.get().getConfig().getUrl();
+                return config.getUrl() != null && config.getUrl().equals(url);
+            } catch (Exception e) {
+                return false;
+            }
+        }
+        return isCurrentVodConfig(config);
+    }
+
+    /** 删掉的正是当前直播条目：内存态清回无配置（Config.live() 已因已清空标记回空），不许停在已删配置上。 */
+    private void clearCurrentLiveConfig() {
+        LiveConfig.get().clear().config(Config.live());
+        ConfigEvent.live();
     }
 
     private void switchAfterActiveDelete() {
@@ -352,15 +383,12 @@ public class ConfigHistoryDialog extends DialogFragment {
             .setMessage("确定要删除全部线路吗？")
             .setPositiveButton("确定", (d, w) -> {
                 java.util.List<Config> items = AppDatabase.get().getConfigDao().findByType(type);
-                // 删前先抓当前生效线路的 url：点播清空会把当前线路一并删掉，
+                // 删前先抓当前生效线路的 url：清空会把当前线路一并删掉，
                 // 它在被删之列时须同删到一条不剩的口径清回无配置，别留首页停在旧内容上。
-                // type!=0 的生效状态不在 VodConfig，不抓不碰。
                 String currentUrl = null;
-                if (type == 0) {
-                    try {
-                        currentUrl = VodConfig.get().getConfig().getUrl();
-                    } catch (Exception ignored) {
-                    }
+                try {
+                    currentUrl = type == 1 ? LiveConfig.get().getConfig().getUrl() : VodConfig.get().getConfig().getUrl();
+                } catch (Exception ignored) {
                 }
                 boolean currentCleared = false;
                 if (currentUrl != null) {
@@ -371,8 +399,12 @@ public class ConfigHistoryDialog extends DialogFragment {
                         }
                     }
                 }
-                for (Config c : items) AppDatabase.get().getConfigDao().delete(c.getUrl(), type);
+                // 清空同样走全清：逐条 deleteEntry（当前条目落已清空标记、指针清掉），
+                // 猫源 bundle 的孤儿清理等行全删完再做（引用检查要看最终名单）。
+                for (Config c : items) Config.deleteEntry(c.getUrl(), type, c.getUrl() != null && c.getUrl().equals(currentUrl));
+                if (type == 0) for (Config c : items) CatSource.discardBundleIfOrphaned(c.getUrl());
                 if (type == 0 && currentCleared) clearCurrentVodConfig();
+                if (type == 1 && currentCleared) clearCurrentLiveConfig();
                 adapter = createAdapter(new java.util.ArrayList<>());
                 binding.recycler.setAdapter(adapter);
                 binding.empty.setVisibility(View.VISIBLE);

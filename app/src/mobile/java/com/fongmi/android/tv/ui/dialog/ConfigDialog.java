@@ -225,24 +225,23 @@ public class ConfigDialog extends BaseAlertDialog {
     }
 
     /**
-     * 删空确认的收尾：删掉 ori 这条接口记录（配置源、本页历史、首页线路管理同一路数据，删行三处同步消失）；
-     * 若删的正是当前生效的那条，把生效配置清回无配置状态——直接清成空，不自动切别的线路
-     * （与线路管理列表删除的「有剩余顶上」口径分开，此弹窗是清槽位）。点播清完发 ConfigEvent.vod()，
-     * 首页据此落到空首页（与冷启未加线路同一个状态）；直播同理清 LiveConfig。
-     * 历史记录自身的左滑/清空删法不在此处，不受影响。
-     * 注意只清内存态不够：当前配置的取值是历史表 time 最新一行，本次删的只是其中一行，
-     * 重进时 Config.vod() 会把下一条历史顶上来——必须同时落 Config.markCleared 把这份
-     * 「亲手清过」持久化，重进才仍是空（修「清空后下次进来历史接口又顶上来了」）。
+     * 删空确认的收尾＝「撤下」（2026-10-30 他亲口定案，覆盖旧「清槽位删行」口径）：
+     * 点播接口（当前在用配置）与名单条目在此解耦——撤下只清在用状态，名单条目
+     * （Config 行）必须保留：线路管理弹窗与设置页历史记录是同一份名单、两个入口，
+     * 撤下后条目两处都还在，在名单里点「使用」能原样重新设为在用并生效。
+     * 条目只有在名单内亲手删除（线路管理弹窗/历史记录区的删除、左滑、清空）才消失，
+     * 本弹窗不许再删行。撤的是当前生效那条时：落 Config.markCleared 持久化「亲手清过」
+     * （当前配置的取值是名单里 time 最新一行，只清内存态的话重进会被顶上来），
+     * 再清内存态并按 type 发 ConfigEvent，首页落到空首页（与冷启未加线路同一个状态）；
+     * 不自动切别的线路。撤的不是当前在用那条（编辑别的条目时清空了地址）同样什么都不动。
+     * 全程静默：不弹任何提示（他亲口定的——撤下就是撤下，不需要提示）；
+     * 「已删除」只许出现在名单内亲手删条目/清空名单的动作上。
      */
     private void clearSlot() {
         if (TextUtils.isEmpty(ori)) return;
         Config active = getConfig();
         boolean wasActive = active != null && ori.equals(active.getUrl());
-        Config.delete(ori, type);
-        if (!wasActive) {
-            Notify.show("已删除");
-            return;
-        }
+        if (!wasActive) return;
         Config.markCleared(type);
         switch (type) {
             case 0 -> {
@@ -258,7 +257,6 @@ public class ConfigDialog extends BaseAlertDialog {
                 com.fongmi.android.tv.event.ConfigEvent.wall();
             }
         }
-        Notify.show("已删除");
     }
 
     private Config saveConfig(String url, String name) {

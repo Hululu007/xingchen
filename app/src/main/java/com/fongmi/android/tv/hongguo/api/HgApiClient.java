@@ -432,15 +432,46 @@ public final class HgApiClient {
         return syncCall(cb -> postSigned(host, path, bodyObj, cb));
     }
 
+    /**
+     * 同步口失败异常（带传输层归一码）：码口径与 enqueue 的 onFail
+     * 一致——200 空体＝-2、HTTP 非 200＝HTTP 码、网络失败/超时＝-1。
+     * 一般同步口（postSignedSync 等）只把消息包成普通 Exception、
+     * 码会丢；播放取模型链要靠码区分「空体＝限流信号、进自家冷却」
+     * 与「传输失败＝只兜底不冷却」，故另开此带码口（2026-10-30，
+     * 账 hongguo-fetch-order-20261030）。
+     */
+    public static final class SyncException extends Exception {
+        public final int code;
+
+        public SyncException(int code, String message) {
+            super(message);
+            this.code = code;
+        }
+    }
+
+    /** 已签名 POST 同步版（指定宿主），失败以 {@link SyncException} 携带归一码抛出。 */
+    public String postSignedSyncCoded(String host, String path, JsonObject bodyObj) throws SyncException {
+        return syncCallCoded(cb -> postSigned(host, path, bodyObj, cb));
+    }
+
     private interface SyncStarter {
         void start(BodyCallback cb);
     }
 
     private static String syncCall(SyncStarter starter) throws Exception {
+        try {
+            return syncCallCoded(starter);
+        } catch (SyncException e) {
+            throw new Exception(e.getMessage());
+        }
+    }
+
+    private static String syncCallCoded(SyncStarter starter) throws SyncException {
         final java.util.concurrent.CountDownLatch latch =
                 new java.util.concurrent.CountDownLatch(1);
         final String[] body = new String[1];
         final String[] error = new String[1];
+        final int[] errorCode = new int[]{-1};
         starter.start(new BodyCallback() {
             @Override
             void onBody(String text) {
@@ -450,14 +481,22 @@ public final class HgApiClient {
 
             @Override
             void onFail(int code, String msg) {
+                errorCode[0] = code;
                 error[0] = msg == null || msg.isEmpty() ? ("请求失败(" + code + ")") : msg;
                 latch.countDown();
             }
         });
-        if (!latch.await(30, java.util.concurrent.TimeUnit.SECONDS)) {
-            throw new Exception("红果接口请求超时");
+        boolean done;
+        try {
+            done = latch.await(30, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new SyncException(-1, "红果接口请求被中断");
         }
-        if (error[0] != null) throw new Exception(error[0]);
+        if (!done) {
+            throw new SyncException(-1, "红果接口请求超时");
+        }
+        if (error[0] != null) throw new SyncException(errorCode[0], error[0]);
         return body[0] == null ? "" : body[0];
     }
 

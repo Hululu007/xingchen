@@ -888,6 +888,17 @@ public final class DramaClient {
 
     /** 作者作品流（评论栈 user/profile 口，tab_type=11 作品签，cursor 翻页）。 */
     public static void fetchAuthorWorks(String userId, String cursor, HgCallback<DramaWork.Page> cb) {
+        fetchAuthorWorks(userId, cursor, 11, 0, cb);
+    }
+
+    /**
+     * 作者作品流·带签版（2026-10-31 作者页补齐）：顶签 tabType 按作者
+     * 类型分（11 剧作／5 动态——问错签服务端回合法空包，页面侧拿空包
+     * 自动换签重试）；subTabType＞0 时带 sub_tab_type（服务端 sub_tabs
+     * 下发的子档：100 全部／13 合集／121 剧评…，本机复打定版）。
+     */
+    public static void fetchAuthorWorks(String userId, String cursor, int tabType,
+                                        int subTabType, HgCallback<DramaWork.Page> cb) {
         if (userId == null || userId.isEmpty()) {
             cb.onError(-1, "user_id 为空");
             return;
@@ -897,7 +908,8 @@ public final class DramaClient {
         payload.addProperty("count", 18);
         if (cursor != null && !cursor.isEmpty()) payload.addProperty("cursor", cursor);
         payload.addProperty("sort", "time_desc");
-        payload.addProperty("tab_type", 11);
+        payload.addProperty("tab_type", tabType);
+        if (subTabType > 0) payload.addProperty("sub_tab_type", subTabType);
         payload.addProperty("target_user_id", userId);
         DramaCommentTransport.post("user/profile/" + userId, payload.toString(),
                 new DramaCommentTransport.Sink() {

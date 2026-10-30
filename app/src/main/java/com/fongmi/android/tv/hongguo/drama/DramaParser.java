@@ -2622,6 +2622,61 @@ public final class DramaParser {
                     scoreOf(expand),
                     common == null ? 0 : longOf(common, "create_timestamp", 0));
         }
+        if (type == DramaWork.KIND_ALBUM) {
+            // 合集形（2026-10-31 本机复打定版）：row 只挂 album{}——
+            // album_id/album_name/thumb_url/desc/is_stick_top/
+            // series_status/video_count＋consumer_info{hot_score 现成
+            // 热度文案，followed_cnt 数字串}＋album_video_list 预览集
+            // （common{cover,title,vid_index}＋stat{digg_cnt}＋video_id）。
+            JsonObject a = obj(row, "album");
+            if (a == null) return null;
+            JsonObject consumer = obj(a, "consumer_info");
+            long followedCnt = 0;
+            String fc = consumer == null ? null : str(consumer, "followed_cnt");
+            if (fc != null && !fc.isEmpty()) {
+                try {
+                    followedCnt = Long.parseLong(fc.trim());
+                } catch (Exception ignored) {
+                }
+            }
+            List<DramaWork.AlbumEp> eps = new ArrayList<>();
+            JsonArray vl = arr(a, "album_video_list");
+            if (vl != null) {
+                for (JsonElement el : vl) {
+                    if (!el.isJsonObject()) continue;
+                    JsonObject eo = el.getAsJsonObject();
+                    JsonObject ec = obj(eo, "common");
+                    JsonObject es = obj(eo, "stat");
+                    eps.add(new DramaWork.AlbumEp(
+                            str(eo, "video_id"),
+                            ec == null ? null : str(ec, "cover"),
+                            ec == null ? null : str(ec, "title"),
+                            ec == null ? eps.size() : intOf(ec, "vid_index", eps.size()),
+                            es == null ? 0 : longOf(es, "digg_cnt", 0)));
+                }
+            }
+            long publish = 0;
+            String pt = str(a, "publish_time");
+            if (pt != null && !pt.isEmpty()) {
+                try {
+                    publish = Long.parseLong(pt.trim());
+                } catch (Exception ignored) {
+                }
+            }
+            String albumId = str(a, "album_id");
+            DramaWork.AlbumInfo info = new DramaWork.AlbumInfo(
+                    albumId, boolOf(a, "is_stick_top"),
+                    intOf(a, "series_status", 0),
+                    consumer == null ? null : str(consumer, "hot_score"),
+                    followedCnt, eps);
+            return new DramaWork(DramaWork.KIND_ALBUM,
+                    albumId, albumId,
+                    str(a, "thumb_url"),
+                    str(a, "album_name"),
+                    str(a, "desc"),
+                    intOf(a, "video_count", 0),
+                    0, 0, 0, null, null, null, -1, publish, null, info);
+        }
         return null;
     }
 

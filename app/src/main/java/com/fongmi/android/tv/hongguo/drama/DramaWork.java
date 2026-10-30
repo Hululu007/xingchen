@@ -27,6 +27,8 @@ public final class DramaWork {
     public static final int KIND_VIDEO = 1;
     public static final int KIND_POST = 3;
     public static final int KIND_COMMENT = 4;
+    /** 合集条目（data_type=-5，album{} 形制；2026-10-31 本机复打定版）。 */
+    public static final int KIND_ALBUM = -5;
 
     public final int kind;
     /** video_id / post_id / comment_id。 */
@@ -51,6 +53,50 @@ public final class DramaWork {
     public final long createTime;
     /** 帖子正文包（仅 KIND_POST 且回包带 content 时非空；其余条目为 null）。 */
     public final PostBody postBody;
+    /** 合集包（仅 KIND_ALBUM 非空；其余条目为 null）。 */
+    public final AlbumInfo album;
+
+    /** 合集里一集的缩略料（album_video_list 一条）。 */
+    public static final class AlbumEp {
+        public final String vid;
+        public final String cover;
+        public final String title;
+        /** 集序（vid_index，0 起）。 */
+        public final int index;
+        public final long diggCount;
+
+        public AlbumEp(String vid, String cover, String title, int index, long diggCount) {
+            this.vid = vid == null ? "" : vid;
+            this.cover = cover == null ? "" : cover;
+            this.title = title == null ? "" : title;
+            this.index = index;
+            this.diggCount = diggCount;
+        }
+    }
+
+    /** 合集包（album{} 抽取：consumer_info.hot_score 是服务端现成热度文案）。 */
+    public static final class AlbumInfo {
+        public final String albumId;
+        public final boolean stickTop;
+        /** 0 连载中 / 1 已完结（与 DramaAlbumDetail 同口径）。 */
+        public final int seriesStatus;
+        /** 热度文案（如「708万热度」）；无则空串。 */
+        public final String hotText;
+        public final long followedCnt;
+        /** 集缩略（回包只给前几集预览，全集点进合集页拉）。 */
+        public final List<AlbumEp> episodes;
+
+        public AlbumInfo(String albumId, boolean stickTop, int seriesStatus,
+                         String hotText, long followedCnt, List<AlbumEp> episodes) {
+            this.albumId = albumId == null ? "" : albumId;
+            this.stickTop = stickTop;
+            this.seriesStatus = seriesStatus;
+            this.hotText = hotText == null ? "" : hotText;
+            this.followedCnt = followedCnt;
+            this.episodes = episodes == null ? Collections.emptyList()
+                    : Collections.unmodifiableList(episodes);
+        }
+    }
 
     /**
      * 帖子正文包（动态帖子实拉回包逐字：common.content.pure_text 全文、
@@ -87,13 +133,21 @@ public final class DramaWork {
                         List<String> subTitles, String authorName, String authorAvatar,
                         int score, long createTime) {
         this(kind, id, seriesId, cover, title, intro, episodeCount, diggCount, playCount, hot,
-                subTitles, authorName, authorAvatar, score, createTime, null);
+                subTitles, authorName, authorAvatar, score, createTime, null, null);
     }
 
     public DramaWork(int kind, String id, String seriesId, String cover, String title,
                         String intro, int episodeCount, long diggCount, long playCount, long hot,
                         List<String> subTitles, String authorName, String authorAvatar,
                         int score, long createTime, PostBody postBody) {
+        this(kind, id, seriesId, cover, title, intro, episodeCount, diggCount, playCount, hot,
+                subTitles, authorName, authorAvatar, score, createTime, postBody, null);
+    }
+
+    public DramaWork(int kind, String id, String seriesId, String cover, String title,
+                        String intro, int episodeCount, long diggCount, long playCount, long hot,
+                        List<String> subTitles, String authorName, String authorAvatar,
+                        int score, long createTime, PostBody postBody, AlbumInfo album) {
         this.kind = kind;
         this.id = id == null ? "" : id;
         this.seriesId = seriesId == null ? "" : seriesId;
@@ -111,6 +165,7 @@ public final class DramaWork {
         this.score = score;
         this.createTime = createTime;
         this.postBody = postBody;
+        this.album = album;
     }
 
     /** 点进播放的剧 id：有 seriesId 用 seriesId，否则用条目 id 本身（剧作条目 id 即剧 id）。 */

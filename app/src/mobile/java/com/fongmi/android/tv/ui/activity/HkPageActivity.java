@@ -5415,17 +5415,34 @@ public class HkPageActivity extends BaseActivity {
     private void showWebViewDialog(String url) {
         try {
             android.webkit.WebView wv = new android.webkit.WebView(this);
+            wv.setLayoutParams(new android.view.ViewGroup.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT));
             wv.getSettings().setJavaScriptEnabled(true);
             wv.getSettings().setDomStorageEnabled(true);
+            wv.getSettings().setUseWideViewPort(true);
+            wv.getSettings().setLoadWithOverviewMode(true);
             wv.setWebViewClient(new android.webkit.WebViewClient());
             wv.loadUrl(url);
-            new HkDialogs(this)
+            androidx.appcompat.app.AlertDialog dlg = new HkDialogs(this)
                     .setView(wv)
                     .setPositiveButton("关闭", (d, w) -> {
                         try { wv.destroy(); } catch (Throwable ignored) {}
                         d.dismiss();
                     })
                     .show();
+            // 全屏窗口（定根账 xbw-hk-investigation B）：AlertDialog 默认
+            // 按内容 wrap 高，WebView 视口成了矮条——整页型网页（小霸王
+            // yikm /play 对移动端无条件 CSS rotate(90deg) 伪横屏，成立
+            // 前提是视口＝满屏竖屏）旋转公式当场算错，内容只剩一条、
+            // 字全竖排（他 2026-10-31 录屏实证）。8.83 开网页恒走全屏
+            // WebViewActivity、视口满屏；此处把弹窗窗口拉满全屏对齐
+            // 其视口前提，WebView 补宽视口两项。关闭钮与销毁链不动。
+            android.view.Window win = dlg.getWindow();
+            if (win != null) {
+                win.setLayout(android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                        android.view.ViewGroup.LayoutParams.MATCH_PARENT);
+            }
         } catch (Throwable e) {
             ToastUtil.show(this, "打开网页失败", android.widget.Toast.LENGTH_SHORT);
         }

@@ -42,6 +42,7 @@ import com.fongmi.android.tv.hongguo.drama.DramaDetail;
 import com.fongmi.android.tv.hongguo.drama.DramaItem;
 import com.fongmi.android.tv.hongguo.drama.DramaItemKind;
 import com.fongmi.android.tv.hongguo.drama.DramaResolver;
+import com.fongmi.android.tv.hongguo.drama.DramaSeriesPrefetch;
 import com.fongmi.android.tv.hongguo.drama.DramaVideoModel;
 import com.fongmi.android.tv.hongguo.model.HgContinuation;
 import com.fongmi.android.tv.hongguo.ui.HgPanelLogic;
@@ -1496,6 +1497,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
                 if (seekMs > 0) player.seekTo(seekMs);
                 player.setPlayWhenReady(true);
                 startDanmaku(videoId);
+                maybePrefetchSeries(videoId);
             }
 
             @Override
@@ -1504,6 +1506,19 @@ public class HongguoFeedActivity extends AppCompatActivity {
                 showPlayFailure();
             }
         });
+    }
+
+    /**
+     * 进播放页预取全集（他 2026-10-30 定）：只在播放页（MODE_SERIES）、
+     * 且当前集解链成功后才开启——当前集模型此时已落缓存，预取不抢
+     * 当前集；切集时重复调用由 DramaSeriesPrefetch 按会话键忽略。
+     * 视频页（短片/合集）不走本路。
+     */
+    private void maybePrefetchSeries(String vid) {
+        if (mode != MODE_SERIES || seriesIdArg == null) return;
+        DramaDetail d = detailCache.get(seriesIdArg);
+        if (d == null || episodes.isEmpty()) return;
+        DramaSeriesPrefetch.start(seriesIdArg, episodes, d.getContentType(), vid);
     }
 
     private void onPlayEnded() {
@@ -1524,8 +1539,9 @@ public class HongguoFeedActivity extends AppCompatActivity {
     }
 
     private void prefetchNeighbors(int index) {
+        // 备链条数对齐官方包内缺省：后三条（他 2026-10-30 议定 2→3）
         List<DramaClient.ModelRequest> reqs = new ArrayList<>();
-        for (int i = index + 1; i <= Math.min(index + 2, items.size() - 1); i++) {
+        for (int i = index + 1; i <= Math.min(index + 3, items.size() - 1); i++) {
             DramaItem it = items.get(i);
             if (it.getVid() != null) {
                 reqs.add(new DramaClient.ModelRequest(it.getVid(), it.contentType));
@@ -1935,6 +1951,9 @@ public class HongguoFeedActivity extends AppCompatActivity {
             } catch (Throwable ignored) {
             }
         }
+        // 退出播放页：停掉本剧没拉完的全集预取（只停本页这部剧的会话）。
+        // 泊出横屏时本页被回收不算离开这部剧，不停、让它拉完。
+        if (mode == MODE_SERIES && !engineParked) DramaSeriesPrefetch.stopFor(seriesIdArg);
         // 泊出中（横屏页在前台）：本实例的解链流正被横屏页用着，不许关。
         if (!engineParked) resolver.closeAll();
         worker.shutdownNow();

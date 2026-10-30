@@ -21,7 +21,6 @@ import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.view.WindowCompat;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.Player;
 import androidx.media3.ui.AspectRatioFrameLayout;
@@ -235,9 +234,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
-        getWindow().setStatusBarColor(Color.TRANSPARENT);
-        getWindow().setNavigationBarColor(Color.TRANSPARENT);
+        HgWindowStyle.apply(this, false, false);
         mode = getIntent().getIntExtra(EXTRA_MODE, MODE_FEED);
         seriesIdArg = getIntent().getStringExtra(EXTRA_SERIES_ID);
         videoAlbumId = getIntent().getStringExtra(EXTRA_ALBUM_ID);

@@ -19,7 +19,6 @@ import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.view.WindowCompat;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.Player;
 import androidx.media3.ui.AspectRatioFrameLayout;
@@ -116,9 +115,7 @@ public class HongguoLandActivity extends AppCompatActivity {
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         createdAtMs = System.currentTimeMillis();
-        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
-        getWindow().setStatusBarColor(Color.TRANSPARENT);
-        getWindow().setNavigationBarColor(Color.TRANSPARENT);
+        HgWindowStyle.apply(this, false, false);
 
         DramaPlayerPool.Bag bag = DramaPlayerPool.peekBag();
         engine = DramaPlayerPool.takeEngine();

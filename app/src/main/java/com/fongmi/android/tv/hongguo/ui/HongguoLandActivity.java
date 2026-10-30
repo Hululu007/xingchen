@@ -12,7 +12,6 @@ import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
-import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -78,7 +77,11 @@ public class HongguoLandActivity extends AppCompatActivity {
     private TextView titleView;
     private TextView epView;
     private TextView timeView;
-    private SeekBar seekBar;
+    private TextView timeDurView;
+    private FrameLayout progressWrap;
+    private View progressFill;
+    private View progressThumb;
+    private float progressFraction;
     private ProgressBar spin;
     private TextView failView;
     private OrientationEventListener orientationListener;
@@ -94,9 +97,9 @@ public class HongguoLandActivity extends AppCompatActivity {
                 long pos = player.getCurrentPosition();
                 long dur = player.getDuration();
                 if (dur > 0) {
-                    seekBar.setMax((int) Math.min(dur, Integer.MAX_VALUE));
-                    seekBar.setProgress((int) Math.min(pos, Integer.MAX_VALUE));
-                    timeView.setText(formatTime(pos) + " / " + formatTime(dur));
+                    setProgressFraction((float) pos / (float) dur);
+                    timeView.setText(formatTime(pos));
+                    timeDurView.setText(formatTime(dur));
                 }
             }
             main.postDelayed(this, 500);
@@ -109,6 +112,30 @@ public class HongguoLandActivity extends AppCompatActivity {
         if (ms < 0) ms = 0;
         long s = ms / 1000;
         return String.format(java.util.Locale.US, "%d:%02d", s / 60, s % 60);
+    }
+
+    /** 细轨进度落位：已走宽＝轨宽×分数，白点骑在已走末端。 */
+    private void setProgressFraction(float f) {
+        progressFraction = Math.max(0f, Math.min(1f, f));
+        applyProgress();
+    }
+
+    private void applyProgress() {
+        if (progressWrap == null || progressFill == null || progressThumb == null) return;
+        int w = progressWrap.getWidth();
+        if (w <= 0) return;
+        int fillW = (int) (w * progressFraction);
+        ViewGroup.LayoutParams flp = progressFill.getLayoutParams();
+        if (flp.width != fillW) {
+            flp.width = fillW;
+            progressFill.setLayoutParams(flp);
+        }
+        FrameLayout.LayoutParams tlp = (FrameLayout.LayoutParams) progressThumb.getLayoutParams();
+        int left = Math.max(0, Math.min(w - dp(11), fillW - dp(5)));
+        if (tlp.leftMargin != left) {
+            tlp.leftMargin = left;
+            progressThumb.setLayoutParams(tlp);
+        }
     }
 
     @Override
@@ -197,7 +224,7 @@ public class HongguoLandActivity extends AppCompatActivity {
         lockBtn.setPadding(dp(10), dp(10), dp(10), dp(10));
         lockBtn.setOnClickListener(v -> {
             locked = !locked;
-            lockBtn.setColorFilter(locked ? 0xFFFF5A4E : 0xFFBDBDBD);
+            lockBtn.setColorFilter(locked ? 0xFFE63A2E : 0xFFBDBDBD);
             Toast.makeText(this, locked ? "已锁定" : "已解锁", Toast.LENGTH_SHORT).show();
             pokeChrome();
         });
@@ -210,13 +237,20 @@ public class HongguoLandActivity extends AppCompatActivity {
         LinearLayout top = new LinearLayout(this);
         top.setOrientation(LinearLayout.HORIZONTAL);
         top.setGravity(Gravity.CENTER_VERTICAL);
-        top.setPadding(dp(8), dp(8), dp(16), dp(8));
+        top.setPadding(dp(14), dp(8), dp(16), dp(8));
+        // 返回：38dp 玻璃圆钮（与播放页 .iconbtn 同形态）
         ImageView back = new ImageView(this);
         back.setImageResource(R.drawable.ic_drama_back);
         back.setColorFilter(Color.WHITE);
-        back.setPadding(dp(8), dp(8), dp(8), dp(8));
+        android.graphics.drawable.GradientDrawable backBg =
+                new android.graphics.drawable.GradientDrawable();
+        backBg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        backBg.setColor(0x52141212);
+        backBg.setStroke(1, 0x2EFFFFFF);
+        back.setBackground(backBg);
+        back.setPadding(dp(9), dp(9), dp(9), dp(9));
         back.setOnClickListener(v -> exitLand());
-        top.addView(back, new LinearLayout.LayoutParams(dp(40), dp(40)));
+        top.addView(back, new LinearLayout.LayoutParams(dp(38), dp(38)));
         titleView = new TextView(this);
         titleView.setText(seriesTitle == null ? "" : seriesTitle);
         titleView.setTextColor(Color.WHITE);
@@ -224,7 +258,9 @@ public class HongguoLandActivity extends AppCompatActivity {
         titleView.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         titleView.setMaxLines(1);
         titleView.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        top.addView(titleView, new LinearLayout.LayoutParams(0, -2, 1f));
+        LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(0, -2, 1f);
+        titleLp.leftMargin = dp(10);
+        top.addView(titleView, titleLp);
         epView = new TextView(this);
         epView.setTextColor(0xFFD8D8DC);
         epView.setTextSize(13);
@@ -239,7 +275,7 @@ public class HongguoLandActivity extends AppCompatActivity {
         LinearLayout bottom = new LinearLayout(this);
         bottom.setOrientation(LinearLayout.HORIZONTAL);
         bottom.setGravity(Gravity.CENTER_VERTICAL);
-        bottom.setPadding(dp(12), dp(6), dp(12), dp(10));
+        bottom.setPadding(dp(16), dp(6), dp(16), dp(10));
         playBtn = new ImageView(this);
         playBtn.setImageResource(R.drawable.ic_drama_pause);
         playBtn.setColorFilter(Color.WHITE);
@@ -256,29 +292,82 @@ public class HongguoLandActivity extends AppCompatActivity {
             pokeChrome();
         });
         bottom.addView(playBtn, new LinearLayout.LayoutParams(dp(42), dp(42)));
-        seekBar = new SeekBar(this);
-        seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override
-            public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
-            }
-
-            @Override
-            public void onStartTrackingTouch(SeekBar sb) {
-                scrubbing = true;
-            }
-
-            @Override
-            public void onStopTrackingTouch(SeekBar sb) {
-                scrubbing = false;
-                if (player != null) player.seekTo(sb.getProgress());
+        // 时间签左右分置＋细轨（定稿 .p-progress）：当前在左、时长
+        // 在右，11sp rgba(255,255,255,.75)；轨 3dp rgba(.25)、已走
+        // rgba(.92)、11dp 白点。系统 SeekBar 粗轨大拇指整件弃用，
+        // 拖动在本控件触摸里 seek（ scrubbing 语义与旧监听一致）。
+        timeView = new TextView(this);
+        timeView.setTextColor(0xBFFFFFFF);
+        timeView.setTextSize(11);
+        timeView.setText("0:00");
+        LinearLayout.LayoutParams curLp = new LinearLayout.LayoutParams(-2, -2);
+        curLp.leftMargin = dp(10);
+        bottom.addView(timeView, curLp);
+        progressWrap = new FrameLayout(this);
+        View track = new View(this);
+        android.graphics.drawable.GradientDrawable trackBg =
+                new android.graphics.drawable.GradientDrawable();
+        trackBg.setColor(0x40FFFFFF);
+        trackBg.setCornerRadius(dp(2));
+        track.setBackground(trackBg);
+        FrameLayout.LayoutParams trackLp = new FrameLayout.LayoutParams(-1, dp(3));
+        trackLp.gravity = Gravity.CENTER_VERTICAL;
+        progressWrap.addView(track, trackLp);
+        progressFill = new View(this);
+        android.graphics.drawable.GradientDrawable fillBg =
+                new android.graphics.drawable.GradientDrawable();
+        fillBg.setColor(0xEBFFFFFF);
+        fillBg.setCornerRadius(dp(2));
+        progressFill.setBackground(fillBg);
+        FrameLayout.LayoutParams fillLp = new FrameLayout.LayoutParams(0, dp(3));
+        fillLp.gravity = Gravity.LEFT | Gravity.CENTER_VERTICAL;
+        progressWrap.addView(progressFill, fillLp);
+        progressThumb = new View(this);
+        android.graphics.drawable.GradientDrawable thumbBg =
+                new android.graphics.drawable.GradientDrawable();
+        thumbBg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        thumbBg.setColor(Color.WHITE);
+        progressThumb.setBackground(thumbBg);
+        FrameLayout.LayoutParams thumbLp = new FrameLayout.LayoutParams(dp(11), dp(11));
+        thumbLp.gravity = Gravity.LEFT | Gravity.CENTER_VERTICAL;
+        progressWrap.addView(progressThumb, thumbLp);
+        progressWrap.setOnTouchListener((v, ev) -> {
+            if (player == null) return true;
+            long dur = player.getDuration();
+            if (dur <= 0) return true;
+            float f = Math.max(0f, Math.min(1f,
+                    ev.getX() / Math.max(1, v.getWidth())));
+            switch (ev.getActionMasked()) {
+                case android.view.MotionEvent.ACTION_DOWN:
+                    scrubbing = true;
+                    setProgressFraction(f);
+                    timeView.setText(formatTime((long) (f * dur)));
+                    return true;
+                case android.view.MotionEvent.ACTION_MOVE:
+                    setProgressFraction(f);
+                    timeView.setText(formatTime((long) (f * dur)));
+                    return true;
+                case android.view.MotionEvent.ACTION_UP:
+                case android.view.MotionEvent.ACTION_CANCEL:
+                    scrubbing = false;
+                    player.seekTo((long) (f * dur));
+                    pokeChrome();
+                    return true;
+                default:
+                    return true;
             }
         });
-        bottom.addView(seekBar, new LinearLayout.LayoutParams(0, -2, 1f));
-        timeView = new TextView(this);
-        timeView.setTextColor(0xFFD8D8DC);
-        timeView.setTextSize(12);
-        timeView.setText("0:00 / 0:00");
-        bottom.addView(timeView);
+        progressWrap.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or2, ob) ->
+                applyProgress());
+        LinearLayout.LayoutParams wrapLp = new LinearLayout.LayoutParams(0, dp(30), 1f);
+        wrapLp.leftMargin = dp(10);
+        wrapLp.rightMargin = dp(10);
+        bottom.addView(progressWrap, wrapLp);
+        timeDurView = new TextView(this);
+        timeDurView.setTextColor(0xBFFFFFFF);
+        timeDurView.setTextSize(11);
+        timeDurView.setText("0:00");
+        bottom.addView(timeDurView);
         TextView eps = new TextView(this);
         eps.setText("选集");
         eps.setTextColor(Color.WHITE);

@@ -65,15 +65,19 @@ import java.util.concurrent.Executors;
  * 进入）、视频页（MODE_VIDEO，合集队列/单条短片）与旧 UGC 单条
  * （MODE_UGC，作者作品等旧入口）共用一页。
  *
- * <p>形态（定稿口径）：全屏竖滑 Pager＋单 PlayerView 随页迁移。首页
- * 顶左只有三条杠（抽屉＝片库两行直达＋播放设置），底部三层一整块黑
- * （观看完整条＋浅色细进度线＋底栏两签）；条目左下只有剧名＋题材标签
- * 筹＋AI 声明（数据驱动），右列头像在最上＋收藏＋评论。播放页顶栏
- * 「← 第N集」＋倍速＋「···」，整宽选集条贴底（清屏钮入条右端），
- * 横屏入口只留画面下方居中「全屏观看」钮（传感器横转已摘）。视频页
- * 左下作者行＋文案，底部合集条＋进度线。手势：单击播放/暂停、长按
- * 中部开更多面板、长按其余处 2 倍速（松手恢复）。弹幕走 PlayerView
- * 自带层（数据源 HongguoDanmakuApi 落盘 XML），「发弹幕」入口在左下药丸。</p>
+ * <p>形态（定稿口径，2026-10-30 晚页面层重做）：全屏竖滑 Pager＋
+ * 单 PlayerView 随页迁移。首页顶左只有三条杠（抽屉＝片库两行直达＋
+ * 播放设置，浅色面），底部两层分色——观看完整剧条＝灰带 #3A3A40、
+ * 细进度线贴剧条下缘、底栏黑 #202023 纯文字两签（他亲口定案，两层
+ * 必须分得开）；条目左下只有剧名＋题材标签筹＋AI 声明（数据驱动），
+ * 右列头像在最上＋收藏＋评论裸图标。播放页顶栏玻璃圆返回＋「第N集」
+ * ＋玻璃圆更多钮（倍速只走更多面板，顶栏倍速字钮已摘），整宽选集条
+ * 贴底（清屏钮入条右端、只此一面），横屏入口只留画面下方居中
+ * 「全屏观看」钮（传感器横转已摘）。视频页左下作者行＋标题＋文案，
+ * 底部合集条＋进度线。手势：单击播放/暂停、长按中部开更多面板、
+ * 长按其余处 2 倍速（松手恢复）。弹幕走 PlayerView 自带层（数据源
+ * HongguoDanmakuApi 落盘 XML）；「发弹幕」药丸整件已摘（他定版：
+ * 弹幕只看不发，账 triage2 §4.1/§4.2）。</p>
  *
  * <p>数据：频道/详情走 DramaClient（共享优先＋冷却降级）；解链走
  * DramaResolver；历史/断点/收藏走 HgStore 本地。无登录/追更/点赞/
@@ -85,6 +89,8 @@ public class HongguoFeedActivity extends AppCompatActivity {
     public static final String EXTRA_SERIES_ID = "hg_series_id";
     public static final String EXTRA_TITLE = "hg_title";
     public static final String EXTRA_EPISODE = "hg_episode";
+    /** 进页起播位（毫秒）：播完自动进剧的高光支带入（官方 currentPlaybackTime）；手动路不传。 */
+    public static final String EXTRA_START_MS = "hg_start_ms";
     public static final int MODE_FEED = 0;
     public static final int MODE_SERIES = 1;
     public static final int MODE_UGC = 2;
@@ -153,11 +159,22 @@ public class HongguoFeedActivity extends AppCompatActivity {
     public static final String EXTRA_CONTENT_TYPE = "hg_content_type";
 
     public static void startSeries(Context context, String seriesId, String title, int episodeIndex) {
+        startSeries(context, seriesId, title, episodeIndex, -1);
+    }
+
+    /**
+     * 进播放页并钉起播位：startMs&gt;=0 时首集起播位置以它为准（盖过
+     * 本地断点存档，官方 ForceStartTime 口径）；手动路走四参版、
+     * 不带起播位，行为不变。
+     */
+    public static void startSeries(Context context, String seriesId, String title,
+                                   int episodeIndex, long startMs) {
         Intent intent = new Intent(context, HongguoFeedActivity.class);
         intent.putExtra(EXTRA_MODE, MODE_SERIES);
         intent.putExtra(EXTRA_SERIES_ID, seriesId);
         intent.putExtra(EXTRA_TITLE, title);
         intent.putExtra(EXTRA_EPISODE, episodeIndex);
+        if (startMs >= 0) intent.putExtra(EXTRA_START_MS, startMs);
         HgTransition.push(context, intent);
     }
 
@@ -169,7 +186,6 @@ public class HongguoFeedActivity extends AppCompatActivity {
     private View topBar;
     private View seriesBar;
     private TextView seriesTitleView;
-    private TextView speedBtn;
     /** 当前模式的底部整块（首页三层块/播放页选集条块/视频页合集条块）。 */
     private View bottomStack;
     private TextView watchText;
@@ -177,18 +193,25 @@ public class HongguoFeedActivity extends AppCompatActivity {
     private TextView epBarText;
     private TextView albumBarText;
     private View albumBar;
+    /** 已组装的进度行（FEED/UGC 是单线 wrap；SERIES/VIDEO 是含时间签的行）。 */
+    private View progressRow;
     private View progressWrap;
     private View progressFill;
     private View progressDot;
-    private TextView cleanBtn;
+    /** 进度行两侧时间签（只有 SERIES/VIDEO 行建，tick 里同步刷新）。 */
+    private TextView timeCurView;
+    private TextView timeDurView;
+    /** 清屏钮只在正剧播放页一面建（ImageView 图标钮，其余模式恒 null）。 */
+    private ImageView cleanBtn;
     private TextView boostPill;
     private ImageView centerFlash;
-    private TextView danmakuPill;
     private View stateView;
     private TextView stateText;
     private ProgressBar stateSpin;
     private View drawerScrim;
     private View drawerPanel;
+    /** 抽屉宽＝屏宽 79%（定稿 .drawer），开合位移按此值走。 */
+    private int drawerWidthPx;
 
     // ---------- 播放 ----------
     private ExoPlayerEngine engine;
@@ -226,6 +249,22 @@ public class HongguoFeedActivity extends AppCompatActivity {
     private boolean cleanMode;
     private boolean boosting;
     private boolean prefetchedNext;
+    /** FEED 当前条实际在播的集序（被推集 vidIndex，D3 记账口径）。 */
+    private int feedEpIndex = 1;
+    /** 进页起播位待办（EXTRA_START_MS）：集号＋毫秒，首集 playEpisode
+     * 消费一次即清；-1＝无（手动路恒无）。 */
+    private int entrySeekEp = -1;
+    private long entrySeekMs = -1;
+    /** 选集弹窗跳集待办集号：滑页 settle 落位后消费（从头播）。 */
+    private int sheetJumpEp;
+    /** 播完连播滑页待办集号：settle 落位后消费（从头播）。 */
+    private int autoNextEp;
+    /** 当前条被拖过进度（官方播完判序的循环路；流内暂无拖条
+     * 控件，此旗随每次起播复位、判定件先落位）。 */
+    private boolean scrubbedCurrent;
+    /** D7 历史进度线已对位的条目序号／是否已按时长定版。 */
+    private int feedLineIndex = -1;
+    private boolean feedLineDone;
     private long lastSaveMs;
     private String danmakuVid;
     private final List<androidx.media3.ui.danmaku.Danmaku> danmakuItems = new ArrayList<>();
@@ -265,7 +304,6 @@ public class HongguoFeedActivity extends AppCompatActivity {
             topBar.setVisibility(View.GONE);
             String t = getIntent().getStringExtra(EXTRA_TITLE);
             seriesTitleView.setText(t == null ? "" : t);
-            speedBtn.setVisibility(mode == MODE_SERIES ? View.VISIBLE : View.GONE);
             if (mode == MODE_SERIES) loadSeries();
             else if (mode == MODE_VIDEO) loadVideo();
             else loadUgc();
@@ -369,6 +407,12 @@ public class HongguoFeedActivity extends AppCompatActivity {
         // 里留着，续播不重头。
         if (resumeOnReturn && player != null) player.setPlayWhenReady(true);
         resumeOnReturn = false;
+        // D5：详情页等外页改过收藏，回到常驻的流/播放页要立即同源
+        // ——重绑当前条右列（星色/已收藏签/计数），不等下一次 settle
+        if (currentIndex >= 0 && currentIndex < items.size()) {
+            bindRailState(currentIndex);
+            adapter.notifyItemChanged(currentIndex);
+        }
     }
 
     /**
@@ -459,23 +503,18 @@ public class HongguoFeedActivity extends AppCompatActivity {
         bar.setGravity(Gravity.CENTER_VERTICAL);
         bar.setBackground(scrim(true));
         int sb = statusBarHeight();
-        bar.setPadding(dp(6), sb, dp(6), 0);
+        bar.setPadding(dp(12), sb, dp(12), 0);
 
         // 定稿：首页左上只有三条杠、无任何字标（频道签已摘，首页单流）
-        ImageView menu = iconBtn(R.drawable.ic_drama_menu, v -> openDrawer());
-        bar.addView(menu, new LinearLayout.LayoutParams(dp(40), dp(40)));
+        ImageView menu = glassIconBtn(R.drawable.ic_drama_menu, v -> openDrawer());
+        bar.addView(menu, new LinearLayout.LayoutParams(dp(38), dp(38)));
         View spacer = new View(this);
         bar.addView(spacer, new LinearLayout.LayoutParams(0, -2, 1f));
 
-        // 他亲定的入口形态：右上角圆形搜索钮（圆圈底＋放大镜），顶栏只留这一个搜索入口
-        ImageView search = iconBtn(R.drawable.ic_drama_search,
+        // 他亲定的入口形态：右上角圆形搜索钮（玻璃圆＋放大镜），顶栏只留这一个搜索入口
+        ImageView search = glassIconBtn(R.drawable.ic_drama_search,
                 v -> HgTransition.push(this, new Intent(this, HongguoSearchActivity.class)));
-        GradientDrawable searchBg = new GradientDrawable();
-        searchBg.setShape(GradientDrawable.OVAL);
-        searchBg.setColor(0x66000000);
-        search.setBackground(searchBg);
-        search.setPadding(dp(9), dp(9), dp(9), dp(9));
-        bar.addView(search, new LinearLayout.LayoutParams(dp(40), dp(40)));
+        bar.addView(search, new LinearLayout.LayoutParams(dp(38), dp(38)));
 
         topBar = bar;
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-1, dp(52) + sb);
@@ -488,29 +527,23 @@ public class HongguoFeedActivity extends AppCompatActivity {
         bar.setOrientation(LinearLayout.HORIZONTAL);
         bar.setGravity(Gravity.CENTER_VERTICAL);
         bar.setBackground(scrim(true));
-        bar.setPadding(dp(6), statusBarHeight(), dp(6), 0);
-        ImageView back = iconBtn(R.drawable.ic_drama_back, v -> finish());
-        bar.addView(back, new LinearLayout.LayoutParams(dp(40), dp(40)));
+        bar.setPadding(dp(12), statusBarHeight(), dp(12), 0);
+        ImageView back = glassIconBtn(R.drawable.ic_drama_back, v -> finish());
+        bar.addView(back, new LinearLayout.LayoutParams(dp(38), dp(38)));
         seriesTitleView = new TextView(this);
         seriesTitleView.setTextColor(Color.WHITE);
-        seriesTitleView.setTextSize(16);
+        seriesTitleView.setTextSize(15.5f);
         seriesTitleView.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         seriesTitleView.setMaxLines(1);
         seriesTitleView.setEllipsize(android.text.TextUtils.TruncateAt.END);
         seriesTitleView.setShadowLayer(dp(2), 0, dp(1), 0x99000000);
-        bar.addView(seriesTitleView, new LinearLayout.LayoutParams(0, -2, 1f));
-        // 定稿：播放页右上＝当前倍速（点按循环六段）＋「···」更多钮
-        speedBtn = new TextView(this);
-        speedBtn.setText(HgPanelLogic.speedLabel(HgStore.getSpeed()));
-        speedBtn.setTextColor(Color.WHITE);
-        speedBtn.setTextSize(14.5f);
-        speedBtn.setGravity(Gravity.CENTER);
-        speedBtn.setShadowLayer(dp(2), 0, dp(1), 0x99000000);
-        speedBtn.setPadding(dp(8), dp(8), dp(4), dp(8));
-        speedBtn.setOnClickListener(v -> cycleSpeed());
-        bar.addView(speedBtn, new LinearLayout.LayoutParams(-2, dp(40)));
-        ImageView more = iconBtn(R.drawable.ic_drama_more, v -> showMorePanel());
-        bar.addView(more, new LinearLayout.LayoutParams(dp(40), dp(40)));
+        LinearLayout.LayoutParams stlp = new LinearLayout.LayoutParams(0, -2, 1f);
+        stlp.leftMargin = dp(10);
+        bar.addView(seriesTitleView, stlp);
+        // 定稿：播放页右上只「···」玻璃圆更多钮（倍速只走更多面板 seg，
+        // 顶栏倍速字钮已摘——不在草稿里）
+        ImageView more = glassIconBtn(R.drawable.ic_drama_more, v -> showMorePanel());
+        bar.addView(more, new LinearLayout.LayoutParams(dp(38), dp(38)));
         seriesBar = bar;
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-1, dp(52) + statusBarHeight());
         lp.gravity = Gravity.TOP;
@@ -524,35 +557,61 @@ public class HongguoFeedActivity extends AppCompatActivity {
         int nav = navBarHeight();
         switch (mode) {
             case MODE_FEED:
-                return dp(36) + dp(2) + dp(50) + nav;
+                return dp(42) + dp(3) + dp(56) + nav;
             case MODE_SERIES:
-                return dp(2) + dp(48) + nav;
+                return dp(25) + dp(53) + nav;
             case MODE_VIDEO:
-                return dp(2) + (videoAlbumId != null ? dp(46) : 0) + nav;
+                return dp(25) + (videoAlbumId != null ? dp(53) : 0) + nav;
             default:
                 return nav;
         }
     }
 
-    /** 细进度线：浅灰轨＋浅白已走＋白圆点（定稿禁红色）。 */
+    /** 细进度线（定稿 .pg-track：轨 rgba(白,.22)＋已走 rgba(白,.92)＋白点 9dp，禁红）。 */
     private View buildProgressLine() {
         FrameLayout track = new FrameLayout(this);
         View bg = new View(this);
-        bg.setBackgroundColor(0x55FFFFFF);
+        bg.setBackgroundColor(0x38FFFFFF);
         track.addView(bg, match());
         progressFill = new View(this);
-        progressFill.setBackgroundColor(0xD9FFFFFF);
+        progressFill.setBackgroundColor(0xEBFFFFFF);
         track.addView(progressFill, new FrameLayout.LayoutParams(0, -1));
         progressDot = new View(this);
         GradientDrawable dotBg = new GradientDrawable();
         dotBg.setShape(GradientDrawable.OVAL);
         dotBg.setColor(Color.WHITE);
         progressDot.setBackground(dotBg);
-        FrameLayout.LayoutParams dlp = new FrameLayout.LayoutParams(dp(8), dp(8));
+        FrameLayout.LayoutParams dlp = new FrameLayout.LayoutParams(dp(9), dp(9));
         dlp.gravity = Gravity.START | Gravity.CENTER_VERTICAL;
         track.addView(progressDot, dlp);
         progressWrap = track;
         return track;
+    }
+
+    /**
+     * 定稿 .p-progress 行：当前时间＋进度线＋总时长（11sp rgba(白,.75)）。
+     * 播放页与视频页共用；tick 里刷新文案与线。
+     */
+    private View buildProgressRow() {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(16), dp(10), dp(16), dp(12));
+        timeCurView = new TextView(this);
+        timeCurView.setText("0:00");
+        timeCurView.setTextColor(0xBFFFFFFF);
+        timeCurView.setTextSize(11);
+        row.addView(timeCurView, new LinearLayout.LayoutParams(dp(36), -2));
+        LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(0, dp(3), 1f);
+        row.addView(buildProgressLine(), llp);
+        timeDurView = new TextView(this);
+        timeDurView.setText("0:00");
+        timeDurView.setTextColor(0xBFFFFFFF);
+        timeDurView.setTextSize(11);
+        timeDurView.setGravity(Gravity.END);
+        row.addView(timeDurView, new LinearLayout.LayoutParams(dp(36), -2));
+        progressRow = row;
+        return row;
     }
 
     private void buildBottomAssemblies() {
@@ -560,43 +619,56 @@ public class HongguoFeedActivity extends AppCompatActivity {
         if (mode == MODE_FEED) {
             LinearLayout stack = new LinearLayout(this);
             stack.setOrientation(LinearLayout.VERTICAL);
-            stack.setBackgroundColor(Color.BLACK);
-            // 观看完整条（点击才进剧，从断点集开播）
+            stack.setBackgroundColor(Color.TRANSPARENT);
+            // 剧条灰带（定稿 .feed-dock #3A3A40，直角无圆角——
+            // 下圆 12 是验收打回的自创件、已摘）＋进度线贴剧条
+            // 下缘＋底栏黑色，两层分得开（他 21:01 定案）
+            LinearLayout watchWrap = new LinearLayout(this);
+            watchWrap.setOrientation(LinearLayout.VERTICAL);
+            GradientDrawable dockBg = new GradientDrawable();
+            dockBg.setColor(0xFF3A3A40);
+            watchWrap.setBackground(dockBg);
             LinearLayout watch = new LinearLayout(this);
             watch.setOrientation(LinearLayout.HORIZONTAL);
             watch.setGravity(Gravity.CENTER_VERTICAL);
-            watch.setPadding(dp(16), 0, dp(14), 0);
-            TextView playGlyph = new TextView(this);
-            playGlyph.setText("▶");
-            playGlyph.setTextColor(Color.WHITE);
-            playGlyph.setTextSize(10);
-            watch.addView(playGlyph);
+            watch.setPadding(dp(18), 0, dp(12), 0);
+            ImageView playBox = new ImageView(this);
+            playBox.setImageResource(R.drawable.ic_drama_play);
+            playBox.setColorFilter(0xFF19191C);
+            playBox.setBackground(roundBg(Color.WHITE, dp(7)));
+            playBox.setPadding(dp(6), dp(6), dp(6), dp(6));
+            watch.addView(playBox, new LinearLayout.LayoutParams(dp(24), dp(24)));
             watchText = new TextView(this);
             watchText.setTextColor(Color.WHITE);
-            watchText.setTextSize(13);
+            watchText.setTextSize(15);
+            watchText.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
             watchText.setMaxLines(1);
             watchText.setEllipsize(android.text.TextUtils.TruncateAt.END);
             LinearLayout.LayoutParams wlp = new LinearLayout.LayoutParams(0, -2, 1f);
-            wlp.leftMargin = dp(8);
+            wlp.leftMargin = dp(10);
             watch.addView(watchText, wlp);
-            TextView arrow = new TextView(this);
-            arrow.setText("›");
-            arrow.setTextColor(0xFFBDBDBD);
-            arrow.setTextSize(17);
-            watch.addView(arrow);
+            ImageView arrow = new ImageView(this);
+            arrow.setImageResource(R.drawable.ic_drama_back);
+            arrow.setColorFilter(Color.WHITE);
+            arrow.setRotation(180);
+            watch.addView(arrow, new LinearLayout.LayoutParams(dp(14), dp(14)));
             watch.setOnClickListener(v -> onWatchBarClick());
-            stack.addView(watch, new LinearLayout.LayoutParams(-1, dp(36)));
-            watchBar = watch;
-            stack.addView(buildProgressLine(), new LinearLayout.LayoutParams(-1, dp(2)));
-            // 底栏两签（与上两层同黑底贴成一整块；选中白色）
+            watchWrap.addView(watch, new LinearLayout.LayoutParams(-1, dp(42)));
+            watchWrap.addView(buildProgressLine(), new LinearLayout.LayoutParams(-1, dp(3)));
+            watchBar = watchWrap;
+            stack.addView(watchWrap);
+            // 底栏纯文字两签（黑 #202023；选中白＋粗、未选 rgba(白,.55)）；
+            // 定稿 .tabbar 总高 56＋手势区让位，签在高内垂直居中
             LinearLayout bar = new LinearLayout(this);
             bar.setOrientation(LinearLayout.HORIZONTAL);
-            bar.setPadding(0, 0, 0, nav);
-            LinearLayout.LayoutParams cell = new LinearLayout.LayoutParams(0, dp(50), 1f);
-            bar.addView(bottomCell(R.drawable.ic_drama_home, "首页", true, null), cell);
-            bar.addView(bottomCell(R.drawable.ic_drama_theater, "剧场", false,
+            bar.setGravity(Gravity.CENTER_VERTICAL);
+            bar.setBackgroundColor(0xFF202023);
+            bar.setPadding(dp(64), 0, dp(64), nav);
+            LinearLayout.LayoutParams cell = new LinearLayout.LayoutParams(0, -2, 1f);
+            bar.addView(bottomCell("首页", true, null), cell);
+            bar.addView(bottomCell("剧场", false,
                     v -> HongguoTheaterActivity.start(this)), cell);
-            stack.addView(bar);
+            stack.addView(bar, new LinearLayout.LayoutParams(-1, dp(56) + nav));
             bottomStack = stack;
             cleanBaseBottom = bottomBlockH() + dp(12);
             FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-1, -2);
@@ -605,30 +677,41 @@ public class HongguoFeedActivity extends AppCompatActivity {
         } else if (mode == MODE_SERIES) {
             LinearLayout stack = new LinearLayout(this);
             stack.setOrientation(LinearLayout.VERTICAL);
-            stack.addView(buildProgressLine(), new LinearLayout.LayoutParams(-1, dp(2)));
-            // 整宽选集条贴底：状态文案＋上箭头，右端留给清屏钮（覆盖层）
-            FrameLayout epBar = new FrameLayout(this);
-            epBar.setBackgroundColor(0xFF1C1C1E);
-            epBar.setPadding(0, 0, 0, nav);
+            stack.addView(buildProgressRow(), new LinearLayout.LayoutParams(-1, dp(25)));
+            // 定稿 .p-epbar：深灰 rgba(38,38,41,.94) 满宽贴底＋顶线，条内
+            // pill 拍平（文案 15.5 粗＋上 chevron），右端留给清屏钮
+            LinearLayout epBar = new LinearLayout(this);
+            epBar.setOrientation(LinearLayout.VERTICAL);
+            epBar.setBackgroundColor(0xF0262629);
+            View epTopLine = new View(this);
+            epTopLine.setBackgroundColor(0x12FFFFFF);
+            epBar.addView(epTopLine, new LinearLayout.LayoutParams(-1, 1));
+            LinearLayout epRow = new LinearLayout(this);
+            epRow.setOrientation(LinearLayout.HORIZONTAL);
+            epRow.setGravity(Gravity.CENTER_VERTICAL);
+            epRow.setPadding(dp(18), 0, dp(8), 0);
             epBarText = new TextView(this);
             epBarText.setTextColor(Color.WHITE);
-            epBarText.setTextSize(13.5f);
-            epBarText.setGravity(Gravity.CENTER_VERTICAL);
-            epBarText.setPadding(dp(16), 0, dp(64), 0);
-            epBar.addView(epBarText, new FrameLayout.LayoutParams(-1, -1));
-            TextView chevron = new TextView(this);
-            chevron.setText("∧");
-            chevron.setTextColor(0xFFBDBDBD);
-            chevron.setTextSize(15);
-            chevron.setGravity(Gravity.CENTER);
-            FrameLayout.LayoutParams chlp = new FrameLayout.LayoutParams(dp(30), -1);
-            chlp.gravity = Gravity.END;
-            chlp.rightMargin = dp(52);
-            epBar.addView(chevron, chlp);
+            epBarText.setTextSize(15.5f);
+            epBarText.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            epBarText.setMaxLines(1);
+            epBarText.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            epRow.addView(epBarText, new LinearLayout.LayoutParams(0, -2, 1f));
+            ImageView epChev = new ImageView(this);
+            epChev.setImageResource(R.drawable.ic_drama_back);
+            epChev.setColorFilter(Color.WHITE);
+            epChev.setRotation(-90);
+            LinearLayout.LayoutParams ecp = new LinearLayout.LayoutParams(dp(19), dp(19));
+            ecp.leftMargin = dp(6);
+            // 右 padding 给清屏钮（46 宽）让位：行内右侧留 54dp 空档
+            epRow.setPadding(dp(18), 0, dp(54), 0);
+            epRow.addView(epChev, ecp);
+            epBar.addView(epRow, new LinearLayout.LayoutParams(-1, dp(52)));
+            epBar.setPadding(0, 0, 0, nav);
             epBar.setOnClickListener(v -> showEpisodeSheet());
-            stack.addView(epBar, new LinearLayout.LayoutParams(-1, dp(48) + nav));
+            stack.addView(epBar, new LinearLayout.LayoutParams(-1, dp(53) + nav));
             bottomStack = stack;
-            cleanBaseBottom = nav + dp(3);
+            cleanBaseBottom = nav;
             cleanBaseRight = 8;
             FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-1, -2);
             lp.gravity = Gravity.BOTTOM;
@@ -636,38 +719,51 @@ public class HongguoFeedActivity extends AppCompatActivity {
         } else if (mode == MODE_VIDEO) {
             LinearLayout stack = new LinearLayout(this);
             stack.setOrientation(LinearLayout.VERTICAL);
-            stack.addView(buildProgressLine(), new LinearLayout.LayoutParams(-1, dp(2)));
+            stack.addView(buildProgressRow(), new LinearLayout.LayoutParams(-1, dp(25)));
             if (videoAlbumId != null) {
-                FrameLayout bar = new FrameLayout(this);
-                bar.setBackgroundColor(0xFF1C1C1E);
-                bar.setPadding(0, 0, 0, nav);
+                // 定稿 .s-collbar：与选集条同灰法，条内 pill 拍平
+                LinearLayout bar = new LinearLayout(this);
+                bar.setOrientation(LinearLayout.VERTICAL);
+                bar.setBackgroundColor(0xF0262629);
+                View abTopLine = new View(this);
+                abTopLine.setBackgroundColor(0x12FFFFFF);
+                bar.addView(abTopLine, new LinearLayout.LayoutParams(-1, 1));
                 LinearLayout inner = new LinearLayout(this);
                 inner.setOrientation(LinearLayout.HORIZONTAL);
                 inner.setGravity(Gravity.CENTER_VERTICAL);
-                inner.setPadding(dp(16), 0, dp(14), 0);
+                inner.setPadding(dp(18), 0, dp(12), 0);
                 TextView badge = new TextView(this);
                 badge.setText("集");
                 badge.setTextColor(Color.WHITE);
-                badge.setTextSize(10.5f);
+                badge.setTextSize(11);
+                badge.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
                 badge.setGravity(Gravity.CENTER);
-                badge.setBackground(roundBg(0xFF3A3A40, dp(4)));
-                inner.addView(badge, new LinearLayout.LayoutParams(dp(19), dp(19)));
+                GradientDrawable badgeBg = new GradientDrawable();
+                badgeBg.setColor(Color.TRANSPARENT);
+                badgeBg.setStroke(dp(1.4f), 0xD9FFFFFF);
+                badgeBg.setCornerRadius(dp(5));
+                badge.setBackground(badgeBg);
+                inner.addView(badge, new LinearLayout.LayoutParams(dp(21), dp(21)));
                 albumBarText = new TextView(this);
                 albumBarText.setTextColor(Color.WHITE);
-                albumBarText.setTextSize(13);
+                albumBarText.setTextSize(15.5f);
+                albumBarText.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
                 albumBarText.setMaxLines(1);
                 albumBarText.setEllipsize(android.text.TextUtils.TruncateAt.END);
                 LinearLayout.LayoutParams alp2 = new LinearLayout.LayoutParams(0, -2, 1f);
-                alp2.leftMargin = dp(9);
+                alp2.leftMargin = dp(10);
                 inner.addView(albumBarText, alp2);
-                TextView chevron = new TextView(this);
-                chevron.setText("∧");
-                chevron.setTextColor(0xFFBDBDBD);
-                chevron.setTextSize(15);
-                inner.addView(chevron);
-                bar.addView(inner, new FrameLayout.LayoutParams(-1, -1));
+                ImageView abChev = new ImageView(this);
+                abChev.setImageResource(R.drawable.ic_drama_back);
+                abChev.setColorFilter(Color.WHITE);
+                abChev.setRotation(-90);
+                LinearLayout.LayoutParams acp = new LinearLayout.LayoutParams(dp(14), dp(14));
+                acp.leftMargin = dp(6);
+                inner.addView(abChev, acp);
+                bar.addView(inner, new LinearLayout.LayoutParams(-1, dp(52)));
+                bar.setPadding(0, 0, 0, nav);
                 bar.setOnClickListener(v -> openAlbumSheet());
-                stack.addView(bar, new LinearLayout.LayoutParams(-1, dp(46) + nav));
+                stack.addView(bar, new LinearLayout.LayoutParams(-1, dp(53) + nav));
                 albumBar = bar;
             }
             bottomStack = stack;
@@ -676,9 +772,9 @@ public class HongguoFeedActivity extends AppCompatActivity {
             lp.gravity = Gravity.BOTTOM;
             root.addView(stack, lp);
         } else {
-            // MODE_UGC 旧入口：进度线贴底（原形态不动车）
+            // MODE_UGC 旧入口：进度线贴底（线高随定稿改 3dp）
             View line = buildProgressLine();
-            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-1, dp(2));
+            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-1, dp(3));
             lp.gravity = Gravity.BOTTOM;
             lp.bottomMargin = nav;
             root.addView(line, lp);
@@ -686,21 +782,17 @@ public class HongguoFeedActivity extends AppCompatActivity {
         }
     }
 
-    private View bottomCell(int icon, String label, boolean selected, View.OnClickListener click) {
-        LinearLayout c = new LinearLayout(this);
-        c.setOrientation(LinearLayout.VERTICAL);
-        c.setGravity(Gravity.CENTER);
-        ImageView iv = new ImageView(this);
-        iv.setImageResource(icon);
-        iv.setColorFilter(selected ? Color.WHITE : 0xFF8E8E96);
-        c.addView(iv, new LinearLayout.LayoutParams(dp(22), dp(22)));
+    /** 底栏纯文字签（他 21:02 定案：无图标；选中靠字色＋字重分）。 */
+    private View bottomCell(String label, boolean selected, View.OnClickListener click) {
         TextView t = new TextView(this);
         t.setText(label);
-        t.setTextSize(10);
-        t.setTextColor(selected ? Color.WHITE : 0xFF8E8E96);
-        c.addView(t);
-        if (click != null) c.setOnClickListener(click);
-        return c;
+        t.setTextSize(16.5f);
+        t.setGravity(Gravity.CENTER);
+        t.setLetterSpacing(0.04f);
+        t.setTextColor(selected ? Color.WHITE : 0x8CFFFFFF);
+        if (selected) t.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        if (click != null) t.setOnClickListener(click);
+        return t;
     }
 
     /** 首页观看完整条点击：正剧进播放页从断点开播、合集进视频页。 */
@@ -732,38 +824,26 @@ public class HongguoFeedActivity extends AppCompatActivity {
                 item.isFinished(), item.getEpisodeCount()));
     }
 
-    private void cycleSpeed() {
-        float cur = HgStore.getSpeed();
-        float[] speeds = HgPanelLogic.SPEEDS;
-        int idx = 0;
-        for (int i = 0; i < speeds.length; i++) {
-            if (speeds[i] == cur) {
-                idx = i;
-                break;
-            }
-        }
-        float next = speeds[(idx + 1) % speeds.length];
-        HgStore.setSpeed(next);
-        if (player != null && !boosting) player.setPlaybackSpeed(next);
-        if (speedBtn != null) speedBtn.setText(HgPanelLogic.speedLabel(next));
-    }
-
     private void buildOverlays() {
         // 进度线已随底部整块在 buildBottomAssemblies 建好（progressWrap）
-        // 清屏钮（右下；播放页落在选集条右端内）：按下清屏、全隐只剩它且变淡
-        cleanBtn = new TextView(this);
-        cleanBtn.setBackground(roundBg(0x66000000, dp(10)));
-        cleanBtn.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_drama_exitfull, 0, 0, 0);
-        cleanBtn.setGravity(Gravity.CENTER);
-        cleanBtn.setPadding(dp(9), dp(9), dp(9), dp(9));
-        cleanBtn.setOnClickListener(v -> setCleanMode(!cleanMode));
-        FrameLayout.LayoutParams clp = new FrameLayout.LayoutParams(dp(42), dp(42));
-        clp.gravity = Gravity.END | Gravity.BOTTOM;
-        clp.rightMargin = dp(cleanBaseRight);
-        clp.bottomMargin = cleanBaseBottom;
-        root.addView(cleanBtn, clp);
+        // 清屏钮只建正剧播放页一面（triage2 §4.1：刷流/短片面与右列评论
+        // 钮近全叠且截点击）：46×52 图标钮落选集条右端内，按下清屏、
+        // 全隐只剩它且变淡（alpha .42）
+        if (mode == MODE_SERIES) {
+            cleanBtn = new ImageView(this);
+            cleanBtn.setImageResource(R.drawable.ic_drama_exitfull);
+            cleanBtn.setColorFilter(Color.WHITE);
+            cleanBtn.setPadding(dp(9), dp(12), dp(10), dp(13));
+            cleanBtn.setOnClickListener(v -> setCleanMode(!cleanMode));
+            FrameLayout.LayoutParams clp = new FrameLayout.LayoutParams(dp(46), dp(52));
+            clp.gravity = Gravity.END | Gravity.BOTTOM;
+            clp.rightMargin = dp(cleanBaseRight);
+            clp.bottomMargin = cleanBaseBottom;
+            root.addView(cleanBtn, clp);
+        }
 
-        // 倍速胶囊
+        // 长按倍速提示药丸（只播放页：长按快进是播放页规格，刷流已摘，
+        // 定根见 redo 账「2.0x 快进中」节）
         boostPill = new TextView(this);
         boostPill.setText("2.0x 快进中");
         boostPill.setTextColor(Color.WHITE);
@@ -776,30 +856,19 @@ public class HongguoFeedActivity extends AppCompatActivity {
         blp.topMargin = dp(64) + statusBarHeight();
         root.addView(boostPill, blp);
 
-        // 中央播放/暂停闪标
+        // 中央播放/暂停闪标（定稿：暂停时显的 74dp 玻璃圆，此处是点按闪烁件）
         centerFlash = new ImageView(this);
         centerFlash.setColorFilter(0xE6FFFFFF);
-        centerFlash.setBackground(roundBg(0x59000000, dp(32)));
-        centerFlash.setPadding(dp(14), dp(14), dp(14), dp(14));
+        GradientDrawable cfBg = new GradientDrawable();
+        cfBg.setShape(GradientDrawable.OVAL);
+        cfBg.setColor(0x57140C0C);
+        cfBg.setStroke(dp(1), 0x2EFFFFFF);
+        centerFlash.setBackground(cfBg);
+        centerFlash.setPadding(dp(16), dp(16), dp(16), dp(16));
         centerFlash.setVisibility(View.GONE);
-        FrameLayout.LayoutParams flp = new FrameLayout.LayoutParams(dp(64), dp(64));
+        FrameLayout.LayoutParams flp = new FrameLayout.LayoutParams(dp(74), dp(74));
         flp.gravity = Gravity.CENTER;
         root.addView(centerFlash, flp);
-
-        // 发弹幕药丸（左下）
-        danmakuPill = new TextView(this);
-        danmakuPill.setText("发弹幕…");
-        danmakuPill.setTextColor(0xDDFFFFFF);
-        danmakuPill.setTextSize(12.5f);
-        danmakuPill.setBackground(roundBg(0x59000000, dp(16)));
-        danmakuPill.setPadding(dp(14), dp(7), dp(14), dp(7));
-        danmakuPill.setOnClickListener(v -> HgFeedPanels.showDanmakuSend(this, host()));
-        FrameLayout.LayoutParams dlp = new FrameLayout.LayoutParams(-2, -2);
-        dlp.gravity = Gravity.START | Gravity.BOTTOM;
-        dlp.leftMargin = dp(14);
-        dlp.bottomMargin = bottomBlockH() + dp(58);
-        root.addView(danmakuPill, dlp);
-        danmakuPill.setVisibility(HgStore.isDanmakuOn() ? View.VISIBLE : View.GONE);
 
         // 整页状态（加载/失败/空，点按重试）
         LinearLayout state = new LinearLayout(this);
@@ -829,82 +898,150 @@ public class HongguoFeedActivity extends AppCompatActivity {
     }
 
     private void buildDrawer() {
+        // 定稿 .drawer：宽 79%、浅底 #FBFAF8、右侧圆角 26、遮罩
+        // rgba(10,8,8,.48)；整块黑是他 20:48 点名的错、已弃
         drawerScrim = new View(this);
-        drawerScrim.setBackgroundColor(0x66000000);
+        drawerScrim.setBackgroundColor(0x7A0A0808);
         drawerScrim.setVisibility(View.GONE);
         drawerScrim.setOnClickListener(v -> closeDrawer());
         root.addView(drawerScrim, match());
 
+        drawerWidthPx = (int) (getResources().getDisplayMetrics().widthPixels * 0.79f);
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setBackgroundColor(0xFF1C1C1E);
-        panel.setPadding(dp(20), dp(24) + statusBarHeight(), dp(20), dp(20));
-        // 定稿：抽屉打开直接是片库两行（直达独立页）＋播放设置，
+        GradientDrawable panelBg = new GradientDrawable();
+        panelBg.setColor(0xFFFBFAF8);
+        float pr = dp(26);
+        panelBg.setCornerRadii(new float[]{0, 0, pr, pr, pr, pr, 0, 0});
+        panel.setBackground(panelBg);
+        panel.setPadding(dp(20), statusBarHeight() + dp(32), dp(20), dp(18));
+        // 台面只许他定的几样：片库两行＋播放设置两开关＋清缓存，
         // 无「我的」大卡、无小说历史行
-        panel.addView(drawerAction("观看历史", v -> {
+        panel.addView(drawerHead("片库", false));
+        panel.addView(drawerAction(R.drawable.ic_drama_mine, "观看历史", v -> {
             closeDrawerNow();
             HongguoMineActivity.startHistory(this);
         }));
-        panel.addView(drawerAction("我的收藏", v -> {
+        panel.addView(drawerAction(R.drawable.ic_drama_star, "我的收藏", v -> {
             closeDrawerNow();
             HongguoMineActivity.startFav(this);
         }));
-        TextView settingsLabel = new TextView(this);
-        settingsLabel.setText("播放设置");
-        settingsLabel.setTextColor(0xFF8E8E96);
-        settingsLabel.setTextSize(12.5f);
-        LinearLayout.LayoutParams sllp = new LinearLayout.LayoutParams(-2, -2);
-        sllp.topMargin = dp(18);
-        panel.addView(settingsLabel, sllp);
-        panel.addView(drawerSwitch("启动直达短剧", HgStore.isLaunchDirect(),
-                on -> HgStore.setLaunchDirect(on)));
-        panel.addView(drawerSwitch("弹幕", HgStore.isDanmakuOn(), on -> {
-            HgStore.setDanmakuOn(on);
-            applyDanmakuVisibility();
-        }));
-        panel.addView(drawerSwitch("自动连播", HgStore.isAutoNext(),
-                on -> HgStore.setAutoNext(on)));
-        panel.addView(drawerAction("清红果缓存", v -> {
+        panel.addView(drawerHead("播放设置", true));
+        panel.addView(drawerSwitch(R.drawable.ic_drama_play, "启动直达短剧",
+                HgStore.isLaunchDirect(), on -> HgStore.setLaunchDirect(on)));
+        panel.addView(drawerSwitch(R.drawable.ic_drama_comment, "弹幕",
+                HgStore.isDanmakuOn(), on -> {
+                    HgStore.setDanmakuOn(on);
+                    applyDanmakuVisibility();
+                }));
+        // 「自动连播」开关行整行摘除（他 2026-10-30 21:42 亲令）：
+        // 连播改内置常开、不再给开关（HgStore.isAutoNext 恒真）
+        panel.addView(drawerAction(R.drawable.ic_drama_close, "清红果缓存", v -> {
             DramaCache.clear();
             closeDrawer();
             Toast.makeText(this, "缓存已清", Toast.LENGTH_SHORT).show();
         }));
+        View spacer = new View(this);
+        panel.addView(spacer, new LinearLayout.LayoutParams(-1, 0, 1f));
+        // 定稿 .d-foot：绿点＋本地模式说明
+        LinearLayout foot = new LinearLayout(this);
+        foot.setOrientation(LinearLayout.HORIZONTAL);
+        foot.setGravity(Gravity.CENTER_VERTICAL);
+        View dot = new View(this);
+        GradientDrawable dotBg = new GradientDrawable();
+        dotBg.setShape(GradientDrawable.OVAL);
+        dotBg.setColor(0xFF3E8E6E);
+        dot.setBackground(dotBg);
+        foot.addView(dot, new LinearLayout.LayoutParams(dp(6), dp(6)));
+        TextView footText = new TextView(this);
+        footText.setText("本地模式 · 记录只存这台手机");
+        footText.setTextColor(0xFF8A8A93);
+        footText.setTextSize(12);
+        LinearLayout.LayoutParams ftlp = new LinearLayout.LayoutParams(-2, -2);
+        ftlp.leftMargin = dp(7);
+        foot.addView(footText, ftlp);
+        panel.addView(foot);
         drawerPanel = panel;
         panel.setVisibility(View.GONE);
-        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(dp(260), -1);
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(drawerWidthPx, -1);
         lp.gravity = Gravity.START;
         root.addView(panel, lp);
+    }
+
+    private TextView drawerHead(String text, boolean gapAbove) {
+        TextView t = new TextView(this);
+        t.setText(text);
+        t.setTextColor(0xFF8A8A93);
+        t.setTextSize(12);
+        t.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        t.setLetterSpacing(0.14f);
+        t.setPadding(dp(2), gapAbove ? dp(20) : 0, 0, dp(4));
+        return t;
     }
 
     private interface BoolSetter {
         void set(boolean on);
     }
 
-    private View drawerSwitch(String label, boolean initial, BoolSetter setter) {
+    /** 抽屉行左段：34dp 图标盒（定稿 .d-ic 近似——草稿是定制线图标，树里没有，用现有 drawable 近似，账里已记）。 */
+    private FrameLayout drawerIconBox(int res) {
+        FrameLayout box = new FrameLayout(this);
+        box.setBackground(roundBg(0x0D1B1B1F, dp(10)));
+        ImageView iv = new ImageView(this);
+        iv.setImageResource(res);
+        iv.setColorFilter(0xFF55555E);
+        iv.setPadding(dp(8), dp(8), dp(8), dp(8));
+        box.addView(iv, new FrameLayout.LayoutParams(dp(34), dp(34)));
+        return box;
+    }
+
+    private View drawerSwitch(int icon, String label, boolean initial, BoolSetter setter) {
+        LinearLayout outer = new LinearLayout(this);
+        outer.setOrientation(LinearLayout.VERTICAL);
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(0, dp(14), 0, dp(14));
+        row.setPadding(dp(2), dp(13), dp(2), dp(13));
+        row.addView(drawerIconBox(icon), new LinearLayout.LayoutParams(dp(34), dp(34)));
         TextView t = new TextView(this);
         t.setText(label);
-        t.setTextColor(0xFFEEEEEE);
-        t.setTextSize(15);
-        row.addView(t, new LinearLayout.LayoutParams(0, -2, 1f));
-        android.widget.Switch sw = new android.widget.Switch(this);
-        sw.setChecked(initial);
-        sw.setOnCheckedChangeListener((b, on) -> setter.set(on));
-        row.addView(sw);
-        return row;
+        t.setTextColor(0xFF1B1B1F);
+        t.setTextSize(14.5f);
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(0, -2, 1f);
+        tlp.leftMargin = dp(12);
+        row.addView(t, tlp);
+        HgSwitch sw = new HgSwitch(this);
+        sw.setChecked(initial, false);
+        sw.setOnToggleListener(setter::set);
+        row.addView(sw, new LinearLayout.LayoutParams(dp(46), dp(27)));
+        outer.addView(row);
+        View div = new View(this);
+        div.setBackgroundColor(0x121B1B1F);
+        outer.addView(div, new LinearLayout.LayoutParams(-1, 1));
+        return outer;
     }
 
-    private View drawerAction(String label, View.OnClickListener click) {
+    private View drawerAction(int icon, String label, View.OnClickListener click) {
+        LinearLayout outer = new LinearLayout(this);
+        outer.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(2), dp(13), dp(2), dp(13));
+        row.addView(drawerIconBox(icon), new LinearLayout.LayoutParams(dp(34), dp(34)));
         TextView t = new TextView(this);
         t.setText(label);
-        t.setTextColor(0xFFEEEEEE);
-        t.setTextSize(15);
-        t.setPadding(0, dp(14), 0, dp(14));
-        t.setOnClickListener(click);
-        return t;
+        t.setTextColor(0xFF1B1B1F);
+        t.setTextSize(14.5f);
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(0, -2, 1f);
+        tlp.leftMargin = dp(12);
+        row.addView(t, tlp);
+        outer.addView(row);
+        View div = new View(this);
+        div.setBackgroundColor(0x121B1B1F);
+        outer.addView(div, new LinearLayout.LayoutParams(-1, 1));
+        outer.setOnClickListener(click);
+        return outer;
     }
 
     /** 抽屉开合不许硬切：面板左滑入＋暗幕淡入，关时反向（HgTransition 同族口径）。 */
@@ -916,7 +1053,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
         drawerScrim.animate().alpha(1f).setDuration(200)
                 .setInterpolator(new DecelerateInterpolator());
         drawerPanel.setVisibility(View.VISIBLE);
-        drawerPanel.setTranslationX(-dp(260));
+        drawerPanel.setTranslationX(-drawerWidthPx);
         drawerPanel.animate().translationX(0f).setDuration(220)
                 .setInterpolator(new DecelerateInterpolator());
     }
@@ -925,7 +1062,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
         if (drawerPanel.getVisibility() != View.VISIBLE) return;
         drawerScrim.animate().alpha(0f).setDuration(180)
                 .setInterpolator(new AccelerateInterpolator());
-        drawerPanel.animate().translationX(-dp(260)).setDuration(180)
+        drawerPanel.animate().translationX(-drawerWidthPx).setDuration(180)
                 .setInterpolator(new AccelerateInterpolator())
                 .withEndAction(() -> {
                     drawerScrim.setVisibility(View.GONE);
@@ -952,6 +1089,27 @@ public class HongguoFeedActivity extends AppCompatActivity {
         iv.setPadding(dp(8), dp(8), dp(8), dp(8));
         iv.setOnClickListener(click);
         return iv;
+    }
+
+    /** 定稿玻璃圆钮（.glass/.p-back-btn）：底 rgba(14,12,12,.34)＋内环 rgba(255,255,255,.18)，38dp。 */
+    private ImageView glassIconBtn(int res, View.OnClickListener click) {
+        ImageView iv = new ImageView(this);
+        GradientDrawable g = new GradientDrawable();
+        g.setShape(GradientDrawable.OVAL);
+        g.setColor(0x570E0C0C);
+        g.setStroke(dp(1), 0x2EFFFFFF);
+        iv.setBackground(g);
+        iv.setImageResource(res);
+        iv.setColorFilter(Color.WHITE);
+        iv.setPadding(dp(9), dp(9), dp(9), dp(9));
+        iv.setOnClickListener(click);
+        return iv;
+    }
+
+    /** 进度行时间签文案（定稿 .p-time）：m:ss。 */
+    private static String fmtTime(long ms) {
+        long s = Math.max(0, ms) / 1000;
+        return (s / 60) + ":" + String.format(java.util.Locale.US, "%02d", s % 60);
     }
 
     private GradientDrawable roundBg(int color, float radius) {
@@ -1009,7 +1167,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
                         if (items.isEmpty()) showState("取数据失败，点按重试", false);
                     });
                 }
-            });
+            }, true);
         } else {
             DramaClient.fetchChannelMore(continuation, new HgCallback<com.fongmi.android.tv.hongguo.drama.DramaCellPage>() {
                 @Override
@@ -1021,7 +1179,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
                 public void onError(int code, String msg) {
                     runOnUiThread(() -> loadingPage = false);
                 }
-            });
+            }, true);
         }
     }
 
@@ -1212,11 +1370,20 @@ public class HongguoFeedActivity extends AppCompatActivity {
                     detailCache.put(seriesIdArg, detail);
                     episodes = detail.getEpisodes();
                     items.clear();
-                    String firstVid = episodes.isEmpty() ? null : episodes.get(0).getVideoId();
-                    items.add(DramaItem.fromDetail(detail.getSeriesId(), detail.getTitle(),
-                            detail.getCoverUrl(), detail.getDesc(), detail.getEpisodeCount(),
-                            firstVid, detail.getSeriesStatus(), detail.getAuthorName(),
-                            null, detail.getAuthorUid(), detail.getContentType(), -1));
+                    // 逐集分页（D4）：一集一条目一页，上下滑即换集；
+                    // 条目除 vid 外同源（剧名/封面/作者都取详情）
+                    for (DramaDetail.Episode ep : episodes) {
+                        items.add(DramaItem.fromDetail(detail.getSeriesId(), detail.getTitle(),
+                                detail.getCoverUrl(), detail.getDesc(), detail.getEpisodeCount(),
+                                ep.getVideoId(), detail.getSeriesStatus(), detail.getAuthorName(),
+                                null, detail.getAuthorUid(), detail.getContentType(), -1));
+                    }
+                    if (items.isEmpty()) {
+                        items.add(DramaItem.fromDetail(detail.getSeriesId(), detail.getTitle(),
+                                detail.getCoverUrl(), detail.getDesc(), detail.getEpisodeCount(),
+                                null, detail.getSeriesStatus(), detail.getAuthorName(),
+                                null, detail.getAuthorUid(), detail.getContentType(), -1));
+                    }
                     adapter.notifyDataSetChanged();
                     hideState();
                     int startEp = getIntent().getIntExtra(EXTRA_EPISODE, 0);
@@ -1224,10 +1391,19 @@ public class HongguoFeedActivity extends AppCompatActivity {
                         HgStore.Progress p = HgStore.progressOf(seriesIdArg);
                         startEp = p != null ? p.episodeIndex : 1;
                     }
-                    currentEpisodeIndex = Math.max(1, startEp);
+                    startEp = Math.max(1, Math.min(startEp, Math.max(1, items.size())));
+                    // 进页钉位（自动进剧高光支带入）：登记到起始集，
+                    // 首集 playEpisode 时消费（盖过断点存档）
+                    long startMs = getIntent().getLongExtra(EXTRA_START_MS, -1);
+                    if (startMs >= 0) {
+                        entrySeekEp = startEp;
+                        entrySeekMs = startMs;
+                    }
+                    currentEpisodeIndex = startEp;
                     feedStartPending = true;
-                    pager.scrollToPosition(0);
-                    main.post(() -> settleTo(0));
+                    final int startPos = startEp - 1;
+                    pager.scrollToPosition(startPos);
+                    main.post(() -> settleTo(startPos));
                 });
             }
 
@@ -1251,13 +1427,25 @@ public class HongguoFeedActivity extends AppCompatActivity {
         if (index == currentIndex && currentVid != null && player != null) return;
         saveProgressNow();
         currentIndex = index;
+        if (mode == MODE_FEED) {
+            // D7：流内线是本条的历史进度线，先清零，时长到手后按
+            // 存档定版（tick 内一次性），不跟实时播放走
+            feedLineIndex = index;
+            feedLineDone = false;
+            applyFeedLine(0f);
+        }
         DramaItem item = items.get(index);
         currentSeriesId = item.getSeriesId();
         mountPlayerView(index);
         bindRailState(index);
         updateWatchBar();
         if (mode == MODE_SERIES) {
-            playEpisode(currentEpisodeIndex, true);
+            // 逐集分页（D4）：页序号即集序；选集跳集/播完连播滑来的
+            // 页从头播，手动滑来/初入的页按断点续播
+            boolean fromHead = sheetJumpEp == index + 1 || autoNextEp == index + 1;
+            sheetJumpEp = 0;
+            autoNextEp = 0;
+            playEpisode(index + 1, !fromHead);
         } else if (mode == MODE_VIDEO && videoAlbumId != null) {
             currentEpisodeIndex = 1;
             playAlbumRow(item);
@@ -1267,7 +1455,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
         } else {
             playFeedItem(item);
         }
-        prefetchNeighbors(index);
+        schedulePrefetch(index);
         if (mode == MODE_FEED) saveFeedPosDelayed();
     }
 
@@ -1303,21 +1491,12 @@ public class HongguoFeedActivity extends AppCompatActivity {
 
     private void playFeedItem(DramaItem item) {
         String sid = item.getSeriesId();
-        // 有断点先取详情定集（同集续播），无断点直接播条目自带 vid
-        HgStore.Progress p = sid == null ? null : HgStore.progressOf(sid);
-        if (p != null && p.episodeIndex > 1 && sid != null) {
-            ensureDetail(sid, detail -> {
-                if (detail != null && detail.getEpisodes().size() >= p.episodeIndex) {
-                    currentEpisodeIndex = p.episodeIndex;
-                    playVid(detail.getEpisodes().get(p.episodeIndex - 1).getVideoId(),
-                            detail.getContentType(), p.positionMs);
-                    return;
-                }
-                playVid(item.getVid(), item.contentType, 0);
-            });
-            return;
-        }
-        currentEpisodeIndex = 1;
+        // D3（互动账 §2）：流内恒播条目自带 vid 本身（服务端推的
+        // 那一集），不许换成断点集、也不按断点秒数起播——断点只
+        // 用于手动进剧。进度按被推集集序记账：vidIndex 现成优先，
+        // 缺失时按 vid 在详情集表定位（只为记账，不改播什么）。
+        feedEpIndex = item.vidIndex > 0 ? item.vidIndex : 1;
+        currentEpisodeIndex = feedEpIndex;
         if (item.getVid() == null) {
             // 正剧条没带内联 vid：走详情定首集（与合集行同路）；详情
             // 空/失败落失败呈现，封面不许当内容停在流里。
@@ -1330,16 +1509,27 @@ public class HongguoFeedActivity extends AppCompatActivity {
                     showPlayFailure();
                     return;
                 }
+                feedEpIndex = 1;
+                currentEpisodeIndex = 1;
                 playVid(detail.getEpisodes().get(0).getVideoId(),
                         detail.getContentType(), 0);
             });
             return;
         }
-        if (p != null && p.positionMs > 0) {
-            playVid(item.getVid(), item.contentType, p.positionMs);
-        } else {
-            playVid(item.getVid(), item.contentType, 0);
+        if (item.vidIndex <= 0 && sid != null) {
+            final String vid = item.getVid();
+            ensureDetail(sid, detail -> {
+                if (detail == null || !vid.equals(currentVid)) return;
+                for (int i = 0; i < detail.getEpisodes().size(); i++) {
+                    if (vid.equals(detail.getEpisodes().get(i).getVideoId())) {
+                        feedEpIndex = i + 1;
+                        currentEpisodeIndex = feedEpIndex;
+                        break;
+                    }
+                }
+            });
         }
+        playVid(item.getVid(), item.contentType, 0);
     }
 
     private String feedKeyOf(DramaItem item) {
@@ -1383,7 +1573,13 @@ public class HongguoFeedActivity extends AppCompatActivity {
         currentEpisodeIndex = idx;
         DramaDetail.Episode ep = episodes.get(idx - 1);
         long seek = 0;
-        if (resume && seriesIdArg != null) {
+        if (entrySeekEp == idx && entrySeekMs >= 0) {
+            // 进页钉位（自动进剧高光支带入的流内当前毫秒）：盖过
+            // 断点存档（官方 ForceStartTime 优先于本地存档），消费即清
+            seek = entrySeekMs;
+            entrySeekEp = -1;
+            entrySeekMs = -1;
+        } else if (resume && seriesIdArg != null) {
             HgStore.Progress p = HgStore.progressOf(seriesIdArg);
             if (p != null && p.episodeIndex == idx) seek = p.positionMs;
         }
@@ -1396,7 +1592,6 @@ public class HongguoFeedActivity extends AppCompatActivity {
     private void updateSeriesChrome() {
         if (mode != MODE_SERIES) return;
         seriesTitleView.setText("第" + currentEpisodeIndex + "集");
-        if (speedBtn != null) speedBtn.setText(HgPanelLogic.speedLabel(HgStore.getSpeed()));
         if (epBarText != null) {
             DramaDetail d = detailCache.get(seriesIdArg);
             boolean finished = d != null && d.getSeriesStatus() != null && d.getSeriesStatus() == 1;
@@ -1408,7 +1603,15 @@ public class HongguoFeedActivity extends AppCompatActivity {
 
     public void playEpisodeFromSheet(int episodeIndex) {
         if (mode == MODE_SERIES) {
-            playEpisode(episodeIndex, false);
+            // 逐集分页（D4）：跳集＝滑到那一集的页，settle 落位后
+            // 从头播；已在该页则直接从头重播
+            int target = episodeIndex - 1;
+            if (target == currentIndex) {
+                playEpisode(episodeIndex, false);
+            } else {
+                sheetJumpEp = episodeIndex;
+                pager.scrollToPosition(target);
+            }
         } else {
             // 频道流：当前条的选集——取详情后在本页切到该集播
             String sid = currentSeriesId;
@@ -1485,6 +1688,8 @@ public class HongguoFeedActivity extends AppCompatActivity {
 
         @Override
         public void onPlayerError(@NonNull androidx.media3.common.PlaybackException error) {
+            android.util.Log.w("HongguoFeed", "player error vid=" + currentVid
+                    + " code=" + error.errorCodeName);
             showPlayFailure();
         }
     };
@@ -1511,6 +1716,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
         ensurePlayer();
         stopBoost();
         currentVid = vid;
+        scrubbedCurrent = false;
         firstFrameForVid = false;
         if (mode == MODE_FEED) armFeedWatchdog(vid);
         prefetchedNext = false;
@@ -1539,6 +1745,10 @@ public class HongguoFeedActivity extends AppCompatActivity {
             @Override
             public void onFailed(String videoId, String code, String message) {
                 if (!videoId.equals(currentVid)) return;
+                // 失败码留痕（E1 取模型/E2 无档/E3 链空/E4 DEK/E5 注册）：
+                // 失败态 UI 不分码，下次真机复现靠这行定段（账 triage2 二）。
+                android.util.Log.w("HongguoFeed", "resolve failed vid=" + videoId
+                        + " code=" + code + " msg=" + message);
                 showPlayFailure();
             }
         });
@@ -1566,12 +1776,112 @@ public class HongguoFeedActivity extends AppCompatActivity {
             Toast.makeText(this, "定时关闭：已播完本剧", Toast.LENGTH_SHORT).show();
             return;
         }
-        if (!HgStore.isAutoNext()) return;
+        // 播完分流（互动账 §2 官方 T1/J8 判序的咱家落位）：
+        // completeMode 是服务端逐页下发值、咱家取数面未收，按
+        // 条目类型定默认分支；isAutoNext 在流里的门控已摘除——
+        // 连集是播放页内置常开行为，流里不许拿它滑下一条。
         if (mode == MODE_SERIES) {
-            if (currentEpisodeIndex < episodes.size()) playEpisode(currentEpisodeIndex + 1, false);
-        } else if (currentIndex + 1 < items.size()) {
-            pager.smoothScrollToPosition(currentIndex + 1);
+            // 播放页连集（D4 分页形态）：滑到下一集页，settle
+            // 落位从头播；最后一集播完停住（定时「播完本剧」
+            // 已在上方拦截）
+            if (currentIndex + 1 < items.size()) {
+                autoNextEp = currentIndex + 2;
+                pager.smoothScrollToPosition(currentIndex + 1);
+            }
+            return;
         }
+        if (mode == MODE_VIDEO) {
+            if (videoAlbumId != null) {
+                // 合集完播：停在本页、不跳页不滑走（官方合集完播门）
+                if (player != null) player.setPlayWhenReady(false);
+            } else {
+                // 单条短片页：循环重播
+                replayCurrent();
+            }
+            return;
+        }
+        if (mode == MODE_UGC) {
+            // UGC 带合集条 → 循环重播（官方 T1 第 5 路）
+            replayCurrent();
+            return;
+        }
+        // MODE_FEED
+        DramaItem item = currentIndex >= 0 && currentIndex < items.size()
+                ? items.get(currentIndex) : null;
+        if (item == null) return;
+        if (scrubbedCurrent || loadingPage) {
+            // 拖过进度／流刷新（续页）中：循环重播（官方 T1 第 2/4 路）
+            replayCurrent();
+            return;
+        }
+        switch (item.kind) {
+            case SERIES:
+                // D1（按官方包选集规则，互动账 §五.1；他先前「从第一
+                // 集」口径已被包内逐行实证覆盖、22:36 他拍板按包规则
+                // 改）：落点按被推集 vidIndex 与 isNext 分——isNext
+                // 为真（正片集素材及其余条目）落下一集从头、已是末集
+                // 回落同一集；isNext 为假（高光/片段类素材，判定见
+                // DramaItem.isHighlightFragment 原式）落同一集、带流
+                // 里当前毫秒续看。不滑下一条流条目、不在流里连集。
+                if (item.getSeriesId() != null) {
+                    int total = item.getEpisodeCount();
+                    int vi = item.vidIndex;
+                    // 被推集集序原值缺失时以 D3 记账集序兜底
+                    // （feedEpIndex 已按 vid 在集表定位过）
+                    int pushed = vi > 0 ? vi : Math.max(1, feedEpIndex);
+                    if (vi > 0 && total > 0 && vi >= total) {
+                        // 官方 P8/Q8：被推集正是末集时弹（官方两句
+                        // 按完结态分：完结＝最后一集、连载＝最新一集）
+                        Toast.makeText(this, item.isFinished()
+                                        ? "当前已是最后一集" : "当前已是最新一集",
+                                Toast.LENGTH_SHORT).show();
+                    }
+                    if (item.isHighlightFragment()) {
+                        long ms = player != null
+                                ? Math.max(0, player.getCurrentPosition()) : 0;
+                        startSeries(this, item.getSeriesId(), item.getTitle(),
+                                pushed, ms);
+                    } else if (total > 0 && pushed >= total) {
+                        startSeries(this, item.getSeriesId(), item.getTitle(), pushed);
+                    } else {
+                        startSeries(this, item.getSeriesId(), item.getTitle(), pushed + 1);
+                    }
+                }
+                break;
+            case ALBUM:
+                // 合集完播：停在当前条、不跳页不滑走
+                if (player != null) player.setPlayWhenReady(false);
+                break;
+            default:
+                // UGC 短片（带合集条与否同路）：循环重播——流里
+                // 没有它的下一集可连，进剧路只属于正剧
+                replayCurrent();
+                break;
+        }
+    }
+
+    /** 循环重播当前条（官方播完判序的循环路各分支共用）。 */
+    private void replayCurrent() {
+        if (player == null) return;
+        player.seekTo(0);
+        player.setPlayWhenReady(true);
+    }
+
+    private int prefetchIndex = -1;
+
+    private final Runnable prefetchRunnable = () -> {
+        if (prefetchIndex == currentIndex) prefetchNeighbors(prefetchIndex);
+    };
+
+    /**
+     * 邻条备链排程：停稳后延迟 2.5 秒才发（快刷连划自动作废旧排程），
+     * 且走推测口——备链与正片取链同秒对撞、又替正片把自家面打进
+     * 冷却，是「第一条能播、后面全灭」的两段成因（账 triage2 五）。
+     */
+    private void schedulePrefetch(int index) {
+        prefetchIndex = index;
+        main.removeCallbacks(prefetchRunnable);
+        main.postDelayed(prefetchRunnable, 2500);
     }
 
     private void prefetchNeighbors(int index) {
@@ -1592,8 +1902,25 @@ public class HongguoFeedActivity extends AppCompatActivity {
                 @Override
                 public void onError(int c, String m) {
                 }
-            });
+            }, true);
         }
+    }
+
+    /** D7 历史进度线落位（FEED 剧条下缘那条）：按存档比例设填充宽＋点位。 */
+    private void applyFeedLine(float pct) {
+        if (progressWrap == null || progressFill == null) return;
+        progressWrap.post(() -> {
+            if (progressFill == null) return;
+            int w = progressWrap.getWidth();
+            FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) progressFill.getLayoutParams();
+            lp.width = (int) (w * Math.max(0f, Math.min(1f, pct)));
+            progressFill.setLayoutParams(lp);
+            if (progressDot != null) {
+                FrameLayout.LayoutParams dlp = (FrameLayout.LayoutParams) progressDot.getLayoutParams();
+                dlp.leftMargin = Math.max(0, lp.width - dp(4));
+                progressDot.setLayoutParams(dlp);
+            }
+        });
     }
 
     private final Runnable ticker = new Runnable() {
@@ -1617,14 +1944,33 @@ public class HongguoFeedActivity extends AppCompatActivity {
         long pos = player.getCurrentPosition();
         long dur = player.getDuration();
         if (dur > 0) {
-            FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) progressFill.getLayoutParams();
-            int w = progressWrap.getWidth();
-            lp.width = (int) (w * Math.min(1f, pos * 1f / dur));
-            progressFill.setLayoutParams(lp);
-            if (progressDot != null) {
-                FrameLayout.LayoutParams dlp2 = (FrameLayout.LayoutParams) progressDot.getLayoutParams();
-                dlp2.leftMargin = Math.max(0, lp.width - dp(4));
-                progressDot.setLayoutParams(dlp2);
+            // 播放页/视频页进度行两侧时间签同步（FEED/UGC 无此行、字段为 null）
+            if (timeCurView != null) timeCurView.setText(fmtTime(pos));
+            if (timeDurView != null) timeDurView.setText(fmtTime(dur));
+            if (mode == MODE_FEED) {
+                // D7：流内线只画本条历史进度（存档位÷本集时长），
+                // 时长到手后定版一次，之后不跟实时播放走——底部
+                // 全局实时线是已摘的自创形态
+                if (!feedLineDone && feedLineIndex == currentIndex) {
+                    feedLineDone = true;
+                    float pct = 0f;
+                    HgStore.Progress hp = currentSeriesId == null ? null
+                            : HgStore.progressOf(currentSeriesId);
+                    if (hp != null && hp.episodeIndex == feedEpIndex && hp.positionMs > 0) {
+                        pct = Math.min(1f, hp.positionMs * 1f / dur);
+                    }
+                    applyFeedLine(pct);
+                }
+            } else {
+                FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) progressFill.getLayoutParams();
+                int w = progressWrap.getWidth();
+                lp.width = (int) (w * Math.min(1f, pos * 1f / dur));
+                progressFill.setLayoutParams(lp);
+                if (progressDot != null) {
+                    FrameLayout.LayoutParams dlp2 = (FrameLayout.LayoutParams) progressDot.getLayoutParams();
+                    dlp2.leftMargin = Math.max(0, lp.width - dp(4));
+                    progressDot.setLayoutParams(dlp2);
+                }
             }
             // 播中尾段预取下一集（isPlaying＋剩余≤30s 或进度≥85%，单次记账）
             if (player.isPlaying() && !prefetchedNext
@@ -1651,8 +1997,10 @@ public class HongguoFeedActivity extends AppCompatActivity {
         } else if (currentSeriesId != null) {
             ensureDetail(currentSeriesId, detail -> {
                 if (detail == null) return;
-                if (currentEpisodeIndex < detail.getEpisodes().size()) {
-                    resolver.warm(detail.getEpisodes().get(currentEpisodeIndex).getVideoId(),
+                // 刷流的「下一集」按被推集集序算（D3 记账口径同源）
+                int cur = mode == MODE_FEED ? feedEpIndex : currentEpisodeIndex;
+                if (cur < detail.getEpisodes().size()) {
+                    resolver.warm(detail.getEpisodes().get(cur).getVideoId(),
                             detail.getContentType());
                 }
             });
@@ -1669,7 +2017,10 @@ public class HongguoFeedActivity extends AppCompatActivity {
                     item.getEpisodeCount());
             HgStore.putType(currentSeriesId, HgStore.typeCodeOf(item));
         }
-        HgStore.saveProgressQuiet(currentSeriesId, currentEpisodeIndex, pos);
+        // 记账集序：播放页＝当前集；刷流＝被推集集序（D3，旧实现
+        // 恒记第 1 集、把被推集进度记错集）；其余面维持当前集序
+        int epForSave = mode == MODE_FEED ? feedEpIndex : currentEpisodeIndex;
+        HgStore.saveProgressQuiet(currentSeriesId, epForSave, pos);
         if (watchAccumMs > 0) {
             HgStore.addWatchMs(currentSeriesId, watchAccumMs);
             watchAccumMs = 0;
@@ -1703,6 +2054,11 @@ public class HongguoFeedActivity extends AppCompatActivity {
     }
 
     private void onPageLongPress(boolean center) {
+        // 长按整套（中部更多面板／其余 2 倍速快进）是播放页的官方规格，
+        // 只留 MODE_SERIES：刷流草稿只有「点画面播/暂停」、短片页草稿
+        // 也没定长按——共用手势层无门带进全模式是串线（他 21:24 点名
+        // 图 113733，定根见 redo 账「2.0x 快进中」节）
+        if (mode != MODE_SERIES) return;
         if (cleanMode) return;
         if (center) {
             showMorePanel();
@@ -1720,6 +2076,22 @@ public class HongguoFeedActivity extends AppCompatActivity {
         boostPill.setVisibility(View.GONE);
     }
 
+    /**
+     * 快进释放的正路：每个触摸事件必经 Activity 分发层，抬手/取消
+     * 无条件收 boost。原先释放检查只写在页面自己的触摸监听里——该
+     * 监听对每个事件都 return false、页面不持有触摸流，竖滑流归
+     * RecyclerView，抬手事件到不了它，长按（按下时定时器武装）却照样
+     * 触发，于是「触发了松不开、药丸不消失」（图 113733 定根）。
+     */
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent ev) {
+        if (boosting && (ev.getAction() == MotionEvent.ACTION_UP
+                || ev.getAction() == MotionEvent.ACTION_CANCEL)) {
+            stopBoost();
+        }
+        return super.dispatchTouchEvent(ev);
+    }
+
     private void setCleanMode(boolean on) {
         cleanMode = on;
         int vis = on ? View.GONE : View.VISIBLE;
@@ -1727,11 +2099,9 @@ public class HongguoFeedActivity extends AppCompatActivity {
         seriesBar.setVisibility(mode != MODE_FEED ? vis : View.GONE);
         if (bottomStack != null) bottomStack.setVisibility(vis);
         if (mode == MODE_UGC) progressWrap.setVisibility(vis);
-        danmakuPill.setVisibility(on ? View.GONE
-                : (HgStore.isDanmakuOn() ? View.VISIBLE : View.GONE));
         FeedAdapter.Holder h = currentHolder();
         if (h != null) h.chrome.setVisibility(vis);
-        cleanBtn.setAlpha(on ? 0.35f : 1f);
+        if (cleanBtn != null) cleanBtn.setAlpha(on ? 0.42f : 1f);
         applyDanmakuVisibility();
     }
 
@@ -1739,6 +2109,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
 
     private void shiftCleanBtn() {
         // 防烧屏：清屏态下钮位每 30 秒在 4 个近位间轮换（tick 500ms 计步）
+        if (cleanBtn == null) return;
         if (++cleanShiftStep % 60 != 0) return;
         FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) cleanBtn.getLayoutParams();
         int phase = (cleanShiftStep / 60) % 4;
@@ -1770,11 +2141,10 @@ public class HongguoFeedActivity extends AppCompatActivity {
     }
 
     private void applyDanmakuVisibility() {
+        // 只管弹幕显示层本身：开关/清屏缺省都只落到 PlayerView 的弹幕层
+        // （发弹幕药丸已整件摘除，此处不再有药丸显隐，账 triage2 §4.2）
         boolean on = HgStore.isDanmakuOn() && (!cleanMode || HgStore.getDanmakuShowInClean());
         if (playerView != null) playerView.setDanmakuEnabled(on);
-        if (!cleanMode) {
-            danmakuPill.setVisibility(HgStore.isDanmakuOn() ? View.VISIBLE : View.GONE);
-        }
     }
 
     private void startDanmaku(String vid) {
@@ -1919,15 +2289,6 @@ public class HongguoFeedActivity extends AppCompatActivity {
                 applyDanmakuConfig();
                 applyDanmakuVisibility();
             }
-
-            @Override
-            public void onDanmakuSent(String text, long offsetMs) {
-                if (playerView == null) return;
-                danmakuItems.add(new androidx.media3.ui.danmaku.Danmaku(text, offsetMs,
-                        androidx.media3.ui.danmaku.Danmaku.TYPE_SCROLL, Color.WHITE, 0f, 0, null, 0));
-                playerView.getDanmakuController().setItems(new ArrayList<>(danmakuItems));
-                Toast.makeText(HongguoFeedActivity.this, "弹幕已发送", Toast.LENGTH_SHORT).show();
-            }
         };
     }
 
@@ -1962,7 +2323,8 @@ public class HongguoFeedActivity extends AppCompatActivity {
         DramaItem item = items.get(index);
         String key = favKeyOf(item);
         boolean faved = key != null && HgStore.isFaved(key);
-        h.favIcon.setColorFilter(faved ? 0xFFFFC531 : Color.WHITE);
+        h.favIcon.setColorFilter(faved ? 0xFFFFB03A : Color.WHITE);
+        if (h.favLabel != null) h.favLabel.setText(faved ? "已收藏" : "收藏");
     }
 
     // ---------- 生命周期 ----------
@@ -1970,6 +2332,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
     @Override
     protected void onPause() {
         super.onPause();
+        stopBoost();
         saveProgressNow();
         saveFeedPos();
         if (player != null && !engineParked) {
@@ -1982,6 +2345,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
     protected void onDestroy() {
         main.removeCallbacks(ticker);
         main.removeCallbacks(savePosRunnable);
+        main.removeCallbacks(prefetchRunnable);
         if (feedWatchdog != null) main.removeCallbacks(feedWatchdog);
         saveProgressNow();
         if (engine != null && !engineParked) {
@@ -2028,8 +2392,19 @@ public class HongguoFeedActivity extends AppCompatActivity {
         panelGuardUntil = System.currentTimeMillis() + 1500;
         if (currentSeriesId == null || currentVid == null) return;
         DramaItem item = currentIndex >= 0 && currentIndex < items.size() ? items.get(currentIndex) : null;
+        final int atIndex = currentIndex;
         HgCommentsSheet.show(this, currentSeriesId, currentVid,
-                item == null ? "" : item.getTitle());
+                item == null ? "" : item.getTitle(), total -> {
+                    // D6：面板真实 total 回写打开面板时那一条并重绑
+                    // 其右列（面板还开着，先写数；关面板后即同源值）
+                    if (atIndex >= 0 && atIndex < items.size()) {
+                        DramaItem target = items.get(atIndex);
+                        if (target.getCommentCount() != total) {
+                            target.setCommentCount(total);
+                            adapter.notifyItemChanged(atIndex);
+                        }
+                    }
+                });
     }
 
     public void refreshStrip() {
@@ -2048,6 +2423,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
             final TextView fail;
             final View chrome;
             final TextView title;
+            final ImageView titleChev;
             final LinearLayout tagsRow;
             final TextView statement;
             final TextView authorLine;
@@ -2061,6 +2437,9 @@ public class HongguoFeedActivity extends AppCompatActivity {
             final ImageView favIcon;
             final TextView favCount;
             final TextView commentCount;
+            /** 圆形态（播放页/视频页）两签：裸形态无此件、为 null。 */
+            final TextView favLabel;
+            final TextView commentLabel;
             final TextView fullPill;
             final View rail;
             int boundIndex = -1;
@@ -2073,6 +2452,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
                 fail = page.findViewWithTag("fail");
                 chrome = page.findViewWithTag("chrome");
                 title = page.findViewWithTag("title");
+                titleChev = page.findViewWithTag("titlechev");
                 tagsRow = page.findViewWithTag("tags");
                 statement = page.findViewWithTag("statement");
                 authorLine = page.findViewWithTag("author");
@@ -2086,6 +2466,8 @@ public class HongguoFeedActivity extends AppCompatActivity {
                 favIcon = page.findViewWithTag("fav");
                 favCount = page.findViewWithTag("fcount");
                 commentCount = page.findViewWithTag("ccount");
+                favLabel = page.findViewWithTag("favlab");
+                commentLabel = page.findViewWithTag("cmtlab");
                 fullPill = page.findViewWithTag("fullpill");
                 rail = page.findViewWithTag("rail");
             }
@@ -2126,62 +2508,137 @@ public class HongguoFeedActivity extends AppCompatActivity {
             flp2.gravity = Gravity.CENTER;
             page.addView(fail, flp2);
 
-            // chrome：信息摞＋右列（形态按模式在 bind 时分流）
+            // chrome：底部渐变＋信息摞＋右列（形态按模式在建时定型——
+            // 模式在本页生命周期内不变，bind 只管文字与显隐）
             FrameLayout chrome = new FrameLayout(HongguoFeedActivity.this);
             chrome.setTag("chrome");
-            int bottomBase = mode == MODE_UGC ? dp(140) + navBarHeight()
-                    : bottomBlockH() + dp(12);
+            int navH = navBarHeight();
+            final int infoBase;
+            final int railBase;
+            switch (mode) {
+                case MODE_FEED:
+                    infoBase = bottomBlockH() + dp(13);
+                    railBase = dp(248) + navH;
+                    break;
+                case MODE_SERIES:
+                    infoBase = bottomBlockH() + dp(12);
+                    railBase = dp(158) + navH;
+                    break;
+                case MODE_VIDEO:
+                    infoBase = bottomBlockH() + dp(12);
+                    railBase = dp(264) + navH;
+                    break;
+                default:
+                    infoBase = dp(140) + navH;
+                    railBase = dp(140) + navH;
+                    break;
+            }
+            // 定稿双 scrim 的底部渐变（transparent 40%→rgba(6,5,5,.88)，
+            // 近似取整段渐变高 45% 屏高；清屏时随 chrome 一起隐）
+            View scrimB = new View(HongguoFeedActivity.this);
+            scrimB.setTag("scrim");
+            scrimB.setBackground(new GradientDrawable(
+                    GradientDrawable.Orientation.BOTTOM_TOP,
+                    new int[]{0xE0060505, 0x00060505}));
+            FrameLayout.LayoutParams sblp = new FrameLayout.LayoutParams(-1,
+                    (int) (getResources().getDisplayMetrics().heightPixels * 0.45f));
+            sblp.gravity = Gravity.BOTTOM;
+            chrome.addView(scrimB, sblp);
 
             LinearLayout info = new LinearLayout(HongguoFeedActivity.this);
             info.setOrientation(LinearLayout.VERTICAL);
-            info.setPadding(dp(14), 0, dp(8), 0);
+            info.setPadding(dp(18), 0, 0, 0);
+            // 剧名行（横排：剧名＋chevron 图标，播放页点进详情；chevron
+            // 替原先拼在文案尾的「 ›」字形——triage2 口径字形图标化）
+            LinearLayout titleRow = new LinearLayout(HongguoFeedActivity.this);
+            titleRow.setOrientation(LinearLayout.HORIZONTAL);
+            titleRow.setGravity(Gravity.CENTER_VERTICAL);
             TextView title = new TextView(HongguoFeedActivity.this);
             title.setTag("title");
             title.setTextColor(Color.WHITE);
-            title.setTextSize(17);
-            title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-            title.setMaxLines(2);
             title.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            title.setShadowLayer(dp(3), 0, dp(1), 0xB3000000);
-            info.addView(title);
+            title.setShadowLayer(dp(2), 0, dp(1), 0xB3000000);
+            if (mode == MODE_FEED) {
+                // 定稿 .feed-name：Serif 27/900 行高 1.22（行距倍率近似）
+                title.setTypeface(android.graphics.Typeface.create(
+                        android.graphics.Typeface.SERIF, android.graphics.Typeface.BOLD));
+                title.setTextSize(27);
+                title.setLineSpacing(0, 1.02f);
+                title.setMaxLines(2);
+            } else if (mode == MODE_SERIES) {
+                // 定稿 .p-title-link：Serif 19/900
+                title.setTypeface(android.graphics.Typeface.create(
+                        android.graphics.Typeface.SERIF, android.graphics.Typeface.BOLD));
+                title.setTextSize(19);
+                title.setMaxLines(1);
+            } else if (mode == MODE_VIDEO) {
+                // 定稿 .s-title：15.5/700
+                title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+                title.setTextSize(15.5f);
+                title.setMaxLines(2);
+            } else {
+                title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+                title.setTextSize(17);
+                title.setMaxLines(2);
+            }
+            titleRow.addView(title, new LinearLayout.LayoutParams(0, -2, 1f));
+            ImageView titleChev = new ImageView(HongguoFeedActivity.this);
+            titleChev.setTag("titlechev");
+            titleChev.setImageResource(R.drawable.ic_drama_back);
+            titleChev.setColorFilter(Color.WHITE);
+            titleChev.setRotation(180);
+            titleChev.setVisibility(View.GONE);
+            LinearLayout.LayoutParams tclp2 = new LinearLayout.LayoutParams(dp(17), dp(17));
+            tclp2.leftMargin = dp(5);
+            titleRow.addView(titleChev, tclp2);
+            info.addView(titleRow, new LinearLayout.LayoutParams(-1, -2));
             // 题材标签筹排（仅首页，bind 时按数据填）
             LinearLayout tags = new LinearLayout(HongguoFeedActivity.this);
             tags.setTag("tags");
             tags.setOrientation(LinearLayout.HORIZONTAL);
             tags.setVisibility(View.GONE);
             LinearLayout.LayoutParams tglp = new LinearLayout.LayoutParams(-2, -2);
-            tglp.topMargin = dp(7);
+            tglp.topMargin = dp(10);
             info.addView(tags, tglp);
-            // AI 声明行（仅首页 AI 剧，数据驱动）
+            // AI 声明行（仅首页，数据驱动；定稿色 rgba(255,255,255,.55)）
             TextView statement = new TextView(HongguoFeedActivity.this);
             statement.setTag("statement");
-            statement.setTextColor(0xD9FFFFFF);
+            statement.setTextColor(0x8CFFFFFF);
             statement.setTextSize(11.5f);
             statement.setShadowLayer(dp(2), 0, dp(1), 0xB3000000);
             statement.setVisibility(View.GONE);
             LinearLayout.LayoutParams stlp2 = new LinearLayout.LayoutParams(-2, -2);
-            stlp2.topMargin = dp(5);
+            stlp2.topMargin = dp(6);
             info.addView(statement, stlp2);
-            // 视频页作者行（头像＋名字，仅 MODE_VIDEO）
+            // 视频页作者行（头像＋名字，仅 MODE_VIDEO；定稿：头像 34 白环）
             LinearLayout vAuthor = new LinearLayout(HongguoFeedActivity.this);
             vAuthor.setTag("vauthor");
             vAuthor.setOrientation(LinearLayout.HORIZONTAL);
             vAuthor.setGravity(Gravity.CENTER_VERTICAL);
             vAuthor.setVisibility(View.GONE);
+            LinearLayout.LayoutParams valp = new LinearLayout.LayoutParams(-2, -2);
+            valp.bottomMargin = dp(10);
             ImageView vAvatar = new ImageView(HongguoFeedActivity.this);
             vAvatar.setTag("vavatar");
             vAvatar.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            vAuthor.addView(vAvatar, new LinearLayout.LayoutParams(dp(30), dp(30)));
+            GradientDrawable vRing = new GradientDrawable();
+            vRing.setShape(GradientDrawable.OVAL);
+            vRing.setColor(Color.WHITE);
+            vAvatar.setBackground(vRing);
+            vAvatar.setPadding(dp(2), dp(2), dp(2), dp(2));
+            vAuthor.addView(vAvatar, new LinearLayout.LayoutParams(dp(34), dp(34)));
             TextView vName = new TextView(HongguoFeedActivity.this);
             vName.setTag("vname");
             vName.setTextColor(Color.WHITE);
-            vName.setTextSize(13.5f);
+            vName.setTextSize(15);
             vName.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
             vName.setShadowLayer(dp(2), 0, dp(1), 0xB3000000);
             LinearLayout.LayoutParams vnlp = new LinearLayout.LayoutParams(-2, -2);
-            vnlp.leftMargin = dp(8);
+            vnlp.leftMargin = dp(9);
             vAuthor.addView(vName, vnlp);
-            info.addView(vAuthor);
+            // 短片页信息摞顺序（定稿）：作者行在标题之上——本件在其余
+            // 模式恒 GONE，插到信息列首位只影响短片页的可见次序
+            info.addView(vAuthor, 0, valp);
             TextView author = new TextView(HongguoFeedActivity.this);
             author.setTag("author");
             author.setTextColor(0xE6FFFFFF);
@@ -2192,11 +2649,19 @@ public class HongguoFeedActivity extends AppCompatActivity {
             info.addView(author, alp);
             TextView desc = new TextView(HongguoFeedActivity.this);
             desc.setTag("desc");
-            desc.setTextColor(0xD9FFFFFF);
-            desc.setTextSize(12.5f);
-            desc.setMaxLines(2);
             desc.setEllipsize(android.text.TextUtils.TruncateAt.END);
             desc.setShadowLayer(dp(2), 0, dp(1), 0xB3000000);
+            if (mode == MODE_VIDEO) {
+                // 定稿 .s-desc：13sp 行高 1.65（倍率近似）三行、rgba(白,.88)
+                desc.setTextColor(0xE0FFFFFF);
+                desc.setTextSize(13);
+                desc.setLineSpacing(0, 1.38f);
+                desc.setMaxLines(3);
+            } else {
+                desc.setTextColor(0xD9FFFFFF);
+                desc.setTextSize(12.5f);
+                desc.setMaxLines(2);
+            }
             LinearLayout.LayoutParams dlp2 = new LinearLayout.LayoutParams(-2, -2);
             dlp2.topMargin = dp(5);
             info.addView(desc, dlp2);
@@ -2222,65 +2687,104 @@ public class HongguoFeedActivity extends AppCompatActivity {
             pillRow.addView(strip, stlp);
             info.addView(pillRow, prlp);
 
-            FrameLayout.LayoutParams ilp = new FrameLayout.LayoutParams(-2, -2);
+            FrameLayout.LayoutParams ilp = new FrameLayout.LayoutParams(-1, -2);
             ilp.gravity = Gravity.START | Gravity.BOTTOM;
-            ilp.rightMargin = dp(78);
-            ilp.bottomMargin = bottomBase;
+            ilp.rightMargin = dp(76);
+            ilp.bottomMargin = infoBase;
             chrome.addView(info, ilp);
 
+            // 右列两形态（定稿）：刷流/UGC＝裸图标＋计数（.frail-btn），
+            // 播放页/视频页＝47dp 玻璃圆＋11sp 签（.rail-btn）
             LinearLayout rail = new LinearLayout(HongguoFeedActivity.this);
             rail.setTag("rail");
             rail.setOrientation(LinearLayout.VERTICAL);
             rail.setGravity(Gravity.CENTER_HORIZONTAL);
-            // 作者头像在最上（定稿；有作者身份才显，bind 时分流）
-            ImageView avatar = new ImageView(HongguoFeedActivity.this);
-            avatar.setTag("avatar");
-            avatar.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            avatar.setVisibility(View.GONE);
-            rail.addView(avatar, railIconLp(40));
-            ImageView fav = railIcon(R.drawable.ic_drama_star);
-            fav.setTag("fav");
-            rail.addView(fav, railIconLp(34));
-            TextView fcount = new TextView(HongguoFeedActivity.this);
-            fcount.setTag("fcount");
-            fcount.setTextColor(Color.WHITE);
-            fcount.setTextSize(10.5f);
-            fcount.setGravity(Gravity.CENTER);
-            fcount.setShadowLayer(dp(2), 0, dp(1), 0xB3000000);
-            fcount.setVisibility(View.GONE);
-            LinearLayout.LayoutParams fclp = new LinearLayout.LayoutParams(-2, -2);
-            fclp.topMargin = -dp(4);
-            rail.addView(fcount, fclp);
-            ImageView comment = railIcon(R.drawable.ic_drama_comment);
-            comment.setTag("comment");
-            rail.addView(comment, railIconLp(32));
-            TextView ccount = new TextView(HongguoFeedActivity.this);
-            ccount.setTag("ccount");
-            ccount.setTextColor(Color.WHITE);
-            ccount.setTextSize(10.5f);
-            ccount.setGravity(Gravity.CENTER);
-            ccount.setShadowLayer(dp(2), 0, dp(1), 0xB3000000);
-            LinearLayout.LayoutParams cclp = new LinearLayout.LayoutParams(-2, -2);
-            cclp.topMargin = -dp(4);
-            rail.addView(ccount, cclp);
-            FrameLayout.LayoutParams rlp = new FrameLayout.LayoutParams(dp(56), -2);
+            if (mode == MODE_FEED || mode == MODE_UGC) {
+                // 作者头像在最上：45dp 白环（有作者身份才显，bind 时分流）
+                ImageView avatar = new ImageView(HongguoFeedActivity.this);
+                avatar.setTag("avatar");
+                avatar.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                GradientDrawable avRing = new GradientDrawable();
+                avRing.setShape(GradientDrawable.OVAL);
+                avRing.setColor(Color.WHITE);
+                avatar.setBackground(avRing);
+                avatar.setPadding(dp(2), dp(2), dp(2), dp(2));
+                avatar.setVisibility(View.GONE);
+                rail.addView(avatar, new LinearLayout.LayoutParams(dp(45), dp(45)));
+                ImageView fav = railIcon(R.drawable.ic_drama_star, 0);
+                fav.setTag("fav");
+                LinearLayout.LayoutParams favlp = new LinearLayout.LayoutParams(dp(31), dp(31));
+                favlp.topMargin = dp(19);
+                rail.addView(fav, favlp);
+                TextView fcount = new TextView(HongguoFeedActivity.this);
+                fcount.setTag("fcount");
+                fcount.setTextColor(Color.WHITE);
+                fcount.setTextSize(12);
+                fcount.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+                fcount.setGravity(Gravity.CENTER);
+                fcount.setShadowLayer(dp(2), 0, dp(1), 0xB3000000);
+                fcount.setVisibility(View.GONE);
+                LinearLayout.LayoutParams fclp = new LinearLayout.LayoutParams(-2, -2);
+                fclp.topMargin = dp(3);
+                rail.addView(fcount, fclp);
+                ImageView comment = railIcon(R.drawable.ic_drama_comment, 0);
+                comment.setTag("comment");
+                LinearLayout.LayoutParams comlp = new LinearLayout.LayoutParams(dp(30), dp(30));
+                comlp.topMargin = dp(19);
+                rail.addView(comment, comlp);
+                TextView ccount = new TextView(HongguoFeedActivity.this);
+                ccount.setTag("ccount");
+                ccount.setTextColor(Color.WHITE);
+                ccount.setTextSize(12);
+                ccount.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+                ccount.setGravity(Gravity.CENTER);
+                ccount.setShadowLayer(dp(2), 0, dp(1), 0xB3000000);
+                LinearLayout.LayoutParams cclp = new LinearLayout.LayoutParams(-2, -2);
+                cclp.topMargin = dp(3);
+                rail.addView(ccount, cclp);
+            } else {
+                View favGroup = railCircle(R.drawable.ic_drama_star, "收藏", "fav");
+                rail.addView(favGroup);
+                View commentGroup = railCircle(R.drawable.ic_drama_comment, "评论", "comment");
+                LinearLayout.LayoutParams cglp = new LinearLayout.LayoutParams(-2, -2);
+                cglp.topMargin = dp(20);
+                rail.addView(commentGroup, cglp);
+                // 圆形态的计数/头像字段挂游离占位（bind 的无条件写不
+                // 落到可见件）；圆签文案走组内 favlab/cmtlab 两件
+                ImageView dummyAvatar = new ImageView(HongguoFeedActivity.this);
+                dummyAvatar.setTag("avatar");
+                dummyAvatar.setVisibility(View.GONE);
+                chrome.addView(dummyAvatar, new FrameLayout.LayoutParams(0, 0));
+                TextView dummyF = new TextView(HongguoFeedActivity.this);
+                dummyF.setTag("fcount");
+                dummyF.setVisibility(View.GONE);
+                chrome.addView(dummyF, new FrameLayout.LayoutParams(0, 0));
+                TextView dummyC = new TextView(HongguoFeedActivity.this);
+                dummyC.setTag("ccount");
+                dummyC.setVisibility(View.GONE);
+                chrome.addView(dummyC, new FrameLayout.LayoutParams(0, 0));
+            }
+            FrameLayout.LayoutParams rlp = new FrameLayout.LayoutParams(-2, -2);
             rlp.gravity = Gravity.END | Gravity.BOTTOM;
-            rlp.rightMargin = dp(6);
-            rlp.bottomMargin = bottomBase;
+            rlp.rightMargin = dp(12);
+            rlp.bottomMargin = railBase;
             chrome.addView(rail, rlp);
 
-            // 全屏观看钮：横版剧画面下方居中（定稿；横屏入口只此一个）
+            // 全屏观看钮：横版剧画面下方居中（定稿 .p-fs-btn：底
+            // rgba(46,46,50,.92)、13.5sp、top 63.25%+14——原生侧按底
+            // 边距换算近似；横屏入口只此一个）
             TextView fullPill = new TextView(HongguoFeedActivity.this);
             fullPill.setTag("fullpill");
             fullPill.setText("全屏观看");
             fullPill.setTextColor(0xF2FFFFFF);
-            fullPill.setTextSize(13);
-            fullPill.setBackground(roundBg(0x66000000, dp(16)));
-            fullPill.setPadding(dp(16), dp(8), dp(16), dp(8));
+            fullPill.setTextSize(13.5f);
+            fullPill.setBackground(roundBg(0xE82E2E32, dp(17)));
+            fullPill.setPadding(dp(16), dp(9), dp(16), dp(9));
             fullPill.setVisibility(View.GONE);
             FrameLayout.LayoutParams fplp = new FrameLayout.LayoutParams(-2, -2);
             fplp.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
-            fplp.bottomMargin = (int) (getResources().getDisplayMetrics().heightPixels * 0.30f);
+            fplp.bottomMargin = (int) (getResources().getDisplayMetrics().heightPixels * 0.3675f)
+                    - dp(14) - dp(36);
             chrome.addView(fullPill, fplp);
 
             page.addView(chrome, match());
@@ -2312,18 +2816,55 @@ public class HongguoFeedActivity extends AppCompatActivity {
             return new Holder(page);
         }
 
-        private LinearLayout.LayoutParams railIconLp(int sizeDp) {
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(sizeDp), dp(sizeDp));
-            lp.topMargin = dp(14);
-            return lp;
-        }
-
-        private ImageView railIcon(int res) {
+        private ImageView railIcon(int res, int padDp) {
             ImageView iv = new ImageView(HongguoFeedActivity.this);
             iv.setImageResource(res);
             iv.setColorFilter(Color.WHITE);
-            iv.setPadding(dp(3), dp(3), dp(3), dp(3));
+            iv.setPadding(dp(padDp), dp(padDp), dp(padDp), dp(padDp));
             return iv;
+        }
+
+        /**
+         * 定稿 .rail-btn：47dp 玻璃圆（底 rgba(18,16,16,.34)＋内环
+         * rgba(255,255,255,.16)）＋11sp 签。fav 的点击挂内层图标
+         * （bind 统一接线），圆面其余区域由组转发；comment 组本身
+         * 挂 tag 供 bind 按 tag 接线。
+         */
+        private View railCircle(int res, String label, String kind) {
+            LinearLayout group = new LinearLayout(HongguoFeedActivity.this);
+            group.setOrientation(LinearLayout.VERTICAL);
+            group.setGravity(Gravity.CENTER_HORIZONTAL);
+            FrameLayout circle = new FrameLayout(HongguoFeedActivity.this);
+            GradientDrawable g = new GradientDrawable();
+            g.setShape(GradientDrawable.OVAL);
+            g.setColor(0x57121010);
+            g.setStroke(dp(1), 0x29FFFFFF);
+            circle.setBackground(g);
+            ImageView iv = new ImageView(HongguoFeedActivity.this);
+            iv.setImageResource(res);
+            iv.setColorFilter(Color.WHITE);
+            FrameLayout.LayoutParams ivlp = new FrameLayout.LayoutParams(dp(22), dp(22));
+            ivlp.gravity = Gravity.CENTER;
+            circle.addView(iv, ivlp);
+            group.addView(circle, new LinearLayout.LayoutParams(dp(47), dp(47)));
+            TextView lab = new TextView(HongguoFeedActivity.this);
+            lab.setText(label);
+            lab.setTextColor(Color.WHITE);
+            lab.setTextSize(11);
+            lab.setGravity(Gravity.CENTER);
+            lab.setShadowLayer(dp(2), 0, dp(1), 0xB3000000);
+            LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(-2, -2);
+            llp.topMargin = dp(4);
+            group.addView(lab, llp);
+            if ("fav".equals(kind)) {
+                iv.setTag("fav");
+                lab.setTag("favlab");
+                group.setOnClickListener(v -> iv.performClick());
+            } else {
+                group.setTag("comment");
+                lab.setTag("cmtlab");
+            }
+            return group;
         }
 
         @Override
@@ -2345,11 +2886,20 @@ public class HongguoFeedActivity extends AppCompatActivity {
             }
             String favKey = favKeyOf(item);
             boolean faved = favKey != null && HgStore.isFaved(favKey);
-            h.favIcon.setColorFilter(faved ? 0xFFFFC531 : Color.WHITE);
+            h.favIcon.setColorFilter(faved ? 0xFFFFB03A : Color.WHITE);
             h.favIcon.setOnClickListener(v -> toggleFav(item, h));
+            // 圆形态两签（定稿 JS 口径）：评论签填计数（cmtWan）、
+            // 收藏签有「已收藏」态；无计数数据时回「评论」原文
+            if (h.favLabel != null) h.favLabel.setText(faved ? "已收藏" : "收藏");
+            if (h.commentLabel != null) {
+                h.commentLabel.setText(item.getCommentCount() > 0
+                        ? HgTimeTextCount.format(item.getCommentCount()) : "评论");
+            }
             h.commentCount.setText(item.getCommentCount() > 0
                     ? HgTimeTextCount.format(item.getCommentCount()) : "评论");
-            h.commentCount.setVisibility(View.VISIBLE);
+            // 计数件只在裸形态（刷流/UGC）显；圆形态计数走 commentLabel
+            h.commentCount.setVisibility(mode == MODE_FEED || mode == MODE_UGC
+                    ? View.VISIBLE : View.GONE);
             h.itemView.findViewWithTag("comment").setOnClickListener(v -> {
                 if (position == currentIndex) openComments();
             });
@@ -2370,6 +2920,8 @@ public class HongguoFeedActivity extends AppCompatActivity {
         private void resetInfo(Holder h) {
             h.title.setVisibility(View.VISIBLE);
             h.title.setOnClickListener(null);
+            h.titleChev.setVisibility(View.GONE);
+            h.titleChev.setOnClickListener(null);
             h.tagsRow.setVisibility(View.GONE);
             h.statement.setVisibility(View.GONE);
             h.authorLine.setVisibility(View.GONE);
@@ -2394,14 +2946,15 @@ public class HongguoFeedActivity extends AppCompatActivity {
                         item.getEpisodeCount());
                 HgStore.putType(key, HgStore.typeCodeOf(item));
             }
-            h.favIcon.setColorFilter(now ? 0xFFFFC531 : Color.WHITE);
+            h.favIcon.setColorFilter(now ? 0xFFFFB03A : Color.WHITE);
+            if (h.favLabel != null) h.favLabel.setText(now ? "已收藏" : "收藏");
             styleFavPill(h, now);
         }
 
         private void styleFavPill(Holder h, boolean faved) {
             h.pill.setText(faved ? "★ 已收藏" : "☆ 收藏");
             h.pill.setTextColor(faved ? 0xFF3D2E00 : Color.WHITE);
-            h.pill.setBackground(roundBg(faved ? 0xFFFFC531 : 0x59000000, dp(15)));
+            h.pill.setBackground(roundBg(faved ? 0xFFFFB03A : 0x59000000, dp(15)));
         }
 
         private void bindRailAvatar(Holder h, String uid, String name, String avatar) {
@@ -2435,12 +2988,17 @@ public class HongguoFeedActivity extends AppCompatActivity {
             if (tags != null && !tags.isEmpty()) {
                 h.tagsRow.setVisibility(View.VISIBLE);
                 for (String tag : tags) {
+                    // 定稿 .feed-tag：半透白底＋白边、全圆、11.5sp
                     TextView chip = new TextView(HongguoFeedActivity.this);
                     chip.setText(tag);
-                    chip.setTextColor(0xE6FFFFFF);
-                    chip.setTextSize(10.5f);
-                    chip.setBackground(roundBg(0x59000000, dp(4)));
-                    chip.setPadding(dp(6), dp(2), dp(6), dp(2));
+                    chip.setTextColor(Color.WHITE);
+                    chip.setTextSize(11.5f);
+                    GradientDrawable chipBg = new GradientDrawable();
+                    chipBg.setColor(0x29FFFFFF);
+                    chipBg.setStroke(dp(1), 0x26FFFFFF);
+                    chipBg.setCornerRadius(dp(999));
+                    chip.setBackground(chipBg);
+                    chip.setPadding(dp(9), dp(4), dp(9), dp(4));
                     LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
                     lp.rightMargin = dp(6);
                     h.tagsRow.addView(chip, lp);
@@ -2460,18 +3018,24 @@ public class HongguoFeedActivity extends AppCompatActivity {
         /** 短剧播放页条目：左下只带箭头剧名（点进详情），无其余信息件。 */
         private void bindSeriesChrome(Holder h, DramaItem item, int position) {
             String t = item.getTitle() == null ? "" : item.getTitle();
-            h.title.setText(t + " ›");
-            h.title.setOnClickListener(v -> {
+            h.title.setText(t);
+            View.OnClickListener openDetail = v -> {
                 if (position == currentIndex && seriesIdArg != null) {
                     HongguoDetailActivity.start(HongguoFeedActivity.this,
                             seriesIdArg, item.getTitle(), null);
                 }
-            });
+            };
+            h.title.setOnClickListener(openDetail);
+            // 箭头是独立图标件（原先拼在文案尾的「 ›」字形已摘）
+            h.titleChev.setVisibility(View.VISIBLE);
+            h.titleChev.setOnClickListener(openDetail);
         }
 
-        /** 视频页条目：左下作者行＋文案，右列只收藏/评论。 */
+        /** 视频页条目：左下作者行＋标题＋文案（定稿三行分开，不合并回退），右列只收藏/评论。 */
         private void bindVideoChrome(Holder h, DramaItem item) {
-            h.title.setVisibility(View.GONE);
+            h.title.setText(item.getTitle() == null ? "" : item.getTitle());
+            h.title.setVisibility(item.getTitle() == null || item.getTitle().isEmpty()
+                    ? View.GONE : View.VISIBLE);
             String name = videoAuthorName != null ? videoAuthorName : item.getAuthorName();
             String avatar = videoAuthorAvatar != null ? videoAuthorAvatar : item.getAuthorAvatar();
             String uid = videoAuthorUid != null ? videoAuthorUid : item.getAuthorUid();
@@ -2491,8 +3055,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
                     }
                 });
             }
-            String caption = item.getDesc() != null && !item.getDesc().isEmpty()
-                    ? item.getDesc() : item.getTitle();
+            String caption = item.getDesc();
             h.desc.setText(caption == null ? "" : caption);
             h.desc.setVisibility(caption == null || caption.isEmpty()
                     ? View.GONE : View.VISIBLE);

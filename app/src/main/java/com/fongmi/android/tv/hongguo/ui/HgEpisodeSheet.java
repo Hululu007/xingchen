@@ -1,10 +1,13 @@
 package com.fongmi.android.tv.hongguo.ui;
 
 import android.graphics.Color;
+import android.graphics.Rect;
 import android.graphics.drawable.GradientDrawable;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -13,16 +16,17 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.hongguo.drama.DramaDetail;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 
-import java.util.ArrayList;
-import java.util.List;
-
 /**
- * 选集单（2026-10-30 从零重建）：底部弹窗，头部剧名＋完结状态，
- * 集号网格（当前集红底高亮），超过 50 集时带区间页签。点集即播、
- * 关单——竖屏与横屏（阶段8）共用同一事件链（回调回宿主切集）。
+ * 选集单（打回重落，定稿浅色 .sheet）：白底顶圆 22＋grab，头＝
+ * 「选集」＋集数 span＋关闭圆钮，体＝6 列集号格（白底＋line 边＋
+ * 圆 10，当前格主题红 #E63A2E 白字，看过格 sub 字＋右上 5dp
+ * faint 点），脚＝剧名居中（#FBFAF8 底＋顶线）。看过界取本地
+ * 断点（HgStore.progressOf 的集序号，1 起）。旧深色面整件弃用
+ * （账 hongguo-page-redo 打回销账①）。竖屏与横屏共用同一事件链。
  */
 public final class HgEpisodeSheet {
 
@@ -30,9 +34,12 @@ public final class HgEpisodeSheet {
         void onPick(int episodeIndex);
     }
 
-    private static final int RANGE = 50;
-
     private HgEpisodeSheet() {
+    }
+
+    private static int navBarHeight(AppCompatActivity a) {
+        int id = a.getResources().getIdentifier("navigation_bar_height", "dimen", "android");
+        return id > 0 ? a.getResources().getDimensionPixelSize(id) : 0;
     }
 
     public static void show(AppCompatActivity activity, DramaDetail detail,
@@ -42,173 +49,214 @@ public final class HgEpisodeSheet {
         float density = activity.getResources().getDisplayMetrics().density;
         java.util.function.IntUnaryOperator dp = v -> (int) (v * density + 0.5f);
 
+        int total = detail.getEpisodes().size();
+        boolean finished = detail.getSeriesStatus() != null && detail.getSeriesStatus() == 1;
+        HgStore.Progress prog = detail.getSeriesId() == null ? null
+                : HgStore.progressOf(detail.getSeriesId());
+        int seen = prog == null ? 0 : prog.episodeIndex;
+
         LinearLayout root = new LinearLayout(activity);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackground(roundBg(0xFF1C1C1E, dp.applyAsInt(18)));
-        root.setPadding(dp.applyAsInt(18), dp.applyAsInt(16), dp.applyAsInt(18), dp.applyAsInt(14));
+        GradientDrawable rootBg = new GradientDrawable();
+        rootBg.setColor(Color.WHITE);
+        float rr = dp.applyAsInt(22);
+        rootBg.setCornerRadii(new float[]{rr, rr, rr, rr, 0, 0, 0, 0});
+        root.setBackground(rootBg);
 
+        View grab = new View(activity);
+        GradientDrawable grabBg = new GradientDrawable();
+        grabBg.setColor(0x291B1B1F);
+        grabBg.setCornerRadius(dp.applyAsInt(2.5f));
+        grab.setBackground(grabBg);
+        LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(
+                dp.applyAsInt(38), dp.applyAsInt(4));
+        glp.gravity = Gravity.CENTER_HORIZONTAL;
+        glp.topMargin = dp.applyAsInt(9);
+        glp.bottomMargin = dp.applyAsInt(2);
+        root.addView(grab, glp);
+
+        // 头（定稿 .s-head）：标题 16/900＋span 12.5 sub＋关闭圆钮
         LinearLayout head = new LinearLayout(activity);
         head.setOrientation(LinearLayout.HORIZONTAL);
         head.setGravity(Gravity.CENTER_VERTICAL);
-        TextView title = new TextView(activity);
-        title.setText(detail.getTitle() == null ? "" : detail.getTitle());
-        title.setTextColor(Color.WHITE);
-        title.setTextSize(16.5f);
-        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        title.setMaxLines(1);
-        title.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        head.addView(title, new LinearLayout.LayoutParams(0, -2, 1f));
-        android.widget.ImageView close = new android.widget.ImageView(activity);
-        close.setImageResource(com.fongmi.android.tv.R.drawable.ic_drama_close);
-        close.setColorFilter(0xFFAAAAAA);
-        close.setPadding(dp.applyAsInt(10), dp.applyAsInt(6), dp.applyAsInt(2), dp.applyAsInt(6));
+        head.setPadding(dp.applyAsInt(18), dp.applyAsInt(10), dp.applyAsInt(18), dp.applyAsInt(8));
+        TextView headTitle = new TextView(activity);
+        headTitle.setText("选集");
+        headTitle.setTextColor(0xFF1B1B1F);
+        headTitle.setTextSize(16);
+        headTitle.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        head.addView(headTitle, new LinearLayout.LayoutParams(-2, -2));
+        TextView headInfo = new TextView(activity);
+        headInfo.setText(finished ? "全 " + total + " 集" : "更新至 " + total + " 集");
+        headInfo.setTextColor(0xFF8A8A93);
+        headInfo.setTextSize(12.5f);
+        LinearLayout.LayoutParams hilp = new LinearLayout.LayoutParams(-2, -2);
+        hilp.leftMargin = dp.applyAsInt(5);
+        head.addView(headInfo, hilp);
+        View headSpacer = new View(activity);
+        head.addView(headSpacer, new LinearLayout.LayoutParams(0, -2, 1f));
+        ImageView close = new ImageView(activity);
+        close.setImageResource(R.drawable.ic_drama_close);
+        close.setColorFilter(0xFF1B1B1F);
+        GradientDrawable closeBg = new GradientDrawable();
+        closeBg.setColor(0x0D1B1B1F);
+        closeBg.setCornerRadius(dp.applyAsInt(19));
+        close.setBackground(closeBg);
+        close.setPadding(dp.applyAsInt(10), dp.applyAsInt(10),
+                dp.applyAsInt(10), dp.applyAsInt(10));
         close.setOnClickListener(v -> dialog.dismiss());
-        head.addView(close, new LinearLayout.LayoutParams(dp.applyAsInt(34), dp.applyAsInt(34)));
+        head.addView(close, new LinearLayout.LayoutParams(
+                dp.applyAsInt(38), dp.applyAsInt(38)));
         root.addView(head);
 
-        int total = detail.getEpisodes().size();
-        TextView sub = new TextView(activity);
-        boolean finished = detail.getSeriesStatus() != null && detail.getSeriesStatus() == 1;
-        sub.setText(finished ? "已完结 · 全" + total + "集" : "更新至第" + total + "集");
-        sub.setTextColor(0xFF9E9EA7);
-        sub.setTextSize(12.5f);
-        LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(-2, -2);
-        subLp.topMargin = dp.applyAsInt(4);
-        root.addView(sub, subLp);
-
+        // 体（定稿 .s-body＋.epgrid）：6 列、格距 8
         RecyclerView grid = new RecyclerView(activity);
-        grid.setLayoutManager(new GridLayoutManager(activity, 5));
-        LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(-1, -2);
-        glp.topMargin = dp.applyAsInt(12);
-        root.addView(grid, glp);
-
-        List<int[]> ranges = new ArrayList<>();
-        for (int start = 1; start <= total; start += RANGE) {
-            ranges.add(new int[]{start, Math.min(total, start + RANGE - 1)});
-        }
-        LinearLayout rangeRow = new LinearLayout(activity);
-        rangeRow.setOrientation(LinearLayout.HORIZONTAL);
-        if (ranges.size() > 1) {
-            LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(-2, -2);
-            rlp.topMargin = dp.applyAsInt(10);
-            root.addView(rangeRow, 2, rlp);
-        }
-
-        final int[] activeRange = {Math.max(0, (currentEpisode - 1) / RANGE)};
-        EpAdapter adapter = new EpAdapter(activity, detail, currentEpisode, idx -> {
+        grid.setLayoutManager(new GridLayoutManager(activity, 6));
+        grid.setPadding(dp.applyAsInt(18), dp.applyAsInt(2),
+                dp.applyAsInt(18), dp.applyAsInt(10));
+        grid.setClipToPadding(false);
+        final int gap = dp.applyAsInt(8);
+        grid.addItemDecoration(new RecyclerView.ItemDecoration() {
+            @Override
+            public void getItemOffsets(@NonNull Rect outRect, @NonNull View view,
+                                       @NonNull RecyclerView parent,
+                                       @NonNull RecyclerView.State state) {
+                int pos = parent.getChildAdapterPosition(view);
+                if (pos < 0) return;
+                int col = pos % 6;
+                outRect.left = col * gap / 6;
+                outRect.right = gap - (col + 1) * gap / 6;
+                outRect.top = pos < 6 ? 0 : gap;
+            }
+        });
+        grid.setAdapter(new EpAdapter(activity, total, currentEpisode, seen, idx -> {
             dialog.dismiss();
             onPick.onPick(idx);
-        }, ranges.isEmpty() ? new int[]{1, total} : ranges.get(activeRange[0]), dp);
-        grid.setAdapter(adapter);
-
-        if (ranges.size() > 1) {
-            for (int i = 0; i < ranges.size(); i++) {
-                final int ri = i;
-                int[] r = ranges.get(i);
-                TextView chip = new TextView(activity);
-                chip.setText(r[0] + "-" + r[1]);
-                chip.setTextSize(12.5f);
-                chip.setPadding(dp.applyAsInt(11), dp.applyAsInt(5), dp.applyAsInt(11), dp.applyAsInt(5));
-                LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(-2, -2);
-                clp.rightMargin = dp.applyAsInt(8);
-                rangeRow.addView(chip, clp);
-                chip.setOnClickListener(v -> {
-                    activeRange[0] = ri;
-                    adapter.setRange(ranges.get(ri));
-                    styleRangeChips(rangeRow, ri, dp);
-                });
-            }
-            styleRangeChips(rangeRow, activeRange[0], dp);
-            // 初始定位到当前集所在区间
-            adapter.setRange(ranges.get(activeRange[0]));
+        }, dp));
+        root.addView(grid, new LinearLayout.LayoutParams(-1, 0, 1f));
+        if (currentEpisode > 1) {
+            grid.scrollToPosition(currentEpisode - 1);
         }
+
+        // 脚（定稿 .s-foot）：剧名居中，#FBFAF8 底＋顶线，下沿给
+        // 系统手势区让位
+        LinearLayout foot = new LinearLayout(activity);
+        foot.setOrientation(LinearLayout.VERTICAL);
+        foot.setBackgroundColor(0xFFFBFAF8);
+        View footLine = new View(activity);
+        footLine.setBackgroundColor(0x121B1B1F);
+        foot.addView(footLine, new LinearLayout.LayoutParams(-1, 1));
+        TextView footText = new TextView(activity);
+        footText.setText(detail.getTitle() == null ? "" : detail.getTitle());
+        footText.setTextColor(0xFF8A8A93);
+        footText.setTextSize(12.5f);
+        footText.setGravity(Gravity.CENTER);
+        footText.setMaxLines(1);
+        footText.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        footText.setPadding(dp.applyAsInt(18), dp.applyAsInt(11), dp.applyAsInt(18),
+                dp.applyAsInt(13) + navBarHeight(activity));
+        foot.addView(footText);
+        root.addView(foot);
 
         dialog.setContentView(root);
         dialog.show();
-        // 限高：网格最多占半屏
         View sheet = dialog.findViewById(com.google.android.material.R.id.design_bottom_sheet);
         if (sheet != null) {
             sheet.setBackgroundColor(Color.TRANSPARENT);
+            // 定稿 sheet max-height 72%：内容超高时整单限高、网格内滚
+            root.post(() -> {
+                int max = (int) (activity.getResources().getDisplayMetrics().heightPixels * 0.72f);
+                if (root.getHeight() > max) {
+                    ViewGroup.LayoutParams lp = root.getLayoutParams();
+                    if (lp != null) {
+                        lp.height = max;
+                        root.setLayoutParams(lp);
+                    }
+                }
+            });
         }
-    }
-
-    private static void styleRangeChips(LinearLayout row, int active, java.util.function.IntUnaryOperator dp) {
-        for (int i = 0; i < row.getChildCount(); i++) {
-            TextView chip = (TextView) row.getChildAt(i);
-            boolean on = i == active;
-            chip.setTextColor(on ? Color.WHITE : 0xFFB8B8BE);
-            chip.setBackground(roundBg(on ? 0xFFFF5A4E : 0xFF2C2C30, dp.applyAsInt(13)));
-        }
-    }
-
-    private static GradientDrawable roundBg(int color, float radius) {
-        GradientDrawable g = new GradientDrawable();
-        g.setColor(color);
-        g.setCornerRadius(radius);
-        return g;
     }
 
     private static final class EpAdapter extends RecyclerView.Adapter<EpAdapter.H> {
         private final AppCompatActivity activity;
-        private final DramaDetail detail;
+        private final int total;
         private final int current;
+        private final int seen;
         private final OnPick onPick;
         private final java.util.function.IntUnaryOperator dp;
-        private int from;
-        private int to;
 
-        EpAdapter(AppCompatActivity activity, DramaDetail detail, int current, OnPick onPick,
-                  int[] range, java.util.function.IntUnaryOperator dp) {
+        EpAdapter(AppCompatActivity activity, int total, int current, int seen,
+                  OnPick onPick, java.util.function.IntUnaryOperator dp) {
             this.activity = activity;
-            this.detail = detail;
+            this.total = total;
             this.current = current;
+            this.seen = seen;
             this.onPick = onPick;
             this.dp = dp;
-            this.from = range[0];
-            this.to = range[1];
-        }
-
-        void setRange(int[] range) {
-            from = range[0];
-            to = range[1];
-            notifyDataSetChanged();
         }
 
         class H extends RecyclerView.ViewHolder {
             final TextView text;
+            final View dot;
 
-            H(TextView t) {
-                super(t);
-                text = t;
+            H(FrameLayout cell) {
+                super(cell);
+                text = (TextView) cell.getChildAt(0);
+                dot = cell.getChildAt(1);
             }
         }
 
         @NonNull
         @Override
         public H onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+            FrameLayout cell = new FrameLayout(activity);
             TextView t = new TextView(activity);
             t.setGravity(Gravity.CENTER);
-            t.setTextSize(14.5f);
-            GridLayoutManager.LayoutParams lp = new GridLayoutManager.LayoutParams(-1, dp.applyAsInt(46));
-            lp.setMargins(dp.applyAsInt(4), dp.applyAsInt(4), dp.applyAsInt(4), dp.applyAsInt(4));
-            t.setLayoutParams(lp);
-            return new H(t);
+            t.setTextSize(13.5f);
+            t.setPadding(0, dp.applyAsInt(9), 0, dp.applyAsInt(9));
+            cell.addView(t, new FrameLayout.LayoutParams(-1, -2));
+            View dot = new View(activity);
+            GradientDrawable dotBg = new GradientDrawable();
+            dotBg.setShape(GradientDrawable.OVAL);
+            dotBg.setColor(0xFFC9C9CF);
+            dot.setBackground(dotBg);
+            FrameLayout.LayoutParams dlp = new FrameLayout.LayoutParams(
+                    dp.applyAsInt(5), dp.applyAsInt(5));
+            dlp.gravity = Gravity.TOP | Gravity.RIGHT;
+            dlp.topMargin = dp.applyAsInt(5);
+            dlp.rightMargin = dp.applyAsInt(5);
+            cell.addView(dot, dlp);
+            cell.setLayoutParams(new RecyclerView.LayoutParams(-1, -2));
+            return new H(cell);
         }
 
         @Override
         public void onBindViewHolder(@NonNull H h, int position) {
-            int ep = from + position;
+            int ep = position + 1;
             boolean on = ep == current;
+            boolean watched = !on && ep <= seen;
             h.text.setText(String.valueOf(ep));
-            h.text.setTextColor(on ? Color.WHITE : 0xFFE8E8EA);
-            h.text.setTypeface(on ? android.graphics.Typeface.DEFAULT_BOLD : android.graphics.Typeface.DEFAULT);
-            h.text.setBackground(roundBg(on ? 0xFFFF5A4E : 0xFF2C2C30, dp.applyAsInt(10)));
-            h.text.setOnClickListener(v -> onPick.onPick(ep));
+            GradientDrawable bg = new GradientDrawable();
+            bg.setCornerRadius(dp.applyAsInt(10));
+            if (on) {
+                bg.setColor(0xFFE63A2E);
+                h.text.setTextColor(Color.WHITE);
+                h.text.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            } else {
+                bg.setColor(Color.WHITE);
+                bg.setStroke(dp.applyAsInt(1), 0x121B1B1F);
+                h.text.setTextColor(watched ? 0xFF8A8A93 : 0xFF1B1B1F);
+                h.text.setTypeface(android.graphics.Typeface.DEFAULT);
+            }
+            // 边框/底挂格根（文字件只管字），FrameLayout 根承载背景
+            h.itemView.setBackground(bg);
+            h.dot.setVisibility(watched ? View.VISIBLE : View.GONE);
+            h.itemView.setOnClickListener(v -> onPick.onPick(ep));
         }
 
         @Override
         public int getItemCount() {
-            return Math.max(0, to - from + 1);
+            return total;
         }
     }
 }

@@ -1,7 +1,11 @@
 package com.fongmi.android.tv.hongguo.ui;
 
 import android.content.Intent;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.Path;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.os.Parcelable;
@@ -17,11 +21,17 @@ import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.graphics.PathParser;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.recyclerview.widget.StaggeredGridLayoutManager;
 
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.load.DataSource;
+import com.bumptech.glide.load.engine.GlideException;
+import com.bumptech.glide.load.resource.bitmap.RoundedCorners;
+import com.bumptech.glide.request.RequestListener;
+import com.bumptech.glide.request.target.Target;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.hongguo.api.HgCallback;
 import com.fongmi.android.tv.hongguo.drama.DramaCellPage;
@@ -61,6 +71,10 @@ import java.util.Set;
  */
 public class HongguoTheaterActivity extends AppCompatActivity {
 
+    /** 定稿标题字体：Noto Serif SC 900 的系统近似（serif 粗体）。 */
+    private static final android.graphics.Typeface SERIF_BLACK =
+            android.graphics.Typeface.create("serif", android.graphics.Typeface.BOLD);
+
     private static final int[][] CHANNELS = {{39, 39}, {36, 36}};
     private static final String[] CHANNEL_NAMES = {"真人剧", "漫剧", "AI剧", "视频"};
     private static final int TAB_MANJU = 1;
@@ -98,6 +112,8 @@ public class HongguoTheaterActivity extends AppCompatActivity {
     private final List<String> filterSeen = new ArrayList<>();
     private int clipChain;
     private int aiChain;
+    /** 填充续拉连空转计数（回包零新增连着来时封顶，见 maybeFill）。 */
+    private int fillChain;
     /** 切格/点筹后首批数据到达要整表淡入承接（到达前为 true）。 */
     private boolean pendingContentFade;
     /** 分格状态保留（常驻口径，他 2026-10-30 定）：切格离开时整份
@@ -119,6 +135,7 @@ public class HongguoTheaterActivity extends AppCompatActivity {
         final List<String> filterSeen = new ArrayList<>();
         int clipChain;
         int aiChain;
+        int fillChain;
         String dimKey;
         String dimValue;
         boolean settled;
@@ -150,70 +167,95 @@ public class HongguoTheaterActivity extends AppCompatActivity {
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        HgWindowStyle.apply(this, false, true);
+        HgWindowStyle.apply(this, true, true);
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(0xFF111114);
+        root.setBackgroundColor(0xFFFAF9F7);
 
+        // 页头（页面层重做，定稿 .page-head）：Serif 大标题＋副题同
+        // 行，右侧浅底圆搜索钮 38dp。
         LinearLayout top = new LinearLayout(this);
         top.setOrientation(LinearLayout.HORIZONTAL);
         top.setGravity(Gravity.CENTER_VERTICAL);
-        top.setPadding(dp(16), statusBarHeight() + dp(8), dp(10), dp(4));
+        top.setPadding(dp(18), statusBarHeight() + dp(14), dp(18), 0);
+        LinearLayout titleRow = new LinearLayout(this);
+        titleRow.setOrientation(LinearLayout.HORIZONTAL);
+        titleRow.setBaselineAligned(true);
         TextView title = new TextView(this);
         title.setText("剧场");
-        title.setTextColor(Color.WHITE);
-        title.setTextSize(19);
-        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        top.addView(title, new LinearLayout.LayoutParams(0, -2, 1f));
+        title.setTextColor(0xFF1B1B1F);
+        title.setTextSize(25);
+        title.setTypeface(SERIF_BLACK);
+        title.setIncludeFontPadding(false);
+        titleRow.addView(title);
+        TextView sub = new TextView(this);
+        sub.setText("真人剧 · 漫剧 · AI剧 · 视频");
+        sub.setTextColor(0xFF8A8A93);
+        sub.setTextSize(12.5f);
+        sub.setIncludeFontPadding(false);
+        LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(-2, -2);
+        subLp.leftMargin = dp(10);
+        titleRow.addView(sub, subLp);
+        top.addView(titleRow, new LinearLayout.LayoutParams(0, -2, 1f));
         ImageView search = new ImageView(this);
         search.setImageResource(R.drawable.ic_drama_search);
-        search.setColorFilter(Color.WHITE);
-        search.setPadding(dp(8), dp(8), dp(8), dp(8));
+        search.setColorFilter(0xFF1B1B1F);
+        search.setBackground(roundBg(0x0D1B1B1F, dp(19)));
+        search.setPadding(dp(9), dp(9), dp(9), dp(9));
         search.setOnClickListener(v -> HgTransition.push(this,
                 new Intent(this, HongguoSearchActivity.class)));
-        top.addView(search, new LinearLayout.LayoutParams(dp(40), dp(40)));
+        top.addView(search, new LinearLayout.LayoutParams(dp(38), dp(38)));
         root.addView(top);
 
+        // 四格分段（定稿 .catseg）：浅灰槽底，选中白格浮起＋深字重。
         LinearLayout tabs = new LinearLayout(this);
         tabs.setOrientation(LinearLayout.HORIZONTAL);
-        tabs.setPadding(dp(10), dp(2), dp(10), dp(6));
+        tabs.setBackground(roundBg(0x0E1B1B1F, dp(14)));
+        tabs.setPadding(dp(4), dp(4), dp(4), dp(4));
+        LinearLayout.LayoutParams tabsLp = new LinearLayout.LayoutParams(-1, -2);
+        tabsLp.leftMargin = dp(18);
+        tabsLp.rightMargin = dp(18);
+        tabsLp.topMargin = dp(16);
         tabViews = new TextView[CHANNEL_NAMES.length];
         for (int i = 0; i < CHANNEL_NAMES.length; i++) {
             final int idx = i;
             TextView t = new TextView(this);
             t.setText(CHANNEL_NAMES[i]);
             t.setTextSize(14.5f);
-            t.setPadding(dp(13), dp(6), dp(13), dp(6));
+            t.setGravity(Gravity.CENTER);
             t.setOnClickListener(v -> {
                 if (channel != idx) switchTab(idx);
             });
             tabViews[i] = t;
-            tabs.addView(t);
+            tabs.addView(t, new LinearLayout.LayoutParams(0, dp(41), 1f));
         }
-        root.addView(tabs);
+        root.addView(tabs, tabsLp);
 
         chipArea = new LinearLayout(this);
         chipArea.setOrientation(LinearLayout.VERTICAL);
         chipArea.setVisibility(View.GONE);
+        chipArea.setPadding(0, dp(14), 0, 0);
         themeRow = new LinearLayout(this);
         themeRow.setOrientation(LinearLayout.HORIZONTAL);
-        themeRow.setPadding(dp(12), dp(2), dp(12), dp(3));
+        themeRow.setPadding(dp(18), 0, dp(18), 0);
         themeScroll = new HorizontalScrollView(this);
         themeScroll.setHorizontalScrollBarEnabled(false);
         themeScroll.addView(themeRow);
         chipArea.addView(themeScroll);
         roleRow = new LinearLayout(this);
         roleRow.setOrientation(LinearLayout.HORIZONTAL);
-        roleRow.setPadding(dp(12), dp(3), dp(12), dp(6));
+        roleRow.setPadding(dp(18), 0, dp(18), 0);
         roleScroll = new HorizontalScrollView(this);
         roleScroll.setHorizontalScrollBarEnabled(false);
         roleScroll.addView(roleRow);
-        chipArea.addView(roleScroll);
+        LinearLayout.LayoutParams roleLp = new LinearLayout.LayoutParams(-1, -2);
+        roleLp.topMargin = dp(16);
+        chipArea.addView(roleScroll, roleLp);
         root.addView(chipArea);
 
         grid = new RecyclerView(this);
-        grid.setPadding(dp(8), dp(2), dp(8), dp(8));
+        grid.setPadding(dp(12), dp(14), dp(12), dp(8));
         grid.setClipToPadding(false);
         gridAdapter = new GridAdapter();
         clipAdapter = new ClipAdapter();
@@ -229,7 +271,7 @@ public class HongguoTheaterActivity extends AppCompatActivity {
         root.addView(grid, new LinearLayout.LayoutParams(-1, 0, 1f));
 
         stateText = new TextView(this);
-        stateText.setTextColor(0xFF9E9EA7);
+        stateText.setTextColor(0xFF8A8A93);
         stateText.setTextSize(13.5f);
         stateText.setGravity(Gravity.CENTER);
         stateText.setPadding(0, dp(10), 0, dp(10));
@@ -269,39 +311,44 @@ public class HongguoTheaterActivity extends AppCompatActivity {
             grid.setAdapter(clipAdapter);
             chipArea.setVisibility(View.GONE);
         } else {
-            grid.setLayoutManager(new GridLayoutManager(this, 3));
+            grid.setLayoutManager(new GridLayoutManager(this, 2));
             grid.setAdapter(gridAdapter);
             rebuildChips();
         }
     }
 
     private View buildBottomBar() {
-        // 定稿：剧场底栏白色（与首页黑块底栏分开），选中深色、未选灰
+        // 底栏（他定案：纯文字签、不要图标；剧场版浅白底，定稿
+        // .tabbar）：顶线＋浅白底，签组左右收 64dp，选中靠字色＋
+        // 字重分；底部 padding 给系统手势区让位，文字不掉进手势区。
+        LinearLayout wrap = new LinearLayout(this);
+        wrap.setOrientation(LinearLayout.VERTICAL);
+        wrap.setBackgroundColor(0xFFFCFBF9);
+        View line = new View(this);
+        line.setBackgroundColor(0x121B1B1F);
+        wrap.addView(line, new LinearLayout.LayoutParams(-1, 1));
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.HORIZONTAL);
-        bar.setBackgroundColor(Color.WHITE);
-        bar.setPadding(0, 0, 0, navBarHeight());
-        LinearLayout.LayoutParams cell = new LinearLayout.LayoutParams(0, dp(50), 1f);
-        bar.addView(bottomCell(R.drawable.ic_drama_home, "首页", false, v -> goHomeFeed()), cell);
-        bar.addView(bottomCell(R.drawable.ic_drama_theater, "剧场", true, null), cell);
-        return bar;
+        bar.setPadding(dp(64), dp(8), dp(64), dp(10) + navBarHeight());
+        bar.addView(bottomCell("首页", false, v -> goHomeFeed()),
+                new LinearLayout.LayoutParams(0, -2, 1f));
+        bar.addView(bottomCell("剧场", true, null),
+                new LinearLayout.LayoutParams(0, -2, 1f));
+        wrap.addView(bar);
+        return wrap;
     }
 
-    private View bottomCell(int icon, String label, boolean selected, View.OnClickListener click) {
-        LinearLayout c = new LinearLayout(this);
-        c.setOrientation(LinearLayout.VERTICAL);
-        c.setGravity(Gravity.CENTER);
-        ImageView iv = new ImageView(this);
-        iv.setImageResource(icon);
-        iv.setColorFilter(selected ? 0xFF111114 : 0xFF8E8E96);
-        c.addView(iv, new LinearLayout.LayoutParams(dp(22), dp(22)));
+    private View bottomCell(String label, boolean selected, View.OnClickListener click) {
         TextView t = new TextView(this);
         t.setText(label);
-        t.setTextSize(10);
-        t.setTextColor(selected ? 0xFF111114 : 0xFF8E8E96);
-        c.addView(t);
-        if (click != null) c.setOnClickListener(click);
-        return c;
+        t.setTextSize(16.5f);
+        t.setGravity(Gravity.CENTER);
+        t.setPadding(0, dp(10), 0, dp(10));
+        t.setLetterSpacing(0.04f);
+        t.setTextColor(selected ? 0xFF1B1B1F : 0xFFA3A3AB);
+        if (selected) t.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        if (click != null) t.setOnClickListener(click);
+        return t;
     }
 
     /** 回短剧首页：不销毁本页，把首页提到前台，本页留在任务栈里
@@ -359,6 +406,7 @@ public class HongguoTheaterActivity extends AppCompatActivity {
         s.filterSeen.addAll(filterSeen);
         s.clipChain = clipChain;
         s.aiChain = aiChain;
+        s.fillChain = fillChain;
         s.dimKey = activeDimKey;
         s.dimValue = activeDimValue;
         s.settled = pageSettled;
@@ -381,6 +429,7 @@ public class HongguoTheaterActivity extends AppCompatActivity {
         filterSeen.addAll(s.filterSeen);
         clipChain = s.clipChain;
         aiChain = s.aiChain;
+        fillChain = s.fillChain;
         activeDimKey = s.dimKey;
         activeDimValue = s.dimValue;
         pageSettled = s.settled;
@@ -395,15 +444,17 @@ public class HongguoTheaterActivity extends AppCompatActivity {
         if (s.scrollState != null && grid.getLayoutManager() != null) {
             grid.getLayoutManager().onRestoreInstanceState(s.scrollState);
         }
+        maybeFill();
     }
 
     private void selectTab() {
         for (int i = 0; i < tabViews.length; i++) {
             boolean on = i == channel;
-            tabViews[i].setTextColor(on ? Color.WHITE : 0xFF9E9EA7);
+            tabViews[i].setTextColor(on ? 0xFF1B1B1F : 0xFF6D6D75);
             tabViews[i].setTypeface(on ? android.graphics.Typeface.DEFAULT_BOLD
                     : android.graphics.Typeface.DEFAULT);
-            tabViews[i].setBackground(roundBg(on ? 0xFF2C2C30 : Color.TRANSPARENT, dp(14)));
+            tabViews[i].setBackground(on ? roundBg(Color.WHITE, dp(10)) : null);
+            tabViews[i].setElevation(on ? dp(2) : 0);
         }
     }
 
@@ -503,8 +554,9 @@ public class HongguoTheaterActivity extends AppCompatActivity {
     private TextView makeChip(final String dimKey, final String value, String name) {
         TextView t = new TextView(this);
         t.setText(name);
-        t.setTextSize(12.5f);
-        t.setPadding(dp(11), dp(5), dp(11), dp(5));
+        t.setTextSize(13.5f);
+        t.setGravity(Gravity.CENTER);
+        t.setPadding(dp(14), dp(7), dp(14), dp(7));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
         lp.rightMargin = dp(8);
         t.setLayoutParams(lp);
@@ -538,8 +590,10 @@ public class HongguoTheaterActivity extends AppCompatActivity {
             TextView t = views.get(i);
             boolean on = i == 0 ? activeDimKey == null
                     : dimKey.equals(activeDimKey) && String.valueOf(activeDimValue).equals(t.getTag());
-            t.setTextColor(on ? Color.WHITE : 0xFFB9B9C0);
-            t.setBackground(roundBg(on ? 0xFFE8402F : 0xFF232328, dp(13)));
+            t.setTextColor(on ? Color.WHITE : 0xFF4C4C54);
+            t.setTypeface(on ? android.graphics.Typeface.DEFAULT_BOLD
+                    : android.graphics.Typeface.DEFAULT);
+            t.setBackground(roundBg(on ? 0xFF1B1B1F : 0x0B1B1B1F, dp(20)));
         }
     }
 
@@ -562,6 +616,7 @@ public class HongguoTheaterActivity extends AppCompatActivity {
             filterSeen.clear();
             clipChain = 0;
             aiChain = 0;
+            fillChain = 0;
             hasMore = false;
             stateText.setText("加载中…");
             stateText.setVisibility(View.VISIBLE);
@@ -636,6 +691,25 @@ public class HongguoTheaterActivity extends AppCompatActivity {
         HgTransition.contentIn(grid);
     }
 
+    /**
+     * 填充续拉（1.4.63 真机定根，账 hongguo-1463-triage2-20261030）：
+     * 频道开页每格只带 3 条精选（探针实测 tab39/tab36 开页各 3 条、
+     * 续页凭证在位、hasMore 靠凭证判 true），3 条一格不满屏——网格
+     * 根本滑不动，滚动监听（dy&gt;0 才查尾）永不触发，链死在第一页、
+     * 下面整片黑。出页/恢复后若已在尾位（或内容不满屏）且还有下页，
+     * 不等滚动直接续拉补满；零新增连着来封顶 3 次防死循环，有新增
+     * 即清零。与 clipChain/aiChain 的整页滤空续拉并存（那两条在本
+     * 方法检查前已同步发车时，loading 在位、本检查自动让路）。
+     */
+    private void maybeFill() {
+        grid.post(() -> {
+            if (loading || !hasMore || fillChain >= 3) return;
+            int count = channel == TAB_CLIPS ? clips.size() : items.size();
+            if (count == 0) return;
+            if (lastVisiblePosition() >= count - 6) load(false);
+        });
+    }
+
     private void onPage(DramaCellPage page, boolean first) {
         loading = false;
         pageSettled = true;
@@ -663,6 +737,8 @@ public class HongguoTheaterActivity extends AppCompatActivity {
                 clipChain++;
                 load(false);
             }
+            fillChain = added > 0 ? 0 : fillChain + 1;
+            maybeFill();
             return;
         }
         if (reqFilter) {
@@ -724,6 +800,8 @@ public class HongguoTheaterActivity extends AppCompatActivity {
                 load(false);
             }
         }
+        fillChain = added > 0 ? 0 : fillChain + 1;
+        maybeFill();
     }
 
     /**
@@ -751,6 +829,57 @@ public class HongguoTheaterActivity extends AppCompatActivity {
         HongguoFeedActivity.startSeries(this, item.getSeriesId(), item.getTitle(), 0);
     }
 
+    /** 瀑布封面真比例缓存（封面 URL → 高/宽）：回包无封面宽高字段
+     * （cover_size 是样式旗、已实拉核过），真比例取封面图自身
+     * 宽高比，载入后回填，滚回不再跳变。 */
+    private final Map<String, Float> clipRatioCache = new HashMap<>();
+
+    /**
+     * 定稿热度焰（草稿 flameSvg：24 视框 path、填充 #FFB03A）自绘件：
+     * 树里无现成 drawable，按草稿 path 原文绘制，不跳过。
+     */
+    static final class FlameDrawable extends Drawable {
+        private static final String PATH_DATA =
+                "M12 2s1 2.7-1.2 5.2C9.2 9 7.5 10.3 7.5 13a4.5 4.5 0 0 0 9 0"
+                        + "c0-1.2-.5-2.2-1-3.2-.3 1-1 1.9-2 2.4.3-2.7-.5-7.4-1.5-10.2z"
+                        + "M12 22a6.8 6.8 0 0 1-6.8-6.8c0-2.4 1.2-4.2 2.6-5.9"
+                        + ".3 1 .9 1.9 1.7 2.5C9.8 9.9 10.6 6.9 12 2c1.6 3.1 2.2 6.1 1.9 8.7"
+                        + ".8-.6 1.4-1.4 1.7-2.4 1 1.5 2.2 3.6 2.2 6A6.8 6.8 0 0 1 12 22z";
+        private final Path path = PathParser.createPathFromPathData(PATH_DATA);
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+
+        FlameDrawable() {
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(0xFFFFB03A);
+        }
+
+        @Override
+        public void draw(@NonNull Canvas canvas) {
+            android.graphics.Rect b = getBounds();
+            if (b.width() <= 0 || b.height() <= 0) return;
+            canvas.save();
+            canvas.translate(b.left, b.top);
+            canvas.scale(b.width() / 24f, b.height() / 24f);
+            canvas.drawPath(path, paint);
+            canvas.restore();
+        }
+
+        @Override
+        public void setAlpha(int alpha) {
+            paint.setAlpha(alpha);
+        }
+
+        @Override
+        public void setColorFilter(@Nullable android.graphics.ColorFilter filter) {
+            paint.setColorFilter(filter);
+        }
+
+        @Override
+        public int getOpacity() {
+            return android.graphics.PixelFormat.TRANSLUCENT;
+        }
+    }
+
     /** 定稿：视频签点卡进视频页——合集走专辑队列、单条走单条形态。 */
     private void openClip(DramaItem item) {
         if (item.kind == DramaItemKind.ALBUM) {
@@ -766,60 +895,140 @@ public class HongguoTheaterActivity extends AppCompatActivity {
 
         class H extends RecyclerView.ViewHolder {
             final ImageView cover;
+            final TextView score;
+            final View strip;
+            final TextView eps;
+            final ImageView flame;
+            final TextView heat;
             final TextView title;
-            final TextView meta;
+            final TextView desc;
 
             H(LinearLayout cell) {
                 super(cell);
                 cover = cell.findViewWithTag("cover");
+                score = cell.findViewWithTag("score");
+                strip = cell.findViewWithTag("strip");
+                eps = cell.findViewWithTag("eps");
+                flame = cell.findViewWithTag("flame");
+                heat = cell.findViewWithTag("heat");
                 title = cell.findViewWithTag("title");
-                meta = cell.findViewWithTag("meta");
+                desc = cell.findViewWithTag("desc");
             }
         }
 
         @NonNull
         @Override
         public H onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+            // 定稿 .card：海报 aspect 3/3.6、圆 16、占位 #E8E6E2；右上
+            // 评分角标（金字深底）；底部渐变条左集数右热度；卡下标题
+            // 15/700＋简介两行 12.5 sub。
             LinearLayout cell = new LinearLayout(HongguoTheaterActivity.this);
             cell.setOrientation(LinearLayout.VERTICAL);
-            cell.setPadding(dp(5), dp(6), dp(5), dp(10));
+            FrameLayout box = new FrameLayout(HongguoTheaterActivity.this);
             ImageView cover = new ImageView(HongguoTheaterActivity.this);
             cover.setTag("cover");
             cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            cover.setBackground(roundBg(0xFF232328, dp(8)));
-            int w = (getResources().getDisplayMetrics().widthPixels - dp(46)) / 3;
-            cell.addView(cover, new LinearLayout.LayoutParams(-1, (int) (w * 1.38f)));
+            cover.setBackground(roundBg(0xFFE8E6E2, dp(16)));
+            box.addView(cover, new FrameLayout.LayoutParams(-1, -1));
+            TextView score = new TextView(HongguoTheaterActivity.this);
+            score.setTag("score");
+            score.setTextColor(0xFFFFC44D);
+            score.setTextSize(10.5f);
+            score.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            score.setPadding(dp(7), dp(3), dp(7), dp(3));
+            score.setBackground(roundBg(0x850A0806, dp(7)));
+            FrameLayout.LayoutParams slp = new FrameLayout.LayoutParams(-2, -2);
+            slp.gravity = Gravity.TOP | Gravity.RIGHT;
+            slp.rightMargin = dp(7);
+            slp.topMargin = dp(7);
+            box.addView(score, slp);
+            LinearLayout strip = new LinearLayout(HongguoTheaterActivity.this);
+            strip.setTag("strip");
+            strip.setOrientation(LinearLayout.HORIZONTAL);
+            strip.setGravity(Gravity.BOTTOM);
+            strip.setBackground(new GradientDrawable(
+                    GradientDrawable.Orientation.TOP_BOTTOM,
+                    new int[]{0x00000000, 0x61080605, 0xBD080605}));
+            strip.setPadding(dp(9), dp(22), dp(9), dp(7));
+            TextView eps = new TextView(HongguoTheaterActivity.this);
+            eps.setTag("eps");
+            eps.setTextColor(Color.WHITE);
+            eps.setTextSize(10.5f);
+            eps.setMaxLines(1);
+            strip.addView(eps, new LinearLayout.LayoutParams(0, -2, 1f));
+            // 热度前焰（定稿 flameSvg 11px #FFB03A，树里无 drawable，
+            // 按草稿 path 自绘 FlameDrawable，不得跳过）
+            ImageView flame = new ImageView(HongguoTheaterActivity.this);
+            flame.setTag("flame");
+            flame.setImageDrawable(new FlameDrawable());
+            LinearLayout.LayoutParams flp = new LinearLayout.LayoutParams(dp(11), dp(11));
+            flp.rightMargin = dp(3);
+            strip.addView(flame, flp);
+            TextView heat = new TextView(HongguoTheaterActivity.this);
+            heat.setTag("heat");
+            heat.setTextColor(Color.WHITE);
+            heat.setTextSize(10.5f);
+            heat.setMaxLines(1);
+            strip.addView(heat);
+            FrameLayout.LayoutParams stripLp = new FrameLayout.LayoutParams(-1, -2);
+            stripLp.gravity = Gravity.BOTTOM;
+            box.addView(strip, stripLp);
+            int w = (getResources().getDisplayMetrics().widthPixels - dp(48)) / 2;
+            cell.addView(box, new LinearLayout.LayoutParams(-1, (int) (w * 1.2f)));
             TextView title = new TextView(HongguoTheaterActivity.this);
             title.setTag("title");
-            title.setTextColor(0xFFF2F2F4);
-            title.setTextSize(13);
+            title.setTextColor(0xFF1B1B1F);
+            title.setTextSize(15);
+            title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
             title.setMaxLines(1);
             title.setEllipsize(android.text.TextUtils.TruncateAt.END);
             LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(-1, -2);
-            tlp.topMargin = dp(6);
+            tlp.topMargin = dp(10);
+            tlp.leftMargin = dp(1);
             cell.addView(title, tlp);
-            TextView meta = new TextView(HongguoTheaterActivity.this);
-            meta.setTag("meta");
-            meta.setTextColor(0xFF8E8E96);
-            meta.setTextSize(11);
-            meta.setMaxLines(1);
-            cell.addView(meta);
+            TextView desc = new TextView(HongguoTheaterActivity.this);
+            desc.setTag("desc");
+            desc.setTextColor(0xFF8A8A93);
+            desc.setTextSize(12.5f);
+            desc.setMaxLines(2);
+            desc.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(-1, -2);
+            dlp.topMargin = dp(3);
+            dlp.leftMargin = dp(1);
+            cell.addView(desc, dlp);
             return new H(cell);
         }
 
         @Override
         public void onBindViewHolder(@NonNull H h, int position) {
             DramaItem item = items.get(position);
+            // 两列格距 12：左列右半距、右列左半距（格内 padding 承担）
+            h.itemView.setPadding(position % 2 == 0 ? 0 : dp(6), 0,
+                    position % 2 == 0 ? dp(6) : 0, dp(18));
             if (item.getCoverUrl() != null && !item.getCoverUrl().isEmpty()) {
-                Glide.with(HongguoTheaterActivity.this).load(item.getCoverUrl()).into(h.cover);
+                Glide.with(HongguoTheaterActivity.this).load(item.getCoverUrl())
+                        .transform(new RoundedCorners(dp(16))).into(h.cover);
             } else {
                 h.cover.setImageDrawable(null);
             }
-            h.title.setText(item.getTitle() == null ? "" : item.getTitle());
+            String score = item.scoreChipPos >= 0 && item.infoChips != null
+                    && item.scoreChipPos < item.infoChips.size()
+                    ? item.infoChips.get(item.scoreChipPos) : null;
+            h.score.setVisibility(score != null && !score.isEmpty()
+                    ? View.VISIBLE : View.GONE);
+            if (score != null) h.score.setText(score);
             int total = item.getEpisodeCount();
-            h.meta.setText(total > 0
-                    ? (item.isFinished() ? "全" + total + "集" : "更新至" + total + "集")
-                    : "");
+            String epsText = total > 0
+                    ? (item.isFinished() ? "全 " + total + " 集" : "更新至 " + total + " 集")
+                    : "";
+            h.eps.setText(epsText);
+            String heatText = item.getRecText() == null ? "" : item.getRecText();
+            h.heat.setText(heatText);
+            h.flame.setVisibility(heatText.isEmpty() ? View.GONE : View.VISIBLE);
+            h.strip.setVisibility(epsText.isEmpty() && heatText.isEmpty()
+                    ? View.GONE : View.VISIBLE);
+            h.title.setText(item.getTitle() == null ? "" : item.getTitle());
+            h.desc.setText(item.getDesc() == null ? "" : item.getDesc());
             h.itemView.setOnClickListener(v -> openDrama(item));
         }
 
@@ -835,20 +1044,16 @@ public class HongguoTheaterActivity extends AppCompatActivity {
 
         class H extends RecyclerView.ViewHolder {
             final ImageView cover;
-            final TextView heat;
-            final TextView badge;
+            final TextView score;
             final TextView title;
-            final ImageView avatar;
-            final TextView author;
+            final TextView sub;
 
             H(LinearLayout cell) {
                 super(cell);
                 cover = cell.findViewWithTag("cover");
-                heat = cell.findViewWithTag("heat");
-                badge = cell.findViewWithTag("badge");
+                score = cell.findViewWithTag("score");
                 title = cell.findViewWithTag("title");
-                avatar = cell.findViewWithTag("avatar");
-                author = cell.findViewWithTag("author");
+                sub = cell.findViewWithTag("sub");
             }
         }
 
@@ -857,103 +1062,126 @@ public class HongguoTheaterActivity extends AppCompatActivity {
         public H onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
             LinearLayout cell = new LinearLayout(HongguoTheaterActivity.this);
             cell.setOrientation(LinearLayout.VERTICAL);
-            cell.setPadding(dp(5), dp(6), dp(5), dp(12));
             FrameLayout frame = new FrameLayout(HongguoTheaterActivity.this);
             ImageView cover = new ImageView(HongguoTheaterActivity.this);
             cover.setTag("cover");
             cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            cover.setBackground(roundBg(0xFF232328, dp(8)));
+            cover.setBackground(roundBg(0xFFE8E6E2, dp(16)));
             frame.addView(cover, new FrameLayout.LayoutParams(-1, -1));
-            TextView badge = new TextView(HongguoTheaterActivity.this);
-            badge.setTag("badge");
-            badge.setTextColor(Color.WHITE);
-            badge.setTextSize(10.5f);
-            badge.setPadding(dp(6), dp(2), dp(6), dp(2));
-            badge.setBackground(roundBg(0xCC1B1B1E, dp(4)));
-            FrameLayout.LayoutParams blp = new FrameLayout.LayoutParams(-2, -2);
-            blp.leftMargin = dp(6);
-            blp.topMargin = dp(6);
-            frame.addView(badge, blp);
-            TextView heat = new TextView(HongguoTheaterActivity.this);
-            heat.setTag("heat");
-            heat.setTextColor(0xFFF2F2F4);
-            heat.setTextSize(11);
-            heat.setPadding(dp(6), dp(2), dp(6), dp(2));
-            heat.setBackground(roundBg(0x99000000, dp(4)));
-            FrameLayout.LayoutParams hlp = new FrameLayout.LayoutParams(-2, -2);
-            hlp.gravity = Gravity.BOTTOM | Gravity.LEFT;
-            hlp.leftMargin = dp(6);
-            hlp.bottomMargin = dp(6);
-            frame.addView(heat, hlp);
+            TextView score = new TextView(HongguoTheaterActivity.this);
+            score.setTag("score");
+            score.setTextColor(0xFFFFC44D);
+            score.setTextSize(10.5f);
+            score.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            score.setPadding(dp(7), dp(3), dp(7), dp(3));
+            score.setBackground(roundBg(0x850A0806, dp(7)));
+            FrameLayout.LayoutParams slp = new FrameLayout.LayoutParams(-2, -2);
+            slp.gravity = Gravity.TOP | Gravity.RIGHT;
+            slp.rightMargin = dp(7);
+            slp.topMargin = dp(7);
+            frame.addView(score, slp);
             cell.addView(frame, new LinearLayout.LayoutParams(-1, -2));
             frame.setTag("frame");
             TextView title = new TextView(HongguoTheaterActivity.this);
             title.setTag("title");
-            title.setTextColor(0xFFF2F2F4);
-            title.setTextSize(13);
+            title.setTextColor(0xFF1B1B1F);
+            title.setTextSize(14.5f);
+            title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
             title.setMaxLines(2);
             title.setEllipsize(android.text.TextUtils.TruncateAt.END);
             LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(-1, -2);
-            tlp.topMargin = dp(6);
+            tlp.topMargin = dp(9);
+            tlp.leftMargin = dp(1);
             cell.addView(title, tlp);
-            LinearLayout authorRow = new LinearLayout(HongguoTheaterActivity.this);
-            authorRow.setOrientation(LinearLayout.HORIZONTAL);
-            authorRow.setGravity(Gravity.CENTER_VERTICAL);
-            LinearLayout.LayoutParams alp = new LinearLayout.LayoutParams(-1, -2);
-            alp.topMargin = dp(5);
-            ImageView avatar = new ImageView(HongguoTheaterActivity.this);
-            avatar.setTag("avatar");
-            avatar.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            authorRow.addView(avatar, new LinearLayout.LayoutParams(dp(16), dp(16)));
-            TextView author = new TextView(HongguoTheaterActivity.this);
-            author.setTag("author");
-            author.setTextColor(0xFF8E8E96);
-            author.setTextSize(11.5f);
-            author.setMaxLines(1);
-            author.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            LinearLayout.LayoutParams nlp = new LinearLayout.LayoutParams(0, -2, 1f);
-            nlp.leftMargin = dp(5);
-            authorRow.addView(author, nlp);
-            cell.addView(authorRow, alp);
+            TextView sub = new TextView(HongguoTheaterActivity.this);
+            sub.setTag("sub");
+            sub.setTextColor(0xFF8A8A93);
+            sub.setTextSize(12);
+            sub.setMaxLines(1);
+            sub.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(-1, -2);
+            subLp.topMargin = dp(2);
+            subLp.leftMargin = dp(1);
+            cell.addView(sub, subLp);
             return new H(cell);
         }
 
         @Override
         public void onBindViewHolder(@NonNull H h, int position) {
             DramaItem item = clips.get(position);
-            // 混比封面：按条目 id 哈希在三档比例里定一档，同条不跳变。
-            int w = (getResources().getDisplayMetrics().widthPixels - dp(42)) / 2;
-            float[] ratios = {1.30f, 1.02f, 1.18f};
-            String key = item.getVid() != null ? item.getVid()
-                    : String.valueOf(item.getSeriesId());
-            float ratio = ratios[Math.abs(key.hashCode()) % ratios.length];
-            View frame = (View) h.cover.getParent();
+            h.itemView.setPadding(position % 2 == 0 ? 0 : dp(6), 0,
+                    position % 2 == 0 ? dp(6) : 0, dp(16));
+            // 封面真比例（打回工单⑧：禁按 id 哈希派值）：回包无封面
+            // 宽高字段，真比例取封面图自身宽高比；载入前先用条目
+            // 横竖向（vertical 字段）占位，图到后按真比例回填并缓存。
+            int w = (getResources().getDisplayMetrics().widthPixels - dp(48)) / 2;
+            final View frame = (View) h.cover.getParent();
+            String coverUrl = item.getCoverUrl();
+            Float cached = coverUrl == null ? null : clipRatioCache.get(coverUrl);
+            float ratio = cached != null ? cached
+                    : (Boolean.FALSE.equals(item.getVertical()) ? 0.75f : 4f / 3f);
             ViewGroup.LayoutParams flp = frame.getLayoutParams();
             flp.height = (int) (w * ratio);
             frame.setLayoutParams(flp);
-            if (item.getCoverUrl() != null && !item.getCoverUrl().isEmpty()) {
-                Glide.with(HongguoTheaterActivity.this).load(item.getCoverUrl()).into(h.cover);
+            if (coverUrl != null && !coverUrl.isEmpty()) {
+                Glide.with(HongguoTheaterActivity.this).load(coverUrl)
+                        .transform(new RoundedCorners(dp(16)))
+                        .listener(new RequestListener<Drawable>() {
+                            @Override
+                            public boolean onLoadFailed(@Nullable GlideException e, Object model,
+                                                          Target<Drawable> target, boolean first) {
+                                return false;
+                            }
+
+                            @Override
+                            public boolean onResourceReady(Drawable resource, Object model,
+                                                           Target<Drawable> target,
+                                                           DataSource source, boolean first) {
+                                int iw = resource.getIntrinsicWidth();
+                                int ih = resource.getIntrinsicHeight();
+                                if (iw > 0 && ih > 0 && model != null) {
+                                    float r = ih / (float) iw;
+                                    r = Math.max(0.6f, Math.min(1.9f, r));
+                                    Float old = clipRatioCache.put(String.valueOf(model), r);
+                                    if (old == null || Math.abs(old - r) > 0.01f) {
+                                        ViewGroup.LayoutParams lp = frame.getLayoutParams();
+                                        lp.height = (int) (w * r);
+                                        frame.setLayoutParams(lp);
+                                    }
+                                }
+                                return false;
+                            }
+                        })
+                        .into(h.cover);
             } else {
                 h.cover.setImageDrawable(null);
             }
-            boolean album = item.kind == DramaItemKind.ALBUM;
-            h.badge.setVisibility(album ? View.VISIBLE : View.GONE);
-            if (album) {
-                h.badge.setText(item.getBadge() != null && !item.getBadge().isEmpty()
-                        ? item.getBadge() : "合集");
-            }
-            String heat = item.getRecText();
-            h.heat.setVisibility(heat != null && !heat.isEmpty() ? View.VISIBLE : View.GONE);
-            if (heat != null) h.heat.setText(heat);
+            String score = item.scoreChipPos >= 0 && item.infoChips != null
+                    && item.scoreChipPos < item.infoChips.size()
+                    ? item.infoChips.get(item.scoreChipPos) : null;
+            h.score.setVisibility(score != null && !score.isEmpty()
+                    ? View.VISIBLE : View.GONE);
+            if (score != null) h.score.setText(score);
             h.title.setText(item.getTitle() == null ? "" : item.getTitle());
-            String author = item.getAuthorName();
-            h.author.setText(author == null ? "" : author);
-            if (item.getAuthorAvatar() != null && !item.getAuthorAvatar().isEmpty()) {
-                Glide.with(HongguoTheaterActivity.this).load(item.getAuthorAvatar())
-                        .circleCrop().into(h.avatar);
-            } else {
-                h.avatar.setImageDrawable(null);
+            // 副行（定稿形态「类 · 热度值 播放」）：合集以「合集」
+            // 领起、单条以首个分类签领起；热度值取 recText 剥尾
+            // 「热度」二字后接「 播放」（recText 原文形如
+            // 「208万热度」）；皆无则空。
+            boolean album = item.kind == DramaItemKind.ALBUM;
+            String lead = album ? "合集"
+                    : (item.getTags() != null && !item.getTags().isEmpty()
+                            ? item.getTags().get(0) : null);
+            String heat = item.getRecText();
+            if (heat != null && heat.endsWith("热度")) {
+                heat = heat.substring(0, heat.length() - 2);
             }
+            StringBuilder sb = new StringBuilder();
+            if (lead != null && !lead.isEmpty()) sb.append(lead);
+            if (heat != null && !heat.isEmpty()) {
+                if (sb.length() > 0) sb.append(" · ");
+                sb.append(heat).append(" 播放");
+            }
+            h.sub.setText(sb.toString());
             h.itemView.setOnClickListener(v -> openClip(item));
         }
 

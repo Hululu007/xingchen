@@ -2,7 +2,6 @@ package com.fongmi.android.tv.hongguo.ui;
 
 import android.content.Context;
 import android.content.Intent;
-import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.view.Gravity;
@@ -19,6 +18,7 @@ import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.load.resource.bitmap.RoundedCorners;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.hongguo.api.HgCallback;
 import com.fongmi.android.tv.hongguo.drama.DramaClient;
@@ -53,10 +53,15 @@ public class HongguoAuthorActivity extends AppCompatActivity {
         HgTransition.applyPushExit(this);
     }
 
+    /** 定稿名字字体：Noto Serif SC 900 的系统近似（serif 粗体）。 */
+    private static final android.graphics.Typeface SERIF_BLACK =
+            android.graphics.Typeface.create("serif", android.graphics.Typeface.BOLD);
+
     private String uid;
     private ImageView avatarView;
     private TextView nameView;
     private TextView descView;
+    private TextView worksCount;
     private TextView stateText;
     private WorksAdapter adapter;
     private final List<DramaWork> works = new ArrayList<>();
@@ -88,75 +93,93 @@ public class HongguoAuthorActivity extends AppCompatActivity {
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        HgWindowStyle.apply(this, false, false);
+        HgWindowStyle.apply(this, true, true);
         uid = getIntent().getStringExtra(EXTRA_UID);
 
+        // 页面层重做（定稿 #authorOverlay）：浅底，顶栏浅底圆返回钮
+        // ＋「作者主页」，头部居中列，作品三列格圆 13。
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(0xFF111114);
-        root.setPadding(dp(16), statusBarHeight() + dp(6), dp(16), navBarHeight());
+        root.setBackgroundColor(0xFFFAF9F7);
 
         LinearLayout top = new LinearLayout(this);
         top.setOrientation(LinearLayout.HORIZONTAL);
         top.setGravity(Gravity.CENTER_VERTICAL);
+        top.setPadding(dp(14), statusBarHeight() + dp(8), dp(14), dp(2));
         ImageView back = new ImageView(this);
         back.setImageResource(R.drawable.ic_drama_back);
-        back.setColorFilter(Color.WHITE);
-        back.setPadding(dp(4), dp(8), dp(12), dp(8));
+        back.setColorFilter(0xFF1B1B1F);
+        back.setBackground(roundBg(0x0D1B1B1F, dp(19)));
+        back.setPadding(dp(9), dp(9), dp(9), dp(9));
         back.setOnClickListener(v -> finish());
-        top.addView(back, new LinearLayout.LayoutParams(dp(40), dp(40)));
+        top.addView(back, new LinearLayout.LayoutParams(dp(38), dp(38)));
         TextView topTitle = new TextView(this);
-        topTitle.setText("作者");
-        topTitle.setTextColor(Color.WHITE);
-        topTitle.setTextSize(16.5f);
+        topTitle.setText("作者主页");
+        topTitle.setTextColor(0xFF1B1B1F);
+        topTitle.setTextSize(16);
         topTitle.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        top.addView(topTitle);
+        LinearLayout.LayoutParams ttlp = new LinearLayout.LayoutParams(-2, -2);
+        ttlp.leftMargin = dp(10);
+        top.addView(topTitle, ttlp);
         root.addView(top);
 
-        // 头部
+        // 头部：居中列（头像 74 圆、名 Serif 21、meta 12.5 sub 居中）
         LinearLayout head = new LinearLayout(this);
-        head.setOrientation(LinearLayout.HORIZONTAL);
-        head.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(-1, -2);
-        hlp.topMargin = dp(14);
+        head.setOrientation(LinearLayout.VERTICAL);
+        head.setGravity(Gravity.CENTER_HORIZONTAL);
+        head.setPadding(dp(30), dp(20), dp(30), dp(4));
         avatarView = new ImageView(this);
-        avatarView.setBackground(roundBg(0xFF2C2C30, dp(30)));
-        head.addView(avatarView, new LinearLayout.LayoutParams(dp(60), dp(60)));
-        LinearLayout info = new LinearLayout(this);
-        info.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(0, -2, 1f);
-        ilp.leftMargin = dp(13);
+        avatarView.setBackground(roundBg(0xFFE8E6E2, dp(37)));
+        head.addView(avatarView, new LinearLayout.LayoutParams(dp(74), dp(74)));
         nameView = new TextView(this);
-        nameView.setTextColor(Color.WHITE);
-        nameView.setTextSize(17.5f);
-        nameView.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        nameView.setTextColor(0xFF1B1B1F);
+        nameView.setTextSize(21);
+        nameView.setTypeface(SERIF_BLACK);
+        nameView.setGravity(Gravity.CENTER);
         nameView.setMaxLines(1);
         nameView.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        info.addView(nameView);
+        LinearLayout.LayoutParams nlp = new LinearLayout.LayoutParams(-1, -2);
+        nlp.topMargin = dp(13);
+        nlp.bottomMargin = dp(5);
+        head.addView(nameView, nlp);
         descView = new TextView(this);
-        descView.setTextColor(0xFF9E9EA7);
+        descView.setTextColor(0xFF8A8A93);
         descView.setTextSize(12.5f);
-        descView.setMaxLines(2);
+        descView.setGravity(Gravity.CENTER);
+        // 定稿头部 meta 行高 1.7，按全单字体换算（≈×0.83）落 1.41
+        descView.setLineSpacing(0, 1.41f);
+        descView.setMaxLines(3);
         descView.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(-1, -2);
-        dlp.topMargin = dp(4);
-        info.addView(descView, dlp);
-        head.addView(info, ilp);
-        root.addView(head, hlp);
+        head.addView(descView);
+        root.addView(head);
 
+        LinearLayout worksHead = new LinearLayout(this);
+        worksHead.setOrientation(LinearLayout.HORIZONTAL);
+        worksHead.setBaselineAligned(true);
+        worksHead.setPadding(dp(18), 0, dp(18), 0);
+        LinearLayout.LayoutParams wlp = new LinearLayout.LayoutParams(-1, -2);
+        wlp.topMargin = dp(24);
+        wlp.bottomMargin = dp(2);
         TextView worksLabel = new TextView(this);
-        worksLabel.setText("作品");
-        worksLabel.setTextColor(Color.WHITE);
-        worksLabel.setTextSize(15);
+        worksLabel.setText("他的作品");
+        worksLabel.setTextColor(0xFF1B1B1F);
+        worksLabel.setTextSize(16);
         worksLabel.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        LinearLayout.LayoutParams wlp = new LinearLayout.LayoutParams(-2, -2);
-        wlp.topMargin = dp(20);
-        wlp.bottomMargin = dp(6);
-        root.addView(worksLabel, wlp);
+        worksLabel.setIncludeFontPadding(false);
+        worksHead.addView(worksLabel);
+        worksCount = new TextView(this);
+        worksCount.setTextColor(0xFF8A8A93);
+        worksCount.setTextSize(12);
+        worksCount.setIncludeFontPadding(false);
+        LinearLayout.LayoutParams wclp = new LinearLayout.LayoutParams(-2, -2);
+        wclp.leftMargin = dp(7);
+        worksHead.addView(worksCount, wclp);
+        root.addView(worksHead, wlp);
 
         RecyclerView grid = new RecyclerView(this);
         GridLayoutManager glm = new GridLayoutManager(this, 3);
         grid.setLayoutManager(glm);
+        grid.setPadding(dp(13), dp(16), dp(13), dp(16) + navBarHeight());
         grid.setClipToPadding(false);
         adapter = new WorksAdapter();
         grid.setAdapter(adapter);
@@ -172,7 +195,7 @@ public class HongguoAuthorActivity extends AppCompatActivity {
         root.addView(grid, new LinearLayout.LayoutParams(-1, 0, 1f));
 
         stateText = new TextView(this);
-        stateText.setTextColor(0xFF9E9EA7);
+        stateText.setTextColor(0xFF8A8A93);
         stateText.setTextSize(13.5f);
         stateText.setGravity(Gravity.CENTER);
         stateText.setPadding(0, dp(10), 0, dp(10));
@@ -236,6 +259,8 @@ public class HongguoAuthorActivity extends AppCompatActivity {
                     works.addAll(page.items);
                     cursor = page.nextCursor;
                     hasMore = page.hasMore;
+                    // 计数＝已加载部数（总数接口无字段，随续拉增长）
+                    worksCount.setText(works.isEmpty() ? "" : "· " + works.size() + " 部");
                     adapter.notifyDataSetChanged();
                     stateText.setVisibility(works.isEmpty() ? View.VISIBLE : View.GONE);
                     if (works.isEmpty()) stateText.setText("暂无作品");
@@ -259,12 +284,14 @@ public class HongguoAuthorActivity extends AppCompatActivity {
 
         class H extends RecyclerView.ViewHolder {
             final ImageView cover;
+            final TextView score;
             final TextView title;
             final TextView meta;
 
             H(LinearLayout cell) {
                 super(cell);
                 cover = cell.findViewWithTag("cover");
+                score = cell.findViewWithTag("score");
                 title = cell.findViewWithTag("title");
                 meta = cell.findViewWithTag("meta");
             }
@@ -273,40 +300,77 @@ public class HongguoAuthorActivity extends AppCompatActivity {
         @NonNull
         @Override
         public H onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+            // 定稿作品格：海报 aspect 3/4.1、圆 13、占位 #E8E6E2；
+            // 标题 13.5/700 ink、meta 11.5 sub 单行；右上评分角标
+            // 与剧场卡同式（有分才显——作品回包无评分字段，见账）。
             LinearLayout cell = new LinearLayout(HongguoAuthorActivity.this);
             cell.setOrientation(LinearLayout.VERTICAL);
-            cell.setPadding(dp(5), dp(6), dp(5), dp(10));
+            android.widget.FrameLayout coverBox = new android.widget.FrameLayout(
+                    HongguoAuthorActivity.this);
             ImageView cover = new ImageView(HongguoAuthorActivity.this);
             cover.setTag("cover");
             cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            cover.setBackground(roundBg(0xFF232328, dp(8)));
-            int w = (getResources().getDisplayMetrics().widthPixels - dp(62)) / 3;
-            cell.addView(cover, new LinearLayout.LayoutParams(-1, (int) (w * 1.38f)));
+            cover.setBackground(roundBg(0xFFE8E6E2, dp(13)));
+            coverBox.addView(cover, new android.widget.FrameLayout.LayoutParams(-1, -1));
+            TextView score = new TextView(HongguoAuthorActivity.this);
+            score.setTag("score");
+            score.setTextColor(0xFFFFC44D);
+            score.setTextSize(10.5f);
+            score.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            score.setPadding(dp(7), dp(3), dp(7), dp(3));
+            score.setBackground(roundBg(0x850A0806, dp(7)));
+            score.setVisibility(View.GONE);
+            android.widget.FrameLayout.LayoutParams sclp =
+                    new android.widget.FrameLayout.LayoutParams(-2, -2);
+            sclp.gravity = Gravity.TOP | Gravity.RIGHT;
+            sclp.rightMargin = dp(7);
+            sclp.topMargin = dp(7);
+            coverBox.addView(score, sclp);
+            int w = (getResources().getDisplayMetrics().widthPixels - dp(56)) / 3;
+            cell.addView(coverBox, new LinearLayout.LayoutParams(-1, (int) (w * (4.1f / 3f))));
             TextView title = new TextView(HongguoAuthorActivity.this);
             title.setTag("title");
-            title.setTextColor(0xFFF2F2F4);
-            title.setTextSize(13);
+            title.setTextColor(0xFF1B1B1F);
+            title.setTextSize(13.5f);
+            title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
             title.setMaxLines(1);
             title.setEllipsize(android.text.TextUtils.TruncateAt.END);
             LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(-1, -2);
-            tlp.topMargin = dp(6);
+            tlp.topMargin = dp(8);
+            tlp.leftMargin = dp(1);
             cell.addView(title, tlp);
             TextView meta = new TextView(HongguoAuthorActivity.this);
             meta.setTag("meta");
-            meta.setTextColor(0xFF8E8E96);
-            meta.setTextSize(11);
+            meta.setTextColor(0xFF8A8A93);
+            meta.setTextSize(11.5f);
             meta.setMaxLines(1);
-            cell.addView(meta);
+            meta.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            LinearLayout.LayoutParams mlp = new LinearLayout.LayoutParams(-1, -2);
+            mlp.topMargin = dp(3);
+            mlp.leftMargin = dp(1);
+            cell.addView(meta, mlp);
             return new H(cell);
         }
 
         @Override
         public void onBindViewHolder(@NonNull H h, int position) {
             DramaWork work = works.get(position);
+            int col = position % 3;
+            h.itemView.setPadding(col == 0 ? 0 : dp(5), 0,
+                    col == 2 ? 0 : dp(5), dp(14));
             if (work.cover != null && !work.cover.isEmpty()) {
-                Glide.with(HongguoAuthorActivity.this).load(work.cover).into(h.cover);
+                Glide.with(HongguoAuthorActivity.this).load(work.cover)
+                        .transform(new RoundedCorners(dp(13))).into(h.cover);
             } else {
                 h.cover.setImageDrawable(null);
+            }
+            // 评分角标：有分才显（DramaWork.score 仅剧评条目带分，
+            // 视频作品回包无评分字段、恒 -1，不编数）
+            if (work.score > 0) {
+                h.score.setVisibility(View.VISIBLE);
+                h.score.setText(String.valueOf(work.score));
+            } else {
+                h.score.setVisibility(View.GONE);
             }
             h.title.setText(work.title == null ? "" : work.title);
             // 角标文案：服务端副标题段优先（自带完结态，如「更新至12集」），

@@ -31,7 +31,6 @@ public final class HgStore {
      * 同义：播过或已追过任一剧即置位、永不再播，见 HgPillEntrance）。 */
     private static final String K_PILL_ENTRANCE_SHOWN = "hongguo_pill_entrance_anim_shown";
     private static final String K_LAUNCH_DIRECT = "hongguo_launch_direct";
-    private static final String K_AUTO_NEXT = "hongguo_auto_next";
     private static final String K_LIKED = "hongguo_liked_series";
     /** 旧收藏集键：批二归一后只作一次性并集迁移的来源，迁移完清空、不再读写。 */
     private static final String K_FAVED = "hongguo_faved_series";
@@ -244,14 +243,13 @@ public final class HgStore {
         Prefers.put(K_LAUNCH_DIRECT, on);
     }
 
-    // ---------- 自动连播开关（默认开，与此前行为一致） ----------
+    // ---------- 自动连播（他 2026-10-30 21:42 亲令：不给开关、
+    // 内置常开；抽屉开关行已整行摘除，连集只管播放页内一集接
+    // 一集，刷流不接——流侧分支在 HongguoFeedActivity.onPlayEnded
+    // 已按模式分流） ----------
 
     public static boolean isAutoNext() {
-        return Prefers.getBoolean(K_AUTO_NEXT, true);
-    }
-
-    public static void setAutoNext(boolean on) {
-        Prefers.put(K_AUTO_NEXT, on);
+        return true;
     }
 
     // ---------- 互动本地状态（按剧 key） ----------

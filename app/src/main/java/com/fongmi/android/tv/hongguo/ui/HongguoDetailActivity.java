@@ -8,6 +8,7 @@ import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -18,24 +19,36 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.view.WindowCompat;
-import androidx.recyclerview.widget.GridLayoutManager;
+import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.load.resource.bitmap.RoundedCorners;
 import com.fongmi.android.tv.R;
+import com.fongmi.android.tv.api.HongguoCommentApi;
 import com.fongmi.android.tv.hongguo.api.HgCallback;
 import com.fongmi.android.tv.hongguo.drama.DramaClient;
 import com.fongmi.android.tv.hongguo.drama.DramaDetail;
 import com.fongmi.android.tv.hongguo.drama.DramaItem;
+import com.fongmi.android.tv.hongguo.drama.DramaUserProfile;
+import com.google.android.material.bottomsheet.BottomSheetDialog;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
- * 剧详情页（2026-10-30 从零重建，简单口径）：一屏完事——海报＋剧名
- * ＋简介＋播放/收藏＋选集网格，没有多段陈列、没有卡片堆。作者名可点
- * 进作者页。合集（多季）时顶部多一排季签。
+ * 剧详情页（2026-10-30 UI 同步批照定稿整页重排）：整页随海报主色走
+ * 暖棕渐变；顶栏返回/分享/竖三点；海报＋剧名＋集数；作者行（无关注钮）；
+ * 大收藏钮；三格数据（红果热度/累计收藏/上架时间——数据面没有的整格
+ * 不显，不编数：上架时间详情面无源，见 hongguo-ui-sync 账）；基本信息
+ * （简介可展开＋标签筹＋出品方）；剧评（分数卡只展示、无打星；评论卡
+ * 横排、只看、无点赞心、无写剧评）；相关作品横排（同合集兄弟季，无
+ * 合集整段不显）；底部固定开始播放＋收藏。详情页无选集入口（定稿）。
  */
 public class HongguoDetailActivity extends AppCompatActivity {
 
@@ -52,15 +65,39 @@ public class HongguoDetailActivity extends AppCompatActivity {
     }
 
     private String seriesId;
+    private String albumId;
     private DramaDetail detail;
-    private TextView playBtn;
-    private TextView favBtn;
-    private TextView descText;
-    private boolean descExpanded;
-    private EpGridAdapter epAdapter;
-    private TextView epSub;
-    private LinearLayout seasonRow;
     private int currentEpisode = 1;
+
+    private FrameLayout rootFrame;
+    private TextView titleText;
+    private TextView countText;
+    private ImageView coverView;
+    private LinearLayout authorRow;
+    private ImageView authorAvatar;
+    private TextView authorName;
+    private TextView bigFavBtn;
+    private LinearLayout statsRow;
+    private TextView descText;
+    private TextView descToggle;
+    private boolean descExpanded;
+    private LinearLayout tagsRow;
+    private TextView publisherText;
+    private TextView scoreCard;
+    private TextView scoreSub;
+    private LinearLayout scoreBox;
+    private RecyclerView commentList;
+    private CommentCardAdapter commentAdapter;
+    private LinearLayout relatedBox;
+    private RecyclerView relatedList;
+    private RelatedAdapter relatedAdapter;
+    private TextView playBtn;
+    private ImageView favBtn;
+    private final ExecutorService worker = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "hg-detail");
+        t.setDaemon(true);
+        return t;
+    });
 
     private int dp(float v) {
         return (int) (v * getResources().getDisplayMetrics().density + 0.5f);
@@ -83,10 +120,6 @@ public class HongguoDetailActivity extends AppCompatActivity {
         return g;
     }
 
-    private TextView metaTitle;
-    private TextView metaLine;
-    private ImageView coverView;
-
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -94,15 +127,18 @@ public class HongguoDetailActivity extends AppCompatActivity {
         getWindow().setStatusBarColor(Color.TRANSPARENT);
         getWindow().setNavigationBarColor(Color.TRANSPARENT);
         seriesId = getIntent().getStringExtra(EXTRA_SERIES_ID);
+        albumId = getIntent().getStringExtra(EXTRA_ALBUM_ID);
+
+        rootFrame = new FrameLayout(this);
+        rootFrame.setBackgroundColor(0xFF241610);
 
         ScrollView scroll = new ScrollView(this);
-        scroll.setBackgroundColor(0xFF111114);
         scroll.setFillViewport(true);
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
-        col.setPadding(dp(16), statusBarHeight() + dp(6), dp(16), dp(20) + navBarHeight());
+        col.setPadding(dp(16), statusBarHeight() + dp(6), dp(16), dp(92) + navBarHeight());
 
-        // 顶栏：返回
+        // 顶栏：返回 / 分享 / 竖三点
         LinearLayout top = new LinearLayout(this);
         top.setOrientation(LinearLayout.HORIZONTAL);
         top.setGravity(Gravity.CENTER_VERTICAL);
@@ -112,123 +148,215 @@ public class HongguoDetailActivity extends AppCompatActivity {
         back.setPadding(dp(4), dp(8), dp(12), dp(8));
         back.setOnClickListener(v -> finish());
         top.addView(back, new LinearLayout.LayoutParams(dp(40), dp(40)));
-        TextView topTitle = new TextView(this);
-        topTitle.setText("详情");
-        topTitle.setTextColor(Color.WHITE);
-        topTitle.setTextSize(16.5f);
-        topTitle.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        top.addView(topTitle);
+        View spacer = new View(this);
+        top.addView(spacer, new LinearLayout.LayoutParams(0, -2, 1f));
+        ImageView share = new ImageView(this);
+        share.setImageResource(android.R.drawable.ic_menu_share);
+        share.setColorFilter(Color.WHITE);
+        share.setPadding(dp(8), dp(8), dp(8), dp(8));
+        share.setOnClickListener(v -> shareDrama());
+        top.addView(share, new LinearLayout.LayoutParams(dp(40), dp(40)));
+        ImageView more = new ImageView(this);
+        more.setImageResource(R.drawable.ic_drama_more);
+        more.setColorFilter(Color.WHITE);
+        more.setPadding(dp(8), dp(8), dp(8), dp(8));
+        more.setOnClickListener(v -> showMoreSheet());
+        top.addView(more, new LinearLayout.LayoutParams(dp(40), dp(40)));
         col.addView(top);
 
-        // 头部：海报＋剧名信息
+        // 头部：海报＋剧名＋集数
         LinearLayout head = new LinearLayout(this);
         head.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(-1, -2);
-        hlp.topMargin = dp(12);
+        hlp.topMargin = dp(14);
         coverView = new ImageView(this);
         coverView.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        coverView.setBackground(roundBg(0xFF232328, dp(8)));
+        coverView.setBackground(roundBg(0x33FFFFFF, dp(8)));
         head.addView(coverView, new LinearLayout.LayoutParams(dp(96), dp(132)));
         LinearLayout info = new LinearLayout(this);
         info.setOrientation(LinearLayout.VERTICAL);
         LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(0, -2, 1f);
         ilp.leftMargin = dp(14);
-        metaTitle = new TextView(this);
-        metaTitle.setTextColor(Color.WHITE);
-        metaTitle.setTextSize(18);
-        metaTitle.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        metaTitle.setMaxLines(2);
-        metaTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        titleText = new TextView(this);
+        titleText.setTextColor(Color.WHITE);
+        titleText.setTextSize(19);
+        titleText.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        titleText.setMaxLines(3);
+        titleText.setEllipsize(android.text.TextUtils.TruncateAt.END);
         String t = getIntent().getStringExtra(EXTRA_TITLE);
-        metaTitle.setText(t == null ? "" : t);
-        info.addView(metaTitle);
-        metaLine = new TextView(this);
-        metaLine.setTextColor(0xFF9E9EA7);
-        metaLine.setTextSize(12.5f);
-        metaLine.setLineSpacing(0, 1.35f);
-        LinearLayout.LayoutParams mlp = new LinearLayout.LayoutParams(-1, -2);
-        mlp.topMargin = dp(7);
-        info.addView(metaLine, mlp);
+        titleText.setText(t == null ? "" : t);
+        info.addView(titleText);
+        countText = new TextView(this);
+        countText.setTextColor(0xCCFFFFFF);
+        countText.setTextSize(12.5f);
+        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(-1, -2);
+        clp.topMargin = dp(8);
+        info.addView(countText, clp);
         head.addView(info, ilp);
         col.addView(head, hlp);
 
-        // 季签（合集才显）
-        seasonRow = new LinearLayout(this);
-        seasonRow.setOrientation(LinearLayout.HORIZONTAL);
-        seasonRow.setVisibility(View.GONE);
-        LinearLayout.LayoutParams srlp = new LinearLayout.LayoutParams(-2, -2);
-        srlp.topMargin = dp(14);
-        col.addView(seasonRow, srlp);
+        // 作者行（头像＋名，无关注钮；有 uid 才可点进作者页）
+        authorRow = new LinearLayout(this);
+        authorRow.setOrientation(LinearLayout.HORIZONTAL);
+        authorRow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams arlp = new LinearLayout.LayoutParams(-1, -2);
+        arlp.topMargin = dp(16);
+        authorAvatar = new ImageView(this);
+        authorAvatar.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        authorRow.addView(authorAvatar, new LinearLayout.LayoutParams(dp(28), dp(28)));
+        authorName = new TextView(this);
+        authorName.setTextColor(0xF2FFFFFF);
+        authorName.setTextSize(13.5f);
+        authorName.setMaxLines(1);
+        authorName.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams anlp = new LinearLayout.LayoutParams(0, -2, 1f);
+        anlp.leftMargin = dp(9);
+        authorRow.addView(authorName, anlp);
+        TextView authorArrow = new TextView(this);
+        authorArrow.setText("›");
+        authorArrow.setTextColor(0x99FFFFFF);
+        authorArrow.setTextSize(16);
+        authorRow.addView(authorArrow);
+        authorRow.setVisibility(View.GONE);
+        col.addView(authorRow, arlp);
 
-        // 动作行：播放＋收藏
-        LinearLayout actions = new LinearLayout(this);
-        actions.setOrientation(LinearLayout.HORIZONTAL);
-        LinearLayout.LayoutParams alp = new LinearLayout.LayoutParams(-1, -2);
-        alp.topMargin = dp(18);
+        // 大收藏钮
+        bigFavBtn = new TextView(this);
+        bigFavBtn.setGravity(Gravity.CENTER);
+        bigFavBtn.setTextSize(15);
+        bigFavBtn.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        bigFavBtn.setPadding(0, dp(12), 0, dp(12));
+        LinearLayout.LayoutParams bflp = new LinearLayout.LayoutParams(-1, -2);
+        bflp.topMargin = dp(14);
+        bigFavBtn.setOnClickListener(v -> toggleFav());
+        col.addView(bigFavBtn, bflp);
+
+        // 三格数据（有数据的格才建；上架时间无源恒不显，见账）
+        statsRow = new LinearLayout(this);
+        statsRow.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams srlp = new LinearLayout.LayoutParams(-1, -2);
+        srlp.topMargin = dp(18);
+        statsRow.setVisibility(View.GONE);
+        col.addView(statsRow, srlp);
+
+        // 基本信息
+        col.addView(sectionLabel("基本信息"));
+        descText = new TextView(this);
+        descText.setTextColor(0xE6FFFFFF);
+        descText.setTextSize(13.5f);
+        descText.setLineSpacing(0, 1.45f);
+        descText.setMaxLines(3);
+        descText.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        col.addView(descText);
+        descToggle = new TextView(this);
+        descToggle.setText("展开");
+        descToggle.setTextColor(0x99FFFFFF);
+        descToggle.setTextSize(12.5f);
+        descToggle.setPadding(0, dp(4), 0, 0);
+        descToggle.setVisibility(View.GONE);
+        descToggle.setOnClickListener(v -> {
+            descExpanded = !descExpanded;
+            descText.setMaxLines(descExpanded ? Integer.MAX_VALUE : 3);
+            descToggle.setText(descExpanded ? "收起" : "展开");
+        });
+        col.addView(descToggle);
+        tagsRow = new LinearLayout(this);
+        tagsRow.setOrientation(LinearLayout.HORIZONTAL);
+        tagsRow.setVisibility(View.GONE);
+        LinearLayout.LayoutParams tglp = new LinearLayout.LayoutParams(-2, -2);
+        tglp.topMargin = dp(10);
+        col.addView(tagsRow, tglp);
+        publisherText = new TextView(this);
+        publisherText.setTextColor(0xB3FFFFFF);
+        publisherText.setTextSize(12.5f);
+        publisherText.setVisibility(View.GONE);
+        LinearLayout.LayoutParams pblp = new LinearLayout.LayoutParams(-1, -2);
+        pblp.topMargin = dp(10);
+        col.addView(publisherText, pblp);
+
+        // 剧评：分数卡（只展示）＋评论卡横排（只看）
+        col.addView(sectionLabel("剧评"));
+        scoreBox = new LinearLayout(this);
+        scoreBox.setOrientation(LinearLayout.HORIZONTAL);
+        scoreBox.setGravity(Gravity.CENTER_VERTICAL);
+        scoreBox.setBackground(roundBg(0x26FFFFFF, dp(12)));
+        scoreBox.setPadding(dp(16), dp(12), dp(16), dp(12));
+        scoreBox.setVisibility(View.GONE);
+        scoreCard = new TextView(this);
+        scoreCard.setTextColor(Color.WHITE);
+        scoreCard.setTextSize(24);
+        scoreCard.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        scoreBox.addView(scoreCard);
+        scoreSub = new TextView(this);
+        scoreSub.setTextColor(0xCCFFFFFF);
+        scoreSub.setTextSize(12);
+        scoreSub.setLineSpacing(0, 1.35f);
+        LinearLayout.LayoutParams sslp = new LinearLayout.LayoutParams(-2, -2);
+        sslp.leftMargin = dp(12);
+        scoreBox.addView(scoreSub, sslp);
+        col.addView(scoreBox);
+        commentList = new RecyclerView(this);
+        commentList.setLayoutManager(new LinearLayoutManager(this,
+                LinearLayoutManager.HORIZONTAL, false));
+        commentList.setNestedScrollingEnabled(false);
+        commentAdapter = new CommentCardAdapter();
+        commentList.setAdapter(commentAdapter);
+        commentList.setVisibility(View.GONE);
+        LinearLayout.LayoutParams cmlp = new LinearLayout.LayoutParams(-1, -2);
+        cmlp.topMargin = dp(10);
+        col.addView(commentList, cmlp);
+
+        // 相关作品（同合集兄弟季横排；无合集整段不显）
+        relatedBox = new LinearLayout(this);
+        relatedBox.setOrientation(LinearLayout.VERTICAL);
+        relatedBox.setVisibility(View.GONE);
+        relatedBox.addView(sectionLabel("相关作品"));
+        relatedList = new RecyclerView(this);
+        relatedList.setLayoutManager(new LinearLayoutManager(this,
+                LinearLayoutManager.HORIZONTAL, false));
+        relatedList.setNestedScrollingEnabled(false);
+        relatedAdapter = new RelatedAdapter();
+        relatedList.setAdapter(relatedAdapter);
+        relatedBox.addView(relatedList);
+        col.addView(relatedBox);
+
+        scroll.addView(col);
+        rootFrame.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
+
+        // 底部固定：开始播放＋收藏
+        LinearLayout bottom = new LinearLayout(this);
+        bottom.setOrientation(LinearLayout.HORIZONTAL);
+        bottom.setGravity(Gravity.CENTER_VERTICAL);
+        bottom.setBackgroundColor(0xFF1E130C);
+        bottom.setPadding(dp(16), dp(10), dp(16), dp(10) + navBarHeight());
         playBtn = new TextView(this);
-        playBtn.setText("播放");
+        playBtn.setText("开始播放");
         playBtn.setTextColor(Color.WHITE);
         playBtn.setTextSize(15.5f);
         playBtn.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         playBtn.setGravity(Gravity.CENTER);
-        playBtn.setBackground(roundBg(0xFFFF5A4E, dp(10)));
+        playBtn.setBackground(roundBg(0xFFFF5A4E, dp(12)));
         playBtn.setPadding(0, dp(12), 0, dp(12));
         playBtn.setOnClickListener(v -> {
             if (detail == null) return;
             HongguoFeedActivity.startSeries(this, seriesId, detail.getTitle(), currentEpisode);
         });
-        actions.addView(playBtn, new LinearLayout.LayoutParams(0, -2, 1f));
-        favBtn = new TextView(this);
-        favBtn.setGravity(Gravity.CENTER);
-        favBtn.setTextSize(15);
-        favBtn.setPadding(0, dp(12), 0, dp(12));
-        LinearLayout.LayoutParams flp = new LinearLayout.LayoutParams(dp(104), -2);
-        flp.leftMargin = dp(10);
-        favBtn.setOnClickListener(v -> {
-            if (detail == null) return;
-            boolean now = HgStore.toggleFaved(seriesId);
-            HgStore.putMeta(seriesId, detail.getTitle(), detail.getCoverUrl(), detail.getEpisodeCount());
-            styleFav(now);
-        });
-        actions.addView(favBtn, flp);
-        col.addView(actions, alp);
+        bottom.addView(playBtn, new LinearLayout.LayoutParams(0, -2, 1f));
+        favBtn = new ImageView(this);
+        favBtn.setImageResource(R.drawable.ic_drama_star);
+        favBtn.setPadding(dp(10), dp(10), dp(10), dp(10));
+        favBtn.setOnClickListener(v -> toggleFav());
+        LinearLayout.LayoutParams fblp = new LinearLayout.LayoutParams(dp(48), dp(48));
+        fblp.leftMargin = dp(10);
+        bottom.addView(favBtn, fblp);
+        FrameLayout.LayoutParams blp2 = new FrameLayout.LayoutParams(-1, -2);
+        blp2.gravity = Gravity.BOTTOM;
+        rootFrame.addView(bottom, blp2);
 
-        // 简介
-        TextView descLabel = sectionLabel("简介");
-        col.addView(descLabel);
-        descText = new TextView(this);
-        descText.setTextColor(0xFFD8D8DC);
-        descText.setTextSize(13.5f);
-        descText.setLineSpacing(0, 1.45f);
-        descText.setMaxLines(3);
-        descText.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        descText.setOnClickListener(v -> {
-            descExpanded = !descExpanded;
-            descText.setMaxLines(descExpanded ? Integer.MAX_VALUE : 3);
-        });
-        col.addView(descText);
-
-        // 选集
-        TextView epLabel = sectionLabel("选集");
-        col.addView(epLabel);
-        epSub = new TextView(this);
-        epSub.setTextColor(0xFF8E8E96);
-        epSub.setTextSize(12);
-        col.addView(epSub);
-        RecyclerView grid = new RecyclerView(this);
-        grid.setLayoutManager(new GridLayoutManager(this, 5));
-        grid.setNestedScrollingEnabled(false);
-        epAdapter = new EpGridAdapter();
-        grid.setAdapter(epAdapter);
-        LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(-1, -2);
-        glp.topMargin = dp(8);
-        col.addView(grid, glp);
-
-        scroll.addView(col);
-        setContentView(scroll);
+        setContentView(rootFrame);
+        styleFav(HgStore.isFaved(seriesId));
         load();
-        String albumId = getIntent().getStringExtra(EXTRA_ALBUM_ID);
-        if (albumId != null && !albumId.isEmpty()) loadSeasons(albumId);
+        if (albumId != null && !albumId.isEmpty()) loadRelated(albumId);
     }
 
     private TextView sectionLabel(String text) {
@@ -238,17 +366,82 @@ public class HongguoDetailActivity extends AppCompatActivity {
         t.setTextSize(15);
         t.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
-        lp.topMargin = dp(20);
+        lp.topMargin = dp(22);
         lp.bottomMargin = dp(8);
         t.setLayoutParams(lp);
         return t;
     }
 
-    private void styleFav(boolean faved) {
-        favBtn.setText(faved ? "★ 已收藏" : "☆ 收藏");
-        favBtn.setTextColor(faved ? 0xFF3D2E00 : 0xFFEEEEEE);
-        favBtn.setBackground(roundBg(faved ? 0xFFFFC531 : 0xFF232328, dp(10)));
+    @Override
+    protected void onDestroy() {
+        worker.shutdownNow();
+        super.onDestroy();
     }
+
+    // ---------- 动作 ----------
+
+    private void toggleFav() {
+        if (detail == null || seriesId == null) return;
+        boolean now = HgStore.toggleFaved(seriesId);
+        HgStore.putMeta(seriesId, detail.getTitle(), detail.getCoverUrl(),
+                detail.getEpisodeCount());
+        styleFav(now);
+    }
+
+    private void styleFav(boolean faved) {
+        if (bigFavBtn != null) {
+            bigFavBtn.setText(faved ? "★ 已收藏" : "☆ 收藏");
+            bigFavBtn.setTextColor(faved ? 0xFF3D2E00 : Color.WHITE);
+            bigFavBtn.setBackground(roundBg(faved ? 0xFFFFC531 : 0x26FFFFFF, dp(12)));
+        }
+        if (favBtn != null) favBtn.setColorFilter(faved ? 0xFFFFC531 : Color.WHITE);
+    }
+
+    private void shareDrama() {
+        if (detail == null) return;
+        Intent send = new Intent(Intent.ACTION_SEND);
+        send.setType("text/plain");
+        send.putExtra(Intent.EXTRA_TEXT, detail.getTitle() == null ? ""
+                : "我在看《" + detail.getTitle() + "》");
+        startActivity(Intent.createChooser(send, "分享"));
+    }
+
+    private void showMoreSheet() {
+        BottomSheetDialog dialog = new BottomSheetDialog(this);
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackground(roundBg(0xFF1C1C1E, dp(18)));
+        root.setPadding(dp(18), dp(14), dp(18), dp(14));
+        root.addView(sheetRow("分享", v -> {
+            dialog.dismiss();
+            shareDrama();
+        }));
+        root.addView(sheetRow("清除本剧观看记录", v -> {
+            dialog.dismiss();
+            if (seriesId != null) {
+                HgStore.removeHistory(seriesId);
+                currentEpisode = 1;
+                refreshPlayLabel(false);
+                Toast.makeText(this, "已清除", Toast.LENGTH_SHORT).show();
+            }
+        }));
+        dialog.setContentView(root);
+        dialog.show();
+        View sheet = dialog.findViewById(com.google.android.material.R.id.design_bottom_sheet);
+        if (sheet != null) sheet.setBackgroundColor(Color.TRANSPARENT);
+    }
+
+    private TextView sheetRow(String text, View.OnClickListener click) {
+        TextView t = new TextView(this);
+        t.setText(text);
+        t.setTextColor(0xFFEEEEEE);
+        t.setTextSize(15);
+        t.setPadding(0, dp(13), 0, dp(13));
+        t.setOnClickListener(click);
+        return t;
+    }
+
+    // ---------- 数据 ----------
 
     private void load() {
         if (seriesId == null || seriesId.isEmpty()) {
@@ -272,71 +465,299 @@ public class HongguoDetailActivity extends AppCompatActivity {
 
     private void bind(DramaDetail d) {
         detail = d;
-        if (d.getTitle() != null) metaTitle.setText(d.getTitle());
+        applyGradient(d.getColorHex());
+        if (d.getTitle() != null) titleText.setText(d.getTitle());
         if (d.getCoverUrl() != null && !d.getCoverUrl().isEmpty()) {
             Glide.with(this).load(d.getCoverUrl())
                     .transform(new RoundedCorners(dp(8))).into(coverView);
         }
-        StringBuilder meta = new StringBuilder();
-        int total = d.getEpisodes().size();
-        if (total > 0) {
-            meta.append(d.getSeriesStatus() != null && d.getSeriesStatus() == 1
-                    ? "已完结 · 全" + total + "集" : "更新至第" + total + "集");
+        int total = d.getEpisodeCount() > 0 ? d.getEpisodeCount() : d.getEpisodes().size();
+        boolean finished = d.getSeriesStatus() != null && d.getSeriesStatus() == 1;
+        countText.setText(total > 0 ? HgPanelLogic.countText(finished, total) : "");
+
+        // 作者行：有名才显；有 uid 才可点＋拉头像
+        String name = d.getAuthorName();
+        if (name != null && !name.isEmpty()) {
+            authorRow.setVisibility(View.VISIBLE);
+            authorName.setText(name);
+            String uid = d.getAuthorUid();
+            if (uid != null && !uid.isEmpty()) {
+                authorRow.setOnClickListener(v -> HongguoAuthorActivity.start(
+                        this, uid, d.getAuthorName(), null));
+                DramaClient.fetchUserProfile(uid, new HgCallback<DramaUserProfile>() {
+                    @Override
+                    public void onSuccess(DramaUserProfile p) {
+                        runOnUiThread(() -> {
+                            if (p.avatar != null && !p.avatar.isEmpty()) {
+                                Glide.with(HongguoDetailActivity.this).load(p.avatar)
+                                        .circleCrop().into(authorAvatar);
+                            }
+                            if ((name == null || name.isEmpty()) && p.name != null) {
+                                authorName.setText(p.name);
+                            }
+                        });
+                    }
+
+                    @Override
+                    public void onError(int code, String msg) {
+                    }
+                });
+            }
         }
-        if (d.getAuthorName() != null && !d.getAuthorName().isEmpty()) {
-            if (meta.length() > 0) meta.append("\n");
-            meta.append("作者：").append(d.getAuthorName());
+
+        // 三格数据（热度/累计收藏有值才建格；上架时间无源不建）
+        statsRow.removeAllViews();
+        boolean anyStat = false;
+        if (d.getHotScore() > 0) {
+            addStat(HgTimeTextCount.format(d.getHotScore()), "红果热度");
+            anyStat = true;
         }
+        if (d.getFollowedCnt() >= 0) {
+            addStat(HgTimeTextCount.format(d.getFollowedCnt()), "累计收藏");
+            anyStat = true;
+        }
+        statsRow.setVisibility(anyStat ? View.VISIBLE : View.GONE);
+
+        // 基本信息：简介＋标签筹＋出品方
+        descText.setText(d.getDesc() == null || d.getDesc().isEmpty()
+                ? "暂无简介" : d.getDesc());
+        descToggle.setVisibility(d.getDesc() != null && d.getDesc().length() > 90
+                ? View.VISIBLE : View.GONE);
+        tagsRow.removeAllViews();
         if (d.getTags() != null && !d.getTags().isEmpty()) {
-            if (meta.length() > 0) meta.append("\n");
-            meta.append(String.join(" · ", d.getTags()));
+            tagsRow.setVisibility(View.VISIBLE);
+            for (String tag : d.getTags()) {
+                TextView chip = new TextView(this);
+                chip.setText(tag + " ›");
+                chip.setTextColor(0xE6FFFFFF);
+                chip.setTextSize(12);
+                chip.setBackground(roundBg(0x26FFFFFF, dp(13)));
+                chip.setPadding(dp(10), dp(5), dp(10), dp(5));
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
+                lp.rightMargin = dp(8);
+                tagsRow.addView(chip, lp);
+            }
+        } else {
+            tagsRow.setVisibility(View.GONE);
         }
-        metaLine.setText(meta.toString());
-        if (d.getAuthorUid() != null && !d.getAuthorUid().isEmpty()) {
-            metaLine.setOnClickListener(v -> HongguoAuthorActivity.start(this,
-                    d.getAuthorUid(), d.getAuthorName(), null));
+        String publisher = publisherOf(d);
+        if (publisher != null && !publisher.isEmpty()) {
+            publisherText.setText("出品方：" + publisher);
+            publisherText.setVisibility(View.VISIBLE);
+        } else {
+            publisherText.setVisibility(View.GONE);
         }
-        descText.setText(d.getDesc() == null ? "暂无简介" : d.getDesc());
+
         HgStore.Progress p = HgStore.progressOf(seriesId);
         currentEpisode = p != null ? Math.max(1, p.episodeIndex) : 1;
         if (total > 0) currentEpisode = Math.min(currentEpisode, total);
-        playBtn.setText(p != null && p.positionMs > 0
-                ? "继续播放 第" + currentEpisode + "集" : "播放 第1集");
+        refreshPlayLabel(p != null && p.positionMs > 0);
         styleFav(HgStore.isFaved(seriesId));
-        epSub.setText(total > 0 ? "共 " + total + " 集" : "");
-        epAdapter.notifyDataSetChanged();
+        loadComments();
     }
 
-    private void loadSeasons(String albumId) {
-        DramaClient.fetchAlbum(albumId, new HgCallback<List<DramaItem>>() {
+    private void refreshPlayLabel(boolean resume) {
+        playBtn.setText(resume ? "继续播放 第" + currentEpisode + "集" : "开始播放");
+    }
+
+    private void addStat(String value, String label) {
+        LinearLayout cell = new LinearLayout(this);
+        cell.setOrientation(LinearLayout.VERTICAL);
+        TextView v = new TextView(this);
+        v.setText(value);
+        v.setTextColor(Color.WHITE);
+        v.setTextSize(16);
+        v.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        cell.addView(v);
+        TextView l = new TextView(this);
+        l.setText(label);
+        l.setTextColor(0x99FFFFFF);
+        l.setTextSize(11);
+        LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(-2, -2);
+        llp.topMargin = dp(3);
+        cell.addView(l, llp);
+        statsRow.addView(cell, new LinearLayout.LayoutParams(0, -2, 1f));
+    }
+
+    /** 整页渐变：顶色取剧主色（series_color_hex），无则定版暖棕；底恒深棕。 */
+    private void applyGradient(String colorHex) {
+        int top = 0xFF6E4525;
+        if (colorHex != null && !colorHex.isEmpty()) {
+            try {
+                top = Color.parseColor(colorHex.startsWith("#") ? colorHex : "#" + colorHex);
+            } catch (Exception ignored) {
+            }
+        }
+        GradientDrawable g = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{top, 0xFF1E130C});
+        rootFrame.setBackground(g);
+    }
+
+    /** 出品方：详情模型无此字段，从原回包 video_list[0].copyright 容忍抽取。 */
+    private String publisherOf(DramaDetail d) {
+        try {
+            JsonObject raw = d.getRaw();
+            if (raw == null) return null;
+            JsonObject data = raw.has("data") && raw.get("data").isJsonObject()
+                    ? raw.getAsJsonObject("data") : raw;
+            JsonObject vd = data;
+            if (!vd.has("video_list")) {
+                for (java.util.Map.Entry<String, JsonElement> e : data.entrySet()) {
+                    if (e.getValue().isJsonObject()
+                            && e.getValue().getAsJsonObject().has("video_list")) {
+                        vd = e.getValue().getAsJsonObject();
+                        break;
+                    }
+                }
+            }
+            JsonArray list = vd.has("video_list") && vd.get("video_list").isJsonArray()
+                    ? vd.getAsJsonArray("video_list") : null;
+            if (list == null || list.size() == 0 || !list.get(0).isJsonObject()) return null;
+            JsonObject first = list.get(0).getAsJsonObject();
+            if (first.has("copyright") && first.get("copyright").isJsonPrimitive()) {
+                String c = first.get("copyright").getAsString();
+                return c == null || c.isEmpty() ? null : c;
+            }
+            return null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    // ---------- 剧评（只看） ----------
+
+    private void loadComments() {
+        final String sid = seriesId;
+        worker.execute(() -> {
+            HongguoCommentApi.Page page;
+            try {
+                page = HongguoCommentApi.seriesComments(sid, null);
+            } catch (Exception e) {
+                return;
+            }
+            if (page == null) return;
+            runOnUiThread(() -> {
+                if (isFinishing() || detail == null) return;
+                if (page.score != null && !page.score.isEmpty()) {
+                    scoreBox.setVisibility(View.VISIBLE);
+                    scoreCard.setText(page.score);
+                    scoreSub.setText("红果评分"
+                            + (page.scoreCount > 0
+                            ? "\n" + HgTimeTextCount.format(page.scoreCount) + "人评分" : ""));
+                }
+                if (page.items != null && !page.items.isEmpty()) {
+                    commentAdapter.setItems(page.items);
+                    commentList.setVisibility(View.VISIBLE);
+                }
+            });
+        });
+    }
+
+    private class CommentCardAdapter extends RecyclerView.Adapter<CommentCardAdapter.H> {
+
+        private final List<HongguoCommentApi.Comment> data = new ArrayList<>();
+
+        void setItems(List<HongguoCommentApi.Comment> items) {
+            data.clear();
+            data.addAll(items);
+            notifyDataSetChanged();
+        }
+
+        class H extends RecyclerView.ViewHolder {
+            final ImageView avatar;
+            final TextView name;
+            final TextView content;
+
+            H(LinearLayout cell) {
+                super(cell);
+                avatar = cell.findViewWithTag("avatar");
+                name = cell.findViewWithTag("name");
+                content = cell.findViewWithTag("content");
+            }
+        }
+
+        @NonNull
+        @Override
+        public H onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+            LinearLayout cell = new LinearLayout(HongguoDetailActivity.this);
+            cell.setOrientation(LinearLayout.VERTICAL);
+            cell.setBackground(roundBg(0x26FFFFFF, dp(12)));
+            cell.setPadding(dp(12), dp(10), dp(12), dp(10));
+            RecyclerView.LayoutParams lp = new RecyclerView.LayoutParams(dp(228), dp(104));
+            lp.rightMargin = dp(10);
+            cell.setLayoutParams(lp);
+            LinearLayout headRow = new LinearLayout(HongguoDetailActivity.this);
+            headRow.setOrientation(LinearLayout.HORIZONTAL);
+            headRow.setGravity(Gravity.CENTER_VERTICAL);
+            ImageView avatar = new ImageView(HongguoDetailActivity.this);
+            avatar.setTag("avatar");
+            avatar.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            headRow.addView(avatar, new LinearLayout.LayoutParams(dp(22), dp(22)));
+            TextView name = new TextView(HongguoDetailActivity.this);
+            name.setTag("name");
+            name.setTextColor(0xE6FFFFFF);
+            name.setTextSize(12);
+            name.setMaxLines(1);
+            name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            LinearLayout.LayoutParams nlp = new LinearLayout.LayoutParams(0, -2, 1f);
+            nlp.leftMargin = dp(7);
+            headRow.addView(name, nlp);
+            cell.addView(headRow);
+            TextView content = new TextView(HongguoDetailActivity.this);
+            content.setTag("content");
+            content.setTextColor(0xD9FFFFFF);
+            content.setTextSize(12.5f);
+            content.setMaxLines(3);
+            content.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            content.setLineSpacing(0, 1.35f);
+            LinearLayout.LayoutParams clp2 = new LinearLayout.LayoutParams(-1, -2);
+            clp2.topMargin = dp(7);
+            cell.addView(content, clp2);
+            return new H(cell);
+        }
+
+        @Override
+        public void onBindViewHolder(@NonNull H h, int position) {
+            HongguoCommentApi.Comment c = data.get(position);
+            h.name.setText(c.author == null ? "" : c.author);
+            h.content.setText(c.content == null ? "" : c.content);
+            if (c.avatar != null && !c.avatar.isEmpty()) {
+                Glide.with(HongguoDetailActivity.this).load(c.avatar)
+                        .circleCrop().into(h.avatar);
+            } else {
+                h.avatar.setImageDrawable(null);
+            }
+            h.itemView.setOnClickListener(v -> {
+                if (detail == null || detail.getEpisodes().isEmpty()) return;
+                int idx = Math.min(Math.max(1, currentEpisode), detail.getEpisodes().size()) - 1;
+                HgCommentsSheet.show(HongguoDetailActivity.this, seriesId,
+                        detail.getEpisodes().get(idx).getVideoId(), detail.getTitle());
+            });
+        }
+
+        @Override
+        public int getItemCount() {
+            return data.size();
+        }
+    }
+
+    // ---------- 相关作品（同合集兄弟季） ----------
+
+    private void loadRelated(String album) {
+        DramaClient.fetchAlbum(album, new HgCallback<List<DramaItem>>() {
             @Override
             public void onSuccess(List<DramaItem> seasons) {
                 runOnUiThread(() -> {
-                    if (seasons == null || seasons.size() <= 1) return;
-                    seasonRow.removeAllViews();
-                    seasonRow.setVisibility(View.VISIBLE);
+                    if (seasons == null) return;
+                    List<DramaItem> others = new ArrayList<>();
                     for (DramaItem s : seasons) {
-                        TextView chip = new TextView(HongguoDetailActivity.this);
-                        chip.setText(s.getTitle() == null ? "" : s.getTitle());
-                        chip.setTextSize(12.5f);
-                        chip.setMaxLines(1);
-                        chip.setEllipsize(android.text.TextUtils.TruncateAt.END);
-                        boolean on = seriesId.equals(s.getSeriesId());
-                        chip.setTextColor(on ? Color.WHITE : 0xFFB8B8BE);
-                        chip.setBackground(roundBg(on ? 0xFFFF5A4E : 0xFF232328, dp(13)));
-                        chip.setPadding(dp(11), dp(5), dp(11), dp(5));
-                        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
-                        lp.rightMargin = dp(8);
-                        chip.setOnClickListener(v -> {
-                            if (s.getSeriesId() == null || s.getSeriesId().equals(seriesId)) return;
-                            seriesId = s.getSeriesId();
-                            detail = null;
-                            epAdapter.notifyDataSetChanged();
-                            load();
-                            styleSeasonChips(seasons);
-                        });
-                        seasonRow.addView(chip, lp);
+                        if (s.getSeriesId() != null && !s.getSeriesId().equals(seriesId)) {
+                            others.add(s);
+                        }
                     }
+                    if (others.isEmpty()) return;
+                    relatedAdapter.setItems(others);
+                    relatedBox.setVisibility(View.VISIBLE);
                 });
             }
 
@@ -346,57 +767,89 @@ public class HongguoDetailActivity extends AppCompatActivity {
         });
     }
 
-    private void styleSeasonChips(List<DramaItem> seasons) {
-        for (int i = 0; i < seasonRow.getChildCount() && i < seasons.size(); i++) {
-            TextView chip = (TextView) seasonRow.getChildAt(i);
-            boolean on = seriesId.equals(seasons.get(i).getSeriesId());
-            chip.setTextColor(on ? Color.WHITE : 0xFFB8B8BE);
-            chip.setBackground(roundBg(on ? 0xFFFF5A4E : 0xFF232328, dp(13)));
-        }
-    }
+    private class RelatedAdapter extends RecyclerView.Adapter<RelatedAdapter.H> {
 
-    private class EpGridAdapter extends RecyclerView.Adapter<EpGridAdapter.H> {
+        private final List<DramaItem> data = new ArrayList<>();
+
+        void setItems(List<DramaItem> items) {
+            data.clear();
+            data.addAll(items);
+            notifyDataSetChanged();
+        }
 
         class H extends RecyclerView.ViewHolder {
-            final TextView text;
+            final ImageView cover;
+            final TextView title;
+            final TextView meta;
 
-            H(TextView t) {
-                super(t);
-                text = t;
+            H(LinearLayout cell) {
+                super(cell);
+                cover = cell.findViewWithTag("cover");
+                title = cell.findViewWithTag("title");
+                meta = cell.findViewWithTag("meta");
             }
         }
 
         @NonNull
         @Override
         public H onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-            TextView t = new TextView(HongguoDetailActivity.this);
-            t.setGravity(Gravity.CENTER);
-            t.setTextSize(14.5f);
-            GridLayoutManager.LayoutParams lp = new GridLayoutManager.LayoutParams(-1, dp(46));
-            lp.setMargins(dp(4), dp(4), dp(4), dp(4));
-            t.setLayoutParams(lp);
-            return new H(t);
+            LinearLayout cell = new LinearLayout(HongguoDetailActivity.this);
+            cell.setOrientation(LinearLayout.VERTICAL);
+            RecyclerView.LayoutParams lp = new RecyclerView.LayoutParams(dp(84), -2);
+            lp.rightMargin = dp(10);
+            cell.setLayoutParams(lp);
+            ImageView cover = new ImageView(HongguoDetailActivity.this);
+            cover.setTag("cover");
+            cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            cover.setBackground(roundBg(0x33FFFFFF, dp(6)));
+            cell.addView(cover, new LinearLayout.LayoutParams(-1, dp(112)));
+            TextView title = new TextView(HongguoDetailActivity.this);
+            title.setTag("title");
+            title.setTextColor(0xF2FFFFFF);
+            title.setTextSize(12);
+            title.setMaxLines(1);
+            title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(-1, -2);
+            tlp.topMargin = dp(6);
+            cell.addView(title, tlp);
+            TextView meta = new TextView(HongguoDetailActivity.this);
+            meta.setTag("meta");
+            meta.setTextColor(0x99FFFFFF);
+            meta.setTextSize(10.5f);
+            meta.setMaxLines(1);
+            cell.addView(meta);
+            return new H(cell);
         }
 
         @Override
         public void onBindViewHolder(@NonNull H h, int position) {
-            int ep = position + 1;
-            boolean on = ep == currentEpisode;
-            h.text.setText(String.valueOf(ep));
-            h.text.setTextColor(on ? Color.WHITE : 0xFFE8E8EA);
-            h.text.setTypeface(on ? android.graphics.Typeface.DEFAULT_BOLD
-                    : android.graphics.Typeface.DEFAULT);
-            h.text.setBackground(roundBg(on ? 0xFFFF5A4E : 0xFF232328, dp(10)));
-            h.text.setOnClickListener(v -> {
-                if (detail == null) return;
-                HongguoFeedActivity.startSeries(HongguoDetailActivity.this,
-                        seriesId, detail.getTitle(), ep);
-            });
+            DramaItem item = data.get(position);
+            if (item.getCoverUrl() != null && !item.getCoverUrl().isEmpty()) {
+                Glide.with(HongguoDetailActivity.this).load(item.getCoverUrl())
+                        .transform(new RoundedCorners(dp(6))).into(h.cover);
+            } else {
+                h.cover.setImageDrawable(null);
+            }
+            h.title.setText(item.getTitle() == null ? "" : item.getTitle());
+            h.meta.setText(HgPanelLogic.countText(item.isFinished(), item.getEpisodeCount()));
+            h.itemView.setOnClickListener(v -> HongguoDetailActivity.start(
+                    HongguoDetailActivity.this, item.getSeriesId(), item.getTitle(), albumId));
         }
 
         @Override
         public int getItemCount() {
-            return detail == null ? 0 : detail.getEpisodes().size();
+            return data.size();
+        }
+    }
+
+    /** 计数简写（与流页同口径，万级一位小数去尾零）。 */
+    static final class HgTimeTextCount {
+        static String format(long n) {
+            if (n < 10000) return String.valueOf(n);
+            double w = n / 10000.0;
+            String s = w >= 100 ? String.valueOf(Math.round(w)) : String.format(
+                    java.util.Locale.US, "%.1f", w).replaceAll("\\.0$", "");
+            return s + "万";
         }
     }
 }

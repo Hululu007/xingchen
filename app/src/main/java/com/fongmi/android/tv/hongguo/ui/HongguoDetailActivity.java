@@ -533,6 +533,9 @@ public class HongguoDetailActivity extends AppCompatActivity {
                 chip.setTextSize(12);
                 chip.setBackground(roundBg(0x26FFFFFF, dp(13)));
                 chip.setPadding(dp(10), dp(5), dp(10), dp(5));
+                // 点搜接通（2026-10-30）：带词直达搜索页出结果
+                chip.setOnClickListener(v ->
+                        HongguoSearchActivity.startWithKeyword(this, tag));
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
                 lp.rightMargin = dp(8);
                 tagsRow.addView(chip, lp);

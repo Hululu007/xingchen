@@ -143,7 +143,23 @@ public class HongguoLandActivity extends AppCompatActivity {
         androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(root, (v, insets) -> {
             androidx.core.graphics.Insets bars = insets.getInsets(
                     androidx.core.view.WindowInsetsCompat.Type.systemBars());
-            v.setPadding(bars.left, bars.top, bars.right, bars.bottom);
+            // 画面本身铺满整屏（沉浸式，不内缩）；只让字钮让位：
+            // 顶行/底行/锁钮按系统栏真实高度挪开，播放面不受影响
+            if (topBar != null) {
+                FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) topBar.getLayoutParams();
+                lp.topMargin = bars.top;
+                topBar.setLayoutParams(lp);
+            }
+            if (bottomBar != null) {
+                FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) bottomBar.getLayoutParams();
+                lp.bottomMargin = bars.bottom;
+                bottomBar.setLayoutParams(lp);
+            }
+            if (lockBtn != null) {
+                FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) lockBtn.getLayoutParams();
+                lp.leftMargin = dp(10) + bars.left;
+                lockBtn.setLayoutParams(lp);
+            }
             return insets;
         });
 
@@ -276,6 +292,7 @@ public class HongguoLandActivity extends AppCompatActivity {
         root.addView(bottom, bottomLp);
 
         setContentView(root);
+        androidx.core.view.ViewCompat.requestApplyInsets(root);
         main.postDelayed(ticker, 300);
         pokeChrome();
         startDanmaku(curVid);

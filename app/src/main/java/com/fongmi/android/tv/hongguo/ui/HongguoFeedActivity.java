@@ -122,13 +122,23 @@ public class HongguoFeedActivity extends AppCompatActivity {
         intent.putExtra(EXTRA_MODE, MODE_VIDEO);
         String albumId = item.getAlbumId() != null ? item.getAlbumId() : item.getSeriesId();
         intent.putExtra(EXTRA_ALBUM_ID, albumId);
+        intent.putExtra(EXTRA_UGC_VID, item.getVid());
         intent.putExtra(EXTRA_TITLE, item.getTitle());
         intent.putExtra(EXTRA_COVER, item.getCoverUrl());
         HgTransition.push(context, intent);
     }
 
-    /** 视频页·单条（定稿第 7 条）：一条短片，作者行＋文案，无合集条。 */
+    /**
+     * 视频页·单条（定稿第 7 条）：一条短片，作者行＋文案，无合集条。
+     * 例外（他 2026-10-31 点名「视频的合集没做」）：条目本身带 albumId
+     * （是合集里的一集）时走合集入口——官方同口径：点合集里的视频
+     * 进合集队列、落点在这集、底部有合集条，不再单条成页丢掉合集。
+     */
     public static void startVideo(Context context, DramaItem item) {
+        if (item.getAlbumId() != null && !item.getAlbumId().isEmpty()) {
+            startVideoAlbum(context, item);
+            return;
+        }
         Intent intent = new Intent(context, HongguoFeedActivity.class);
         intent.putExtra(EXTRA_MODE, MODE_VIDEO);
         intent.putExtra(EXTRA_UGC_VID, item.getVid());
@@ -1307,9 +1317,22 @@ public class HongguoFeedActivity extends AppCompatActivity {
                         return;
                     }
                     hideState();
+                    // 落点：带入口 vid（点的是合集里某一集）就落那集，
+                    // 找不到才回第一集（原口径）。
+                    int startAt = 0;
+                    String entryVid = getIntent().getStringExtra(EXTRA_UGC_VID);
+                    if (entryVid != null && !entryVid.isEmpty()) {
+                        for (int i = 0; i < items.size(); i++) {
+                            if (entryVid.equals(items.get(i).getVid())) {
+                                startAt = i;
+                                break;
+                            }
+                        }
+                    }
+                    final int startIdx = startAt;
                     feedStartPending = true;
-                    pager.scrollToPosition(0);
-                    main.post(() -> settleTo(0));
+                    pager.scrollToPosition(startIdx);
+                    main.post(() -> settleTo(startIdx));
                 });
             }
 
@@ -1465,6 +1488,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
         }
         DramaItem item = items.get(index);
         currentSeriesId = item.getSeriesId();
+        ensureCommentCount(index, item);
         mountPlayerView(index);
         bindRailState(index);
         updateWatchBar();
@@ -1486,6 +1510,42 @@ public class HongguoFeedActivity extends AppCompatActivity {
         }
         schedulePrefetch(index);
         if (mode == MODE_FEED) saveFeedPosDelayed();
+    }
+
+    /** 评论数补拉在途标记（seriesId|vid），防同一条重复拉。 */
+    private final java.util.Set<String> countInFlight = new java.util.HashSet<>();
+
+    /**
+     * 评论数主动补拉（他 2026-10-31 点名：推荐流也不主动显示、播放页
+     * 非要点进去才有数）：条目落到眼前时若没带计数，走评论只读口拉
+     * 一次真 total 回写本条并重绑右列。评论口是匿名身份、与播放脸
+     * 分家，不烧播放的量；已有数或在途都不重复发。
+     */
+    private void ensureCommentCount(int index, DramaItem item) {
+        if (item.getCommentCount() > 0) return;
+        String sid = item.getSeriesId();
+        String vid = item.getVid();
+        if (sid == null || vid == null || sid.isEmpty() || vid.isEmpty()) return;
+        String key = sid + "|" + vid;
+        synchronized (countInFlight) {
+            if (!countInFlight.add(key)) return;
+        }
+        worker.execute(() -> {
+            com.fongmi.android.tv.api.HongguoCommentApi.Page page =
+                    com.fongmi.android.tv.api.HongguoCommentApi.episodeComments(sid, vid, "");
+            runOnUiThread(() -> {
+                synchronized (countInFlight) {
+                    countInFlight.remove(key);
+                }
+                if (page != null && page.total > 0
+                        && index >= 0 && index < items.size()
+                        && items.get(index) == item
+                        && item.getCommentCount() != page.total) {
+                    item.setCommentCount(page.total);
+                    adapter.notifyItemChanged(index);
+                }
+            });
+        });
     }
 
     private void saveFeedPosDelayed() {
@@ -2839,26 +2899,43 @@ public class HongguoFeedActivity extends AppCompatActivity {
                 cclp.topMargin = dp(3);
                 rail.addView(ccount, cclp);
             } else {
-                View favGroup = railCircle(R.drawable.ic_drama_star, "收藏", "fav");
-                rail.addView(favGroup);
-                View commentGroup = railCircle(R.drawable.ic_drama_comment, "评论", "comment");
-                LinearLayout.LayoutParams cglp = new LinearLayout.LayoutParams(-2, -2);
-                cglp.topMargin = dp(20);
-                rail.addView(commentGroup, cglp);
-                // 圆形态的计数/头像字段挂游离占位（bind 的无条件写不
-                // 落到可见件）；圆签文案走组内 favlab/cmtlab 两件
+                // 右列与首页统一（他 2026-10-31 点名「首页跟播放页还
+                // 不一样」）：裸图标＋计数，与刷流形态同一套装配，
+                // 玻璃圆＋签的旧形态整套摘除；头像字段留游离占位
+                // （本形态右列不显头像，Holder 引用不断）。
+                ImageView fav = railIcon(R.drawable.ic_drama_star, 0);
+                fav.setTag("fav");
+                rail.addView(fav, new LinearLayout.LayoutParams(dp(31), dp(31)));
+                TextView fcount = new TextView(HongguoFeedActivity.this);
+                fcount.setTag("fcount");
+                fcount.setTextColor(Color.WHITE);
+                fcount.setTextSize(12);
+                fcount.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+                fcount.setGravity(Gravity.CENTER);
+                fcount.setShadowLayer(dp(2), 0, dp(1), 0xB3000000);
+                fcount.setVisibility(View.GONE);
+                LinearLayout.LayoutParams fclp = new LinearLayout.LayoutParams(-2, -2);
+                fclp.topMargin = dp(3);
+                rail.addView(fcount, fclp);
+                ImageView comment = railIcon(R.drawable.ic_drama_comment, 0);
+                comment.setTag("comment");
+                LinearLayout.LayoutParams comlp = new LinearLayout.LayoutParams(dp(30), dp(30));
+                comlp.topMargin = dp(19);
+                rail.addView(comment, comlp);
+                TextView ccount = new TextView(HongguoFeedActivity.this);
+                ccount.setTag("ccount");
+                ccount.setTextColor(Color.WHITE);
+                ccount.setTextSize(12);
+                ccount.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+                ccount.setGravity(Gravity.CENTER);
+                ccount.setShadowLayer(dp(2), 0, dp(1), 0xB3000000);
+                LinearLayout.LayoutParams cclp = new LinearLayout.LayoutParams(-2, -2);
+                cclp.topMargin = dp(3);
+                rail.addView(ccount, cclp);
                 ImageView dummyAvatar = new ImageView(HongguoFeedActivity.this);
                 dummyAvatar.setTag("avatar");
                 dummyAvatar.setVisibility(View.GONE);
                 chrome.addView(dummyAvatar, new FrameLayout.LayoutParams(0, 0));
-                TextView dummyF = new TextView(HongguoFeedActivity.this);
-                dummyF.setTag("fcount");
-                dummyF.setVisibility(View.GONE);
-                chrome.addView(dummyF, new FrameLayout.LayoutParams(0, 0));
-                TextView dummyC = new TextView(HongguoFeedActivity.this);
-                dummyC.setTag("ccount");
-                dummyC.setVisibility(View.GONE);
-                chrome.addView(dummyC, new FrameLayout.LayoutParams(0, 0));
             }
             FrameLayout.LayoutParams rlp = new FrameLayout.LayoutParams(-2, -2);
             rlp.gravity = Gravity.END | Gravity.BOTTOM;
@@ -2920,48 +2997,6 @@ public class HongguoFeedActivity extends AppCompatActivity {
             return iv;
         }
 
-        /**
-         * 定稿 .rail-btn：47dp 玻璃圆（底 rgba(18,16,16,.34)＋内环
-         * rgba(255,255,255,.16)）＋11sp 签。fav 的点击挂内层图标
-         * （bind 统一接线），圆面其余区域由组转发；comment 组本身
-         * 挂 tag 供 bind 按 tag 接线。
-         */
-        private View railCircle(int res, String label, String kind) {
-            LinearLayout group = new LinearLayout(HongguoFeedActivity.this);
-            group.setOrientation(LinearLayout.VERTICAL);
-            group.setGravity(Gravity.CENTER_HORIZONTAL);
-            FrameLayout circle = new FrameLayout(HongguoFeedActivity.this);
-            GradientDrawable g = new GradientDrawable();
-            g.setShape(GradientDrawable.OVAL);
-            g.setColor(0x57121010);
-            g.setStroke(dp(1), 0x29FFFFFF);
-            circle.setBackground(g);
-            ImageView iv = new ImageView(HongguoFeedActivity.this);
-            iv.setImageResource(res);
-            iv.setColorFilter(Color.WHITE);
-            FrameLayout.LayoutParams ivlp = new FrameLayout.LayoutParams(dp(22), dp(22));
-            ivlp.gravity = Gravity.CENTER;
-            circle.addView(iv, ivlp);
-            group.addView(circle, new LinearLayout.LayoutParams(dp(47), dp(47)));
-            TextView lab = new TextView(HongguoFeedActivity.this);
-            lab.setText(label);
-            lab.setTextColor(Color.WHITE);
-            lab.setTextSize(11);
-            lab.setGravity(Gravity.CENTER);
-            lab.setShadowLayer(dp(2), 0, dp(1), 0xB3000000);
-            LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(-2, -2);
-            llp.topMargin = dp(4);
-            group.addView(lab, llp);
-            if ("fav".equals(kind)) {
-                iv.setTag("fav");
-                lab.setTag("favlab");
-                group.setOnClickListener(v -> iv.performClick());
-            } else {
-                group.setTag("comment");
-                lab.setTag("cmtlab");
-            }
-            return group;
-        }
 
         @Override
         public void onBindViewHolder(@NonNull Holder h, int position) {
@@ -2993,9 +3028,9 @@ public class HongguoFeedActivity extends AppCompatActivity {
             }
             h.commentCount.setText(item.getCommentCount() > 0
                     ? HgTimeTextCount.format(item.getCommentCount()) : "评论");
-            // 计数件只在裸形态（刷流/UGC）显；圆形态计数走 commentLabel
-            h.commentCount.setVisibility(mode == MODE_FEED || mode == MODE_UGC
-                    ? View.VISIBLE : View.GONE);
+            // 右列已全形态统一为裸形态：计数件全模式都显（没数时
+            // ensureCommentCount 补拉，拉到前先显「评论」原文）
+            h.commentCount.setVisibility(View.VISIBLE);
             h.itemView.findViewWithTag("comment").setOnClickListener(v -> {
                 if (position == currentIndex) openComments();
             });

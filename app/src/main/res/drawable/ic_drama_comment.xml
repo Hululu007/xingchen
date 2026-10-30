@@ -1,5 +1,8 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp" android:height="24dp"
     android:viewportWidth="24" android:viewportHeight="24">
-    <path android:fillColor="#FFFFFF" android:pathData="M20,2H4c-1.1,0 -2,0.9 -2,2v18l4,-4h14c1.1,0 2,-0.9 2,-2V4c0,-1.1 -0.9,-2 -2,-2z" />
+    <!-- 官方样评论泡：圆角气泡＋小尾巴＋两道横线镂空（evenOdd），替原 Material 方泡 -->
+    <path android:fillColor="#FFFFFF"
+        android:pathData="M7.5,3.5 h9 a4.5,4.5 0 0 1 4.5,4.5 v5.5 a4.5,4.5 0 0 1 -4.5,4.5 h-6.3 l-4.7,3.4 v-3.4 H7.5 a4.5,4.5 0 0 1 -4.5,-4.5 V8 a4.5,4.5 0 0 1 4.5,-4.5 z M7,8.6 a1,1 0 0 1 1,-1 h8 a1,1 0 0 1 0,2 h-8 a1,1 0 0 1 -1,-1 z M7,12.6 a1,1 0 0 1 1,-1 h5.5 a1,1 0 0 1 0,2 H8 a1,1 0 0 1 -1,-1 z"
+        android:fillType="evenOdd" />
 </vector>

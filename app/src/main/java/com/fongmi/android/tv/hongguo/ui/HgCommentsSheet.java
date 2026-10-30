@@ -160,24 +160,6 @@ public final class HgCommentsSheet {
         foot.addView(footText);
         root.addView(foot);
 
-        dialog.setContentView(root);
-        dialog.show();
-        View sheet = dialog.findViewById(com.google.android.material.R.id.design_bottom_sheet);
-        if (sheet != null) {
-            sheet.setBackgroundColor(Color.TRANSPARENT);
-            // 定稿 sheet max-height 72%：内容超高时整单限高、列表内滚
-            root.post(() -> {
-                int max = (int) (activity.getResources().getDisplayMetrics().heightPixels * 0.72f);
-                if (root.getHeight() > max) {
-                    ViewGroup.LayoutParams lp = root.getLayoutParams();
-                    if (lp != null) {
-                        lp.height = max;
-                        root.setLayoutParams(lp);
-                    }
-                }
-            });
-        }
-
         ExecutorService worker = Executors.newSingleThreadExecutor(r -> {
             Thread t = new Thread(r, "hg-comments");
             t.setDaemon(true);
@@ -185,6 +167,11 @@ public final class HgCommentsSheet {
         });
         dialog.setOnDismissListener(d -> worker.shutdownNow());
 
+        // 适配器必须在 show 之前装好（与选集单 HgEpisodeSheet 同序）：
+        // 此前是 show 之后才 setAdapter，首帧测量时列表无适配器、
+        // 高度按 0 落定，数据回来 notify 也救不回布局——真机评论面
+        // 只剩计数、列表全白的定根候选（账 hongguo-comments-blank）。
+        // 状态行（加载中…）自首帧就在项数里，测量口径与选集单一致。
         CommentsAdapter adapter = new CommentsAdapter(activity, dp, worker, seriesId, vid, headInfo, onTotal);
         list.setAdapter(adapter);
         list.addItemDecoration(new RecyclerView.ItemDecoration() {
@@ -217,6 +204,24 @@ public final class HgCommentsSheet {
                 }
             }
         });
+
+        dialog.setContentView(root);
+        dialog.show();
+        View sheet = dialog.findViewById(com.google.android.material.R.id.design_bottom_sheet);
+        if (sheet != null) {
+            sheet.setBackgroundColor(Color.TRANSPARENT);
+            // 定稿 sheet max-height 72%：内容超高时整单限高、列表内滚
+            root.post(() -> {
+                int max = (int) (activity.getResources().getDisplayMetrics().heightPixels * 0.72f);
+                if (root.getHeight() > max) {
+                    ViewGroup.LayoutParams lp = root.getLayoutParams();
+                    if (lp != null) {
+                        lp.height = max;
+                        root.setLayoutParams(lp);
+                    }
+                }
+            });
+        }
         adapter.loadMore();
     }
 

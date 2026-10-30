@@ -2727,6 +2727,75 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
             if (detailBridge != null) detailBridge.showDownloadDialog(getActivity(), item.getTitle(), url, null, com.fongmi.android.tv.api.hk.HkHttpParser.getHeaders(url));
             return;
         }
+        // 电台问询前置（定根账候选二；咱家壳侧加的、非 8.83 原版）：媒体门
+        // （HkUrlDetector）没认的 http 地址落 web 支之前，先给电台路由器一次
+        // 认领机会。后缀门之外的电台流（.aac/.m4a/无后缀）此前在此被判网页、
+        // 路由器一次都不会被问。认领信号两路（HkRadioRouter.claimSignal）：
+        // 规则名命中（sig=1）走上面「视频/音乐」支的同款分发（startPlayer
+        // Single/Chapters 内部 startHkPlay 会认领）；规则名不命中时再看子页
+        // 标题/条目标题的电台特征（sig=2/3，他的电台在规则「一个APP」里、
+        // 规则名永远不命中），命中则由本处直问路由器。都没中或认领未成，
+        // 原样落 web 支，一行不变。
+        if (lower.startsWith("http") && detailBridge != null) {
+            String rTitle = articleListRule == null ? null : articleListRule.getTitle();
+            int sig = com.fongmi.android.tv.ui.HkRadioRouter.claimSignal(rTitle, actTitle, itemTitle);
+            if (sig == 1) {
+                dealBranchMark("radio-ask", url);
+                memoryPosition(position);
+                String cleared = detailBridge.clearTag(url);
+                String itemCleared = detailBridge.clearTag(item.getUrl());
+                boolean collect = cleared.equals(itemCleared) || !TextUtils.isEmpty(codeAndHeader)
+                        || detailBridge.canParseX5(item.getUrl()) || detailBridge.canParseWebkit(item.getUrl());
+                boolean byPlayDataOnly = !collect && HkListActivity.playDataOf(url) != null;
+                SpiderDebug.log("hk", "radio-ask collect=%b byPlayDataOnly=%b branch=%s", collect, byPlayDataOnly,
+                        byPlayDataOnly ? "single-chapter" : (!collect ? "single" : "chapters"));
+                if (!collect && !byPlayDataOnly) {
+                    detailBridge.startPlayerSingle(getActivity(), itemTitle, url);
+                    return;
+                }
+                java.util.List<HkChapter> chapters = byPlayDataOnly
+                        ? singleChapter(url, position, titlePrefix, codeAndHeader)
+                        : getChapters(url, position, titlePrefix, codeAndHeader);
+                android.os.Bundle bundle = new android.os.Bundle();
+                String vc = detailBridge.getViewCollectionExtraData(getActivity(), articleListRule.getUrl());
+                if (!TextUtils.isEmpty(vc)) bundle.putString("viewCollectionExtraData", vc);
+                if (getActivity().getTitle() != null) {
+                    bundle.putString("film", getActivity().getTitle().toString());
+                }
+                bundle.putString("rule", new com.google.gson.Gson().toJson(articleListRule));
+                if (listHost) {
+                    detailBridge.startPlayerChapters(getActivity(), chapters, articleListRule.getUrl(), actTitle, bundle);
+                } else {
+                    detailBridge.startPlayerChapters(getActivity(), chapters, myUrl, "", bundle);
+                }
+                return;
+            }
+            if (sig > 1) {
+                dealBranchMark("radio-ask-title", url);
+                memoryPosition(position);
+                String cleared = detailBridge.clearTag(url);
+                String itemCleared = detailBridge.clearTag(item.getUrl());
+                boolean collect = cleared.equals(itemCleared) || !TextUtils.isEmpty(codeAndHeader)
+                        || detailBridge.canParseX5(item.getUrl()) || detailBridge.canParseWebkit(item.getUrl());
+                boolean byPlayDataOnly = !collect && HkListActivity.playDataOf(url) != null;
+                java.util.List<HkChapter> chs = collect
+                        ? getChapters(url, position, titlePrefix, codeAndHeader)
+                        : singleChapter(url, position, titlePrefix, codeAndHeader);
+                int sel = 0;
+                for (int i = 0; i < chs.size(); i++) {
+                    if (chs.get(i).use) {
+                        sel = i;
+                        break;
+                    }
+                }
+                String albumName = !TextUtils.isEmpty(actTitle) ? actTitle : itemTitle;
+                if (askRadioDirect(getActivity(), rTitle, actTitle, itemTitle, url,
+                        albumName, item.getPic() == null ? "" : item.getPic(), chs, sel)) {
+                    return;
+                }
+                // 认领未成：落回下面的 web 支
+            }
+        }
         if (lower.startsWith("http") || lower.startsWith("file://")) {
             dealBranchMark("web", url);
             memoryPosition(position);
@@ -2748,6 +2817,33 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
         }
         dealBranchMark("unhandled", url);
         if (detailBridge != null) detailBridge.toastBottom("未知链接：" + url);
+    }
+
+    /**
+     * 电台标题信号命中时的直问路由器（前置问询专用）：章节表在本地组扁平
+     * 载荷（与 HkListActivity.startPlayerChapters 的单线路载荷同形态，地址
+     * 过 playUrlForChapter 同款加工），交 HkRadioRouter.routeHkWithTitles
+     * 建听书专辑。认领未成返回 false，调用方落回原分流。
+     */
+    private boolean askRadioDirect(android.app.Activity act, String ruleTitle, String pageTitle,
+                                   String itemTitle, String episodeUrl, String albumName,
+                                   String pic, java.util.List<HkChapter> chapters, int selIdx) {
+        try {
+            org.json.JSONArray arr = new org.json.JSONArray();
+            for (HkChapter ch : chapters) {
+                org.json.JSONObject o = new org.json.JSONObject();
+                o.put("name", !TextUtils.isEmpty(ch.title) ? ch.title
+                        : (ch.memoryTitle == null ? "" : ch.memoryTitle));
+                o.put("url", HkListActivity.playUrlForChapter(ch));
+                o.put("pic", ch.pic == null ? "" : ch.pic);
+                arr.put(o);
+            }
+            return com.fongmi.android.tv.ui.HkRadioRouter.routeHkWithTitles(act, ruleTitle,
+                    pageTitle, itemTitle, "默认", episodeUrl, itemTitle, albumName,
+                    pic, arr.toString(), selIdx);
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 
     private java.util.Map<Integer, Integer> imageUrlPosMap;

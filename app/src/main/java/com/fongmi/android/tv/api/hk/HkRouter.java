@@ -824,7 +824,33 @@ public class HkRouter {
         if (u.contains("@rule=") || u.contains("@lazyRule=")) return false;
         if (low.startsWith("rtmp://") || low.startsWith("rtsp://") || u.contains("video://")) return true;
         if (low.contains(".mp4.jp") || low.contains(".mp4.png")) return false;
-        return looksLikeMediaUrl(u);
+        boolean media = looksLikeMediaUrl(u);
+        // 诊断（定根账可观测性缺口）：后缀门是电台流被判网页的第一道关，此前
+        // 无日志。只记判定布尔与后缀形态，不记完整地址；后缀表本体不动。
+        try {
+            SpiderDebug.log("hk", "suffixGate hit=%b ext=%s", media, suffixShape(u));
+        } catch (Throwable ignored) {
+        }
+        return media;
+    }
+
+    /** 诊断用：只取地址的后缀形态（最后一个点后、问号/井号前的短串），不记完整地址。 */
+    private static String suffixShape(String url) {
+        try {
+            String s = url;
+            int h = s.indexOf('#');
+            if (h >= 0) s = s.substring(0, h);
+            int q = s.indexOf('?');
+            if (q >= 0) s = s.substring(0, q);
+            int slash = s.lastIndexOf('/');
+            int dot = s.lastIndexOf('.');
+            if (dot > slash && dot < s.length() - 1) {
+                String ext = s.substring(dot + 1).toLowerCase();
+                return ext.length() <= 10 ? ext : ext.substring(0, 10);
+            }
+        } catch (Throwable ignored) {
+        }
+        return "";
     }
 
     /** 是否为图片 URL（静态后缀判定）。 */

@@ -308,21 +308,56 @@ public class HkListActivity extends AppCompatActivity
             @Override
             public void startPlayerSingle(Activity activity, String title, String url) {
                 if (activity == null || TextUtils.isEmpty(url)) return;
+                String playUrl = url;
                 if (url.startsWith("x5Play://")) {
-                    openX5PlayPage(activity, title, url.substring("x5Play://".length()));
-                    return;
+                    String target = url.substring("x5Play://".length());
+                    // 电台问询前置（定根账候选三）：电台规则的 x5Play 地址先问
+                    // 路由器，不先开网页。认领信号两路（claimSignal）：规则名
+                    // 命中剥壳后走下面的 startHkPlay（内有 routeHk）；页/条目
+                    // 标题命中（规则名不含电台字时，如「一个APP」里的电台页）
+                    // 由本处直问 routeHkWithTitles。都没中或直问未成，照旧开
+                    // x5 承载页，一行不变。页标题取宿主活动标题，取不到为空
+                    // 串、不硬凑。
+                    String hTitle = hostRuleTitle(activity);
+                    CharSequence at = activity.getTitle();
+                    String pTitle = at == null ? "" : at.toString();
+                    int sig = com.fongmi.android.tv.ui.HkRadioRouter.claimSignal(hTitle, pTitle, title);
+                    if (sig == 0) {
+                        openX5PlayPage(activity, title, target);
+                        return;
+                    }
+                    if (sig > 1) {
+                        try {
+                            JSONArray one = new JSONArray();
+                            JSONObject o = new JSONObject();
+                            o.put("name", title == null ? "" : title);
+                            o.put("url", target);
+                            o.put("pic", "");
+                            one.put(o);
+                            if (com.fongmi.android.tv.ui.HkRadioRouter.routeHkWithTitles(activity,
+                                    hTitle, pTitle, title, "默认", target, title, title, "",
+                                    one.toString(), 0)) {
+                                return;
+                            }
+                        } catch (Throwable ignored) {
+                        }
+                        openX5PlayPage(activity, title, target);
+                        return;
+                    }
+                    com.github.catvod.crawler.SpiderDebug.log("hk", "x5 radio-ask single rule=%s", hTitle);
+                    playUrl = target;
                 }
                 JSONArray arr = new JSONArray();
                 try {
                     JSONObject o = new JSONObject();
                     o.put("name", title == null ? "" : title);
-                    o.put("url", url);
+                    o.put("url", playUrl);
                     o.put("pic", "");
                     arr.put(o);
                 } catch (Exception ignored) {
                 }
                 VideoActivity.startHkPlay(activity, hostRuleTitle(activity), "默认",
-                        url, title, title, "", arr.toString(), 0);
+                        playUrl, title, title, "", arr.toString(), 0);
             }
 
             @Override
@@ -391,9 +426,50 @@ public class HkListActivity extends AppCompatActivity
                 }
                 HkArticleFragment.HkChapter sel = chapters.get(selIdx);
                 String selUrl = playUrlForChapter(sel);
-                if (selUrl.startsWith("x5Play://")) {
+                String selTitle = !TextUtils.isEmpty(sel.memoryTitle) ? sel.memoryTitle
+                        : (sel.title == null ? "" : sel.title);
+                // 电台问询前置（定根账候选三）：认领信号两路（claimSignal，
+                // 页标题取交接 bundle 的 film、条目标题取选中集名）。规则名
+                // 命中（sig=1）：x5Play 地址不先开网页，剥壳后继续走下面的
+                // startHkPlay 问路由器（整表地址在 rawUrls 组装处同步剥壳）。
+                // 页/条目标题命中（sig=2/3，规则名不含电台字时）：由本处组
+                // 扁平载荷直问 routeHkWithTitles。都没中或直问未成，照旧分流
+                // （x5Play 开承载页、其余走 startHkPlay 原链），一行不变。
+                int sig = com.fongmi.android.tv.ui.HkRadioRouter.claimSignal(ruleTitle, film, selTitle);
+                boolean radioName = sig == 1;
+                if (sig > 1) {
+                    com.github.catvod.crawler.SpiderDebug.log("hk", "x5 radio-ask-title chapters rule=%s sig=%d", ruleTitle, sig);
+                    String stripSel = selUrl.startsWith("x5Play://")
+                            ? selUrl.substring("x5Play://".length()) : selUrl;
+                    String albumName = !TextUtils.isEmpty(mTitle) && !mTitle.equals(ruleTitle) ? mTitle : selTitle;
+                    try {
+                        JSONArray arr = new JSONArray();
+                        for (HkArticleFragment.HkChapter ch : chapters) {
+                            String u = playUrlForChapter(ch);
+                            if (u.startsWith("x5Play://")) u = u.substring("x5Play://".length());
+                            JSONObject o = new JSONObject();
+                            o.put("name", !TextUtils.isEmpty(ch.title) ? ch.title
+                                    : (ch.memoryTitle == null ? "" : ch.memoryTitle));
+                            o.put("url", u);
+                            o.put("pic", ch.pic == null ? "" : ch.pic);
+                            arr.put(o);
+                        }
+                        if (com.fongmi.android.tv.ui.HkRadioRouter.routeHkWithTitles(activity,
+                                ruleTitle, film, selTitle, "默认", stripSel, selTitle,
+                                albumName, sel.pic == null ? "" : sel.pic, arr.toString(), selIdx)) {
+                            return;
+                        }
+                    } catch (Throwable ignored) {
+                    }
+                    // 直问未成：落回原分流（下面的 x5 网页支/startHkPlay 原链）
+                }
+                if (selUrl.startsWith("x5Play://") && !radioName) {
                     openX5PlayPage(activity, sel.memoryTitle, selUrl.substring("x5Play://".length()));
                     return;
+                }
+                if (radioName) {
+                    com.github.catvod.crawler.SpiderDebug.log("hk", "x5 radio-ask chapters rule=%s", ruleTitle);
+                    if (selUrl.startsWith("x5Play://")) selUrl = selUrl.substring("x5Play://".length());
                 }
                 String selName = !TextUtils.isEmpty(sel.memoryTitle) ? sel.memoryTitle
                         : (sel.title == null ? "" : sel.title);
@@ -408,7 +484,10 @@ public class HkListActivity extends AppCompatActivity
                 java.util.List<String> judgeUrls = new java.util.ArrayList<>();
                 java.util.List<String> chapterTitles = new java.util.ArrayList<>();
                 for (HkArticleFragment.HkChapter ch : chapters) {
-                    rawUrls.add(playUrlForChapter(ch));
+                    String raw = playUrlForChapter(ch);
+                    // 电台认领时整表同步剥 x5Play 壳，免得专辑章节带着伪协议地址进听书页
+                    if (radioName && raw.startsWith("x5Play://")) raw = raw.substring("x5Play://".length());
+                    rawUrls.add(raw);
                     // 判定输入归一化（法医定案，hk-episode-1418-forensics）：判定件
                     // 只收原始形态地址，被点章的现行地址已被懒解析换成纯地址、与
                     // 兄弟章的原始包装地址不同桶，会把同组劈成「一集＋多线」倒置。
@@ -1295,6 +1374,12 @@ public class HkListActivity extends AppCompatActivity
 
     /** x5Play:// 承载页（F3）：合成 x5_webview_single 规则开行内 WebView 页（与列表/搜索页 x5:// 支同构）。 */
     static void openX5PlayPage(Activity activity, String title, String target) {
+        // 诊断（定根账可观测性缺口）：x5 承载页是点击落「网页」的总落点之一，
+        // 此前无日志。只记标题，不记目标地址。
+        try {
+            com.github.catvod.crawler.SpiderDebug.log("hk", "x5 web-landing title=%s", title == null ? "" : title);
+        } catch (Throwable ignored) {
+        }
         HkRule rule = new HkRule();
         rule.setUrl("hiker://empty");
         rule.setFindRule("js:setResult([{\n    url:\"" + target

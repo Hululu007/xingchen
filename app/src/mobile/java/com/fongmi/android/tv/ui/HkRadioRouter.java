@@ -4,6 +4,7 @@ import android.app.Activity;
 
 import com.fongmi.android.tv.legado.LegadoAudio;
 import com.fongmi.android.tv.ui.activity.AudioBookActivity;
+import com.github.catvod.crawler.SpiderDebug;
 
 /**
  * 海阔电台路由：跟音乐路由一样是「调用」别的播放器——电台归听书播放器。
@@ -19,10 +20,65 @@ public class HkRadioRouter {
     }
 
     public static boolean looksRadio(String ruleTitle) {
-        if (ruleTitle == null) return false;
-        String n = ruleTitle.toLowerCase();
-        if (n.contains("音乐") || n.contains("听歌") || n.contains("歌曲")) return false;
-        return n.contains("电台") || n.contains("广播") || n.contains("radio");
+        boolean hit = false;
+        if (ruleTitle != null) {
+            String n = ruleTitle.toLowerCase();
+            hit = !n.contains("音乐") && !n.contains("听歌") && !n.contains("歌曲")
+                    && (n.contains("电台") || n.contains("广播") || n.contains("radio"));
+        }
+        // 诊断（定根账可观测性缺口）：判定点此前全无日志，真机出问题无从定位
+        // 是哪一关没问/没认。只记规则名与判定布尔。
+        try {
+            SpiderDebug.log("hk", "looksRadio rule=%s hit=%b", ruleTitle, hit);
+        } catch (Throwable ignored) {
+        }
+        return hit;
+    }
+
+    /** 标题类文本的音乐否决词（与 looksRadio 同口径）。 */
+    private static boolean hasMusicVeto(String title) {
+        if (title == null) return false;
+        String n = title.toLowerCase();
+        return n.contains("音乐") || n.contains("听歌") || n.contains("歌曲");
+    }
+
+    /**
+     * 标题类文本的电台特征：含「电台」/「广播」或以 FM 结尾，且不含音乐否决词。
+     * 只认标题文本，不认地址后缀（后缀是媒体门的事，不在此处扩口径）。
+     */
+    private static boolean looksTitleRadio(String title) {
+        if (title == null) return false;
+        String n = title.trim().toLowerCase();
+        if (n.isEmpty() || hasMusicVeto(n)) return false;
+        return n.contains("电台") || n.contains("广播") || n.endsWith("fm");
+    }
+
+    /**
+     * 认领信号（前置问询落点专用）：0=没中、1=规则名、2=页标题、3=条目标题。
+     * 第二信号的来由（他 2026-10-30 实证）：他的电台在规则「一个APP」里，
+     * 规则名不含电台字样，looksRadio 对规则名永远不命中——改看当前子页标题
+     * 与被点条目标题的电台特征。分寸：页标题含音乐否决词＝整页是音乐区，
+     * 条目信号一并否决，避免抢音乐页；规则名信号仍走 looksRadio 原口径、
+     * 优先于标题信号。一般播放链（startHkPlay 内的 routeHk）不走此口，
+     * 判定口径不扩散。
+     */
+    public static int claimSignal(String ruleTitle, String pageTitle, String itemTitle) {
+        int sig = 0;
+        if (looksRadio(ruleTitle)) {
+            sig = 1;
+        } else if (looksTitleRadio(pageTitle)) {
+            sig = 2;
+        } else if (!hasMusicVeto(pageTitle) && looksTitleRadio(itemTitle)) {
+            sig = 3;
+        }
+        // 诊断：记清命中哪路信号（规则名/页标题/条目标题/都没中），下次真机
+        // 一次定位是哪路信号在起作用。
+        try {
+            SpiderDebug.log("hk", "claimSignal sig=%d rule=%s page=%s item=%s",
+                    sig, ruleTitle, pageTitle, itemTitle);
+        } catch (Throwable ignored) {
+        }
+        return sig;
     }
 
     /**
@@ -35,9 +91,41 @@ public class HkRadioRouter {
                                   String episodeUrl, String episodeName,
                                   String name, String pic,
                                   String episodesJson, int selIdx) {
+        if (activity == null || !looksRadio(ruleTitle)) return false;
+        return routeHkGo(activity, ruleTitle, line, episodeUrl, episodeName,
+                name, pic, episodesJson, selIdx);
+    }
+
+    /**
+     * 前置问询落点专用入口：认领判定走 claimSignal（规则名＋页标题＋条目标题
+     * 三路信号），命中后与 routeHk 共用同一建专辑本体 routeHkGo——专辑的
+     * hkRule 仍是真规则名（听书页按它走海阔解析），标题只作认领信号、
+     * 不冒充规则名。没命中返回 false，调用方原样落回既有分流。
+     */
+    public static boolean routeHkWithTitles(Activity activity, String ruleTitle,
+                                            String pageTitle, String itemTitle,
+                                            String line, String episodeUrl,
+                                            String episodeName, String name,
+                                            String pic, String episodesJson, int selIdx) {
+        if (activity == null) return false;
+        if (claimSignal(ruleTitle, pageTitle, itemTitle) == 0) return false;
+        return routeHkGo(activity, ruleTitle, line, episodeUrl, episodeName,
+                name, pic, episodesJson, selIdx);
+    }
+
+    private static boolean routeHkGo(Activity activity, String ruleTitle, String line,
+                                     String episodeUrl, String episodeName,
+                                     String name, String pic,
+                                     String episodesJson, int selIdx) {
         try {
-            if (activity == null || !looksRadio(ruleTitle)) return false;
-            if (episodeUrl == null || episodeUrl.isEmpty()) return false;
+            if (episodeUrl == null || episodeUrl.isEmpty()) {
+                // 诊断：名字认了却没播出去的窄口（候选四），此前静默 false 无痕
+                try {
+                    SpiderDebug.log("hk", "routeHk miss rule=%s reason=empty-url", ruleTitle);
+                } catch (Throwable ignored) {
+                }
+                return false;
+            }
             LegadoAudio.AudioAlbum album = new LegadoAudio.AudioAlbum();
             album.legadoKey = "hk:" + ruleTitle;
             album.hkRule = ruleTitle;
@@ -63,8 +151,18 @@ public class HkRadioRouter {
             if (!found) start = Math.max(0, Math.min(selIdx, album.chapters.size() - 1));
             album.index = start;
             AudioBookActivity.start(activity, LegadoAudio.put(album));
+            try {
+                SpiderDebug.log("hk", "routeHk claimed rule=%s chapters=%d start=%d",
+                        ruleTitle, album.chapters.size(), start);
+            } catch (Throwable ignored) {
+            }
             return true;
         } catch (Throwable t) {
+            try {
+                SpiderDebug.log("hk", "routeHk miss rule=%s reason=error %s",
+                        ruleTitle, t.getClass().getSimpleName());
+            } catch (Throwable ignored) {
+            }
             return false;
         }
     }
@@ -97,11 +195,28 @@ public class HkRadioRouter {
                 }
                 if (!album.chapters.isEmpty()) break;
             }
-            if (album.chapters.isEmpty()) return false;
+            if (album.chapters.isEmpty()) {
+                // 诊断：详情整表被剔空的窄口（候选四），此前静默 false 无痕
+                try {
+                    SpiderDebug.log("hk", "routeHkDetail miss rule=%s reason=no-chapters", ruleTitle);
+                } catch (Throwable ignored) {
+                }
+                return false;
+            }
             album.index = 0;
             AudioBookActivity.start(activity, LegadoAudio.put(album));
+            try {
+                SpiderDebug.log("hk", "routeHkDetail claimed rule=%s chapters=%d",
+                        ruleTitle, album.chapters.size());
+            } catch (Throwable ignored) {
+            }
             return true;
         } catch (Throwable t) {
+            try {
+                SpiderDebug.log("hk", "routeHkDetail miss rule=%s reason=error %s",
+                        ruleTitle, t.getClass().getSimpleName());
+            } catch (Throwable ignored) {
+            }
             return false;
         }
     }

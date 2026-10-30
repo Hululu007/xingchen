@@ -4043,9 +4043,48 @@ public class HkPageActivity extends BaseActivity {
                     if (!target.isEmpty()) showWebViewDialog(target);
                     return;
                 }
-                case "web":
+                case "web": {
+                    // 电台问询前置（定根账候选二）：电台规则的条目被 dealKind 判成
+                    // web 时，先给电台路由器一次认领机会，不直接开网页。认领信号
+                    // 两路（claimSignal）：规则名命中交 playContentDirect（其内部
+                    // startHkPlay 电台先于音乐问）；条目标题命中（规则名不含电台
+                    // 字时，如「一个APP」里的电台条目）由本处直问
+                    // routeHkWithTitles。本落点拿不到子页标题，页标题传空串、
+                    // 只用规则名＋条目标题两路，不硬凑。都没中或直问未成，照旧
+                    // 开网页，一行不变。
+                    String rt = currentRule == null ? "" : currentRule.getTitle();
+                    String iTitle = item == null || item.getTitle() == null ? "" : item.getTitle();
+                    int sig = com.fongmi.android.tv.ui.HkRadioRouter.claimSignal(rt, "", iTitle);
+                    if (sig == 1) {
+                        com.github.catvod.crawler.SpiderDebug.log("hk", "page web->radio-ask rule=%s", rt);
+                        playContentDirect(item, url);
+                        return;
+                    }
+                    if (sig > 1) {
+                        com.github.catvod.crawler.SpiderDebug.log("hk", "page web->radio-ask-title rule=%s sig=%d", rt, sig);
+                        try {
+                            org.json.JSONArray arr = new org.json.JSONArray();
+                            org.json.JSONObject o = new org.json.JSONObject();
+                            o.put("name", iTitle);
+                            o.put("url", url);
+                            o.put("pic", item.getPic() == null ? "" : item.getPic());
+                            arr.put(o);
+                            String line = item.getLine() == null || item.getLine().isEmpty()
+                                    ? "默认" : item.getLine();
+                            if (com.fongmi.android.tv.ui.HkRadioRouter.routeHkWithTitles(this,
+                                    rt, "", iTitle, line, url, iTitle, iTitle,
+                                    item.getPic() == null ? "" : item.getPic(),
+                                    arr.toString(), 0)) {
+                                return;
+                            }
+                        } catch (Throwable ignored) {
+                        }
+                        // 直问未成：落回下面的网页支
+                    }
+                    com.github.catvod.crawler.SpiderDebug.log("hk", "page web-landing rule=%s", rt);
                     showWebViewDialog(url);
                     return;
+                }
                 case "image": {
                     android.widget.ImageView iv = new android.widget.ImageView(this);
                     com.fongmi.android.tv.utils.ImgUtil.load(item.getTitle(), url, iv, false, 0, 0, hkRuleUrl());

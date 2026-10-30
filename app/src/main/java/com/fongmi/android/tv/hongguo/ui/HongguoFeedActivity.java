@@ -223,6 +223,11 @@ public class HongguoFeedActivity extends AppCompatActivity {
     private final List<androidx.media3.ui.danmaku.Danmaku> danmakuItems = new ArrayList<>();
     private boolean firstFrameForVid;
     private boolean feedStartPending = true;
+    /** 首页流起播失败记账（条目键＝seriesId/vid）：失败条只呈失败态，封面不许回潮当内容（账 hongguo-feed-noposter-20261030）。 */
+    private final java.util.Set<String> feedFailedKeys = new java.util.HashSet<>();
+    /** 首页流起播看门狗：超时未出首帧按失败呈现（不自动跳条，用户一划就走）。 */
+    private Runnable feedWatchdog;
+    private static final long FEED_WATCHDOG_MS = 20_000;
     // 横屏交接（阶段8）：泊出旗/列表静止旗/最近一集画幅/弹窗守卫
     // （传感器横转入口已按定稿摘掉，横屏只从「全屏观看」钮进）
     private boolean engineParked;
@@ -928,6 +933,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
         if (loadingPage) return;
         if (first) {
             items.clear();
+            feedFailedKeys.clear();
             adapter.notifyDataSetChanged();
             currentIndex = -1;
             continuation = null;
@@ -980,6 +986,14 @@ public class HongguoFeedActivity extends AppCompatActivity {
         for (DramaItem it : page.getItems()) {
             String key = it.getSeriesId() + "/" + it.getVid();
             if (it.getVid() == null && it.getSeriesId() == null) continue;
+            // 官方口径：推荐流里每条都是能直接起播的画面，海报形态不许
+            // 进流——未上线预约条（带 appointment，播不了）、无内联 vid
+            // 的合集条（身份在专辑、流里定不了播）、无 vid 的短片条，
+            // 进流前滤掉（账 hongguo-feed-noposter-20261030）。无 vid 的
+            // 正剧条不滤：settle 时走详情定首集（见 playFeedItem）。
+            if (it.hasAppointment()) continue;
+            if (it.kind == DramaItemKind.ALBUM && it.getVid() == null) continue;
+            if (it.kind == DramaItemKind.UGC_CLIP && it.getVid() == null) continue;
             if (!seen.add(key)) continue;
             items.add(it);
             added++;
@@ -1221,6 +1235,10 @@ public class HongguoFeedActivity extends AppCompatActivity {
             h.cover.setVisibility(View.VISIBLE);
             h.spin.setVisibility(View.VISIBLE);
             h.fail.setVisibility(View.GONE);
+            // 停稳即是一次新起播尝试：旧失败记账摘除，成败由本次判定
+            if (mode == MODE_FEED && index >= 0 && index < items.size()) {
+                feedFailedKeys.remove(feedKeyOf(items.get(index)));
+            }
         }
     }
 
@@ -1246,11 +1264,63 @@ public class HongguoFeedActivity extends AppCompatActivity {
             return;
         }
         currentEpisodeIndex = 1;
-        if (p != null && p.positionMs > 0 && item.getVid() != null) {
+        if (item.getVid() == null) {
+            // 正剧条没带内联 vid：走详情定首集（与合集行同路）；详情
+            // 空/失败落失败呈现，封面不许当内容停在流里。
+            if (sid == null) {
+                showPlayFailure();
+                return;
+            }
+            ensureDetail(sid, detail -> {
+                if (detail == null || detail.getEpisodes().isEmpty()) {
+                    showPlayFailure();
+                    return;
+                }
+                playVid(detail.getEpisodes().get(0).getVideoId(),
+                        detail.getContentType(), 0);
+            });
+            return;
+        }
+        if (p != null && p.positionMs > 0) {
             playVid(item.getVid(), item.contentType, p.positionMs);
         } else {
             playVid(item.getVid(), item.contentType, 0);
         }
+    }
+
+    private String feedKeyOf(DramaItem item) {
+        return item == null ? null : item.getSeriesId() + "/" + item.getVid();
+    }
+
+    /**
+     * 起播失败统一出口：转圈收起、失败钮点亮。首页流（MODE_FEED）额外
+     * 把当前条记账并收起封面——播不了的条在流里只留失败态（黑底＋
+     * 失败钮），不许拿封面＋剧名当内容杵着；不自动跳条，用户一划就
+     * 走、点失败钮可重试。其余模式维持原呈现（封面留作过渡底）。
+     */
+    private void showPlayFailure() {
+        FeedAdapter.Holder h = currentHolder();
+        if (h != null) {
+            h.spin.setVisibility(View.GONE);
+            h.fail.setVisibility(View.VISIBLE);
+        }
+        if (mode != MODE_FEED) return;
+        String key = feedKeyOf(currentIndex >= 0 && currentIndex < items.size()
+                ? items.get(currentIndex) : null);
+        if (key != null) feedFailedKeys.add(key);
+        if (h != null) h.cover.setVisibility(View.GONE);
+    }
+
+    /** 首页流起播看门狗：起播后超时仍未出首帧，按失败呈现收口。 */
+    private void armFeedWatchdog(String vid) {
+        if (feedWatchdog != null) main.removeCallbacks(feedWatchdog);
+        feedWatchdog = () -> {
+            if (mode != MODE_FEED || vid == null || !vid.equals(currentVid)
+                    || firstFrameForVid) return;
+            if (player != null && player.isPlaying()) return;
+            showPlayFailure();
+        };
+        main.postDelayed(feedWatchdog, FEED_WATCHDOG_MS);
     }
 
     private void playEpisode(int episodeIndex, boolean resume) {
@@ -1353,36 +1423,46 @@ public class HongguoFeedActivity extends AppCompatActivity {
             if (h != null) {
                 h.cover.setVisibility(View.GONE);
                 h.spin.setVisibility(View.GONE);
+                // 迟到的首帧也要收口：看门狗先报的失败态在此撤销
+                h.fail.setVisibility(View.GONE);
             }
             firstFrameForVid = true;
         }
 
         @Override
         public void onPlayerError(@NonNull androidx.media3.common.PlaybackException error) {
-            FeedAdapter.Holder h = currentHolder();
-            if (h != null) {
-                h.spin.setVisibility(View.GONE);
-                h.fail.setVisibility(View.VISIBLE);
-            }
+            showPlayFailure();
         }
     };
 
+    /**
+     * 短片内容判定：短片页（MODE_VIDEO）、单条（MODE_UGC）整页都是
+     * 短片；首页流（MODE_FEED）看当前条目类型，合集/短片条目算短片、
+     * 正剧条目不算。短剧播放页（MODE_SERIES）播的是剧集，恒不算。
+     * 短片按原始比例 fit 播；正剧的竖屏满屏、横版 fit 是定稿，不走本判定。
+     */
+    private boolean playingClipContent() {
+        if (mode == MODE_VIDEO || mode == MODE_UGC) return true;
+        if (mode == MODE_SERIES) return false;
+        DramaItem item = currentIndex >= 0 && currentIndex < items.size()
+                ? items.get(currentIndex) : null;
+        return item != null && item.kind != DramaItemKind.SERIES;
+    }
+
     private void playVid(String vid, int contentType, long seekMs) {
         if (vid == null || vid.isEmpty()) {
-            FeedAdapter.Holder h = currentHolder();
-            if (h != null) {
-                h.spin.setVisibility(View.GONE);
-                h.fail.setVisibility(View.VISIBLE);
-            }
+            showPlayFailure();
             return;
         }
         ensurePlayer();
         stopBoost();
         currentVid = vid;
         firstFrameForVid = false;
+        if (mode == MODE_FEED) armFeedWatchdog(vid);
         prefetchedNext = false;
         danmakuVid = null;
         player.stop();
+        final boolean fitClip = playingClipContent();
         resolver.resolve(vid, contentType, new DramaResolver.Listener() {
             @Override
             public void onReady(String videoId, String localUrl, int w, int h) {
@@ -1390,7 +1470,9 @@ public class HongguoFeedActivity extends AppCompatActivity {
                 lastVideoW = w;
                 lastVideoH = h;
                 player.setMediaItem(MediaItem.fromUri(localUrl));
-                playerView.setResizeMode(w >= h && h > 0
+                // 短片一律按原始比例 fit（留黑边可以，不许裁满全屏）；
+                // 正剧维持定稿：横版 fit 居中黑边、竖屏 ZOOM 满屏。
+                playerView.setResizeMode(fitClip || (w >= h && h > 0)
                         ? AspectRatioFrameLayout.RESIZE_MODE_FIT
                         : AspectRatioFrameLayout.RESIZE_MODE_ZOOM);
                 player.prepare();
@@ -1402,11 +1484,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
             @Override
             public void onFailed(String videoId, String code, String message) {
                 if (!videoId.equals(currentVid)) return;
-                FeedAdapter.Holder h = currentHolder();
-                if (h != null) {
-                    h.spin.setVisibility(View.GONE);
-                    h.fail.setVisibility(View.VISIBLE);
-                }
+                showPlayFailure();
             }
         });
     }
@@ -1829,6 +1907,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
     protected void onDestroy() {
         main.removeCallbacks(ticker);
         main.removeCallbacks(savePosRunnable);
+        if (feedWatchdog != null) main.removeCallbacks(feedWatchdog);
         saveProgressNow();
         if (engine != null && !engineParked) {
             try {
@@ -1843,6 +1922,19 @@ public class HongguoFeedActivity extends AppCompatActivity {
     }
 
     public void retryCurrent() {
+        if (mode == MODE_FEED && currentIndex >= 0 && currentIndex < items.size()) {
+            // 首页流重试走整条重播路（含无 vid 正剧的详情定首集），并恢复封面作过渡帧
+            DramaItem it = items.get(currentIndex);
+            feedFailedKeys.remove(feedKeyOf(it));
+            FeedAdapter.Holder h = currentHolder();
+            if (h != null) {
+                h.fail.setVisibility(View.GONE);
+                h.cover.setVisibility(View.VISIBLE);
+                h.spin.setVisibility(View.VISIBLE);
+            }
+            playFeedItem(it);
+            return;
+        }
         if (currentVid == null) return;
         FeedAdapter.Holder h = currentHolder();
         if (h != null) {
@@ -2168,6 +2260,11 @@ public class HongguoFeedActivity extends AppCompatActivity {
             h.cover.setVisibility(position == currentIndex && firstFrameForVid ? View.GONE : View.VISIBLE);
             h.spin.setVisibility(View.GONE);
             h.fail.setVisibility(View.GONE);
+            if (mode == MODE_FEED && position != currentIndex
+                    && feedFailedKeys.contains(feedKeyOf(item))) {
+                // 已记账的失败条回收重绑：封面不许回潮当内容（黑页滑过）
+                h.cover.setVisibility(View.GONE);
+            }
             String favKey = favKeyOf(item);
             boolean faved = favKey != null && HgStore.isFaved(favKey);
             h.favIcon.setColorFilter(faved ? 0xFFFFC531 : Color.WHITE);

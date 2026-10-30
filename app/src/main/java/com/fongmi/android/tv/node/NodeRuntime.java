@@ -78,6 +78,8 @@ public final class NodeRuntime {
     private static volatile String servingSourceKey = "";
     /** 每轮启动的世代号，用来丢弃旧子进程的延迟回报。 */
     private static final AtomicLong START_GENERATION = new AtomicLong();
+    /** 本轮是否为后台静默重载：静默轮不弹任何用户可见提示（换包是后台的事，不惊动用户）。 */
+    private static volatile boolean quietRound;
 
     /** 主进程侧的回复 Messenger，接收子进程回报。写在后台线程、读在主线程，必须 volatile。 */
     private static volatile Messenger replyMessenger;
@@ -196,7 +198,26 @@ public final class NodeRuntime {
      * @param url 用户填的猫源地址（{@code .../index.js.md5}）
      */
     public static synchronized void start(Context context, String url, Callback callback) {
-        startInternal(context, url, callback, false);
+        startInternal(context, url, callback, false, false);
+    }
+
+    /**
+     * 后台换包后的静默重载：新包已落盘、且已确认没人正在用这个接口时，
+     * 用同一套杀旧起新把新代码跑起来，全程不弹任何用户可见提示，失败只记日志。
+     * 绝不整 App 重启——代价只是一个 :node 子进程的重启。
+     */
+    public static synchronized void reloadQuietly(Context context, String url) {
+        startInternal(context, url, null, false, true);
+    }
+
+    /** 是否有一轮启动正在飞（后台换包要避让：它自己的 ensure 会顺势用上新包）。 */
+    static boolean isStarting() {
+        return STARTING.get();
+    }
+
+    /** 当前是否正在服务这个 bundle 地址。 */
+    static boolean isServing(String url) {
+        return running && same(url);
     }
 
     /**
@@ -205,15 +226,22 @@ public final class NodeRuntime {
      *              探活这一关，不能再用「进程在＋同一 bundle」把死服务当成就绪返回。
      */
     private static synchronized void startInternal(Context context, String url, Callback callback, boolean force) {
+        startInternal(context, url, callback, force, false);
+    }
+
+    private static synchronized void startInternal(Context context, String url, Callback callback, boolean force, boolean quiet) {
         if (TextUtils.isEmpty(url)) {
             if (callback != null) callback.onError("未填写猫源地址");
             return;
         }
-        // 复用要求「同一地址」且「来源身份仍与运行中的一致」：只比地址的话，服务端原地更新
-        // bundle、或本地包被改写后都会继续跑旧 JS。本地包按内容指纹判定，内容没变就无需重启。
+        // 复用要求「同一地址」且「来源身份仍与运行中的一致」：只比地址的话，本地包被改写后
+        // 会继续跑旧 JS，所以本地包按内容指纹判定、内容没变就无需重启。远端不再实时比对
+        // 服务端校验值（那是加载路上的网络等待，慢服务器能拖十几秒）：与磁盘上已安装的
+        // 来源键比对即可，服务端更新由后台刷新换包后经安装键变化自然触发重启。
         // 还必须确认子进程仍在：它被杀掉时没有任何回调会把 running 置假。
         boolean alive = running && serviceAlive();
-        if (!force && alive && same(url) && NodeBundle.servesCurrentSource(url, servingSourceKey)) {
+        if (!force && alive && same(url) && NodeBundle.servesCurrentSource(url, servingSourceKey, NodeBundle.installedSourceKey(context))) {
+            NodeRefresh.maybeCheck(context, url);
             if (callback != null) callback.onReady(baseUrl());
             return;
         }
@@ -227,13 +255,14 @@ public final class NodeRuntime {
             if (callback != null) callback.onError("正在启动中");
             return;
         }
+        quietRound = quiet;
         long generation = START_GENERATION.incrementAndGet();
         pendingCallback = callback;
         replyMessenger = new Messenger(new ReplyHandler(generation));
         // 换源：先杀旧子进程（如果有），再起新的
         if (running || !TextUtils.isEmpty(servingUrl)) {
             SpiderDebug.log("node", "switching source: stopping old node service (was=%s)", servingUrl);
-            notifyProgress(context, callback, context.getString(R.string.node_stopping));
+            if (!quiet) notifyProgress(context, callback, context.getString(R.string.node_stopping));
             NodeService.stop(context);
             // stopService 是异步的，onDestroy 里的 killProcess 也需要时间生效。
             // 不等的话 startForegroundService 会投递到还没死掉的旧进程，node::Start 第二次调用会 SIGSEGV。
@@ -243,6 +272,7 @@ public final class NodeRuntime {
                 // 也不回 ERROR，本轮只能等满 12 分钟超时。改为本轮直接失败：
                 // 状态保持旧值（旧进程仍在退出路上），下一次 start 会先等它真死。
                 STARTING.set(false);
+                quietRound = false;
                 pendingCallback = null;
                 replyMessenger = null;
                 SpiderDebug.log("node", "abort switch: old :node process still alive after 3s");
@@ -252,7 +282,7 @@ public final class NodeRuntime {
             running = false;
             servingSourceKey = "";
             port = 0;
-            notifyProgress(context, callback, context.getString(R.string.node_switch_restart));
+            if (!quiet) notifyProgress(context, callback, context.getString(R.string.node_switch_restart));
         }
         servingUrl = NodeBundle.bundleUrl(url);
         servingSourceKey = "";
@@ -261,6 +291,7 @@ public final class NodeRuntime {
             App.post(() -> timeout(context, generation), START_TIMEOUT_MS);
         } catch (RuntimeException e) {
             STARTING.set(false);
+            quietRound = false;
             running = false;
             servingUrl = "";
             servingSourceKey = "";
@@ -274,6 +305,8 @@ public final class NodeRuntime {
 
     private static synchronized void timeout(Context context, long generation) {
         if (generation != START_GENERATION.get() || !STARTING.compareAndSet(true, false)) return;
+        boolean quiet = quietRound;
+        quietRound = false;
         // 先让当前 reply handler 失效：stopService 是异步的，旧 :node 仍可能在退出前发 READY。
         // 同时保留 servingUrl，让下一次 start 先等待这个旧进程真的结束，不能把重试投给旧 Service。
         START_GENERATION.incrementAndGet();
@@ -281,8 +314,12 @@ public final class NodeRuntime {
         running = false;
         servingSourceKey = "";
         port = 0;
-        NodeNotify.done(context, "猫源启动失败：服务未在预期时间内就绪");
-        Notify.show("猫源启动失败：服务未在预期时间内就绪");
+        if (!quiet) {
+            NodeNotify.done(context, "猫源启动失败：服务未在预期时间内就绪");
+            Notify.show("猫源启动失败：服务未在预期时间内就绪");
+        } else {
+            SpiderDebug.log("node", "quiet reload timed out, keeping quiet");
+        }
         Callback callback = pendingCallback;
         pendingCallback = null;
         replyMessenger = null;
@@ -354,33 +391,43 @@ public final class NodeRuntime {
             NodeRuntime.Callback callback = pendingCallback;
             switch (msg.what) {
                 case NodeService.MSG_READY: {
+                    boolean quiet = quietRound;
+                    quietRound = false;
                     port = msg.arg1;
                     running = true;
                     servingSourceKey = NodeBundle.installedSourceKey(App.get());
                     STARTING.set(false);
                     pendingCallback = null;
                     replyMessenger = null;
-                    String ready = App.get().getString(R.string.node_ready);
-                    NodeNotify.done(App.get(), ready + "，端口 " + port);
-                    Notify.show(ready);
+                    if (!quiet) {
+                        String ready = App.get().getString(R.string.node_ready);
+                        NodeNotify.done(App.get(), ready + "，端口 " + port);
+                        Notify.show(ready);
+                    }
+                    // 服务已用（缓存）包跑起来：顺势安排一次后台校验刷新（内部有节流，几乎零成本）。
+                    NodeRefresh.maybeCheck(App.get(), servingUrl);
                     if (callback != null) callback.onReady(baseUrl());
                     break;
                 }
                 case NodeService.MSG_PROGRESS: {
                     String text = msg.getData() != null ? msg.getData().getString("text") : "";
-                    NodeNotify.progress(App.get(), text, -1);
+                    if (!quietRound) NodeNotify.progress(App.get(), text, -1);
                     if (callback != null) callback.onProgress(text);
                     break;
                 }
                 case NodeService.MSG_ERROR: {
+                    boolean quiet = quietRound;
+                    quietRound = false;
                     String text = msg.getData() != null ? msg.getData().getString("text") : "未知错误";
                     STARTING.set(false);
                     running = false;
                     servingSourceKey = "";
                     pendingCallback = null;
                     replyMessenger = null;
-                    NodeNotify.done(App.get(), "猫源启动失败：" + text);
-                    Notify.show("猫源启动失败：" + text);
+                    if (!quiet) {
+                        NodeNotify.done(App.get(), "猫源启动失败：" + text);
+                        Notify.show("猫源启动失败：" + text);
+                    }
                     if (callback != null) callback.onError(text);
                     break;
                 }

@@ -1,6 +1,7 @@
 package com.fongmi.android.tv.api.loader;
 
 import android.content.Context;
+import android.os.SystemClock;
 import android.text.TextUtils;
 
 import com.fongmi.android.tv.App;
@@ -37,6 +38,22 @@ public class CatSpider extends Spider {
 
     /** 本机 bundle 的 api 形如 {@code http://127.0.0.1:<port>/spider/<site>/3[/...]}；测试断言形状用。 */
     static final Pattern BUNDLE_BASE = Pattern.compile("^((http|https)://[^/]+)?(/spider/[^/]+/[^/]+(?:/[^/]+)*)$");
+
+    /**
+     * 最近一次打本机 bundle 的时刻（{@link SystemClock#elapsedRealtime}），0 表示还没有过。
+     * 后台换包（NodeRefresh）靠它判断「用户是不是正在这个接口里」：正在浏览/点播时
+     * 绝不重启 :node。只记本机 bundle 的调用，远端 T4 猫源与此无关。
+     */
+    private static final java.util.concurrent.atomic.AtomicLong LAST_LOCAL_ACTIVITY = new java.util.concurrent.atomic.AtomicLong();
+    private static final java.util.concurrent.atomic.AtomicLong LAST_LOCAL_PLAY = new java.util.concurrent.atomic.AtomicLong();
+
+    public static long lastLocalActivityAt() {
+        return LAST_LOCAL_ACTIVITY.get();
+    }
+
+    public static long lastLocalPlayAt() {
+        return LAST_LOCAL_PLAY.get();
+    }
 
     private final String api;
 
@@ -132,7 +149,12 @@ public class CatSpider extends Spider {
     }
 
     private String post(String path, JsonObject body) {
-        if (targetsLocalBundle() && !ensureNodeReady(path)) return "";
+        if (targetsLocalBundle()) {
+            long now = SystemClock.elapsedRealtime();
+            LAST_LOCAL_ACTIVITY.set(now);
+            if ("/play".equals(path)) LAST_LOCAL_PLAY.set(now);
+            if (!ensureNodeReady(path)) return "";
+        }
         String url = resolve(path);
         try {
             Request request = new Request.Builder()

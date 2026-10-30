@@ -311,7 +311,14 @@ public class ReadingShelfActivity extends AppCompatActivity {
             contentBox.addView(novelHeader);
             if (novels.isEmpty()) contentBox.addView(emptyView(
                     "还没有在看的小说\n导入一本 txt / epub，或去看一本在线小说，或去听一本书"));
-            else for (ReadingStore.Record r : novels) contentBox.addView(bookCard(r, false));
+            else {
+                // 在看只留最近 3 本（他 2026-10-31 定：后面都折叠起来，
+                // 不在首页往下堆）；全量走标题栏「全部 ›」的完整页。
+                int show = Math.min(3, novels.size());
+                for (int i = 0; i < show; i++) {
+                    contentBox.addView(bookCard(novels.get(i), false));
+                }
+            }
             if (latestAudio != null) {
                 contentBox.addView(ReadingSkin.sectionHeader(this, "听书", "小说直接听", null));
                 contentBox.addView(audioCard(latestAudio));

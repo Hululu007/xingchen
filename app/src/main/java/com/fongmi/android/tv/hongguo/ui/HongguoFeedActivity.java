@@ -9,6 +9,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
 import android.view.MotionEvent;
+import android.view.OrientationEventListener;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
@@ -40,6 +41,7 @@ import com.fongmi.android.tv.hongguo.drama.DramaCache;
 import com.fongmi.android.tv.hongguo.drama.DramaClient;
 import com.fongmi.android.tv.hongguo.drama.DramaDetail;
 import com.fongmi.android.tv.hongguo.drama.DramaItem;
+import com.fongmi.android.tv.hongguo.drama.DramaItemKind;
 import com.fongmi.android.tv.hongguo.drama.DramaResolver;
 import com.fongmi.android.tv.hongguo.drama.DramaVideoModel;
 import com.fongmi.android.tv.hongguo.model.HgContinuation;
@@ -170,6 +172,13 @@ public class HongguoFeedActivity extends AppCompatActivity {
     private final List<androidx.media3.ui.danmaku.Danmaku> danmakuItems = new ArrayList<>();
     private boolean firstFrameForVid;
     private boolean feedStartPending = true;
+    // 横屏交接（阶段8）：泊出旗/列表静止旗/最近一集画幅/弹窗守卫/朝向监视
+    private boolean engineParked;
+    private boolean pagerIdle = true;
+    private int lastVideoW;
+    private int lastVideoH;
+    private long panelGuardUntil;
+    private OrientationEventListener orientationListener;
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
@@ -197,6 +206,103 @@ public class HongguoFeedActivity extends AppCompatActivity {
             loadChannel(true);
         }
         main.post(ticker);
+        orientationListener = new OrientationEventListener(this) {
+            @Override
+            public void onOrientationChanged(int orientation) {
+                if (DramaLandLogic.orientationBand(orientation) == 1) enterLand(false);
+            }
+        };
+    }
+
+    // ---------- 横屏交接（阶段8） ----------
+
+    /**
+     * 进横屏：横版门（条目 vertical 旗优先、未知时看画幅）＋总闸
+     * （DramaLandLogic.canEnterLand）双过，才把播放器泊进
+     * DramaPlayerPool 并拉起独立横屏页同流续播。无剧短片不进横屏。
+     */
+    private void enterLand(boolean fromButton) {
+        if (engineParked || player == null || currentVid == null) return;
+        if (currentIndex < 0 || currentIndex >= items.size()) return;
+        DramaItem item = items.get(currentIndex);
+        if (item.kind == DramaItemKind.UGC_CLIP) return;
+        boolean land;
+        if (Boolean.FALSE.equals(item.getVertical())) {
+            land = true;
+        } else if (Boolean.TRUE.equals(item.getVertical())) {
+            return;
+        } else {
+            land = DramaLandLogic.isLandEligible(lastVideoW, lastVideoH);
+        }
+        if (!land) return;
+        boolean popup = (drawerPanel != null && drawerPanel.getVisibility() == View.VISIBLE)
+                || System.currentTimeMillis() < panelGuardUntil;
+        if (!DramaLandLogic.canEnterLand(pagerIdle, firstFrameForVid, boosting,
+                popup, fromButton)) return;
+        DramaPlayerPool.Bag bag = new DramaPlayerPool.Bag();
+        bag.seriesId = currentSeriesId != null ? currentSeriesId : item.getSeriesId();
+        bag.vid = currentVid;
+        bag.episodeIndex = currentEpisodeIndex;
+        bag.positionMs = player.getCurrentPosition();
+        bag.playWhenReady = player.getPlayWhenReady();
+        bag.danmakuOn = HgStore.isDanmakuOn();
+        bag.speed = player.getPlaybackParameters().speed;
+        bag.seriesTitle = item.getTitle();
+        bag.contentType = item.contentType;
+        saveProgressNow();
+        player.removeListener(playerListener);
+        playerView.setPlayer(null);
+        DramaPlayerPool.park(bag, engine);
+        engineParked = true;
+        startActivity(new Intent(this, HongguoLandActivity.class));
+    }
+
+    /** 横屏页退回后领回播放器：按 DramaLandLogic.reclaimDecision 对位。 */
+    private void reclaimFromLand() {
+        engineParked = false;
+        DramaPlayerPool.Bag bag = DramaPlayerPool.peekBag();
+        DramaItem item = currentIndex >= 0 && currentIndex < items.size()
+                ? items.get(currentIndex) : null;
+        String ctxSeries = mode == MODE_SERIES ? seriesIdArg
+                : (item == null ? null : item.getSeriesId());
+        int decision = bag == null ? DramaLandLogic.RECLAIM_MISMATCH
+                : DramaLandLogic.reclaimDecision(mode == MODE_SERIES, bag.seriesId,
+                        ctxSeries, bag.vid, currentVid, bag.episodeIndex,
+                        currentEpisodeIndex);
+        if (decision == DramaLandLogic.RECLAIM_MISMATCH) {
+            DramaPlayerPool.releaseParked();
+            engine = null;
+            player = null;
+            if (currentVid != null && item != null) {
+                playVid(currentVid, item.contentType, 0);
+            }
+            return;
+        }
+        engine = DramaPlayerPool.takeEngine();
+        player = engine == null ? null : engine.getPlayer();
+        if (player == null) {
+            if (currentVid != null && item != null) {
+                playVid(currentVid, item.contentType, 0);
+            }
+            return;
+        }
+        player.addListener(playerListener);
+        playerView.setPlayer(player);
+        applyDanmakuVisibility();
+        if (decision == DramaLandLogic.RECLAIM_SERIES_JUMP) {
+            playEpisodeFromSheet(bag.episodeIndex);
+        } else if (decision == DramaLandLogic.RECLAIM_FEED_DIFF) {
+            if (item != null) playVid(currentVid, item.contentType, 0);
+        } else {
+            player.setPlayWhenReady(bag.playWhenReady);
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (engineParked) reclaimFromLand();
+        if (orientationListener != null) orientationListener.enable();
     }
 
     private int tabIndexOf(String tabName) {
@@ -227,6 +333,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
         pager.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override
             public void onScrollStateChanged(@NonNull RecyclerView rv, int state) {
+                pagerIdle = state == RecyclerView.SCROLL_STATE_IDLE;
                 if (state == RecyclerView.SCROLL_STATE_IDLE) {
                     View v = snap.findSnapView(pager.getLayoutManager());
                     if (v != null) settleTo(pager.getChildAdapterPosition(v));
@@ -941,6 +1048,8 @@ public class HongguoFeedActivity extends AppCompatActivity {
             @Override
             public void onReady(String videoId, String localUrl, int w, int h) {
                 if (!videoId.equals(currentVid) || player == null) return;
+                lastVideoW = w;
+                lastVideoH = h;
                 player.setMediaItem(MediaItem.fromUri(localUrl));
                 playerView.setResizeMode(w >= h && h > 0
                         ? AspectRatioFrameLayout.RESIZE_MODE_FIT
@@ -1308,10 +1417,12 @@ public class HongguoFeedActivity extends AppCompatActivity {
     }
 
     private void showMorePanel() {
+        panelGuardUntil = System.currentTimeMillis() + 1500;
         HgFeedPanels.showMore(this, host());
     }
 
     public void showEpisodeSheet() {
+        panelGuardUntil = System.currentTimeMillis() + 1500;
         String sid = mode == MODE_SERIES ? seriesIdArg : currentSeriesId;
         if (sid == null) return;
         ensureDetail(sid, detail -> {
@@ -1337,9 +1448,10 @@ public class HongguoFeedActivity extends AppCompatActivity {
     @Override
     protected void onPause() {
         super.onPause();
+        if (orientationListener != null) orientationListener.disable();
         saveProgressNow();
         saveFeedPos();
-        if (player != null) player.pause();
+        if (player != null && !engineParked) player.pause();
     }
 
     @Override
@@ -1347,13 +1459,14 @@ public class HongguoFeedActivity extends AppCompatActivity {
         main.removeCallbacks(ticker);
         main.removeCallbacks(savePosRunnable);
         saveProgressNow();
-        if (engine != null) {
+        if (engine != null && !engineParked) {
             try {
                 engine.release();
             } catch (Throwable ignored) {
             }
         }
-        resolver.closeAll();
+        // 泊出中（横屏页在前台）：本实例的解链流正被横屏页用着，不许关。
+        if (!engineParked) resolver.closeAll();
         worker.shutdownNow();
         super.onDestroy();
     }
@@ -1371,6 +1484,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
     }
 
     public void openComments() {
+        panelGuardUntil = System.currentTimeMillis() + 1500;
         if (currentSeriesId == null || currentVid == null) return;
         DramaItem item = currentIndex >= 0 && currentIndex < items.size() ? items.get(currentIndex) : null;
         HgCommentsSheet.show(this, currentSeriesId, currentVid,
@@ -1663,9 +1777,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
             boolean landscape = Boolean.FALSE.equals(item.getVertical());
             h.fullPill.setVisibility(landscape ? View.VISIBLE : View.GONE);
             h.fullPill.setOnClickListener(v -> {
-                if (position == currentIndex) {
-                    HongguoLandActivity.startFromFeed(HongguoFeedActivity.this);
-                }
+                if (position == currentIndex) enterLand(true);
             });
             if (cleanMode) h.chrome.setVisibility(View.GONE);
         }

@@ -83,10 +83,14 @@ public final class HgBookClient {
             JsonObject data = obj(root, "data");
             JsonObject tabObj = data == null ? null : findTab(data, tab);
             if (tabObj != null) {
-                page.hasMore = boolOf(tabObj, "has_more");
                 collectEntries(tabObj, page.entries);
                 page.next = extractContinuation(tabObj, tab);
             }
+            // has_more 不可信（2026-10-31 探针 Probe4 实证）：开页两频道
+            // 都报 false 却带续页凭证、续页后一路有书；小说续到第 3 包
+            // 报 false、第 4 包照样 16 条。续页与否只认凭证与本包条数：
+            // 有凭证且本包有书就还能翻，整包零条目或无凭证才算到底。
+            page.hasMore = page.next != null && !page.entries.isEmpty();
             collectCategories(root, page.categories);
             return page;
         }
@@ -96,7 +100,6 @@ public final class HgBookClient {
         Page page = new Page();
         JsonObject data = obj(root, "data");
         if (data != null) {
-            page.hasMore = boolOf(data, "has_more");
             String nextOffset = firstStr(data, "next_offset");
             if (nextOffset == null) {
                 JsonElement no = data.get("next_offset");
@@ -108,6 +111,9 @@ public final class HgBookClient {
             if (view != null) collectEntries(view, page.entries);
             page.next = cont.advanced(nextOffset, str(data, "session_id"));
         }
+        // 同开页口径：续页 has_more 同样不可信，只认本包条数
+        // （凭证 advanced 永不为空，零条目即到底）。
+        page.hasMore = !page.entries.isEmpty();
         return page;
     }
 
@@ -547,12 +553,5 @@ public final class HgBookClient {
             }
         }
         return def;
-    }
-
-    private static boolean boolOf(JsonObject o, String key) {
-        if (o == null) return false;
-        JsonElement e = o.get(key);
-        return e != null && e.isJsonPrimitive() && e.getAsJsonPrimitive().isBoolean()
-                && e.getAsBoolean();
     }
 }

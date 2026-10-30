@@ -211,6 +211,17 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
         policy.closeSession(id);
     }
 
+    /**
+     * 书架删条目时调：删的正是条上挂的那个会话（按会话标题认）就一并
+     * 真关闭（停播＋收条）；不是就什么都不动。调用方须在本方法之后再删
+     * 存储记录——真关闭的落盘会把记录写回，先删后关等于白删。
+     */
+    public void closeSessionIfTitle(String id, String title) {
+        ListenSession s = sessions.get(id);
+        if (s == null || title == null || title.isEmpty()) return;
+        if (title.equals(s.getTitle())) policy.closeSession(id);
+    }
+
     /** 进入音乐页：听书真关闭（用户定的关闭路径 3）；音乐自己的条不动 */
     public void musicPageEnter() {
         if ("music".equals(policy.visibleId())) return;
@@ -381,6 +392,9 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
      * 必触发 refreshBar 把条挂上，离开阅读页同样必经 refreshBar 把条收掉。
      * 收/挂只是摘挂视图，会话与播放状态（队列、断点、播放/暂停）全在策略层与
      * 会话对象里不动，回阅读页 bindSession 现读现绑，不丢状态。
+     * 2026-10-30 补注：红果听书的专辑不许再占这个槽——串线摘除在路由与
+     * AudioBookActivity 注册侧（见 audiobook-minibar-sticky-20261030.md），
+     * 本白名单不动，普通听书／朗读的条行为照旧。
      */
     private boolean isListenOffReadingPage(Activity host, String visibleId) {
         return !"music".equals(visibleId)
@@ -626,8 +640,17 @@ public class ListenMiniBar implements MiniBarPolicy.Actions {
             ListenSession s = vid == null ? null : sessions.get(vid);
             if (s == null) return;
             ListenSession.Control ctl = s.control();
-            if (ctl != null) ctl.toggle();
-            else s.detachedToggle(svc);
+            if (ctl != null) {
+                ctl.toggle();
+            } else {
+                s.detachedToggle(svc);
+                // 页已销毁时条就是唯一主人：切换后把真实播放态回喂策略
+                // （不然策略还记着旧状态、暂停 10 秒自动关不武装，名单里
+                // 的记录也停在旧位置——名单与条两套状态打架的根，2026-10-30）
+                boolean nowPlaying = s.detachedPlaying(svc);
+                policy.playingChanged(vid, nowPlaying);
+                if (!nowPlaying) s.detachedSave(app, svc);
+            }
             refreshPlayIcon();
         });
         bar.addView(btnPlay);

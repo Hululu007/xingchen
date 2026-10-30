@@ -280,10 +280,12 @@ public class PlaybackService extends MediaLibraryService implements MediaLibrary
 
     private void saveProgress() {
         if (hasNavigationCallback() || session == null) return;
-        // 听书隔离：audiobook: 开头的播放进度归 ReadingStore，不写点播历史
+        // 听书隔离：audiobook: 开头的播放进度归 ReadingStore，不写点播历史；
+        // hgaudio: 是红果听书自己那套的键前缀（进度归 HgAudioStore），同隔离
         try {
             if (player.getSpec() != null && player.getSpec().getKey() != null
-                    && player.getSpec().getKey().startsWith("audiobook:")) return;
+                    && (player.getSpec().getKey().startsWith("audiobook:")
+                        || player.getSpec().getKey().startsWith("hgaudio:"))) return;
         } catch (Throwable ignored) {
         }
         if (BrowseTree.saveProgress(player.getPosition(), player.getDuration(), player)) {

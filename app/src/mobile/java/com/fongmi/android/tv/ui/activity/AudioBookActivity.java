@@ -92,11 +92,22 @@ public class AudioBookActivity extends Activity implements ServiceConnection {
             return;
         }
         buildUi();
-        // 续播：同源同书的 AUDIO 记录带回位置
+        // 续播：同源同书的 AUDIO 记录带回位置。章序号只在「序号在表内且
+        // 地址对得上」时才采信；位置则认「记录的章＝将要播的章」——书架
+        // 续播是单章重建专辑（只有存档那一章），存档章序号是全表序号、
+        // 必然越界，旧写法把位置连坐丢掉、每次从头重听（2026-10-30 实证）。
         ReadingStore.Record r = findRecord();
-        if (r != null && r.chapterIndex >= 0 && r.chapterIndex < album.chapters.size()) {
-            album.index = r.chapterIndex;
-            resumeMs = Math.max(0, r.position);
+        if (r != null) {
+            if (r.chapterIndex >= 0 && r.chapterIndex < album.chapters.size()
+                    && (r.chapterUrl == null || r.chapterUrl.isEmpty()
+                        || r.chapterUrl.equals(album.chapters.get(r.chapterIndex).url))) {
+                album.index = r.chapterIndex;
+            }
+            LegadoAudio.Chapter cur = album.current();
+            if (cur != null && (album.chapters.size() == 1
+                    || (r.chapterUrl != null && r.chapterUrl.equals(cur.url)))) {
+                resumeMs = Math.max(0, r.position);
+            }
         }
         bindPlaybackService();
         setupMiniBar();
@@ -131,9 +142,20 @@ public class AudioBookActivity extends Activity implements ServiceConnection {
         }
     }
 
+    /**
+     * 分家令防御（2026-10-30）：红果听书专辑正常走路由进它自己的播放页，
+     * 绝不该到本页；万一漏网进来，本页也不许替它注册迷你条会话、不许往
+     * 普通听书的 ReadingStore 写它的记录——互斥线在本页再兜一层。
+     */
+    private boolean isHgAudio() {
+        return album != null && com.fongmi.android.tv.legado.HgBookBridge
+                .URL_AUDIO.equals(album.legadoKey);
+    }
+
     // ================= 迷你条（与 TtsReadActivity 共用一套条） =================
 
     private void setupMiniBar() {
+        if (isHgAudio()) return;
         miniSession = new ListenSession(MINI_ID);
         miniSession.setKeyPrefix("audiobook:");
         miniSession.setMeta(album.title, miniSub(), album.coverUrl);
@@ -199,6 +221,17 @@ public class AudioBookActivity extends Activity implements ServiceConnection {
                     else svc.player().play();
                 } catch (Throwable ignored) {
                 }
+            }
+
+            @Override public void saveProgress(Context ctx, PlaybackService svc) {
+                // 条上暂停落盘：名单（ReadingStore）与条读同一份状态，
+                // 不许条这边暂停了、名单还记着旧位置/旧状态
+                int pos = 0;
+                try {
+                    pos = (int) svc.player().getPosition();
+                } catch (Throwable ignored) {
+                }
+                saveDetached(ctx.getApplicationContext(), snap, pos);
             }
 
             @Override public void close(Context ctx, PlaybackService svc) {
@@ -269,6 +302,8 @@ public class AudioBookActivity extends Activity implements ServiceConnection {
             r.chapterIndex = a.index;
             r.chapterUrl = c.url;
             r.legadoKey = a.legadoKey;
+            // 海阔电台：线路名借 playFlag 槽落盘（与 saveProgress 同口径）
+            if (!a.hkRule.isEmpty()) r.playFlag = a.hkLine;
             r.position = Math.max(0, pos);
             r.updatedAt = System.currentTimeMillis();
             ReadingStore.save(r);
@@ -1047,6 +1082,7 @@ public class AudioBookActivity extends Activity implements ServiceConnection {
     }
 
     private void saveProgress() {
+        if (isHgAudio()) return; // 分家：红果听书的进度不许写进普通听书名单
         try {
             LegadoAudio.Chapter c = album.current();
             if (c == null) return;
@@ -1060,6 +1096,9 @@ public class AudioBookActivity extends Activity implements ServiceConnection {
             r.chapterIndex = album.index;
             r.chapterUrl = c.url;
             r.legadoKey = album.legadoKey;
+            // 海阔电台：线路名借 playFlag 槽落盘（AUDIO 记录无人读此字段），
+            // 续播重建专辑时带回 hkLine，海阔解析不丢线路
+            if (!album.hkRule.isEmpty()) r.playFlag = album.hkLine;
             r.position = mService == null ? 0 : (int) player().getPosition();
             r.updatedAt = System.currentTimeMillis();
             ReadingStore.save(r);
@@ -1069,6 +1108,17 @@ public class AudioBookActivity extends Activity implements ServiceConnection {
 
     private void onClose() {
         closed = true;
+        if (isHgAudio()) {
+            // 漏网的红果专辑没注册迷你条会话，关闭直接收尾，别走策略空转
+            LegadoAudio.remove(sessionId);
+            try {
+                if (mService != null) player().stop();
+            } catch (Throwable ignored) {
+            }
+            unregisterNav();
+            finish();
+            return;
+        }
         // 真关闭走迷你条策略：停播＋落盘＋注销（performClose 调页 control）
         try {
             ListenMiniBar.get(this).closeSession(MINI_ID);

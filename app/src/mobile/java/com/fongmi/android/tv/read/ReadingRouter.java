@@ -310,9 +310,11 @@ public class ReadingRouter {
         try {
             LegadoAudio.AudioAlbum a = new LegadoAudio.AudioAlbum();
             a.legadoKey = r.legadoKey == null ? "" : r.legadoKey;
-            // 海阔电台记录：legadoKey 是 "hk:<规则名>" 身份键，专辑要带回 hkRule 才走得通解析
+            // 海阔电台记录：legadoKey 是 "hk:<规则名>" 身份键，专辑要带回 hkRule 才走得通解析；
+            // 线路名存在 playFlag 槽（AUDIO 记录无人读此字段），一并带回 hkLine
             if (a.legadoKey.startsWith("hk:")) {
                 a.hkRule = a.legadoKey.substring(3);
+                a.hkLine = r.playFlag == null ? "" : r.playFlag;
             }
             a.sourceName = r.sourceName == null ? "" : r.sourceName;
             a.title = r.bookTitle == null ? "" : r.bookTitle;
@@ -322,6 +324,14 @@ public class ReadingRouter {
                     r.chapterUrl == null ? "" : r.chapterUrl));
             a.index = 0;
             String id = LegadoAudio.put(a);
+            // 分家令（2026-10-30）：红果听书的记录（存量里若还有）也只许回
+            // 它自己的播放页，绝不从这里串进普通听书页。
+            if (com.fongmi.android.tv.legado.HgBookBridge.URL_AUDIO
+                    .equals(a.legadoKey) && context instanceof Activity
+                    && com.fongmi.android.tv.legado.HgBookBridge
+                            .startAudioPlayer((Activity) context, id)) {
+                return;
+            }
             if (context instanceof Activity) {
                 AudioBookActivity.start((Activity) context, id);
             } else {

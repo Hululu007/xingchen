@@ -215,8 +215,38 @@ public class ReadingShelfActivity extends AppCompatActivity {
         setContentView(root);
     }
 
+    /**
+     * 分家清存量（2026-10-30 分家令第 3 条）：ReadingStore 里 legadoKey 是
+     * 红果听书哨兵的 AUDIO 记录，是分家前串线写进来的，不属于普通听书
+     * 名单——刷新时逐条清出：清之前把位置按 bookId/itemId 迁进红果自己
+     * 的 HgAudioStore（他的进度不丢，只是回家），再从普通名单删除。
+     * 迁完即净，后续刷新扫不到，天然只跑一轮。
+     */
+    private void purgeHgStrays() {
+        try {
+            for (ReadingStore.Record r : ReadingStore.list()) {
+                if (!"AUDIO".equals(r.kind)) continue;
+                if (!com.fongmi.android.tv.legado.HgBookBridge.URL_AUDIO
+                        .equals(r.legadoKey)) continue;
+                String bookId = com.fongmi.android.tv.legado.HgBookBridge
+                        .bookIdOf(r.chapterUrl);
+                if (!bookId.isEmpty()) {
+                    com.fongmi.android.tv.legado.HgAudioStore.save(this, bookId,
+                            r.bookTitle, r.coverUrl,
+                            com.fongmi.android.tv.legado.HgBookBridge
+                                    .itemIdOf(r.chapterUrl),
+                            r.chapterName, r.chapterIndex,
+                            Math.max(0, r.position));
+                }
+                ReadingStore.remove(r);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
     /** 整页按当前栏重建（书卡片＋分区＋源聚合卡）。 */
     private void refresh() {
+        purgeHgStrays();
         List<ReadingStore.Record> novels = new ArrayList<>();
         List<ReadingStore.Record> comics = new ArrayList<>();
         List<ReadingStore.Record> audios = new ArrayList<>();
@@ -311,7 +341,7 @@ public class ReadingShelfActivity extends AppCompatActivity {
             note.setLayoutParams(nlp);
             contentBox.addView(note);
         } else {
-            contentBox.addView(ReadingSkin.sectionHeader(this, "在听的听书", null, null));
+            contentBox.addView(ReadingSkin.sectionHeader(this, "在听的听书", "长按移除", null));
             if (audios.isEmpty()) contentBox.addView(emptyView(
                     "还没有在听的听书\n去搜一本，或先装一个听书源"));
             else for (ReadingStore.Record r : audios) contentBox.addView(audioCard(r));
@@ -734,6 +764,19 @@ public class ReadingShelfActivity extends AppCompatActivity {
         card.setOnClickListener(v -> {
             if (isTts) openTtsRecord(r);
             else openAudioRecord(r);
+        });
+        // 长按移除（与小说签同口径，2026-10-30 补）：听书签此前没有任何
+        // 删除口。顺序不能反——先关小条会话（删的正是条上挂的那条时，
+        // 真关闭的落盘会把记录写回），再删记录本体（进度一并清）。
+        card.setOnLongClickListener(v -> {
+            try {
+                com.fongmi.android.tv.ui.minibar.ListenMiniBar.get(this)
+                        .closeSessionIfTitle(isTts ? "tts" : "audiobook",
+                                r.bookTitle);
+            } catch (Throwable ignored) {
+            }
+            removeRecord(r);
+            return true;
         });
         return card;
     }
@@ -1180,6 +1223,15 @@ public class ReadingShelfActivity extends AppCompatActivity {
         try {
             LegadoAudio.AudioAlbum a = new LegadoAudio.AudioAlbum();
             a.legadoKey = r.legadoKey == null ? "" : r.legadoKey;
+            // 海阔电台记录：legadoKey 是 "hk:<规则名>" 身份键，专辑必须带回
+            // hkRule/hkLine 才走得通海阔解析（与 ReadingRouter.openAudioRecord
+            // 同口径）。此前本处漏带：续播重建的电台专辑丢了海阔身份、被
+            // 普通页当成无名书源专辑按 legadoKey 找 Legado 源——来源身份
+            // 就是在这一层被认丢的（2026-10-30 纠偏）。
+            if (a.legadoKey.startsWith("hk:")) {
+                a.hkRule = a.legadoKey.substring(3);
+                a.hkLine = r.playFlag == null ? "" : r.playFlag;
+            }
             a.sourceName = r.sourceName == null ? "" : r.sourceName;
             a.title = r.bookTitle == null ? "" : r.bookTitle;
             a.coverUrl = r.coverUrl == null ? "" : r.coverUrl;

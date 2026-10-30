@@ -418,6 +418,13 @@
             android:configChanges="screenSize|smallestScreenSize|screenLayout"
             android:screenOrientation="fullUser" />
 
+        <!-- 红果听书单独的播放页（分家令：不与普通听书共用播放页） -->
+        <activity
+            android:name="com.fongmi.android.tv.hongguo.book.HgAudioPlayActivity"
+            android:theme="@style/Theme.XingChen.HkPage"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboardHidden"
+            android:screenOrientation="fullUser" />
+
         <activity
             android:name="com.fongmi.android.tv.hongguo.ui.HongguoNovelDetailActivity"
             android:theme="@style/Theme.XingChen.HkPage"

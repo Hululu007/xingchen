@@ -69,9 +69,21 @@ public final class LegadoSearchFlow {
                                    List<LegadoPipeline.TocChapter> chapters, int which) {
         if (activity == null || activity.isFinishing() || activity.isDestroyed()) return;
         if (s.bookSourceType == LegadoSource.TYPE_AUDIO) {
-            // 听书：专辑进听书播放页
+            // 听书：专辑进听书播放页。分家令（2026-10-30）：红果听书源只许
+            // 进它单独的播放页，其余听书源一律进普通听书播放页，无一例外。
             LegadoAudio.AudioAlbum album = LegadoAudio.buildAlbum(s, info, chapters, which);
-            AudioBookActivity.start(activity, LegadoAudio.put(album));
+            String id = LegadoAudio.put(album);
+            if (com.fongmi.android.tv.legado.HgBookBridge.isAudio(s)) {
+                if (!com.fongmi.android.tv.legado.HgBookBridge
+                        .startAudioPlayer(activity, id)) {
+                    LegadoAudio.remove(id);
+                    com.fongmi.android.tv.utils.ToastUtil.show(activity,
+                            "红果听书在这个版本里不可用",
+                            android.widget.Toast.LENGTH_SHORT);
+                }
+            } else {
+                AudioBookActivity.start(activity, id);
+            }
         } else {
             ReadingSession session = LegadoReading.buildSession(s, info, chapters, which);
             ReadingRouter.openReading(activity, session);

@@ -43,6 +43,10 @@ public class ListenSession implements MiniBarPolicy.Session {
 
         void toggle(PlaybackService svc);
 
+        /** 条上暂停后落盘当前位置（默认空：没实现的会话退回旧行为）。 */
+        default void saveProgress(Context ctx, PlaybackService svc) {
+        }
+
         /** 真关闭：停播＋进度落盘（实现只用快照数据＋svc 读位置）。 */
         void close(Context ctx, PlaybackService svc);
 
@@ -162,6 +166,13 @@ public class ListenSession implements MiniBarPolicy.Session {
     void detachedToggle(PlaybackService svc) {
         try {
             if (detached != null && svc != null) detached.toggle(svc);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    void detachedSave(Context ctx, PlaybackService svc) {
+        try {
+            if (detached != null && svc != null) detached.saveProgress(ctx, svc);
         } catch (Throwable ignored) {
         }
     }

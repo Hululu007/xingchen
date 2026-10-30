@@ -37,6 +37,16 @@ public final class HgBookBridge {
         return source != null && URL_AUDIO.equals(source.bookSourceUrl);
     }
 
+    /**
+     * 专辑身份键判据：legadoKey 恰等于红果听书哨兵才算红果听书专辑。
+     * 海阔电台的身份键是 "hk:<规则名>"、普通听书源是其 bookSourceUrl，
+     * 都不许被认成红果——红果播放页入口门与各处分家判定共用这一判据，
+     * 不许各处另写一份（判据散落正是串线类 bug 的来路）。
+     */
+    public static boolean isAudioKey(String legadoKey) {
+        return URL_AUDIO.equals(legadoKey);
+    }
+
     public static boolean isHgUrl(String bookSourceUrl) {
         return URL_NOVEL.equals(bookSourceUrl) || URL_AUDIO.equals(bookSourceUrl);
     }
@@ -44,6 +54,32 @@ public final class HgBookBridge {
     /** 实现是否在位（正式版在、朋友版不在）。 */
     public static boolean available() {
         return ops() != null;
+    }
+
+    // 红果听书播放页类名拆开拼（同 OPS_CLASS 理由：朋友版整包剥红果，
+    // 本桥要留下，类名字面写全会让剥离终检误炸）。
+    private static final String AUDIO_PLAYER_CLASS =
+            "com.fongmi.android.tv." + "hongguo.book.HgAudioPlayActivity";
+
+    /**
+     * 红果听书单独的播放页调起（2026-10-30 分家令）：红果听书专辑只许进
+     * 它自己的播放页，绝不进普通听书的 AudioBookActivity。参数是
+     * LegadoAudio.put(album) 的 id（extra 键与普通播放页同为 "session"）。
+     * 朋友版播放页已被剥掉 → 返回 false，调用方按失败处理（朋友版本来
+     * 也没有红果听书源，正常走不到这里）。
+     */
+    public static boolean startAudioPlayer(android.app.Activity activity,
+                                           String sessionId) {
+        if (activity == null || sessionId == null) return false;
+        try {
+            Class<?> c = Class.forName(AUDIO_PLAYER_CLASS);
+            android.content.Intent i = new android.content.Intent(activity, c);
+            i.putExtra("session", sessionId);
+            activity.startActivity(i);
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
     }
 
     private static HgBookOps ops() {

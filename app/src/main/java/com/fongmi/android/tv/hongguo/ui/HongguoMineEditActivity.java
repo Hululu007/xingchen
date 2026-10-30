@@ -1,0 +1,418 @@
+package com.fongmi.android.tv.hongguo.ui;
+
+import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
+import android.os.Bundle;
+import android.view.Gravity;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.appcompat.app.AlertDialog;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.recyclerview.widget.GridLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
+
+import com.bumptech.glide.Glide;
+import com.bumptech.glide.load.resource.bitmap.RoundedCorners;
+import com.bumptech.glide.request.RequestOptions;
+import com.fongmi.android.tv.R;
+
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
+
+/**
+ * 历史/收藏的独立编辑页（2026-10-30 海报格批，照官方实图 113707＋他
+ * 亲口的官方行为）：点「编辑」与长按任意一格海报都进本页（长按的
+ * 那格预勾），不是在原页原地切换状态。顶栏三段——左「全选」、
+ * 中标题（全部历史/全部收藏）＋副行「已选择 N 个」、右「完成」
+ * 返回上一页；每格海报右下角圆形勾选圈（未选＝深色半透底白勾，
+ * 选中＝橙色实心白勾）；底部固定删除条（垃圾桶＋「删除」红橙字，
+ * 选中 0 个置灰禁点、不隐藏）。删除落本地 HgStore 记录，删完留在
+ * 本页刷新格子。数据全量（不吃原页的筹过滤——标题「全部」即此义）。
+ */
+public class HongguoMineEditActivity extends AppCompatActivity {
+
+    public static final String EXTRA_MODE = "hg_edit_mode";
+    public static final String EXTRA_PRESELECT = "hg_edit_preselect";
+
+    private int editMode = HongguoMineActivity.MODE_HISTORY;
+    private TextView selectAllBtn;
+    private TextView countText;
+    private RecyclerView grid;
+    private GridAdapter gridAdapter;
+    private TextView emptyText;
+    private LinearLayout deleteBar;
+    private ImageView deleteIcon;
+    private TextView deleteText;
+    private final List<EditRow> rows = new ArrayList<>();
+    private final Set<String> selected = new LinkedHashSet<>();
+
+    private static final class EditRow {
+        String id;
+        String title;
+        String sub;
+        String cover;
+        String badge;
+    }
+
+    private int dp(float v) {
+        return (int) (v * getResources().getDisplayMetrics().density + 0.5f);
+    }
+
+    private int statusBarHeight() {
+        int id = getResources().getIdentifier("status_bar_height", "dimen", "android");
+        return id > 0 ? getResources().getDimensionPixelSize(id) : dp(24);
+    }
+
+    private int navBarHeight() {
+        int id = getResources().getIdentifier("navigation_bar_height", "dimen", "android");
+        return id > 0 ? getResources().getDimensionPixelSize(id) : 0;
+    }
+
+    @Override
+    public void finish() {
+        super.finish();
+        HgTransition.applyPushExit(this);
+    }
+
+    @Override
+    protected void onCreate(@Nullable Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        HgWindowStyle.apply(this, true, true);
+        editMode = getIntent().getIntExtra(EXTRA_MODE, HongguoMineActivity.MODE_HISTORY);
+        boolean history = editMode == HongguoMineActivity.MODE_HISTORY;
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(Color.WHITE);
+        root.setPadding(0, 0, 0, navBarHeight());
+
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        top.setPadding(dp(16), statusBarHeight() + dp(10), dp(16), dp(6));
+        selectAllBtn = new TextView(this);
+        selectAllBtn.setText("全选");
+        selectAllBtn.setTextColor(0xFF1B1B1E);
+        selectAllBtn.setTextSize(15);
+        selectAllBtn.setGravity(Gravity.CENTER_VERTICAL);
+        selectAllBtn.setOnClickListener(v -> toggleSelectAll());
+        top.addView(selectAllBtn, new LinearLayout.LayoutParams(dp(72), dp(44)));
+        LinearLayout titleBox = new LinearLayout(this);
+        titleBox.setOrientation(LinearLayout.VERTICAL);
+        titleBox.setGravity(Gravity.CENTER);
+        TextView titleText = new TextView(this);
+        titleText.setText(history ? "全部历史" : "全部收藏");
+        titleText.setTextColor(0xFF1B1B1E);
+        titleText.setTextSize(17);
+        titleText.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        titleText.setGravity(Gravity.CENTER);
+        titleBox.addView(titleText);
+        countText = new TextView(this);
+        countText.setTextColor(0xFF9B9BA1);
+        countText.setTextSize(12);
+        countText.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(-1, -2);
+        clp.topMargin = dp(2);
+        titleBox.addView(countText, clp);
+        top.addView(titleBox, new LinearLayout.LayoutParams(0, -2, 1f));
+        TextView doneBtn = new TextView(this);
+        doneBtn.setText("完成");
+        doneBtn.setTextColor(0xFF1B1B1E);
+        doneBtn.setTextSize(15);
+        doneBtn.setGravity(Gravity.CENTER_VERTICAL | Gravity.END);
+        doneBtn.setOnClickListener(v -> finish());
+        top.addView(doneBtn, new LinearLayout.LayoutParams(dp(72), dp(44)));
+        root.addView(top);
+
+        grid = new RecyclerView(this);
+        grid.setLayoutManager(new GridLayoutManager(this, 3));
+        grid.setPadding(dp(12), dp(6), dp(12), dp(16));
+        gridAdapter = new GridAdapter();
+        grid.setAdapter(gridAdapter);
+        root.addView(grid, new LinearLayout.LayoutParams(-1, 0, 1f));
+
+        emptyText = new TextView(this);
+        emptyText.setText(history ? "暂无历史" : "暂无收藏");
+        emptyText.setTextColor(0xFF8E8E96);
+        emptyText.setTextSize(14);
+        emptyText.setGravity(Gravity.CENTER);
+        emptyText.setVisibility(View.GONE);
+        root.addView(emptyText, new LinearLayout.LayoutParams(-1, 0, 1f));
+
+        View hairline = new View(this);
+        hairline.setBackgroundColor(0xFFEEEEF0);
+        root.addView(hairline, new LinearLayout.LayoutParams(-1, 1));
+        deleteBar = new LinearLayout(this);
+        deleteBar.setOrientation(LinearLayout.HORIZONTAL);
+        deleteBar.setGravity(Gravity.CENTER);
+        deleteBar.setPadding(0, dp(13), 0, dp(13));
+        deleteIcon = new ImageView(this);
+        deleteIcon.setImageResource(R.drawable.ic_action_delete);
+        deleteBar.addView(deleteIcon, new LinearLayout.LayoutParams(dp(20), dp(20)));
+        deleteText = new TextView(this);
+        deleteText.setText("删除");
+        deleteText.setTextSize(15);
+        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(-2, -2);
+        dlp.leftMargin = dp(6);
+        deleteBar.addView(deleteText, dlp);
+        deleteBar.setOnClickListener(v -> confirmDelete());
+        root.addView(deleteBar);
+
+        setContentView(root);
+        loadRows();
+        String pre = getIntent().getStringExtra(EXTRA_PRESELECT);
+        if (pre != null) {
+            for (EditRow row : rows) {
+                if (pre.equals(row.id)) {
+                    selected.add(pre);
+                    break;
+                }
+            }
+        }
+        refreshState();
+    }
+
+    private void loadRows() {
+        rows.clear();
+        if (editMode == HongguoMineActivity.MODE_HISTORY) {
+            for (HgStore.HistoryRecord r : HgStore.historyRecords()) {
+                EditRow row = new EditRow();
+                row.id = r.seriesId;
+                row.title = r.title == null ? "" : r.title;
+                row.cover = r.cover;
+                row.badge = HgStore.badgeTextOf(HgStore.typeOf(r.seriesId));
+                int ep = Math.max(1, r.episodeIndex);
+                row.sub = r.episodeCount > 0
+                        ? ep + "集/" + r.episodeCount + "集" : "看到第" + ep + "集";
+                rows.add(row);
+            }
+        } else {
+            for (String id : HgStore.favedIds()) {
+                String[] meta = HgStore.metaOf(id);
+                EditRow row = new EditRow();
+                row.id = id;
+                row.title = meta == null ? "" : meta[0];
+                row.cover = meta == null ? null : meta[1];
+                row.badge = HgStore.badgeTextOf(HgStore.typeOf(id));
+                int count = -1;
+                if (meta != null) {
+                    try {
+                        count = Integer.parseInt(meta[2]);
+                    } catch (Exception ignored) {
+                    }
+                }
+                HgStore.Progress p = HgStore.progressOf(id);
+                if (p != null) {
+                    int ep = Math.max(1, p.episodeIndex);
+                    row.sub = count > 0 ? ep + "集/" + count + "集" : "看到第" + ep + "集";
+                } else {
+                    row.sub = count > 0 ? "共" + count + "集" : "";
+                }
+                rows.add(row);
+            }
+        }
+    }
+
+    private void toggleSelectAll() {
+        if (rows.isEmpty()) return;
+        if (selected.size() == rows.size()) {
+            selected.clear();
+        } else {
+            for (EditRow row : rows) selected.add(row.id);
+        }
+        gridAdapter.notifyDataSetChanged();
+        refreshState();
+    }
+
+    private void toggleRow(EditRow row) {
+        if (!selected.remove(row.id)) selected.add(row.id);
+        gridAdapter.notifyDataSetChanged();
+        refreshState();
+    }
+
+    private void refreshState() {
+        int n = selected.size();
+        countText.setText("已选择 " + n + " 个");
+        selectAllBtn.setText(!rows.isEmpty() && n == rows.size() ? "取消全选" : "全选");
+        int color = n > 0 ? 0xFFE8501C : 0xFFBFBFC4;
+        deleteText.setTextColor(color);
+        deleteIcon.setColorFilter(color);
+        deleteBar.setClickable(n > 0);
+        grid.setVisibility(rows.isEmpty() ? View.GONE : View.VISIBLE);
+        emptyText.setVisibility(rows.isEmpty() ? View.VISIBLE : View.GONE);
+    }
+
+    private void confirmDelete() {
+        int n = selected.size();
+        if (n == 0) return;
+        boolean history = editMode == HongguoMineActivity.MODE_HISTORY;
+        new AlertDialog.Builder(this)
+                .setMessage(history
+                        ? "删除所选 " + n + " 条历史？删除后无法恢复。"
+                        : "删除所选 " + n + " 条收藏？将取消收藏。")
+                .setNegativeButton("取消", null)
+                .setPositiveButton("删除", (d, w) -> doDelete())
+                .show();
+    }
+
+    private void doDelete() {
+        boolean history = editMode == HongguoMineActivity.MODE_HISTORY;
+        List<EditRow> keep = new ArrayList<>();
+        for (EditRow row : rows) {
+            if (selected.contains(row.id)) {
+                if (history) HgStore.removeHistory(row.id);
+                else HgStore.setFaved(row.id, false);
+            } else {
+                keep.add(row);
+            }
+        }
+        rows.clear();
+        rows.addAll(keep);
+        selected.clear();
+        gridAdapter.notifyDataSetChanged();
+        refreshState();
+    }
+
+    private GradientDrawable roundBg(int color, float radius) {
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(color);
+        g.setCornerRadius(radius);
+        return g;
+    }
+
+    private GradientDrawable checkBg(boolean on) {
+        GradientDrawable g = new GradientDrawable();
+        g.setShape(GradientDrawable.OVAL);
+        if (on) {
+            g.setColor(0xFFF0761A);
+        } else {
+            g.setColor(0x66000000);
+            g.setStroke(dp(1), 0xD9FFFFFF);
+        }
+        return g;
+    }
+
+    /** 编辑格：与原页同款 3:4 海报格，右下多一颗勾选圈点格切换。 */
+    private class GridAdapter extends RecyclerView.Adapter<GridAdapter.H> {
+
+        private final int posterW;
+        private final int posterH;
+
+        GridAdapter() {
+            posterW = (getResources().getDisplayMetrics().widthPixels - dp(48)) / 3;
+            posterH = posterW * 4 / 3;
+        }
+
+        class H extends RecyclerView.ViewHolder {
+            final ImageView cover;
+            final TextView badge;
+            final TextView check;
+            final TextView title;
+            final TextView sub;
+
+            H(LinearLayout cell) {
+                super(cell);
+                cover = cell.findViewWithTag("cover");
+                badge = cell.findViewWithTag("badge");
+                check = cell.findViewWithTag("check");
+                title = cell.findViewWithTag("title");
+                sub = cell.findViewWithTag("sub");
+            }
+        }
+
+        @NonNull
+        @Override
+        public H onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+            LinearLayout cell = new LinearLayout(HongguoMineEditActivity.this);
+            cell.setOrientation(LinearLayout.VERTICAL);
+            cell.setPadding(dp(4), dp(6), dp(4), dp(8));
+            cell.setLayoutParams(new RecyclerView.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            FrameLayout posterBox = new FrameLayout(HongguoMineEditActivity.this);
+            posterBox.setBackground(roundBg(0xFFEDEDEF, dp(8)));
+            ImageView cover = new ImageView(HongguoMineEditActivity.this);
+            cover.setTag("cover");
+            cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            posterBox.addView(cover, new FrameLayout.LayoutParams(-1, -1));
+            TextView badge = new TextView(HongguoMineEditActivity.this);
+            badge.setTag("badge");
+            badge.setTextColor(Color.WHITE);
+            badge.setTextSize(10);
+            badge.setPadding(dp(5), dp(2), dp(5), dp(2));
+            badge.setBackground(roundBg(0x8C000000, dp(4)));
+            FrameLayout.LayoutParams blp = new FrameLayout.LayoutParams(-2, -2);
+            blp.gravity = Gravity.TOP | Gravity.END;
+            blp.topMargin = dp(5);
+            blp.rightMargin = dp(5);
+            posterBox.addView(badge, blp);
+            TextView check = new TextView(HongguoMineEditActivity.this);
+            check.setTag("check");
+            check.setText("✓");
+            check.setTextColor(Color.WHITE);
+            check.setTextSize(12);
+            check.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            check.setGravity(Gravity.CENTER);
+            FrameLayout.LayoutParams chlp = new FrameLayout.LayoutParams(dp(22), dp(22));
+            chlp.gravity = Gravity.BOTTOM | Gravity.END;
+            chlp.rightMargin = dp(6);
+            chlp.bottomMargin = dp(6);
+            posterBox.addView(check, chlp);
+            cell.addView(posterBox, new LinearLayout.LayoutParams(posterW, posterH));
+            TextView title = new TextView(HongguoMineEditActivity.this);
+            title.setTag("title");
+            title.setTextColor(0xFF1B1B1E);
+            title.setTextSize(14);
+            title.setMaxLines(1);
+            title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(-1, -2);
+            tlp.topMargin = dp(6);
+            cell.addView(title, tlp);
+            TextView sub = new TextView(HongguoMineEditActivity.this);
+            sub.setTag("sub");
+            sub.setTextColor(0xFF9B9BA1);
+            sub.setTextSize(11.5f);
+            sub.setMaxLines(1);
+            sub.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(-1, -2);
+            slp.topMargin = dp(2);
+            cell.addView(sub, slp);
+            return new H(cell);
+        }
+
+        @Override
+        public void onBindViewHolder(@NonNull H h, int position) {
+            EditRow row = rows.get(position);
+            if (row.cover != null && !row.cover.isEmpty()) {
+                Glide.with(HongguoMineEditActivity.this).load(row.cover)
+                        .apply(RequestOptions.bitmapTransform(new RoundedCorners(dp(8))))
+                        .into(h.cover);
+            } else {
+                h.cover.setImageDrawable(null);
+            }
+            if (row.badge != null && !row.badge.isEmpty()) {
+                h.badge.setVisibility(View.VISIBLE);
+                h.badge.setText(row.badge);
+            } else {
+                h.badge.setVisibility(View.GONE);
+            }
+            h.check.setBackground(checkBg(selected.contains(row.id)));
+            h.title.setText(row.title);
+            h.sub.setText(row.sub == null ? "" : row.sub);
+            h.itemView.setOnClickListener(v -> toggleRow(row));
+        }
+
+        @Override
+        public int getItemCount() {
+            return rows.size();
+        }
+    }
+}

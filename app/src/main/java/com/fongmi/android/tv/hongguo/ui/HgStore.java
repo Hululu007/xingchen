@@ -1,5 +1,7 @@
 package com.fongmi.android.tv.hongguo.ui;
 
+import com.fongmi.android.tv.hongguo.drama.DramaItem;
+import com.fongmi.android.tv.hongguo.drama.DramaItemKind;
 import com.github.catvod.utils.Prefers;
 
 import java.util.LinkedHashSet;
@@ -572,6 +574,65 @@ public final class HgStore {
         String[] parts = raw.split(SEP, -1);
         if (parts.length < 3) return null;
         return parts;
+    }
+
+    // ---------- 条目类型（历史/收藏海报格的角标与收藏分档用，2026-10-30
+    // 海报格批新增）：meta 四段里没有类型段（角标段是 tag_info 营销文案、
+    // 不是类型，且现行 putMeta 调用全走四参、角标段恒空），故另立一键
+    // 按剧存类型码。写点在条目在手的收藏/起播落盘处（Feed 收藏与进度
+    // 落盘、详情收藏）；判不出的不写——无类型码的条目角标不显、收藏
+    // 只进「全部」档，不许拿营销角标或内容原值在消费端反推。
+
+    private static final String K_CTYPE_PREFIX = "hongguo_ctype_";
+
+    /** 类型码：真人剧。 */ public static final String TYPE_LIVE = "live";
+    /** 类型码：漫剧。 */ public static final String TYPE_COMIC = "comic";
+    /** 类型码：AI剧。 */ public static final String TYPE_AI = "ai";
+    /** 类型码：合集。 */ public static final String TYPE_ALBUM = "album";
+    /** 类型码：短片（无角标、收藏只进「全部」）。 */ public static final String TYPE_CLIP = "clip";
+    /** 类型码：未上线预告（状态压过类型，与官方历史格角标同序）。 */
+    public static final String TYPE_PREVIEW = "preview";
+
+    /**
+     * 由条目判类型码（分家口径与剧场同源：content_category_type 为准，
+     * content_type=1004 兜底漫剧；ai_usage_type 作者声明不作数）：未上线
+     * 预告＞合集＞短片＞AI剧＞漫剧＞真人剧；判不出返回 null（不落存）。
+     */
+    public static String typeCodeOf(DramaItem item) {
+        if (item == null) return null;
+        if (item.hasAppointment()) return TYPE_PREVIEW;
+        if (item.kind == DramaItemKind.ALBUM) return TYPE_ALBUM;
+        if (item.kind == DramaItemKind.UGC_CLIP) return TYPE_CLIP;
+        if (item.isAiDrama()) return TYPE_AI;
+        if ("1004".equals(item.contentCategoryType) || item.isMotionComic()) return TYPE_COMIC;
+        if ("1".equals(item.contentCategoryType)) return TYPE_LIVE;
+        return null;
+    }
+
+    /** 落一条类型码；code 为 null 不写（已有值不冲掉）。 */
+    public static void putType(String seriesId, String code) {
+        if (seriesId == null || seriesId.isEmpty() || code == null) return;
+        Prefers.put(K_CTYPE_PREFIX + seriesId, code);
+    }
+
+    /** 读类型码；没存过返回 null。 */
+    public static String typeOf(String seriesId) {
+        if (seriesId == null || seriesId.isEmpty()) return null;
+        String v = Prefers.getString(K_CTYPE_PREFIX + seriesId, "");
+        return v == null || v.isEmpty() ? null : v;
+    }
+
+    /** 类型码→角标文案（官方历史/收藏格右上角标原词）；短片与未知不显角标。 */
+    public static String badgeTextOf(String typeCode) {
+        if (typeCode == null) return null;
+        switch (typeCode) {
+            case TYPE_LIVE: return "真人剧";
+            case TYPE_COMIC: return "漫剧";
+            case TYPE_AI: return "AI剧";
+            case TYPE_ALBUM: return "合集";
+            case TYPE_PREVIEW: return "预告";
+            default: return null;
+        }
     }
 
     /** 删除一条观看历史（断点+索引一并摘掉，我的页编辑模式用）。 */

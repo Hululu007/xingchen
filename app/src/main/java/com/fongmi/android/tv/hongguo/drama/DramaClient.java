@@ -253,10 +253,9 @@ public final class DramaClient {
 
             @Override
             public void fail(int code, String msg) {
+                // 单脸口径（2026-10-31）：推测发失败同样原样收口，不许再切共享脸。
                 DramaPlayFetchPolicy.Action a = speculative
-                        ? DramaPlayFetchPolicy.classify(code) == DramaPlayFetchPolicy.OwnOutcome.ENTRY_REJECT
                         ? DramaPlayFetchPolicy.Action.FAIL_AS_IS
-                        : DramaPlayFetchPolicy.Action.FALLBACK_SHARED
                         : PLAY_POLICY.onOwnOutcome(DramaPlayFetchPolicy.classify(code));
                 if (a == DramaPlayFetchPolicy.Action.FALLBACK_SHARED) sharedPost(path, bodyObj, sink);
                 else sink.fail(code, msg);

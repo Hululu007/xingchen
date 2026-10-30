@@ -5,6 +5,9 @@ package com.fongmi.android.tv.hongguo.drama;
  * 代替旧的永久锁存（定根账 hongguo-1462-triage-20261030 件二嫌疑三：
  * 锁存单向持久——共享被拒一次即永久打入冷宫、老档案烧空后永久 E1）。
  *
+ * <p>【2026-10-31 口径变更，他亲令】改回一张脸：route 恒 OWN，
+ * 共享先行整条停用；下文双脸口径只作历史存档。</p>
+ *
  * <p>纯逻辑（时钟与存储都可注入），harness 真值表在本类口径上验：</p>
  * <ul>
  *   <li>常态走共享；共享回身份拒绝（110001）或限流空体（-2）→ 进冷却
@@ -68,9 +71,14 @@ public final class DramaFetchPolicy {
         this.store = store;
     }
 
-    /** 本发先行身份：冷却中走自家，否则共享。 */
+    /**
+     * 本发先行身份：恒自家（2026-10-31 他亲令改回一张脸，理由同
+     * DramaPlayFetchPolicy：共享脸已死、两脸轮换是失败常态的起点）。
+     * 浏览面原为共享先行，现与播放面统一只用自家注册脸；
+     * onSharedOutcome 自此无调用方，留作口径存档。
+     */
     public Route route() {
-        return clock.nowMillis() < store.readCooldownUntil() ? Route.OWN : Route.SHARED;
+        return Route.OWN;
     }
 
     /** 共享结局 → 处置（并按口径推进冷却状态）。 */

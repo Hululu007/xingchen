@@ -5,6 +5,10 @@ package com.fongmi.android.tv.hongguo.drama;
  * 身份先行，与浏览面 {@link DramaFetchPolicy}（共享先行＋冷却降级）
  * 分家——浏览/搜索/剧场/详情等读面不动，仍走 DramaFetchPolicy。
  *
+ * <p>【2026-10-31 口径变更，他亲令】改回一张脸：本策略与浏览面策略
+ * 一并摘除共享兜底，route 恒 OWN、失败原样收口；下文的双脸口径
+ * 只作历史存档，现行行为以 route()/onOwnOutcome() 为准。</p>
+ *
  * <p>反转理由（定根账 hongguo-fetch-quota-dig2-20261030＋他真机对照）：
  * 配额按设备档案计、官方也烧只是正常看烧不见底；共用脸是全网共用
  * 的一份档案、排第一要链先被限流回空。播放是唯一吃配额的面，改由
@@ -69,12 +73,17 @@ public final class DramaPlayFetchPolicy {
         this.store = store;
     }
 
-    /** 本发先行身份：自家冷却中走共享，否则自家。 */
+    /**
+     * 本发先行身份：恒自家（2026-10-31 他亲令改回一张脸：共享脸已死、
+     * 两脸轮换是失败常态的起点；模块初建时只有自家注册脸、一直能播。
+     * MiniReel 拆解同证：一张注册脸用到底。共享兜底整条摘除，
+     * route 恒 OWN、失败一律原样收口，冷却状态不再参与路由。）
+     */
     public Route route() {
-        return clock.nowMillis() < store.readCooldownUntil() ? Route.SHARED : Route.OWN;
+        return Route.OWN;
     }
 
-    /** 自家结局 → 处置（并按口径推进自家冷却状态）。 */
+    /** 自家结局 → 处置（单脸口径：成功交付，其余原样失败，不切任何脸）。 */
     public Action onOwnOutcome(OwnOutcome outcome) {
         switch (outcome) {
             case SUCCESS:
@@ -83,9 +92,8 @@ public final class DramaPlayFetchPolicy {
             case IDENTITY_REJECT:
             case EMPTY:
                 store.writeCooldownUntil(clock.nowMillis() + COOLDOWN_MS);
-                return Action.FALLBACK_SHARED;
+                return Action.FAIL_AS_IS;
             case TRANSPORT_FAIL:
-                return Action.FALLBACK_SHARED;
             case ENTRY_REJECT:
             default:
                 return Action.FAIL_AS_IS;

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 红果短剧页间过渡（共享，HgTransition 一处管）：签位互切出场——纯淡出，180ms 缓入缓出 -->
+<alpha xmlns:android="http://schemas.android.com/apk/res/android"
+    android:duration="180"
+    android:fromAlpha="1.0"
+    android:interpolator="@android:anim/accelerate_decelerate_interpolator"
+    android:toAlpha="0.0" />

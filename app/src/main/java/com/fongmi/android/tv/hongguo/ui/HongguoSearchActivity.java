@@ -87,6 +87,8 @@ public class HongguoSearchActivity extends AppCompatActivity {
     private final List<DramaSearchRow> rows = new ArrayList<>();
     private String keyword = "";
     private int tab = TAB_DRAMA;
+    /** 切签后首批结果到达要整表淡入承接（到达前为 true）。 */
+    private boolean pendingContentFade;
     private boolean loading;
     private boolean hasMore;
     private int nextOffset;
@@ -97,7 +99,7 @@ public class HongguoSearchActivity extends AppCompatActivity {
         if (kw != null && !kw.trim().isEmpty()) {
             intent.putExtra(EXTRA_KEYWORD, kw.trim());
         }
-        context.startActivity(intent);
+        HgTransition.push(context, intent);
     }
 
     private int dp(float v) {
@@ -216,9 +218,12 @@ public class HongguoSearchActivity extends AppCompatActivity {
             t.setOnClickListener(v -> {
                 if (tab != type) {
                     tab = type;
-                    styleTabs();
-                    applyLayoutManager();
-                    runSearch(true);
+                    styleTabs(); // 签高亮立即跟手，列表走淡交不硬切
+                    pendingContentFade = true;
+                    HgTransition.fadeSwap(() -> {
+                        applyLayoutManager();
+                        runSearch(true);
+                    }, list, stateText);
                 }
             });
             tabViews[i] = t;
@@ -368,6 +373,12 @@ public class HongguoSearchActivity extends AppCompatActivity {
         }
     }
 
+    @Override
+    public void finish() {
+        super.finish();
+        HgTransition.applyPushExit(this);
+    }
+
     private void doSearch() {
         String kw = input.getText() == null ? "" : input.getText().toString().trim();
         if (kw.isEmpty()) return;
@@ -435,7 +446,12 @@ public class HongguoSearchActivity extends AppCompatActivity {
     }
 
     private void afterRows() {
+        // 切签后首批结果：整表淡入承接（HgTransition 口径），不许砸显
+        boolean arriveFade = pendingContentFade && !rows.isEmpty();
+        pendingContentFade = false;
+        if (arriveFade) list.setAlpha(0f);
         adapter.notifyDataSetChanged();
+        if (arriveFade) HgTransition.contentIn(list);
         stateText.setVisibility(rows.isEmpty() ? View.VISIBLE : View.GONE);
         if (rows.isEmpty()) stateText.setText("没有找到相关内容");
     }

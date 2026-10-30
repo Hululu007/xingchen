@@ -11,6 +11,8 @@ import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.animation.AccelerateInterpolator;
+import android.view.animation.DecelerateInterpolator;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -105,7 +107,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
         // 数据/pager 位置/播放状态全留住；没有实例才新建。
         Intent intent = new Intent(context, HongguoFeedActivity.class);
         intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
-        context.startActivity(intent);
+        HgTransition.fade(context, intent); // 签位口径：淡入复用，不硬切
     }
 
     /** 视频页·合集（定稿第 7 条）：按 album 拉全合集队列，底部合集条。 */
@@ -116,7 +118,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
         intent.putExtra(EXTRA_ALBUM_ID, albumId);
         intent.putExtra(EXTRA_TITLE, item.getTitle());
         intent.putExtra(EXTRA_COVER, item.getCoverUrl());
-        context.startActivity(intent);
+        HgTransition.push(context, intent);
     }
 
     /** 视频页·单条（定稿第 7 条）：一条短片，作者行＋文案，无合集条。 */
@@ -131,7 +133,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
         intent.putExtra(EXTRA_AUTHOR_UID, item.getAuthorUid());
         intent.putExtra(EXTRA_AUTHOR_NAME, item.getAuthorName());
         intent.putExtra(EXTRA_AUTHOR_AVATAR, item.getAuthorAvatar());
-        context.startActivity(intent);
+        HgTransition.push(context, intent);
     }
 
     /** UGC 单条直开（作者作品/动态条目）：一页一条，播 item 自带 vid。 */
@@ -144,7 +146,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
         intent.putExtra(EXTRA_TITLE, title);
         intent.putExtra(EXTRA_COVER, cover);
         intent.putExtra(EXTRA_CONTENT_TYPE, contentType);
-        context.startActivity(intent);
+        HgTransition.push(context, intent);
     }
 
     public static final String EXTRA_COVER = "hg_cover";
@@ -156,7 +158,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
         intent.putExtra(EXTRA_SERIES_ID, seriesId);
         intent.putExtra(EXTRA_TITLE, title);
         intent.putExtra(EXTRA_EPISODE, episodeIndex);
-        context.startActivity(intent);
+        HgTransition.push(context, intent);
     }
 
     // ---------- 视图 ----------
@@ -311,7 +313,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
         playerView.setPlayer(null);
         DramaPlayerPool.park(bag, engine);
         engineParked = true;
-        startActivity(new Intent(this, HongguoLandActivity.class));
+        HgTransition.fade(this, new Intent(this, HongguoLandActivity.class));
     }
 
     /** 横屏页退回后领回播放器：按 DramaLandLogic.reclaimDecision 对位。 */
@@ -374,6 +376,12 @@ public class HongguoFeedActivity extends AppCompatActivity {
      * 本页留在任务栈里常驻（口径见 start()），再点短剧签原样回来。
      * 其它模式（播放页/视频页/单条）是内容页，返回照常关页回来源。
      */
+    @Override
+    public void finish() {
+        super.finish();
+        HgTransition.applyPushExit(this);
+    }
+
     @Override
     public void onBackPressed() {
         if (mode == MODE_FEED) {
@@ -461,7 +469,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
 
         // 他亲定的入口形态：右上角圆形搜索钮（圆圈底＋放大镜），顶栏只留这一个搜索入口
         ImageView search = iconBtn(R.drawable.ic_drama_search,
-                v -> startActivity(new Intent(this, HongguoSearchActivity.class)));
+                v -> HgTransition.push(this, new Intent(this, HongguoSearchActivity.class)));
         GradientDrawable searchBg = new GradientDrawable();
         searchBg.setShape(GradientDrawable.OVAL);
         searchBg.setColor(0x66000000);
@@ -834,11 +842,11 @@ public class HongguoFeedActivity extends AppCompatActivity {
         // 定稿：抽屉打开直接是片库两行（直达独立页）＋播放设置，
         // 无「我的」大卡、无小说历史行
         panel.addView(drawerAction("观看历史", v -> {
-            closeDrawer();
+            closeDrawerNow();
             HongguoMineActivity.startHistory(this);
         }));
         panel.addView(drawerAction("我的收藏", v -> {
-            closeDrawer();
+            closeDrawerNow();
             HongguoMineActivity.startFav(this);
         }));
         TextView settingsLabel = new TextView(this);
@@ -899,14 +907,42 @@ public class HongguoFeedActivity extends AppCompatActivity {
         return t;
     }
 
+    /** 抽屉开合不许硬切：面板左滑入＋暗幕淡入，关时反向（HgTransition 同族口径）。 */
     private void openDrawer() {
+        drawerScrim.animate().cancel();
+        drawerPanel.animate().cancel();
         drawerScrim.setVisibility(View.VISIBLE);
+        drawerScrim.setAlpha(0f);
+        drawerScrim.animate().alpha(1f).setDuration(200)
+                .setInterpolator(new DecelerateInterpolator());
         drawerPanel.setVisibility(View.VISIBLE);
+        drawerPanel.setTranslationX(-dp(260));
+        drawerPanel.animate().translationX(0f).setDuration(220)
+                .setInterpolator(new DecelerateInterpolator());
     }
 
     private void closeDrawer() {
+        if (drawerPanel.getVisibility() != View.VISIBLE) return;
+        drawerScrim.animate().alpha(0f).setDuration(180)
+                .setInterpolator(new AccelerateInterpolator());
+        drawerPanel.animate().translationX(-dp(260)).setDuration(180)
+                .setInterpolator(new AccelerateInterpolator())
+                .withEndAction(() -> {
+                    drawerScrim.setVisibility(View.GONE);
+                    drawerPanel.setVisibility(View.GONE);
+                    drawerPanel.setTranslationX(0f);
+                    drawerScrim.setAlpha(1f);
+                });
+    }
+
+    /** 跳页前瞬间收抽屉：页间淡入正好盖住这一帧，不等滑出动画走完。 */
+    private void closeDrawerNow() {
+        drawerScrim.animate().cancel();
+        drawerPanel.animate().cancel();
         drawerScrim.setVisibility(View.GONE);
         drawerPanel.setVisibility(View.GONE);
+        drawerPanel.setTranslationX(0f);
+        drawerScrim.setAlpha(1f);
     }
 
     private ImageView iconBtn(int res, View.OnClickListener click) {

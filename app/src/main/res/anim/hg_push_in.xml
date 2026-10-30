@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 红果短剧页间过渡（共享，HgTransition 一处管）：前进进场——淡入＋轻微右滑入，200ms 缓入缓出 -->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:duration="200"
+    android:interpolator="@android:anim/accelerate_decelerate_interpolator">
+    <translate
+        android:fromXDelta="5%"
+        android:toXDelta="0%" />
+    <alpha
+        android:fromAlpha="0.0"
+        android:toAlpha="1.0" />
+</set>

@@ -497,6 +497,12 @@ public class HongguoLandActivity extends AppCompatActivity {
     }
 
     @Override
+    public void finish() {
+        super.finish();
+        HgTransition.applyFadeExit(this);
+    }
+
+    @Override
     public void onBackPressed() {
         exitLand();
     }

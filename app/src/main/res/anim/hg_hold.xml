@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 红果短剧页间过渡（共享，HgTransition 一处管）：陪衬静止帧——过渡期间停留在下层的那页保持不动，
+     保证任意时刻画面全覆盖、不透底、不闪黑 -->
+<alpha xmlns:android="http://schemas.android.com/apk/res/android"
+    android:duration="200"
+    android:fromAlpha="1.0"
+    android:toAlpha="1.0" />

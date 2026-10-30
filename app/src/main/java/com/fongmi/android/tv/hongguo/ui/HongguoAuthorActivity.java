@@ -44,7 +44,13 @@ public class HongguoAuthorActivity extends AppCompatActivity {
         intent.putExtra(EXTRA_UID, uid);
         intent.putExtra(EXTRA_NAME, name);
         intent.putExtra(EXTRA_AVATAR, avatar);
-        context.startActivity(intent);
+        HgTransition.push(context, intent);
+    }
+
+    @Override
+    public void finish() {
+        super.finish();
+        HgTransition.applyPushExit(this);
     }
 
     private String uid;

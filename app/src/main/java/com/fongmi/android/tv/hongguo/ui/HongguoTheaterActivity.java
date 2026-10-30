@@ -98,6 +98,8 @@ public class HongguoTheaterActivity extends AppCompatActivity {
     private final List<String> filterSeen = new ArrayList<>();
     private int clipChain;
     private int aiChain;
+    /** 切格/点筹后首批数据到达要整表淡入承接（到达前为 true）。 */
+    private boolean pendingContentFade;
     /** 分格状态保留（常驻口径，他 2026-10-30 定）：切格离开时整份
      * 存下，再切回来原样恢复、不重拉；没存过/上次没拉成的格才重拉。 */
     private final Map<Integer, TabState> tabStates = new HashMap<>();
@@ -128,7 +130,7 @@ public class HongguoTheaterActivity extends AppCompatActivity {
     public static void start(android.content.Context context) {
         Intent intent = new Intent(context, HongguoTheaterActivity.class);
         intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
-        context.startActivity(intent);
+        HgTransition.fade(context, intent); // 签位口径：淡入复用，不硬切
     }
 
     private int dp(float v) {
@@ -168,7 +170,8 @@ public class HongguoTheaterActivity extends AppCompatActivity {
         search.setImageResource(R.drawable.ic_drama_search);
         search.setColorFilter(Color.WHITE);
         search.setPadding(dp(8), dp(8), dp(8), dp(8));
-        search.setOnClickListener(v -> startActivity(new Intent(this, HongguoSearchActivity.class)));
+        search.setOnClickListener(v -> HgTransition.push(this,
+                new Intent(this, HongguoSearchActivity.class)));
         top.addView(search, new LinearLayout.LayoutParams(dp(40), dp(40)));
         root.addView(top);
 
@@ -308,6 +311,12 @@ public class HongguoTheaterActivity extends AppCompatActivity {
     }
 
     @Override
+    public void finish() {
+        super.finish();
+        HgTransition.applyFadeExit(this);
+    }
+
+    @Override
     public void onBackPressed() {
         goHomeFeed();
     }
@@ -319,16 +328,21 @@ public class HongguoTheaterActivity extends AppCompatActivity {
         loadGen++;
         loading = false;
         channel = idx;
+        selectTab(); // 签高亮立即跟手，内容区走淡交、不硬切
         TabState st = tabStates.get(idx);
         if (st != null && st.settled) {
-            restoreTabState(st);
+            // 有存货整份恢复也走淡交（HgTransition 共享口径）：整表
+            // 绑定/换布局/滚动恢复全落在淡出后的不可见帧，不许原地砸出
+            HgTransition.fadeSwap(() -> restoreTabState(st), grid, chipArea);
         } else {
             activeDimKey = null;
             activeDimValue = null;
-            rebuildChips();
-            selectTab();
-            applyLayout();
-            load(true);
+            pendingContentFade = true;
+            HgTransition.fadeSwap(() -> {
+                rebuildChips();
+                applyLayout();
+                load(true);
+            }, grid, chipArea);
         }
         ensurePanel(idx);
     }
@@ -432,7 +446,16 @@ public class HongguoTheaterActivity extends AppCompatActivity {
                 runOnUiThread(() -> {
                     panelPending.remove(ch);
                     panelCache.put(ch, rows);
-                    if (channel == ch) rebuildChips();
+                    if (channel == ch) {
+                        boolean chipWasShown = chipArea.getVisibility() == View.VISIBLE;
+                        rebuildChips();
+                        // 筹行后到：整行淡入，不许凭空砸出（切格淡交
+                        // 进行中时 alpha 归淡交统一管，这里不插手）
+                        if (!chipWasShown && chipArea.getVisibility() == View.VISIBLE
+                                && grid.getAlpha() > 0.99f) {
+                            HgTransition.fadeIn(chipArea, 150);
+                        }
+                    }
                 });
             }
 
@@ -499,7 +522,8 @@ public class HongguoTheaterActivity extends AppCompatActivity {
                 activeDimValue = value;
             }
             styleChips();
-            load(true);
+            pendingContentFade = true;
+            HgTransition.fadeSwap(() -> load(true), grid);
         });
         return t;
     }
@@ -555,6 +579,7 @@ public class HongguoTheaterActivity extends AppCompatActivity {
                 runOnUiThread(() -> {
                     if (gen != loadGen) return;
                     loading = false;
+                    pendingContentFade = false;
                     if ((channel == TAB_CLIPS ? clips : items).isEmpty()) {
                         stateText.setText("取数据失败，点按重试");
                         stateText.setVisibility(View.VISIBLE);
@@ -599,6 +624,18 @@ public class HongguoTheaterActivity extends AppCompatActivity {
         hasMore = page.isHasMore() || (first && continuation != null);
     }
 
+    /**
+     * 切格/点筹后首批真出货的数据到达：整表淡入承接（HgTransition
+     * 口径），不许数据直接砸进可见表；整页滤空自动续拉时不消费，
+     * 把淡入留给真正出货的那一页。
+     */
+    private void arriveFadeIn(boolean addedAny) {
+        if (!pendingContentFade || !addedAny) return;
+        pendingContentFade = false;
+        grid.setAlpha(0f);
+        HgTransition.contentIn(grid);
+    }
+
     private void onPage(DramaCellPage page, boolean first) {
         loading = false;
         pageSettled = true;
@@ -618,6 +655,7 @@ public class HongguoTheaterActivity extends AppCompatActivity {
                 added++;
             }
             clipAdapter.notifyDataSetChanged();
+            arriveFadeIn(added > 0);
             stateText.setVisibility(clips.isEmpty() ? View.VISIBLE : View.GONE);
             if (clips.isEmpty()) stateText.setText("暂时没有内容，点按重试");
             // 整页被过滤光但还有下页：自动续拉（最多连 3 页），免得短片格假空。
@@ -674,6 +712,7 @@ public class HongguoTheaterActivity extends AppCompatActivity {
             added++;
         }
         gridAdapter.notifyDataSetChanged();
+        arriveFadeIn(added > 0);
         stateText.setVisibility(items.isEmpty() ? View.VISIBLE : View.GONE);
         if (items.isEmpty()) stateText.setText("暂时没有内容，点按重试");
         if (channel == TAB_AI && !reqFilter) {

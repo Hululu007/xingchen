@@ -61,7 +61,13 @@ public class HongguoDetailActivity extends AppCompatActivity {
         intent.putExtra(EXTRA_SERIES_ID, seriesId);
         intent.putExtra(EXTRA_TITLE, title);
         intent.putExtra(EXTRA_ALBUM_ID, albumId);
-        context.startActivity(intent);
+        HgTransition.push(context, intent);
+    }
+
+    @Override
+    public void finish() {
+        super.finish();
+        HgTransition.applyPushExit(this);
     }
 
     private String seriesId;

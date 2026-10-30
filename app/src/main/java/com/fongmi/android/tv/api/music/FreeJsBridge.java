@@ -37,6 +37,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.Timer;
+import java.util.TimerTask;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -46,6 +48,7 @@ import java.util.concurrent.FutureTask;
 import java.util.concurrent.PriorityBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 import okhttp3.Response;
@@ -122,6 +125,29 @@ public class FreeJsBridge {
     private JSObject exports;
 
     /**
+     * setTimeout 钩子的计时面（垫片第 8 节的真实现）：与点播 Global.setTimeout
+     * 同一机制——java.util.Timer 计时、JSFunction 先 hold、到点把回调投递回
+     * 桥单线程执行、执行后 release。只经 __freejsSetTimeout/__freejsClearTimeout
+     * 两个窄钩子暴露，不把 Global 注册进本上下文：它会把整套点播方法面
+     * （req/pdfh/md5X…）带进 FreeJS，且它的 req 绕开本桥带 SourceGate 标记的
+     * 唯一网络出口 __freejsRequest。destroyed 后不再接新定时器、已排队的
+     * 回调直接收口不进 ctx。
+     */
+    private final Timer timer = new Timer("freejs-timer", true);
+    private final AtomicInteger timerSeq = new AtomicInteger();
+    private final Map<Integer, TimerEntry> timers = new java.util.concurrent.ConcurrentHashMap<>();
+    private volatile boolean destroyed;
+
+    private static final class TimerEntry {
+        final JSFunction func;
+        volatile TimerTask task;
+
+        TimerEntry(JSFunction func) {
+            this.func = func;
+        }
+    }
+
+    /**
      * cheerio 按需注入（提速⑨）：cheerio 原文 488KB、冷建桥求值约 0.6 秒量级，
      * 旧实现每桥无条件注入——元力 KW／油管等根本不用的插件白付这笔。
      * 判据：插件源码含 cheerio 关键词（静态判）＋保守白名单（歌词网／歌词千寻
@@ -186,6 +212,7 @@ public class FreeJsBridge {
                 }
                 SpiderDebug.log("music", "freejs cheerio fallback rebuild site=%s", site.name);
                 forceCheerio = true;
+                cancelAllTimeouts();
                 try {
                     if (ctx != null) ctx.destroy();
                 } catch (Throwable ignored) {
@@ -255,6 +282,25 @@ public class FreeJsBridge {
             }
             return null;
         });
+        // setTimeout 真实现（垫片第 8 节）：只收函数与延时，其余参数已由垫片
+        // 打包进回调闭包。钩子本体跑在桥线程（JS 调用点），登记即 hold。
+        globalObj.setProperty("__freejsSetTimeout", (JSCallFunction) args -> {
+            try {
+                if (args == null || args.length == 0 || !(args[0] instanceof JSFunction)) return 0;
+                long delay = 0;
+                if (args.length > 1 && args[1] instanceof Number) delay = Math.max(0L, ((Number) args[1]).longValue());
+                return scheduleTimeout((JSFunction) args[0], delay);
+            } catch (Throwable t) {
+                return 0;
+            }
+        });
+        globalObj.setProperty("__freejsClearTimeout", (JSCallFunction) args -> {
+            try {
+                if (args != null && args.length > 0 && args[0] instanceof Number) cancelTimeout(((Number) args[0]).intValue());
+            } catch (Throwable ignored) {
+            }
+            return null;
+        });
         ctx.evaluate(Asset.read("js/lib/freejs.js"));
         injectLib("crypto-js", Asset.read("js/lib/crypto-js.js"));
         // cheerio 按需（提速⑨，判据与兜底见 cheerioWanted 字段注）
@@ -268,6 +314,76 @@ public class FreeJsBridge {
         ctx.evaluate("(function(){\nvar __m={exports:{}};\n"
                 + "(function(require,module,exports){\n" + src + "\n})(require,__m,__m.exports);\n"
                 + "__freejsDefine(\"" + name + "\",function(require,module){module.exports=__m.exports;});\n})();");
+    }
+
+    /* ---------------- setTimeout（垫片钩子，机制同点播 Global） ---------------- */
+
+    private int scheduleTimeout(JSFunction func, long delay) {
+        if (destroyed) return 0;
+        int id = timerSeq.incrementAndGet();
+        TimerEntry entry = new TimerEntry(func);
+        timers.put(id, entry);
+        func.hold();
+        TimerTask task = new TimerTask() {
+            @Override
+            public void run() {
+                // 计时线程只投递：回调必须回桥单线程执行（ctx 线程亲和）
+                try {
+                    executor.execute(() -> fireTimeout(id));
+                } catch (Throwable t) {
+                    // 执行器已关停：条目留在表里等拆桥统一收口；计时线程上不
+                    // release（异线程 release 会抛线程亲和异常，随 ctx 销毁
+                    // 回收，同 Global 的 postCallback 兜底口径）
+                }
+            }
+        };
+        entry.task = task;
+        try {
+            timer.schedule(task, delay);
+        } catch (Throwable t) {
+            cancelTimeout(id);
+            return 0;
+        }
+        return id;
+    }
+
+    private void fireTimeout(int id) {
+        TimerEntry entry = timers.remove(id);
+        if (entry == null) return; // 已被 clearTimeout 或拆桥收口
+        try {
+            if (!destroyed && ctx != null) {
+                entry.func.call();
+                // 泵一次 job 队列：这类回调多是 Promise 的 resolve，兑现续跑
+                // 是微任务（LxBridge awaitPromise 的 evaluate("0") 泵法同款，
+                // 兜 wrapper 未在 call 后排空队列的情形）
+                try {
+                    ctx.evaluate("0");
+                } catch (Throwable ignored) {
+                }
+            }
+        } catch (Throwable ignored) {
+        } finally {
+            try {
+                entry.func.release();
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    /** 只在桥线程调用（release 有线程亲和）：JS 的 clearTimeout 钩子与拆桥收口共用 */
+    private void cancelTimeout(int id) {
+        TimerEntry entry = timers.remove(id);
+        if (entry == null) return;
+        if (entry.task != null) entry.task.cancel();
+        try {
+            entry.func.release();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** ctx 销毁/重建前先把挂着的定时器全收口（挂着的 JSFunction 属于即将销毁的 ctx） */
+    private void cancelAllTimeouts() {
+        for (Integer id : new ArrayList<>(timers.keySet())) cancelTimeout(id);
     }
 
     private void loadPlugin() {
@@ -448,6 +564,7 @@ public class FreeJsBridge {
     private void rebuildWithCheerio() throws Exception {
         submit(() -> {
             forceCheerio = true;
+            cancelAllTimeouts();
             try {
                 if (exports != null) exports.release();
             } catch (Throwable ignored) {
@@ -819,9 +936,13 @@ public class FreeJsBridge {
     }
 
     public void destroy() {
+        destroyed = true;
         try {
             // 拆桥走高优先：别在排队的取词/搜索后面干等（后面还有 5 秒兜底与 shutdownNow）
             submitHigh(() -> {
+                // 定时器先收口（挂着的回调属于本 ctx），计时器本体随桥关停
+                cancelAllTimeouts();
+                timer.cancel();
                 if (exports != null) {
                     try {
                         exports.release();

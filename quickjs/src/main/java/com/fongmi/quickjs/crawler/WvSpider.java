@@ -326,7 +326,6 @@ public class WvSpider extends com.github.catvod.crawler.Spider {
     private void releaseJS() throws Exception {
         submitAndGet(() -> {
             if (host != null) host.destroy();
-            if (globalObj != null) globalObj.release();
             if (ctx != null) ctx.destroy();
             return null;
         });

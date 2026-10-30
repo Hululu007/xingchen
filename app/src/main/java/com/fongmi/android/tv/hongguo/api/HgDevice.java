@@ -114,6 +114,9 @@ public final class HgDevice {
 
     private static final String PREF_KEY = "hongguo_device_profile_v1";
 
+    /** 一次性换脸标记键（1.4.66，见 swapBurnedFaceOnce）。 */
+    private static final String FACE_SWAP_KEY = "hongguo_face_swap_20261031";
+
     /** 签名用的 device_id（自家注册档案）。 */
     public static String signDeviceId() {
         return nz(profile().deviceId);
@@ -264,8 +267,33 @@ public final class HgDevice {
         cached = p;
     }
 
+    /** 换脸标记已查旗（每进程只查一次盘）。 */
+    private static boolean swapChecked;
+
+    /**
+     * 一次性换脸（1.4.66，他 2026-10-31 亲令「换一张新注册脸」）：旧版
+     * 把自家注册脸的量烧秃了（预取无闸＋失败切共享死脸轮换），升级后
+     * 第一次取档案先把旧档案整份作废、重新派生一张全新未注册的脸，
+     * 随后既有 ensureDevice 流程负责注册。标记落盘保证终身只换这一次；
+     * 只动设备档案这一份落盘，历史／收藏／配置一概不碰。
+     */
+    private static void swapBurnedFaceOnce() {
+        if (swapChecked) return;
+        swapChecked = true;
+        try {
+            if (Prefers.getString(FACE_SWAP_KEY).isEmpty()) {
+                Prefers.put(FACE_SWAP_KEY, "1");
+                resetProfile();
+            }
+        } catch (Throwable ignored) {
+            // 换脸失败不拦业务：旧档案照常走既有流程。
+        }
+    }
+
     /** 取档案：没有就本地派生一份并落盘（device_id/install_id 待注册回填）。 */
     public static synchronized Profile profile() {
+        if (cached != null) return cached;
+        swapBurnedFaceOnce();
         if (cached != null) return cached;
         Profile p = load();
         if (p == null) {

@@ -1,0 +1,11 @@
+-proc:none
+-nowarn
+-cp
+/home/hatch/workspace/android-sdk/platforms/android-36/android.jar:/home/hatch/gradle-9.5.1/lib/gson-2.13.1.jar
+-sourcepath
+app/src/main/java:app/src/mobile/java
+-d
+/tmp/gate-javac
+app/src/mobile/java/com/fongmi/android/tv/hongguo/book/HgAudioPlayActivity.java
+app/src/main/java/com/fongmi/android/tv/legado/HgBookBridge.java
+app/src/mobile/java/com/fongmi/android/tv/read/ReadingRouter.java

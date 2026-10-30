@@ -1,9 +1,0 @@
--nowarn
--cp
-/home/hatch/workspace/android-sdk/platforms/android-36/android.jar:/home/hatch/workspace/gradle-dist/gradle-8.10.2/lib/junit-4.13.2.jar:/home/hatch/gradle-9.5.1/lib/gson-2.13.1.jar
--sourcepath
-app/src/main/java:app/src/test/java:catvod/src/main/java:/tmp/testsync-stub
--d
-/tmp/testsync-out
-app/src/test/java/com/fongmi/android/tv/player/PlaybackExperimentPolicyTest.java
-app/src/test/java/com/fongmi/android/tv/player/PlaybackProfileAbPolicyTest.java

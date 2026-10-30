@@ -1,6 +1,0 @@
--proc:none
--Xmaxerrs
-5000
--d
-/tmp/hkparse
-app/src/main/java/com/fongmi/android/tv/player/PlayerManager.java

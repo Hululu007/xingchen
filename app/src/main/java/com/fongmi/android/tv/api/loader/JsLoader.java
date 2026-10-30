@@ -5,6 +5,7 @@ import android.os.FileObserver;
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.api.SiteApi;
 import com.fongmi.android.tv.event.RefreshEvent;
+import com.fongmi.quickjs.crawler.DrpySpider;
 import com.fongmi.quickjs.crawler.Loader;
 import com.fongmi.quickjs.crawler.WvSpider;
 import com.fongmi.quickjs.utils.Module;
@@ -148,10 +149,13 @@ public class JsLoader {
     }
 
     /**
-     * 通道分发：新格式宿主型 JS（wvB/WvSpider 类）进 WvSpider，其余仍走普通通道。
-     * 判定以内容为准（wvB 样本文件名是 .js 后缀，只看后缀会漏检）：
-     * 内容取不到时才回退 .wv 后缀提示。产出 __JS_SPIDER__ 的源在
-     * WvSpider.isWvSource 里有一票否决，普通源路径不受影响。
+     * 通道分发：新格式宿主型 JS（wvB/WvSpider 类）进 WvSpider，drpy 型
+     * （规则＋引擎）进 DrpySpider，其余仍走普通通道。互斥顺序定死：
+     * ① api 名字指 drpy2 引擎的先判（不取内容，远程引擎一律改走内置定版）；
+     * ② 再按内容判 Wv（判定口径与原 isWv 一字未动，含 .wv 后缀回退）；
+     * ③ 再按内容判 drpy（引擎指纹或裸规则形态，__JS_SPIDER__ 本体在
+     * isBareRule 里有一票否决）；④ 都不中才是普通通道。已有三路的判定
+     * 与路径不变，drpy 只在它们都不认时才接。
      */
     private boolean isWv(String api) {
         try {
@@ -162,12 +166,25 @@ public class JsLoader {
         return api != null && api.contains(".wv");
     }
 
+    private boolean isDrpyContent(String api) {
+        try {
+            String content = Module.get().fetch(api);
+            if (content == null || content.isEmpty()) return false;
+            return DrpySpider.isEngineContent(content) || DrpySpider.isBareRule(content);
+        } catch (Throwable ignored) {
+        }
+        return false;
+    }
+
     public Spider getSpider(String key, String api, String ext, String jar) {
         try {
             return spiders.computeIfAbsent(key, k -> {
                 Spider spider = null;
                 try {
-                    spider = isWv(api) ? loader.wvSpider(api) : loader.spider(api, BaseLoader.get().dex(jar));
+                    spider = DrpySpider.isEngineApi(api) ? loader.drpySpider(api, BaseLoader.get().dex(jar))
+                            : isWv(api) ? loader.wvSpider(api)
+                            : isDrpyContent(api) ? loader.drpySpider(api, BaseLoader.get().dex(jar))
+                            : loader.spider(api, BaseLoader.get().dex(jar));
                     spider.siteKey = key;
                     spider.init(App.get(), ext);
                     recordPath(key, api);

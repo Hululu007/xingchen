@@ -56,8 +56,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * 红果竖屏流播放页（2026-10-30 从零重建）：刷剧频道流（推荐/漫剧/
- * 真人剧）与单剧集流（MODE_SERIES，详情/搜索/我的页进入）共用一页。
+ * 红果竖屏流播放页（2026-10-30 从零重建）：刷剧频道流（真人剧/
+ * 漫剧两大类，他亲令）与单剧集流（MODE_SERIES，详情/搜索/我的页进入）共用一页。
  *
  * <p>形态（自主设计，主流短剧 App 口径）：全屏竖滑 Pager＋单 PlayerView
  * 随页迁移；信息摞在左下（剧名/作者/简介/收藏药丸＋选集条），右列
@@ -79,13 +79,32 @@ public class HongguoFeedActivity extends AppCompatActivity {
     public static final String EXTRA_EPISODE = "hg_episode";
     public static final int MODE_FEED = 0;
     public static final int MODE_SERIES = 1;
+    public static final int MODE_UGC = 2;
+    public static final String EXTRA_UGC_VID = "hg_ugc_vid";
+    public static final String EXTRA_UGC_SERIES = "hg_ugc_series";
 
-    private static final int[][] CHANNELS = {{-1, 16}, {36, 36}, {39, 39}};
-    private static final String[] CHANNEL_NAMES = {"推荐", "漫剧", "真人剧"};
+    private static final int[][] CHANNELS = {{39, 39}, {36, 36}};
+    private static final String[] CHANNEL_NAMES = {"真人剧", "漫剧"};
 
     public static void start(Context context) {
         context.startActivity(new Intent(context, HongguoFeedActivity.class));
     }
+
+    /** UGC 单条直开（作者作品/动态条目）：一页一条，播 item 自带 vid。 */
+    public static void startUgc(Context context, String vid, String seriesId, String title,
+                                String cover, int contentType) {
+        Intent intent = new Intent(context, HongguoFeedActivity.class);
+        intent.putExtra(EXTRA_MODE, MODE_UGC);
+        intent.putExtra(EXTRA_UGC_VID, vid);
+        intent.putExtra(EXTRA_UGC_SERIES, seriesId);
+        intent.putExtra(EXTRA_TITLE, title);
+        intent.putExtra(EXTRA_COVER, cover);
+        intent.putExtra(EXTRA_CONTENT_TYPE, contentType);
+        context.startActivity(intent);
+    }
+
+    public static final String EXTRA_COVER = "hg_cover";
+    public static final String EXTRA_CONTENT_TYPE = "hg_content_type";
 
     public static void startSeries(Context context, String seriesId, String title, int episodeIndex) {
         Intent intent = new Intent(context, HongguoFeedActivity.class);
@@ -162,14 +181,15 @@ public class HongguoFeedActivity extends AppCompatActivity {
         seriesIdArg = getIntent().getStringExtra(EXTRA_SERIES_ID);
         buildUi();
         setContentView(root);
-        if (mode == MODE_SERIES) {
+        if (mode == MODE_SERIES || mode == MODE_UGC) {
             topBar.setVisibility(View.GONE);
             bottomBar.setVisibility(View.GONE);
             progressWrap.setVisibility(View.VISIBLE);
             seriesBar.setVisibility(View.VISIBLE);
             String t = getIntent().getStringExtra(EXTRA_TITLE);
             seriesTitleView.setText(t == null ? "" : t);
-            loadSeries();
+            if (mode == MODE_SERIES) loadSeries();
+            else loadUgc();
         } else {
             seriesBar.setVisibility(View.GONE);
             channel = tabIndexOf(HgStore.feedPosTab());
@@ -664,6 +684,25 @@ public class HongguoFeedActivity extends AppCompatActivity {
         }
     }
 
+    private void loadUgc() {
+        String vid = getIntent().getStringExtra(EXTRA_UGC_VID);
+        String sid = getIntent().getStringExtra(EXTRA_UGC_SERIES);
+        if (vid == null || vid.isEmpty()) {
+            showState("内容不存在", false);
+            return;
+        }
+        hideState();
+        items.clear();
+        items.add(DramaItem.fromDetail(sid == null ? vid : sid,
+                getIntent().getStringExtra(EXTRA_TITLE),
+                getIntent().getStringExtra(EXTRA_COVER), null, 0, vid, null,
+                null, null, null, getIntent().getIntExtra(EXTRA_CONTENT_TYPE, 1001), -1));
+        adapter.notifyDataSetChanged();
+        feedStartPending = true;
+        pager.scrollToPosition(0);
+        main.post(() -> settleTo(0));
+    }
+
     private void loadSeries() {
         showState("加载中…", true);
         if (seriesIdArg == null || seriesIdArg.isEmpty()) {
@@ -722,6 +761,9 @@ public class HongguoFeedActivity extends AppCompatActivity {
         bindRailState(index);
         if (mode == MODE_SERIES) {
             playEpisode(currentEpisodeIndex, true);
+        } else if (mode == MODE_UGC) {
+            currentEpisodeIndex = 1;
+            playVid(item.getVid(), item.contentType, 0);
         } else {
             playFeedItem(item);
         }
@@ -1591,6 +1633,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
             });
             boolean finished = item.isFinished();
             int total = item.getEpisodeCount();
+            h.strip.setVisibility(mode == MODE_UGC ? View.GONE : View.VISIBLE);
             String stripText;
             if (mode == MODE_SERIES) {
                 stripText = "第" + currentEpisodeIndex + "集" + (total > 0 ? " / 全" + total + "集" : "") + " · 选集 ›";

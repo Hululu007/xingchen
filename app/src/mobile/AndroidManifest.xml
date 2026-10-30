@@ -581,6 +581,28 @@
             android:exported="false"
             android:screenOrientation="behind" />
 
+        <!-- 红果短剧新页（2026-10-30 从零重建）：详情/剧场/搜索/作者 -->
+        <activity
+            android:name="com.fongmi.android.tv.hongguo.ui.HongguoDetailActivity"
+            android:theme="@style/Theme.XingChen.HkPage"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout"
+            android:screenOrientation="fullUser" />
+        <activity
+            android:name="com.fongmi.android.tv.hongguo.ui.HongguoTheaterActivity"
+            android:theme="@style/Theme.XingChen.HkPage"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout"
+            android:screenOrientation="fullUser" />
+        <activity
+            android:name="com.fongmi.android.tv.hongguo.ui.HongguoSearchActivity"
+            android:theme="@style/Theme.XingChen.HkPage"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout"
+            android:screenOrientation="fullUser" />
+        <activity
+            android:name="com.fongmi.android.tv.hongguo.ui.HongguoAuthorActivity"
+            android:theme="@style/Theme.XingChen.HkPage"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout"
+            android:screenOrientation="fullUser" />
+
 
 
 

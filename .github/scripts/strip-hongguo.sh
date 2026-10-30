@@ -3,28 +3,33 @@
 # 只在 CI 的临时检出上执行，仓库源码不动。任何一处对不上就让构建失败，
 # 防止哪天重构改了写法、朋友版悄悄带着红果发出去（与 strip-friend-seed.sh 同款纪律）。
 #
-# 删的只有本功能（2026-10-27 立项的原生红果，一至五阶段）新增的东西：
-#   - 红果本体包 app/src/main/java/com/fongmi/android/tv/hongguo/（api/model/crypto/proxy/ui 全包）
-#     与它的离线单测 app/src/test/hongguo/；
-#   - 本体资源（main 源集）：activity/item/dialog/view_hongguo_* 布局 35 份、bg_hg_*/ic_hg_* 图形 146 份＋hg_switch_* 开关图形 2 份＋hg_panel_switch_* 2 份＋hg_dm_seek_thumb 1 份；
-#   - 登录提供方 HongguoLoginProvider 与它在 LoginManager 里的注册行／loginHongguo 入口／
-#     三个静态桥／requestLogin 的红果分发支；
+# 本脚本 2026-10-30 随红果短剧全删重建同步重写：登录全套在重建阶段1
+# 已从正式版源码整删（LoginManager 无任何红果注册/桥，本脚本不再对它动刀，
+# 只在复查二里验它别家提供方完好）；短剧与小说同剥（旧口径不变）。
+#
+# 删的只有本功能的东西：
+#   - 红果本体包 app/src/main/java/com/fongmi/android/tv/hongguo/（api/book/crypto/
+#     drama/model/proxy/sign/ui 全包，短剧与小说同在内）与离线单测 app/src/test/hongguo/；
+#   - mobile 源集的红果两目录（book 浏览页 + HongguoNovelDetailActivity）；
+#   - 本体资源（main 源集）：ic_drama_* 图标 15 份（重建新页自绘）、小说面共用
+#     图形 5 份＋ic_hg_search_gray＋item_hongguo_search_book.xml（官方版里是小说
+#     线共用件、保留；朋友版小说同剥、无人引用，一并删）；
 #   - Nano 本地服务器的红果代理解密 process（HongguoStream 本体＋Nano 的 import 与注册行）；
-#   - 底栏短剧格：HomeActivity 的 import／注册行／点击分发支、isHongguoTabEnabled 改回
-#     false（格子不注册）、ic_nav_duanju 双态图标、nav_duanju 字符串；
-#   - Manifest（mobile）里红果十个 Activity（含横屏页 HongguoLandActivity）＋书城浏览页的登记。
+#   - 底栏短剧格：HomeActivity 的 import／注册行／点击分发支／启动直达块、
+#     isHongguoTabEnabled 改回 false（格子不注册）、ic_nav_duanju 双态图标、nav_duanju 字符串；
+#   - Manifest（mobile）里红果九个 Activity＋书城浏览页的登记。
 #
 # 不许误伤的共用件（海阔规则年代就有的壳子件，只是名字里带 Hongguo，与本功能无关，留）：
 #   - com.fongmi.android.tv.api.HongguoCommentApi / HongguoDanmakuApi / FqCommentSigner
-#     （点播播放链的红果评论/弹幕抓取，HgCommentClient 只是复用其中的 FqCommentSigner）；
+#     （点播播放链的红果评论/弹幕抓取）；
 #   - mobile 的 HongguoCommentDialog / HongguoCommentAdapter 与 adapter_hongguo_* /
 #     dialog_hongguo_comment 布局、shape_hongguo_* 图形、hongguo_panel_* 动画、
 #     hongguo_comment* 字符串、VideoActivity 的红果评论/弹幕链、Danmaku 的 hongguo 平台名；
-#   - 登录框架本体（LoginManager 注册表与通用口、PanLoginDialog、CloudAccountStore）、
-#     底栏组件本体（XcBottomBar/BottomTabs 与 ids.xml 的 hongguo 预声明 id——无害占位、
-#     与 2e7ddcc3 预声明时同状态）、Nano 其余 process。
-# 终检只认本功能专属标识（tv.hongguo 包名与十个 Activity 名、HongguoLoginProvider、
-# loginHongguo 系入口名、HongguoStream、ic_nav_duanju/nav_duanju），不认泛 Hongguo 字样，
+#   - 登录框架本体（LoginManager 注册表与通用口、各提供方）、
+#     底栏组件本体（XcBottomBar/BottomTabs 与 ids.xml 的 hongguo 预声明 id——无害占位）、
+#     Nano 其余 process。
+# 终检只认本功能专属标识（tv.hongguo 包名与九个 Activity 名、HongguoStream、
+# ic_nav_duanju/nav_duanju、ic_drama_），不认泛 Hongguo 字样，
 # 免得把上面的共用件误报成残留。
 set -euo pipefail
 
@@ -32,26 +37,22 @@ fail() { echo "::error title=朋友版删红果失败::$1"; exit 1; }
 
 HGPKG=app/src/main/java/com/fongmi/android/tv/hongguo
 HGTEST=app/src/test/hongguo
-PROVIDER=app/src/main/java/com/fongmi/android/tv/login/HongguoLoginProvider.java
 STREAM=app/src/main/java/com/fongmi/android/tv/server/process/HongguoStream.java
-LOGINPAGE=app/src/main/java/com/fongmi/android/tv/login/HongguoLoginPage.java
-LM=app/src/main/java/com/fongmi/android/tv/login/LoginManager.java
 NANO=app/src/main/java/com/fongmi/android/tv/server/Nano.java
 HOME=app/src/mobile/java/com/fongmi/android/tv/ui/activity/HomeActivity.java
 MANIFEST=app/src/mobile/AndroidManifest.xml
 MSTRINGS=app/src/mobile/res/values/strings.xml
+LM=app/src/main/java/com/fongmi/android/tv/login/LoginManager.java
 
-for f in "$PROVIDER" "$STREAM" "$LOGINPAGE" "$LM" "$NANO" "$HOME" "$MANIFEST" "$MSTRINGS"; do
+for f in "$STREAM" "$NANO" "$HOME" "$MANIFEST" "$MSTRINGS" "$LM"; do
   [ -f "$f" ] || fail "红果剥离目标文件找不到：$f"
 done
 [ -d "$HGPKG" ] || fail "红果本体包找不到：$HGPKG"
 [ -d "$HGTEST" ] || fail "红果离线单测目录找不到：$HGTEST"
+[ -d app/src/mobile/java/com/fongmi/android/tv/hongguo/book ] || fail "mobile 红果 book 目录找不到"
+[ -d app/src/mobile/java/com/fongmi/android/tv/hongguo/ui ] || fail "mobile 红果 ui 目录找不到"
 
 # ---- 锚点预检：改一处写法就先在这里炸，不许带着对不上硬删 ----
-grep -qF "register(new HongguoLoginProvider());" "$LM" || fail "LoginManager 的红果注册行对不上"
-grep -qF "public void loginHongguo(FragmentActivity activity, LoginCallback callback)" "$LM" || fail "LoginManager 的 loginHongguo 入口对不上"
-grep -qF "public static boolean loginHongguoDelivered()" "$LM" || fail "LoginManager 的 loginHongguoDelivered 对不上"
-grep -qF "public static boolean isHongguoLoggedIn()" "$LM" || fail "LoginManager 的 isHongguoLoggedIn 对不上"
 grep -qF "import com.fongmi.android.tv.server.process.HongguoStream;" "$NANO" || fail "Nano 的 HongguoStream import 对不上"
 grep -qF "process.add(new HongguoStream());" "$NANO" || fail "Nano 的 HongguoStream 注册行对不上"
 grep -qF "import com.fongmi.android.tv.hongguo.ui.HongguoFeedActivity;" "$HOME" || fail "HomeActivity 的红果 import 对不上"
@@ -59,229 +60,47 @@ grep -qF "tabs.add(new BottomTabs.Spec(R.id.hongguo, R.drawable.ic_nav_duanju_ou
 grep -qF "if (itemId == R.id.hongguo) {" "$HOME" || fail "HomeActivity 的短剧格点击分发对不上"
 grep -qF "红果「启动直达短剧」" "$HOME" || fail "HomeActivity 的启动直达短剧块对不上"
 grep -qF "<string name=\"nav_duanju\">短剧</string>" "$MSTRINGS" || fail "短剧格字符串 nav_duanju 对不上"
-for a in HongguoFeedActivity HongguoSearchActivity HongguoAuthorActivity HongguoSeriesDetailActivity HongguoPreferenceActivity HongguoFeedbackActivity HongguoPostActivity HongguoAlbumActivity HongguoNovelDetailActivity HongguoLandActivity; do
+# LoginManager 必须仍是零红果（重建阶段1 已整删；此处防回潮，带回来就先炸）
+if grep -q "Hongguo" "$LM"; then
+  fail "LoginManager 出现红果字样（重建后应为零，疑回潮）"
+fi
+for a in HongguoFeedActivity HongguoDetailActivity HongguoTheaterActivity HongguoSearchActivity HongguoAuthorActivity HongguoMineActivity HongguoLandActivity HongguoNovelDetailActivity; do
   grep -qF "android:name=\"com.fongmi.android.tv.hongguo.ui.$a\"" "$MANIFEST" || fail "Manifest 的红果登记对不上：$a"
 done
 grep -qF "android:name=\"com.fongmi.android.tv.hongguo.book.HgBookBrowseActivity\"" "$MANIFEST" || fail "Manifest 的红果书城浏览页登记对不上"
 
-# ---- 本体资源清单（main 源集，逐份核在再删） ----
+# ---- 本体资源清单（main/mobile 源集，逐份核在再删） ----
 RES_FILES="
-app/src/main/res/layout/activity_hongguo_author.xml
-app/src/main/res/layout/activity_hongguo_series_detail.xml
-app/src/main/res/layout/item_hongguo_author_work.xml
-app/src/main/res/layout/item_hongguo_author_review.xml
-app/src/main/res/layout/item_hongguo_series_review.xml
-app/src/main/res/layout/activity_hongguo_feed.xml
-app/src/main/res/layout/activity_hongguo_search.xml
-app/src/main/res/layout/activity_hongguo_preference.xml
-app/src/main/res/layout/activity_hongguo_feedback.xml
-app/src/main/res/layout/activity_hongguo_post.xml
-app/src/main/res/layout/item_hongguo_post_series.xml
-app/src/main/res/layout/dialog_hongguo_comments.xml
-app/src/main/res/layout/dialog_hongguo_danmaku.xml
-app/src/main/res/layout/dialog_hongguo_danmaku_settings.xml
-app/src/main/res/layout/dialog_hongguo_comment_editor.xml
-app/src/main/res/layout/dialog_hongguo_episodes.xml
-app/src/main/res/layout/dialog_hongguo_more_panel.xml
-app/src/main/res/layout/dialog_hongguo_timer.xml
-app/src/main/res/layout/dialog_hongguo_land_list.xml
-app/src/main/res/layout/dialog_hongguo_subscribe_recall.xml
-app/src/main/res/layout/item_hongguo_comment.xml
-app/src/main/res/layout/item_hongguo_reply.xml
-app/src/main/res/layout/item_hongguo_replies_more.xml
-app/src/main/res/layout/item_hongguo_episode.xml
-app/src/main/res/layout/item_hongguo_feed.xml
-app/src/main/res/layout/item_hongguo_mine_card.xml
-app/src/main/res/layout/item_hongguo_recall.xml
-app/src/main/res/layout/item_hongguo_search.xml
-app/src/main/res/layout/item_hongguo_search_header.xml
-app/src/main/res/layout/item_hongguo_search_sug.xml
-app/src/main/res/layout/item_hongguo_search_text.xml
-app/src/main/res/layout/item_hongguo_search_user.xml
-app/src/main/res/layout/item_hongguo_search_post.xml
-app/src/main/res/layout/item_hongguo_search_book.xml
-app/src/main/res/layout/item_hongguo_search_hot.xml
-app/src/main/res/layout/activity_hongguo_album.xml
-app/src/main/res/layout/item_hongguo_album_episode.xml
-app/src/main/res/layout/view_hongguo_detail_panel.xml
-app/src/main/res/layout/item_hongguo_series_row.xml
-app/src/main/res/layout/item_hongguo_theater.xml
-app/src/main/res/layout/view_hongguo_mine.xml
-app/src/main/res/layout/view_hongguo_drawer.xml
-app/src/main/res/layout/view_hongguo_series_sheet.xml
-app/src/main/res/drawable/bg_hg_actor_chip.xml
-app/src/main/res/drawable/bg_hg_avatar_circle.xml
-app/src/main/res/drawable/bg_hg_badge.xml
-app/src/main/res/drawable/bg_hg_progress_dot.xml
-app/src/main/res/drawable/bg_hg_refresh_pill.xml
-app/src/main/res/drawable/bg_hg_bottom_scrim.xml
-app/src/main/res/drawable/bg_hg_chip.xml
-app/src/main/res/drawable/bg_hg_tag.xml
-app/src/main/res/drawable/bg_hg_hot_tag.xml
-app/src/main/res/drawable/bg_hg_cover_r6.xml
-app/src/main/res/drawable/bg_hg_cover_r12.xml
-app/src/main/res/drawable/bg_hg_cover_r4.xml
-app/src/main/res/drawable/bg_hg_detail_card.xml
-app/src/main/res/drawable/bg_hg_detail_cell.xml
-app/src/main/res/drawable/bg_hg_detail_chip.xml
-app/src/main/res/drawable/bg_hg_detail_cover.xml
-app/src/main/res/drawable/bg_hg_detail_current.xml
-app/src/main/res/drawable/bg_hg_detail_play.xml
-app/src/main/res/drawable/bg_hg_detail_qmark.xml
-app/src/main/res/drawable/bg_hg_detail_score_block.xml
-app/src/main/res/drawable/bg_hg_red_dot.xml
-app/src/main/res/drawable/bg_hg_sub_chip.xml
-app/src/main/res/drawable/bg_hg_sub_chip_on.xml
-app/src/main/res/drawable/bg_hg_title_badge.xml
-app/src/main/res/drawable/bg_hg_float_card.xml
-app/src/main/res/drawable/bg_hg_catalog_bar.xml
-app/src/main/res/drawable/bg_hg_follow_mini.xml
-app/src/main/res/drawable/bg_hg_guide_chip.xml
-app/src/main/res/drawable/bg_hg_reserve_btn.xml
-app/src/main/res/drawable/bg_hg_reserve_btn_on.xml
-app/src/main/res/drawable/bg_hg_follow_pill.xml
-app/src/main/res/drawable/bg_hg_follow_pill_on.xml
-app/src/main/res/drawable/bg_hg_pill_glow.webp
-app/src/main/res/drawable/bg_hg_top_scrim.xml
-app/src/main/res/drawable/bg_hg_tag_chip.xml
-app/src/main/res/drawable/bg_hg_dialog_dark.xml
-app/src/main/res/drawable/bg_hg_drawer.xml
-app/src/main/res/drawable/bg_hg_episode_chip.xml
-app/src/main/res/drawable/bg_hg_ep_cell.xml
-app/src/main/res/drawable/bg_hg_ep_dot.xml
-app/src/main/res/drawable/bg_hg_ep_fav.xml
-app/src/main/res/drawable/bg_hg_ep_follow_pill.xml
-app/src/main/res/drawable/bg_hg_ep_fav_on.xml
-app/src/main/res/drawable/bg_hg_ep_grab.xml
-app/src/main/res/drawable/bg_hg_ep_sheet.xml
-app/src/main/res/drawable/bg_hg_follow_badge.xml
-app/src/main/res/drawable/bg_hg_follow_btn.xml
-app/src/main/res/drawable/bg_hg_followed_btn.xml
-app/src/main/res/drawable/bg_hg_grab.xml
-app/src/main/res/drawable/bg_hg_login_btn.xml
-app/src/main/res/drawable/bg_hg_mine_badge.xml
-app/src/main/res/drawable/bg_hg_panel_chip_on.xml
-app/src/main/res/drawable/bg_hg_panel_track.xml
-app/src/main/res/drawable/bg_hg_series_bar.xml
-app/src/main/res/drawable/bg_hg_sheet.xml
-app/src/main/res/drawable/ic_hg_back.xml
-app/src/main/res/drawable/ic_hg_home.xml
-app/src/main/res/drawable/ic_hg_mine.xml
-app/src/main/res/drawable/ic_hg_close.xml
-app/src/main/res/drawable/ic_hg_check_on.xml
-app/src/main/res/drawable/ic_hg_detail_arrow.xml
-app/src/main/res/drawable/ic_hg_now_playing.xml
-app/src/main/res/drawable/ic_hg_chevron_down.xml
-app/src/main/res/drawable/ic_hg_comment.xml
-app/src/main/res/drawable/ic_hg_emoji.xml
-app/src/main/res/drawable/ic_hg_image.xml
-app/src/main/res/drawable/ic_hg_like.xml
-app/src/main/res/drawable/ic_hg_fullscreen.xml
-app/src/main/res/drawable/ic_hg_heart.xml
-app/src/main/res/drawable/ic_hg_battery.xml
-app/src/main/res/drawable/ic_hg_cell.xml
-app/src/main/res/drawable/ic_hg_lock.xml
-app/src/main/res/drawable/ic_hg_unlock.xml
-app/src/main/res/drawable/ic_hg_wifi.xml
-app/src/main/res/drawable/ic_hg_heart_fill.xml
-app/src/main/res/drawable/ic_hg_menu.xml
-app/src/main/res/drawable/ic_hg_more.xml
-app/src/main/res/drawable/ic_hg_pause.xml
-app/src/main/res/drawable/ic_hg_play.xml
-app/src/main/res/drawable/ic_hg_bar_play.xml
-app/src/main/res/drawable/ic_hg_playing_orange.xml
-app/src/main/res/drawable/ic_hg_search.xml
-app/src/main/res/drawable/bg_hg_search_input.xml
-app/src/main/res/drawable/bg_hg_search_cursor.xml
-app/src/main/res/drawable/bg_hg_card_gradient_top.xml
-app/src/main/res/drawable/bg_hg_card_gradient_bottom.xml
-app/src/main/res/drawable/bg_hg_avatar_clip.xml
-app/src/main/res/drawable/ic_hg_search_gray.xml
-app/src/main/res/drawable/ic_hg_catalog_arrow.xml
-app/src/main/res/drawable/ic_hg_expand.xml
-app/src/main/res/drawable/ic_hg_speed_gauge.xml
-app/src/main/res/drawable/ic_hg_douyin.xml
-app/src/main/res/drawable/ic_hg_phone.xml
-app/src/main/res/drawable/ic_hg_share.xml
-app/src/main/res/drawable/ic_hg_star.xml
-app/src/main/res/drawable/ic_hg_star_fill.xml
-app/src/main/res/drawable/bg_hg_author_bg_fade.xml
-app/src/main/res/drawable/bg_hg_author_follow_btn.xml
-app/src/main/res/drawable/bg_hg_author_followed_btn.xml
-app/src/main/res/drawable/bg_hg_author_series_card.xml
-app/src/main/res/drawable/bg_hg_author_sheet.xml
+app/src/main/res/drawable/ic_drama_back.xml
+app/src/main/res/drawable/ic_drama_close.xml
+app/src/main/res/drawable/ic_drama_comment.xml
+app/src/main/res/drawable/ic_drama_exitfull.xml
+app/src/main/res/drawable/ic_drama_fullscreen.xml
+app/src/main/res/drawable/ic_drama_home.xml
+app/src/main/res/drawable/ic_drama_lock.xml
+app/src/main/res/drawable/ic_drama_menu.xml
+app/src/main/res/drawable/ic_drama_mine.xml
+app/src/main/res/drawable/ic_drama_more.xml
+app/src/main/res/drawable/ic_drama_pause.xml
+app/src/main/res/drawable/ic_drama_play.xml
+app/src/main/res/drawable/ic_drama_search.xml
+app/src/main/res/drawable/ic_drama_star.xml
+app/src/main/res/drawable/ic_drama_theater.xml
 app/src/main/res/drawable/bg_hg_book_chip.xml
 app/src/main/res/drawable/bg_hg_book_searchbar.xml
-app/src/main/res/drawable/bg_hg_comment_editor.xml
-app/src/main/res/drawable/bg_hg_comment_field.xml
-app/src/main/res/drawable/bg_hg_comment_input.xml
-app/src/main/res/drawable/bg_hg_comments_sheet.xml
-app/src/main/res/drawable/bg_hg_comment_replies.xml
-app/src/main/res/drawable/bg_hg_dm_seek_bg.xml
-app/src/main/res/drawable/bg_hg_dm_seek_progress.xml
-app/src/main/res/drawable/bg_hg_dm_settings_card.xml
-app/src/main/res/drawable/bg_hg_dm_settings_sheet.xml
-app/src/main/res/drawable/bg_hg_editor_input.xml
-app/src/main/res/drawable/bg_hg_ep_cell_land.xml
-app/src/main/res/drawable/bg_hg_land_ep_panel.xml
-app/src/main/res/drawable/bg_hg_land_panel.xml
-app/src/main/res/drawable/bg_hg_land_row_on.xml
-app/src/main/res/drawable/bg_hg_login_soft.xml
-app/src/main/res/drawable/bg_hg_mine_avatar.xml
-app/src/main/res/drawable/bg_hg_mine_check_off.xml
-app/src/main/res/drawable/bg_hg_mine_check_on.xml
-app/src/main/res/drawable/bg_hg_mine_chip_off.xml
-app/src/main/res/drawable/bg_hg_mine_chip_on.xml
-app/src/main/res/drawable/bg_hg_mine_edit_bar.xml
-app/src/main/res/drawable/bg_hg_mine_header.xml
-app/src/main/res/drawable/bg_hg_mine_page.xml
-app/src/main/res/drawable/bg_hg_panel_badge.xml
-app/src/main/res/drawable/bg_hg_panel_card.xml
-app/src/main/res/drawable/bg_hg_panel_sheet.xml
-app/src/main/res/drawable/bg_hg_search_avatar_ring.xml
-app/src/main/res/drawable/bg_hg_search_grad_bottom.xml
-app/src/main/res/drawable/bg_hg_search_grad_top.xml
-app/src/main/res/drawable/hg_dm_seek_thumb.xml
-app/src/main/res/drawable/hg_panel_switch_thumb.xml
-app/src/main/res/drawable/hg_panel_switch_track.xml
-app/src/main/res/drawable/ic_hg_author_collect.xml
-app/src/main/res/drawable/ic_hg_author_comment.xml
-app/src/main/res/drawable/ic_hg_author_copy.xml
-app/src/main/res/drawable/ic_hg_author_heart.xml
-app/src/main/res/drawable/ic_hg_author_plus.xml
-app/src/main/res/drawable/ic_hg_author_star_off.xml
-app/src/main/res/drawable/ic_hg_author_star_on.xml
-app/src/main/res/drawable/ic_hg_battery_land.xml
-app/src/main/res/drawable/ic_hg_chevron_right.xml
-app/src/main/res/drawable/ic_hg_detail_heart_outline.xml
-app/src/main/res/drawable/ic_hg_detail_star_outline.xml
-app/src/main/res/drawable/ic_hg_follow_check.xml
-app/src/main/res/drawable/ic_hg_follow_plus.xml
-app/src/main/res/drawable/ic_hg_bell.xml
-app/src/main/res/drawable/ic_hg_login_chevron.xml
-app/src/main/res/drawable/ic_hg_login_close.xml
-app/src/main/res/drawable/ic_hg_login_phone.xml
-app/src/main/res/drawable/ic_hg_mine_search.xml
-app/src/main/res/drawable/ic_hg_panel_cast.xml
-app/src/main/res/drawable/ic_hg_panel_speed.xml
-app/src/main/res/drawable/ic_hg_panel_timer.xml
-app/src/main/res/drawable/ic_hg_search_backfill.xml
-app/src/main/res/drawable/ic_hg_search_clear.xml
-app/src/main/res/drawable/ic_hg_search_delete.xml
-app/src/main/res/drawable/ic_hg_search_find.xml
-app/src/main/res/drawable/ic_hg_search_play.xml
-app/src/main/res/drawable/hg_switch_thumb.xml
-app/src/main/res/drawable/hg_switch_track.xml
+app/src/main/res/drawable/bg_hg_cover_r6.xml
+app/src/main/res/drawable/bg_hg_follow_btn.xml
+app/src/main/res/drawable/ic_hg_search_gray.xml
+app/src/main/res/layout/item_hongguo_search_book.xml
 app/src/mobile/res/drawable/ic_nav_duanju_outline.xml
 app/src/mobile/res/drawable/ic_nav_duanju_filled.xml
-app/src/main/assets/hongguo/follow_update_entrance_v721.json
 "
 for f in $RES_FILES; do
   [ -f "$f" ] || fail "红果本体资源找不到：$f"
 done
 
-# ---- 接线文件手术（LoginManager / HomeActivity / Manifest） ----
-python3 - "$LM" "$HOME" "$MANIFEST" <<'PYEOF'
+# ---- 接线文件手术（HomeActivity / Manifest） ----
+python3 - "$HOME" "$MANIFEST" <<'PYEOF'
 import re, sys
 
 def load(path):
@@ -308,39 +127,7 @@ def find_line(lines, needle, what):
         sys.exit("python: 红果剥离定位对不上（%s，命中 %d 处）" % (what, len(hits)))
     return hits[0]
 
-lm_path, home_path, manifest_path = sys.argv[1], sys.argv[2], sys.argv[3]
-
-# ---- LoginManager：注册行 + requestLogin 红果分发支（整块删） ----
-lm = load(lm_path)
-lm = cut_exact(lm, "        register(new HongguoLoginProvider());\n", "红果注册行")
-lm = cut_exact(lm, """        if (HongguoLoginProvider.ID.equals(providerId)) {
-            return loginHongguoDelivered();
-        }
-""", "requestLogin 的红果分发支")
-lines = lm.split("\n")
-
-# ---- LoginManager：loginHongguo 实例方法（含 javadoc）整段删 ----
-i = find_line(lines, "弹红果官方形态登录页（{@link HongguoLoginPage}", "loginHongguo javadoc")
-j = find_line(lines, "    private void openMethod", "openMethod")
-if not (i < j and lines[i - 1].strip() == "/**"):
-    sys.exit("python: loginHongguo 段落形状对不上")
-lines = lines[:i - 1] + lines[j:]
-
-# ---- LoginManager：红果静态桥整段删（loginHongguo 起、requestLogin javadoc 止） ----
-# 结束锚点原是 QQ 静态口的 javadoc，但编排上 strip-friend-seed 先行、已把 QQ 静态口
-# 整段删净，该锚点在朋友版检出里命中 0 处（1.4.60 朋友版首编实证）；现改锚到紧随
-# 红果静态口之后的 requestLogin javadoc——删到它的 /** 之前为止，并断言删除段内
-# 只含红果静态口、不含别家标识与 requestLogin 本体。
-i = find_line(lines, "弹红果官方形态登录页（异步）", "loginHongguo 静态桥 javadoc")
-j = find_line(lines, "     * 通用：按提供方 id 请壳子弹统一登录框", "requestLogin javadoc")
-if not (i < j - 1 and lines[i].strip().startswith("/**") and lines[j - 1].strip() == "/**"):
-    sys.exit("python: 红果静态桥段落形状对不上")
-seg = "\n".join(lines[i:j - 1])
-if "requestLogin" in seg or "login115" in seg or "loginGoogle" in seg or "loginKuaishou" in seg:
-    sys.exit("python: 红果静态桥删除段越界（段内含别家标识）")
-lines = lines[:i] + lines[j - 1:]
-lm = "\n".join(lines)
-save(lm_path, lm)
+home_path, manifest_path = sys.argv[1], sys.argv[2]
 
 # ---- HomeActivity：import／短剧格注册行／点击分发支整删，条件位改回 false ----
 # 注释里带本功能标识（图标名/类名）的两处一并收口成中性文案，免得终检 grep 命中注释残留。
@@ -380,36 +167,29 @@ if hlines[k + 1].strip() != "return true;":
 hlines[k + 1] = "        return false;"
 save(home_path, "\n".join(hlines))
 
-# ---- Manifest：红果十个 Activity 登记逐个删（每个必须恰好一处） ----
-# 登记上方的说明注释同属本功能，整块一并删（留着会成无主注释、且带类名残留）。
+# ---- Manifest：红果登记注释与九个 Activity＋书城浏览页逐个删（每个必须恰好一处） ----
 manifest = load(manifest_path)
-manifest = cut_exact(manifest, """        <!-- 红果刷剧页（三阶段）：点进就是竖屏刷剧流，独立一套界面与控制，
-             不借 VideoActivity。底栏接线在五阶段，本阶段只静态入口。 -->
-        <!-- 竖屏面窗口不转（照官方竖屏页 ShortSeriesActivity 口径）：
-             screenOrientation="behind"＋configChanges 全套自管。横屏观看
-             走下方真独立横屏页（官方 ShortSeriesLandActivity 对应件，
-             2026-10-30 横屏对齐施工）：旧别名 HongguoLandEntry＋intent
-             模式旗冒充与窗内转保底已整删。 -->
+manifest = cut_exact(manifest, """        <!-- 红果刷剧页（2026-10-30 从零重建）：竖屏刷剧流，独立一套
+             界面与控制，不借 VideoActivity。窗口不转：screenOrientation
+             ="behind"＋configChanges 全套自管；横屏观看走独立横屏页
+             （重建阶段8 加回登记）。 -->
 """, "刷剧页登记注释")
-manifest = cut_exact(manifest, """        <!-- 横屏独立页（官方 ShortSeriesLandActivity 声明对位，抠查账
-             hongguo-orientation-dig-20261030 §一）：userLandscape 横屏
-             锁定、singleTop、configChanges 全套、支持 PiP；与竖屏页同类
-             共体（HongguoFeedActivity 子类），播放器经 HgPlayerPool
-             迁移续播。 -->
+manifest = cut_exact(manifest, """        <!-- 红果短剧新页（2026-10-30 从零重建）：详情/剧场/搜索/作者 -->
+""", "短剧新页登记注释")
+manifest = cut_exact(manifest, """        <!-- 红果横屏页（2026-10-30 重建阶段8）：真独立页，照官方清单
+             userLandscape＋singleTop＋configChanges 全套＋PiP 声明 -->
 """, "横屏页登记注释")
-for name in ("HongguoFeedActivity", "HongguoSearchActivity", "HongguoAuthorActivity", "HongguoSeriesDetailActivity", "HongguoPreferenceActivity", "HongguoFeedbackActivity", "HongguoPostActivity", "HongguoAlbumActivity", "HongguoNovelDetailActivity", "HongguoLandActivity"):
+manifest = cut_exact(manifest, """        <!-- 红果书城浏览（内置小说/听书源点进去的面） -->
+""", "书城浏览页登记注释")
+for name in ("HongguoFeedActivity", "HongguoDetailActivity", "HongguoTheaterActivity", "HongguoSearchActivity", "HongguoAuthorActivity", "HongguoMineActivity", "HongguoNovelDetailActivity", "HongguoLandActivity"):
     pattern = r"<activity\s+android:name=\"com\.fongmi\.android\.tv\.hongguo\.ui\." + name + r"\"[^>]*/>"
     manifest, n = re.subn(pattern, "", manifest)
     if n != 1:
         sys.exit("python: Manifest 红果登记对不上（%s，命中 %d 处）" % (name, n))
-# 红果书城浏览页（内置小说/听书源的面）：注释与登记整块删（本体在 mobile 的 hongguo/book 目录另行整删）
-manifest = cut_exact(manifest, """        <!-- 红果书城浏览（内置小说/听书源点进去的面） -->
-        <activity
-            android:name="com.fongmi.android.tv.hongguo.book.HgBookBrowseActivity"
-            android:theme="@style/Theme.XingChen.HkPage"
-            android:configChanges="screenSize|smallestScreenSize|screenLayout"
-            android:screenOrientation="fullUser" />
-""", "红果书城浏览页登记")
+pattern = r"<activity\s+android:name=\"com\.fongmi\.android\.tv\.hongguo\.book\.HgBookBrowseActivity\"[^>]*/>"
+manifest, n = re.subn(pattern, "", manifest)
+if n != 1:
+    sys.exit("python: Manifest 红果登记对不上（HgBookBrowseActivity，命中 %d 处）" % n)
 save(manifest_path, manifest)
 PYEOF
 
@@ -422,7 +202,7 @@ sed -i "/<string name=\"nav_duanju\">/d" "$MSTRINGS"
 
 # ---- 本体文件整删 ----
 rm -rf "$HGPKG" "$HGTEST"
-rm "$PROVIDER" "$STREAM" "$LOGINPAGE"
+rm "$STREAM"
 rm -rf app/src/mobile/java/com/fongmi/android/tv/hongguo/book
 rm -rf app/src/mobile/java/com/fongmi/android/tv/hongguo/ui
 for f in $RES_FILES; do
@@ -430,7 +210,7 @@ for f in $RES_FILES; do
 done
 
 # ---- 复查一：本功能专属标识全树零残留（共用件的泛 Hongguo 字样不在此列，见文件头白名单） ----
-if grep -rn -E "com\.fongmi\.android\.tv\.hongguo|HongguoFeedActivity|HongguoSearchActivity|HongguoAuthorActivity|HongguoSeriesDetailActivity|HgLibraryActivity|HgListActivity|HgTheaterActivity|HongguoLoginProvider|HongguoLoginPage|HongguoSmsLoginDialog|loginHongguo|isHongguoLoggedIn|getHongguoCookie|logoutHongguo|HongguoStream|ic_nav_duanju|nav_duanju" app/src/main app/src/mobile app/src/leanback app/src/test --include=*.java --include=*.xml; then
+if grep -rn -E "com\.fongmi\.android\.tv\.hongguo|HongguoFeedActivity|HongguoDetailActivity|HongguoTheaterActivity|HongguoSearchActivity|HongguoAuthorActivity|HongguoMineActivity|HongguoLandActivity|HongguoNovelDetailActivity|HongguoStream|ic_nav_duanju|nav_duanju|ic_drama_" app/src/main app/src/mobile app/src/leanback app/src/test --include=*.java --include=*.xml; then
   fail "删完后仍有红果本功能残留"
 fi
 
@@ -454,4 +234,4 @@ grep -qF "process.add(new Local());" "$NANO" || fail "剥完后 Nano 的 Local p
 grep -qF "BottomTabs.Spec(R.id.vod" "$HOME" || fail "剥完后底栏点播格注册不见了"
 grep -qF "BottomTabs.Spec(R.id.setting" "$HOME" || fail "剥完后底栏设置格注册不见了"
 grep -qF ".ui.activity.VideoActivity" "$MANIFEST" || fail "剥完后 Manifest 的 VideoActivity 登记不见了"
-echo "朋友版：第三方红果已删除（本体包＋登录提供方＋代理解密 process＋底栏短剧格＋Manifest 登记，规则年代共用件保留）"
+echo "朋友版：第三方红果已删除（本体包＋mobile 两目录＋代理解密 process＋底栏短剧格＋Manifest 登记＋本体资源，规则年代共用件保留）"

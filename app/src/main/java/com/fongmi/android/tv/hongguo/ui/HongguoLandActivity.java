@@ -123,6 +123,13 @@ public class HongguoLandActivity extends AppCompatActivity {
         DramaPlayerPool.Bag bag = DramaPlayerPool.peekBag();
         engine = DramaPlayerPool.takeEngine();
         if (bag == null || engine == null) {
+            if (engine != null) {
+                try {
+                    engine.release();
+                } catch (Throwable ignored) {
+                }
+                engine = null;
+            }
             finish();
             return;
         }

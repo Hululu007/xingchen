@@ -74,7 +74,7 @@ public final class HgAlbumSheet {
         root.setBackground(rootBg);
 
         View grab = new View(activity);
-        grab.setBackground(roundBg(0x291B1B1F, dp.applyAsInt(2.5f)));
+        grab.setBackground(roundBg(0x291B1B1F, dp.applyAsInt(2)));
         LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(
                 dp.applyAsInt(38), dp.applyAsInt(4));
         glp.gravity = Gravity.CENTER_HORIZONTAL;

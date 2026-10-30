@@ -1689,7 +1689,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
         @Override
         public void onPlayerError(@NonNull androidx.media3.common.PlaybackException error) {
             android.util.Log.w("HongguoFeed", "player error vid=" + currentVid
-                    + " code=" + error.errorCodeName);
+                    + " code=" + error.errorCode);
             showPlayFailure();
         }
     };

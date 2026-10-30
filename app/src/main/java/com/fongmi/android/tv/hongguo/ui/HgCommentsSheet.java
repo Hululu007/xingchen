@@ -93,7 +93,7 @@ public final class HgCommentsSheet {
         View grab = new View(activity);
         GradientDrawable grabBg = new GradientDrawable();
         grabBg.setColor(0x291B1B1F);
-        grabBg.setCornerRadius(dp.applyAsInt(2.5f));
+        grabBg.setCornerRadius(dp.applyAsInt(2));
         grab.setBackground(grabBg);
         LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(
                 dp.applyAsInt(38), dp.applyAsInt(4));

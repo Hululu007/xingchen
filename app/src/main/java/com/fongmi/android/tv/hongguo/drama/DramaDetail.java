@@ -30,6 +30,85 @@ public final class DramaDetail {
         public String getSubTitle() { return subTitle; }
     }
 
+    /**
+     * 相关作品一条（不可变）：官方详情页「相关作品」段的真数据源——
+     * plan 口（from＝detail_page_more_related）回包 show_type＝547 的
+     * cell（官方 ShowType.DetailPageRelatedWorks），内容是与本剧同 IP
+     * 绑定的作品：同剧其它季在前、同 IP 衍生/其它形态（漫剧等）在后，
+     * 不是分类/标签推荐流（2026-10-30 本机实拉三部剧定版，账
+     * hongguo-related-20261030）。字段口径照 547 cell 的 video_data 条目：
+     * series_id/title/cover/episode_cnt/content_type/tag_info.text
+     * （角标，如「第2季」「同IP」）/sub_title_list（副行文案，如
+     * 「爱情 · 3868万热度」「预告 · 141.2万人已预约」）。集数官方在
+     * cell 条目里常给 0，DramaClient 取回后用批量详情补 episode_cnt 与
+     * series_status，补不到保持 0（未知，卡片回落副行文案，不编数）。
+     * book_data（同 IP 的书形态）不进本列表：红果详情页不落书行。
+     */
+    public static final class RelatedWork {
+        private final String seriesId;
+        private final String title;
+        private final String coverUrl;
+        private final int episodeCount;
+        private final Integer seriesStatus;
+        private final String tagText;
+        private final String subText;
+        private final int contentType;
+
+        RelatedWork(String seriesId, String title, String coverUrl, int episodeCount,
+                    Integer seriesStatus, String tagText, String subText, int contentType) {
+            this.seriesId = seriesId;
+            this.title = title;
+            this.coverUrl = coverUrl;
+            this.episodeCount = episodeCount;
+            this.seriesStatus = seriesStatus;
+            this.tagText = tagText;
+            this.subText = subText;
+            this.contentType = contentType;
+        }
+
+        /** 合集季行 → 相关作品条（集数/完结态/角标都走季行自有字段）。 */
+        public static RelatedWork fromAlbumItem(DramaItem item) {
+            return new RelatedWork(item.getSeriesId(), item.getTitle(), item.getCoverUrl(),
+                    item.getEpisodeCount(), item.getSeriesStatus(), item.getBadge(),
+                    null, -1);
+        }
+
+        /** 批量详情补回集数/完结态后的副本（原条不动）。 */
+        RelatedWork withEpisodeInfo(int count, Integer status) {
+            return new RelatedWork(seriesId, title, coverUrl, count,
+                    status != null ? status : seriesStatus, tagText, subText, contentType);
+        }
+
+        public String getSeriesId() { return seriesId; }
+        public String getTitle() { return title; }
+        public String getCoverUrl() { return coverUrl; }
+        /** 集数；未知为 0。 */
+        public int getEpisodeCount() { return episodeCount; }
+        /** 完结态原值（series_status）；没补到为 null。 */
+        public Integer getSeriesStatus() { return seriesStatus; }
+        /** 封面角标文案（第N季/同IP 等）；没带为 null。 */
+        public String getTagText() { return tagText; }
+        /** 副行文案（官方 sub_title_list 拼接）；没带为 null。 */
+        public String getSubText() { return subText; }
+        /** 内容类型原值（content_type，1004＝漫剧）；没带为 -1。 */
+        public int getContentType() { return contentType; }
+
+        /** 是否已完结（与 DramaDetail 同口径：status＝1 或没带判完结）。 */
+        public boolean isFinished() {
+            return seriesStatus == null || seriesStatus == 1;
+        }
+
+        /**
+         * 未上线（预告/预约态）：官方副行带「预告」「已预约」字样即是
+         * （实拉定版：未上线季的 sub_title_list 恒含其一）。这类条目点开
+         * 进详情页（看预告/信息），不直进播放。
+         */
+        public boolean isComingSoon() {
+            return (subText != null && (subText.contains("已预约") || subText.contains("预告")))
+                    || (tagText != null && tagText.contains("预告"));
+        }
+    }
+
     /** 一集的引用（不可变）。 */
     public static final class Episode {
         private final String videoId;
@@ -108,6 +187,22 @@ public final class DramaDetail {
      * ugcVideoModel 同惯例），之后只读；反查命中时会话层也经此回填缓存。
      */
     private String authorUid;
+
+    /**
+     * 相关作品表（官方 plan 口 547 cell ＋合集兄弟季合并，详情页
+     * loadRelatedWorks 组装后回填，见 attachRelatedWorks）；解析期
+     * 恒空表，详情回包本身不带相关字段（实拉定版）。
+     */
+    private List<RelatedWork> relatedWorks = Collections.emptyList();
+
+    /** 回填相关作品表（详情页组装完成后调用一次，之后只读）。 */
+    public void attachRelatedWorks(List<RelatedWork> works) {
+        this.relatedWorks = works == null ? Collections.emptyList()
+                : Collections.unmodifiableList(new java.util.ArrayList<>(works));
+    }
+
+    /** 相关作品表；未回填为空表。 */
+    public List<RelatedWork> getRelatedWorks() { return relatedWorks; }
 
     /**
      * 内容类型原值（详情回包 data.video_data.content_type，官方

@@ -47,8 +47,9 @@ import java.util.concurrent.Executors;
  * 大收藏钮；三格数据（红果热度/累计收藏/上架时间——数据面没有的整格
  * 不显，不编数：上架时间详情面无源，见 hongguo-ui-sync 账）；基本信息
  * （简介可展开＋标签筹＋出品方）；剧评（分数卡只展示、无打星；评论卡
- * 横排、只看、无点赞心、无写剧评）；相关作品横排（同合集兄弟季，无
- * 合集整段不显）；底部固定开始播放＋收藏。详情页无选集入口（定稿）。
+ * 横排、只看、无点赞心、无写剧评）；相关作品横排（官方 plan 口
+ * 547 cell 的同 IP 绑定表＋合集兄弟季补齐，两路皆空整段不显）；
+ * 底部固定开始播放＋收藏。详情页无选集入口（定稿）。
  */
 public class HongguoDetailActivity extends AppCompatActivity {
 
@@ -91,6 +92,9 @@ public class HongguoDetailActivity extends AppCompatActivity {
     private LinearLayout relatedBox;
     private RecyclerView relatedList;
     private RelatedAdapter relatedAdapter;
+    /** 相关作品两路快照：null＝未回；空表＝回了但无条目。 */
+    private List<DramaDetail.RelatedWork> planRelated;
+    private List<DramaDetail.RelatedWork> albumRelated;
     private TextView playBtn;
     private ImageView favBtn;
     private final ExecutorService worker = Executors.newSingleThreadExecutor(r -> {
@@ -356,7 +360,7 @@ public class HongguoDetailActivity extends AppCompatActivity {
         setContentView(rootFrame);
         styleFav(HgStore.isFaved(seriesId));
         load();
-        if (albumId != null && !albumId.isEmpty()) loadRelated(albumId);
+        loadRelatedWorks();
     }
 
     private TextView sectionLabel(String text) {
@@ -465,6 +469,7 @@ public class HongguoDetailActivity extends AppCompatActivity {
 
     private void bind(DramaDetail d) {
         detail = d;
+        renderRelated();
         applyGradient(d.getColorHex());
         if (d.getTitle() != null) titleText.setText(d.getTitle());
         if (d.getCoverUrl() != null && !d.getCoverUrl().isEmpty()) {
@@ -744,37 +749,93 @@ public class HongguoDetailActivity extends AppCompatActivity {
         }
     }
 
-    // ---------- 相关作品（同合集兄弟季） ----------
+    // ---------- 相关作品（官方 plan 547 同 IP 绑定表＋合集兄弟季补齐） ----------
 
-    private void loadRelated(String album) {
-        DramaClient.fetchAlbum(album, new HgCallback<List<DramaItem>>() {
+    /**
+     * 两路并行取，回来一路渲一路：plan 547 cell 是官方相关作品本体
+     * （同 IP 绑定：其它季＋衍生＋漫剧形态，官方序）；合集兄弟季只补
+     * plan 没带到的季（他定版「多少季都在相关作品里面」），不抢序、
+     * 不重复。两路皆空整段不显。任一路失败按空表处理（另一路照常）。
+     */
+    private void loadRelatedWorks() {
+        DramaClient.fetchRelatedWorks(seriesId, new HgCallback<List<DramaDetail.RelatedWork>>() {
             @Override
-            public void onSuccess(List<DramaItem> seasons) {
+            public void onSuccess(List<DramaDetail.RelatedWork> works) {
                 runOnUiThread(() -> {
-                    if (seasons == null) return;
-                    List<DramaItem> others = new ArrayList<>();
-                    for (DramaItem s : seasons) {
-                        if (s.getSeriesId() != null && !s.getSeriesId().equals(seriesId)) {
-                            others.add(s);
-                        }
-                    }
-                    if (others.isEmpty()) return;
-                    relatedAdapter.setItems(others);
-                    relatedBox.setVisibility(View.VISIBLE);
+                    planRelated = works == null ? new ArrayList<>() : works;
+                    renderRelated();
                 });
             }
 
             @Override
             public void onError(int code, String msg) {
+                runOnUiThread(() -> {
+                    planRelated = new ArrayList<>();
+                    renderRelated();
+                });
+            }
+        });
+        if (albumId == null || albumId.isEmpty()) {
+            albumRelated = new ArrayList<>();
+            return;
+        }
+        DramaClient.fetchAlbum(albumId, new HgCallback<List<DramaItem>>() {
+            @Override
+            public void onSuccess(List<DramaItem> seasons) {
+                runOnUiThread(() -> {
+                    List<DramaDetail.RelatedWork> rows = new ArrayList<>();
+                    if (seasons != null) {
+                        for (DramaItem s : seasons) {
+                            if (s.getSeriesId() != null) {
+                                rows.add(DramaDetail.RelatedWork.fromAlbumItem(s));
+                            }
+                        }
+                    }
+                    albumRelated = rows;
+                    renderRelated();
+                });
+            }
+
+            @Override
+            public void onError(int code, String msg) {
+                runOnUiThread(() -> {
+                    albumRelated = new ArrayList<>();
+                    renderRelated();
+                });
             }
         });
     }
 
+    /** 合并两路快照渲染：plan 序在前、合集补季在后，按剧 id 去重并排自身。 */
+    private void renderRelated() {
+        if (relatedAdapter == null) return;
+        List<DramaDetail.RelatedWork> merged = new ArrayList<>();
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        if (seriesId != null) seen.add(seriesId);
+        if (planRelated != null) {
+            for (DramaDetail.RelatedWork w : planRelated) {
+                if (w.getSeriesId() != null && seen.add(w.getSeriesId())) merged.add(w);
+            }
+        }
+        if (albumRelated != null) {
+            for (DramaDetail.RelatedWork w : albumRelated) {
+                if (w.getSeriesId() != null && seen.add(w.getSeriesId())) merged.add(w);
+            }
+        }
+        if (detail != null) detail.attachRelatedWorks(merged);
+        if (merged.isEmpty()) {
+            relatedBox.setVisibility(View.GONE);
+            return;
+        }
+        relatedAdapter.setItems(merged);
+        relatedBox.setVisibility(View.VISIBLE);
+    }
+
     private class RelatedAdapter extends RecyclerView.Adapter<RelatedAdapter.H> {
 
-        private final List<DramaItem> data = new ArrayList<>();
+        private final List<DramaDetail.RelatedWork> data = new ArrayList<>();
 
-        void setItems(List<DramaItem> items) {
+        void setItems(List<DramaDetail.RelatedWork> items) {
             data.clear();
             data.addAll(items);
             notifyDataSetChanged();
@@ -782,12 +843,14 @@ public class HongguoDetailActivity extends AppCompatActivity {
 
         class H extends RecyclerView.ViewHolder {
             final ImageView cover;
+            final TextView badge;
             final TextView title;
             final TextView meta;
 
             H(LinearLayout cell) {
                 super(cell);
                 cover = cell.findViewWithTag("cover");
+                badge = cell.findViewWithTag("badge");
                 title = cell.findViewWithTag("title");
                 meta = cell.findViewWithTag("meta");
             }
@@ -801,11 +864,24 @@ public class HongguoDetailActivity extends AppCompatActivity {
             RecyclerView.LayoutParams lp = new RecyclerView.LayoutParams(dp(84), -2);
             lp.rightMargin = dp(10);
             cell.setLayoutParams(lp);
+            FrameLayout coverBox = new FrameLayout(HongguoDetailActivity.this);
             ImageView cover = new ImageView(HongguoDetailActivity.this);
             cover.setTag("cover");
             cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
             cover.setBackground(roundBg(0x33FFFFFF, dp(6)));
-            cell.addView(cover, new LinearLayout.LayoutParams(-1, dp(112)));
+            coverBox.addView(cover, new FrameLayout.LayoutParams(-1, -1));
+            TextView badge = new TextView(HongguoDetailActivity.this);
+            badge.setTag("badge");
+            badge.setTextColor(Color.WHITE);
+            badge.setTextSize(9.5f);
+            badge.setBackground(roundBg(0x99000000, dp(4)));
+            badge.setPadding(dp(4), dp(1), dp(4), dp(1));
+            FrameLayout.LayoutParams blp = new FrameLayout.LayoutParams(-2, -2);
+            blp.gravity = Gravity.TOP | Gravity.LEFT;
+            blp.leftMargin = dp(4);
+            blp.topMargin = dp(4);
+            coverBox.addView(badge, blp);
+            cell.addView(coverBox, new LinearLayout.LayoutParams(-1, dp(112)));
             TextView title = new TextView(HongguoDetailActivity.this);
             title.setTag("title");
             title.setTextColor(0xF2FFFFFF);
@@ -820,23 +896,41 @@ public class HongguoDetailActivity extends AppCompatActivity {
             meta.setTextColor(0x99FFFFFF);
             meta.setTextSize(10.5f);
             meta.setMaxLines(1);
+            meta.setEllipsize(android.text.TextUtils.TruncateAt.END);
             cell.addView(meta);
             return new H(cell);
         }
 
         @Override
         public void onBindViewHolder(@NonNull H h, int position) {
-            DramaItem item = data.get(position);
+            DramaDetail.RelatedWork item = data.get(position);
             if (item.getCoverUrl() != null && !item.getCoverUrl().isEmpty()) {
                 Glide.with(HongguoDetailActivity.this).load(item.getCoverUrl())
                         .transform(new RoundedCorners(dp(6))).into(h.cover);
             } else {
                 h.cover.setImageDrawable(null);
             }
+            if (item.getTagText() != null && !item.getTagText().isEmpty()) {
+                h.badge.setVisibility(View.VISIBLE);
+                h.badge.setText(item.getTagText());
+            } else {
+                h.badge.setVisibility(View.GONE);
+            }
             h.title.setText(item.getTitle() == null ? "" : item.getTitle());
-            h.meta.setText(HgPanelLogic.countText(item.isFinished(), item.getEpisodeCount()));
-            h.itemView.setOnClickListener(v -> HongguoDetailActivity.start(
-                    HongguoDetailActivity.this, item.getSeriesId(), item.getTitle(), albumId));
+            if (item.getEpisodeCount() > 0) {
+                h.meta.setText(HgPanelLogic.countText(item.isFinished(), item.getEpisodeCount()));
+            } else {
+                h.meta.setText(item.getSubText() == null ? "" : item.getSubText());
+            }
+            h.itemView.setOnClickListener(v -> {
+                if (item.isComingSoon()) {
+                    HongguoDetailActivity.start(HongguoDetailActivity.this,
+                            item.getSeriesId(), item.getTitle(), albumId);
+                } else {
+                    HongguoFeedActivity.startSeries(HongguoDetailActivity.this,
+                            item.getSeriesId(), item.getTitle(), 1);
+                }
+            });
         }
 
         @Override

@@ -556,6 +556,69 @@ public final class DramaClient {
         });
     }
 
+    /**
+     * 相关作品（详情页）：官方 plan 口（book_id＝本剧、from＝
+     * detail_page_more_related、scene＝10）回包 547 cell 的同 IP
+     * 绑定作品表。cell 条目集数常为 0，取回后对缺集数的条目发一发
+     * 批量详情补 episode_cnt/series_status（补失败不连坐、保持原表
+     * 回调）；无绑定作品回空表。证据与口径见账 hongguo-related-20261030。
+     */
+    public static void fetchRelatedWorks(String seriesId,
+                                         HgCallback<List<DramaDetail.RelatedWork>> cb) {
+        if (seriesId == null || seriesId.isEmpty()) {
+            cb.onError(-1, "series_id 为空");
+            return;
+        }
+        List<String[]> pairs = new ArrayList<>(HgDevice.deviceQueryPairs());
+        pairs.add(new String[]{"book_id", seriesId});
+        pairs.add(new String[]{"from", "detail_page_more_related"});
+        pairs.add(new String[]{"scene", "10"});
+        pairs.add(new String[]{"session_uuid", java.util.UUID.randomUUID().toString()});
+        pairs.add(new String[]{"device_level", "3"});
+        getBrowse(HgDevice.PATH_PLAN, pairs, false, new Sink() {
+            @Override
+            public void body(String text) {
+                List<DramaDetail.RelatedWork> works;
+                try {
+                    works = DramaParser.parseRelatedWorks(text);
+                } catch (Exception e) {
+                    cb.onError(-2, "相关作品回包解析失败");
+                    return;
+                }
+                List<String> missing = new ArrayList<>();
+                for (DramaDetail.RelatedWork w : works) {
+                    if (w.getEpisodeCount() <= 0) missing.add(w.getSeriesId());
+                }
+                if (missing.isEmpty()) {
+                    cb.onSuccess(works);
+                    return;
+                }
+                fetchDetails(missing, new HgCallback<Map<String, DramaDetail>>() {
+                    @Override
+                    public void onSuccess(Map<String, DramaDetail> map) {
+                        List<DramaDetail.RelatedWork> merged = new ArrayList<>();
+                        for (DramaDetail.RelatedWork w : works) {
+                            DramaDetail d = map.get(w.getSeriesId());
+                            merged.add(d == null ? w : w.withEpisodeInfo(
+                                    d.getEpisodeCount(), d.getSeriesStatus()));
+                        }
+                        cb.onSuccess(merged);
+                    }
+
+                    @Override
+                    public void onError(int code, String msg) {
+                        cb.onSuccess(works);
+                    }
+                });
+            }
+
+            @Override
+            public void fail(int code, String msg) {
+                cb.onError(code, msg);
+            }
+        });
+    }
+
     /** 合集各季表。 */
     public static void fetchAlbum(String albumId, HgCallback<List<DramaItem>> cb) {
         postPlayer(HgDevice.PATH_ALBUM, albumBody(albumId),

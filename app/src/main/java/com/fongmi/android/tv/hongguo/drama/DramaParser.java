@@ -386,6 +386,59 @@ public final class DramaParser {
     }
 
     /**
+     * 详情页相关作品（plan 口 from＝detail_page_more_related 回包）：
+     * data[] 里找 show_type＝547 的 cell（官方 ShowType.
+     * DetailPageRelatedWorks、cell_name＝「相关作品」），其 video_data
+     * 就是与本剧同 IP 绑定的作品表（其它季在前、衍生/漫剧形态在后，
+     * 本剧自身不含在内；无绑定作品时整 cell 不下发）。字段口径照
+     * 2026-10-30 实拉三部剧定版（账 hongguo-related-20261030）：
+     * 角标与副行优先取条目顶层 tag_info/sub_title_list，缺时回落
+     * recommend_reason_list（对象形/字符串形都认）里的同名段。
+     * book_data（同 IP 书形态）不收。回包坏/code 非 0/无 547 cell
+     * 一律空表（调用方按无相关作品处理，整段不显）。
+     */
+    public static List<DramaDetail.RelatedWork> parseRelatedWorks(String json) {
+        List<DramaDetail.RelatedWork> out = new ArrayList<>();
+        JsonObject root;
+        try {
+            root = JsonParser.parseString(json).getAsJsonObject();
+        } catch (Exception e) {
+            return out;
+        }
+        if (intOf(root, "code", 0) != 0) return out;
+        JsonArray data = arr(root, "data");
+        if (data == null) return out;
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        for (JsonElement el : data) {
+            if (!el.isJsonObject()) continue;
+            JsonObject cell = el.getAsJsonObject();
+            if (intOf(cell, "show_type", -1) != 547) continue;
+            JsonArray videos = arr(cell, "video_data");
+            if (videos == null) continue;
+            for (JsonElement ve : videos) {
+                if (!ve.isJsonObject()) continue;
+                JsonObject o = ve.getAsJsonObject();
+                String sid = firstStr(o, "series_id_str", "series_id");
+                if (sid == null || !seen.add(sid)) continue;
+                JsonObject reason = asObject(o.get("recommend_reason_list"));
+                JsonObject tagInfo = obj(o, "tag_info");
+                if (tagInfo == null && reason != null) tagInfo = obj(reason, "tag_info");
+                List<String> subs = subTitleList(o);
+                if (subs.isEmpty() && reason != null) subs = subTitleList(reason);
+                String subText = subs.isEmpty() ? null
+                        : String.join(" · ", subs.subList(0, Math.min(2, subs.size())));
+                out.add(new DramaDetail.RelatedWork(sid,
+                        firstStr(o, "title", "series_title"),
+                        firstStr(o, "cover", "series_cover"),
+                        intOf(o, "episode_cnt", 0), null,
+                        tagInfo == null ? null : str(tagInfo, "text"),
+                        subText, intOf(o, "content_type", -1)));
+            }
+        }
+        return out;
+    }
+
+    /**
      * 专辑/合集详情回包 → 头部＋集列表（批四卡 8 落点）：头部字段只收
      * album_data 实有键（见 {@link DramaAlbumDetail} 类注），集列表行与
      * parseAlbum 旧抽取同一份（series_list／video_detail_list／video_list

@@ -26,9 +26,9 @@ import java.util.Set;
 
 /**
  * 播放页的三个小面板（2026-10-30 从零重建，简单口径）：更多面板
- * （倍速/清晰度/弹幕开关＋设置/投屏/定时关闭，UI 同步批按定稿行序重排、
- * 摘选集行——播放页有整宽选集条；投屏后经 HgCaster 打通）、弹幕设置
- * （四滑杆＋两开关）、发弹幕框。都只干一件事，不堆装饰。
+ * （倍速/清晰度/弹幕开关＋设置/定时关闭，UI 同步批按定稿行序重排、
+ * 摘选集行——播放页有整宽选集条）、弹幕设置（四滑杆＋两开关）、
+ * 发弹幕框。都只干一件事，不堆装饰。
  */
 public final class HgFeedPanels {
 
@@ -52,10 +52,6 @@ public final class HgFeedPanels {
 
         /** 定时关闭设档后回调（宿主可据此提示/重排检查）；缺省无动作。 */
         default void onTimerChanged() {
-        }
-
-        /** 打开投屏（宿主经 HgCaster 接壳子投屏组件）；缺省无动作。 */
-        default void openCast() {
         }
 
         void openDanmakuSettings();
@@ -198,30 +194,8 @@ public final class HgFeedPanels {
         dmRow.addView(dmSwitch, swlp);
         root.addView(dmRow, dlp);
 
-        // 投屏行（定稿行序：弹幕之后、定时关闭之前；经 HgCaster 桥接壳子
-        // 投屏组件，见 hongguo-cast 账）
-        LinearLayout castRow = new LinearLayout(a);
-        castRow.setOrientation(LinearLayout.HORIZONTAL);
-        castRow.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(-1, -2);
-        clp.topMargin = dp(a, 18);
-        TextView castLabel = new TextView(a);
-        castLabel.setText("投屏");
-        castLabel.setTextColor(0xFFEEEEEE);
-        castLabel.setTextSize(14.5f);
-        castRow.addView(castLabel, new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView castGo = new TextView(a);
-        castGo.setText("›");
-        castGo.setTextColor(0xFF9E9EA7);
-        castGo.setTextSize(16f);
-        castRow.addView(castGo);
-        castRow.setOnClickListener(v -> {
-            dialog.dismiss();
-            host.openCast();
-        });
-        root.addView(castRow, clp);
-
-        // 定时关闭行（状态文案在右）
+        // 定时关闭行（状态文案在右；投屏曾打通、后按他亲口决定整件
+        // 摘除——投屏一次只能投一集、投不了整部剧，见 hongguo-cast 账）
         LinearLayout timerRow = new LinearLayout(a);
         timerRow.setOrientation(LinearLayout.HORIZONTAL);
         timerRow.setGravity(Gravity.CENTER_VERTICAL);

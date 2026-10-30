@@ -66,7 +66,7 @@ public class FqCommentSigner {
         return headers(query, System.currentTimeMillis(), nonce);
     }
 
-    static Map<String, String> headers(String query, long now, byte[] nonce) {
+    public static Map<String, String> headers(String query, long now, byte[] nonce) {
         if (nonce == null || nonce.length != 11) throw new IllegalArgumentException("nonce must be 11 bytes");
         long ts = now / 1000;
         Map<String, String> map = new LinkedHashMap<>();

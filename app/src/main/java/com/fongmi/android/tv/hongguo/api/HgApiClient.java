@@ -91,6 +91,13 @@ public final class HgApiClient {
     public HgApiClient() {
     }
 
+    private static final HgApiClient INSTANCE = new HgApiClient();
+
+    /** 共用实例（本类无实例状态、状态全静态，见下方注册闸注；多处调用方按此口径取用）。 */
+    public static HgApiClient getInstance() {
+        return INSTANCE;
+    }
+
         // 注册闸全实例合并：设备档案是 HgDevice 的全局一份（多处各持一个
     // HgApiClient：会话/护照/书城/登录检查），闸若按实例分家，跨实例就能
     // 并发发两轮注册——合并成静态一把锁、一个在途旗、一张等待表（扫查 P2）

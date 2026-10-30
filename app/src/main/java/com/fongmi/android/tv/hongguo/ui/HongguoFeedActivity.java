@@ -285,6 +285,8 @@ public class HongguoFeedActivity extends AppCompatActivity {
     private final java.util.Set<String> feedFailedKeys = new java.util.HashSet<>();
     /** 首页流起播看门狗：超时未出首帧按失败呈现（不自动跳条，用户一划就走）。 */
     private Runnable feedWatchdog;
+    /** 高光片段到点守卫已触发的 vid（防 tick 重复走完播路）；playVid 换条即失效（按 vid 比对）。 */
+    private String highlightEndFiredVid;
     private static final long FEED_WATCHDOG_MS = 20_000;
     // 横屏交接（阶段8）：泊出旗/列表静止旗/最近一集画幅/弹窗守卫
     // （传感器横转入口已按定稿摘掉，横屏只从「全屏观看」钮进）
@@ -1646,7 +1648,14 @@ public class HongguoFeedActivity extends AppCompatActivity {
                 }
             });
         }
-        playVid(item.getVid(), item.contentType, 0);
+        // 高光片段流内裁剪（他 2026-10-31 拍板并进 1.4.66）：高光
+        // 条目起播跳到片段头（playVid 的 seekMs 通道），片段尾由
+        // tick 的到点守卫走既有完播路；判定与完播落点同源
+        // （DramaItem.isHighlightFragment 原式）。非高光条目恒 0，
+        // D3「流内从头播被推集」口径不变。
+        long hlStart = item.isHighlightFragment() && item.highlightStartMs > 0
+                ? item.highlightStartMs : 0;
+        playVid(item.getVid(), item.contentType, hlStart);
     }
 
     private String feedKeyOf(DramaItem item) {
@@ -1980,7 +1989,18 @@ public class HongguoFeedActivity extends AppCompatActivity {
     /** 循环重播当前条（官方播完判序的循环路各分支共用）。 */
     private void replayCurrent() {
         if (player == null) return;
-        player.seekTo(0);
+        // 高光条目的循环路（流内续页中等官方循环支）：回片段头
+        // 重播、到点守卫重新武装，不许从整集 0 秒重播。
+        long start = 0;
+        if (mode == MODE_FEED) {
+            DramaItem hl = currentIndex >= 0 && currentIndex < items.size()
+                    ? items.get(currentIndex) : null;
+            if (hl != null && hl.isHighlightFragment()) {
+                start = Math.max(0, hl.highlightStartMs);
+                highlightEndFiredVid = null;
+            }
+        }
+        player.seekTo(start);
         player.setPlayWhenReady(true);
     }
 
@@ -2068,6 +2088,21 @@ public class HongguoFeedActivity extends AppCompatActivity {
             Toast.makeText(this, "定时关闭：时间到", Toast.LENGTH_SHORT).show();
         }
         long pos = player.getCurrentPosition();
+        // 高光片段到点守卫（FEED 高光条目）：播到片段尾即按完播
+        // 收口，走 onPlayEnded 既有分流（高光支落同一集、带当场
+        // 毫秒续看——当场毫秒即片段终点，与官方续看位同义）；
+        // 按 vid 单次触发，换条 vid 变了自然重新武装。
+        if (mode == MODE_FEED && player.isPlaying()
+                && currentVid != null && !currentVid.equals(highlightEndFiredVid)) {
+            DramaItem hl = currentIndex >= 0 && currentIndex < items.size()
+                    ? items.get(currentIndex) : null;
+            if (hl != null && hl.isHighlightFragment()
+                    && hl.highlightEndMs > 0 && pos >= hl.highlightEndMs) {
+                highlightEndFiredVid = currentVid;
+                onPlayEnded();
+                return;
+            }
+        }
         long dur = player.getDuration();
         if (dur > 0) {
             // 播放页/视频页进度行两侧时间签同步（FEED/UGC 无此行、字段为 null）

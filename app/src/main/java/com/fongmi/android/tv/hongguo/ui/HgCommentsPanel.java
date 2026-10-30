@@ -162,11 +162,19 @@ public final class HgCommentsPanel {
      */
     public static void show(Activity activity, HgFeedItem item, LongConsumer onTotal,
                             LongSupplier positionSupplier) {
+        show(activity, item, onTotal, positionSupplier, null);
+    }
+
+    /** 带关闭回调的重载：宿主横屏传感器总闸要数「弹窗在场」，由本单
+     * 自己的 dismiss 出口报回（与 HgEpisodeSheet 同口径）。 */
+    public static void show(Activity activity, HgFeedItem item, LongConsumer onTotal,
+                            LongSupplier positionSupplier, Runnable onDismiss) {
         DialogHongguoCommentsBinding binding = DialogHongguoCommentsBinding.inflate(
                 LayoutInflater.from(activity));
         BottomSheetDialog dialog = new BottomSheetDialog(activity);
         dialog.setContentView(binding.getRoot());
         binding.hgCmCollapse.setOnClickListener(v -> dialog.dismiss());
+        if (onDismiss != null) dialog.setOnDismissListener(d -> onDismiss.run());
         int half = (int) (activity.getResources().getDisplayMetrics().heightPixels * 0.6f);
         dialog.setOnShowListener(d -> {
             FrameLayout sheet = dialog.findViewById(com.google.android.material.R.id.design_bottom_sheet);

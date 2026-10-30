@@ -49,6 +49,13 @@ public final class HgSubscribeRecallDialog {
     }
 
     public static void show(Activity activity, List<HgSeriesItem> items, Listener listener) {
+        show(activity, items, listener, null);
+    }
+
+    /** 带关闭回调的重载：宿主横屏传感器总闸要数「弹窗在场」，由本单
+     * 自己的 dismiss 出口报回（与 HgEpisodeSheet 同口径）。 */
+    public static void show(Activity activity, List<HgSeriesItem> items, Listener listener,
+                            Runnable onDismiss) {
         if (activity == null || items == null || items.isEmpty()) return;
         // 双保险：宿主已收尾/已销毁时 show 必抛 BadToken，调用方已双判、此处再守一道
         if (activity.isFinishing() || activity.isDestroyed()) return;
@@ -56,6 +63,7 @@ public final class HgSubscribeRecallDialog {
                 DialogHongguoSubscribeRecallBinding.inflate(LayoutInflater.from(activity));
         BottomSheetDialog dialog = new BottomSheetDialog(activity);
         dialog.setContentView(binding.getRoot());
+        if (onDismiss != null) dialog.setOnDismissListener(d -> onDismiss.run());
         binding.hgRecallTitle.setText(items.size() > 1
                 ? String.format("%d 部预约剧已上线", items.size())
                 : "预约剧已上线");

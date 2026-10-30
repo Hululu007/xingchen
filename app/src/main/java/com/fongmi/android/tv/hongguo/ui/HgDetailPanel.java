@@ -44,10 +44,18 @@ public final class HgDetailPanel {
 
     public static void show(FragmentActivity activity, HgFeedItem item,
                             HgInteractions interactions, Host host) {
+        show(activity, item, interactions, host, null);
+    }
+
+    /** 带关闭回调的重载：宿主横屏传感器总闸要数「弹窗在场」，由本
+     * 面板自己的 dismiss 出口报回（与 HgEpisodeSheet 同口径）。 */
+    public static void show(FragmentActivity activity, HgFeedItem item,
+                            HgInteractions interactions, Host host, Runnable onDismiss) {
         if (item == null || item.seriesId == null || item.seriesId.isEmpty()) return;
         ViewHongguoDetailPanelBinding panel = ViewHongguoDetailPanelBinding.inflate(
                 LayoutInflater.from(activity));
         Dialog dialog = new Dialog(activity);
+        if (onDismiss != null) dialog.setOnDismissListener(d -> onDismiss.run());
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         dialog.setContentView(panel.getRoot());
         Window window = dialog.getWindow();

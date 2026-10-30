@@ -46,6 +46,14 @@ public final class HgSeriesSheet {
      */
     public static void show(FragmentActivity activity, List<HgSeriesItem> siblings,
                             HgFeedItem current, HgInteractions interactions, OnPick onPick) {
+        show(activity, siblings, current, interactions, onPick, null);
+    }
+
+    /** 带关闭回调的重载：宿主横屏传感器总闸要数「弹窗在场」，由本单
+     * 自己的 dismiss 出口报回（与 HgEpisodeSheet 同口径）。 */
+    public static void show(FragmentActivity activity, List<HgSeriesItem> siblings,
+                            HgFeedItem current, HgInteractions interactions, OnPick onPick,
+                            Runnable onDismiss) {
         List<HgSeriesItem> rows = new ArrayList<>();
         boolean hasCurrent = false;
         for (HgSeriesItem s : siblings) {
@@ -67,6 +75,7 @@ public final class HgSeriesSheet {
         Dialog dialog = new Dialog(activity);
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         dialog.setContentView(sheet.getRoot());
+        if (onDismiss != null) dialog.setOnDismissListener(d -> onDismiss.run());
         Window window = dialog.getWindow();
         if (window != null) {
             window.setGravity(Gravity.BOTTOM);

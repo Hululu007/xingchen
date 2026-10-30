@@ -53,16 +53,20 @@ import java.util.Locale;
  * 断点）；MODE_SERIES＝进剧后的集流（逐集竖滑、断点记剧一级、播完按
  * 自动连播开关切下集）。播放内核一律 Exo、不走 MPV（账 §6.5）。</p>
  *
- * <p>全屏口径：横屏剧信箱式播＋「全屏观看」在本窗内把整页转 90° 铺满
- * （竖屏面窗口不转——官方主界面 screenOrientation="behind"＋configChanges
- * 自管）。横屏观看已改真横屏页（2026-10-28 重核定案，plan-landpage）：
- * 进剧/全屏观看走 activity-alias 横屏实例（本类同类、真横屏窗口、代官方
- * ShortSeriesLandActivity），四阶段「窗内转代横屏页」的旧路作废；窗内转
- * （landMode）只剩单条横屏短片无剧归属时的原地保底。显隐口径（2026-10-28
- * 他真机亲点后改）：刷剧面常显件
+ * <p>全屏口径：横屏剧信箱式播（竖屏面窗口不转——官方主界面
+ * screenOrientation="behind"＋configChanges 自管）。横屏观看走真独立
+ * 横屏页 HongguoLandActivity（本类子类、清单 userLandscape，代官方
+ * ShortSeriesLandActivity；2026-10-30 横屏对齐施工，账
+ * hongguo-land-align-20261030.md）：进/退横屏时播放器经 HgPlayerPool
+ * 按 vid 迁移续播（同一播放器对象过手、不重拉模型不重开流），入场
+ * 两路（「全屏观看」钮＋竖屏页传感器横转）同过官方总闸与横版门，
+ * 退场走传感器转竖/返回键、落回竖屏流原条目。此前的别名
+ * HongguoLandEntry＋模式旗冒充与窗内转保底（landMode）已整删——
+ * 官方没有窗内转，无剧归属的单条横屏短片不再有横屏去向。显隐口径
+ * （2026-10-28 他真机亲点后改）：刷剧面常显件
  * （顶栏页签/右列/剧条/弹幕筹/进度细线）不许自动隐藏——旧「播放中空闲
  * 4 秒自动全隐」把界面播几秒全收走、被他当场点名；自动全隐只保留在
- * 横屏观看态（横屏实例与 landMode 保底，他定案全屏全隐藏＋防烧屏），竖屏点屏只切
+ * 横屏观看态（横屏页，他定案全屏全隐藏＋防烧屏），竖屏点屏只切
  * 播放/暂停、全屏控制条只在横屏态点屏唤出、自动再隐。</p>
  *
  * <p>弹幕：数据源已定版（danmaku-dig-20261028.md——评论口同端点换弹幕档，
@@ -83,7 +87,6 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     private static final String EXTRA_TITLE = "hg_title";
     private static final String EXTRA_COVER = "hg_cover";
     private static final String EXTRA_START_FIRST = "hg_start_first";
-    private static final String EXTRA_LAND_INSTANCE = "hg_land_instance";
     /** 进剧条目的作者 uid 透传：详情面不下发 uid，集流页的作者靠它（见
      * HgFeedSession.applyDetail 的继承注）；没有来源的入口不带、集流里
      * 点作者行就静默不打开（不许按名认人）。 */
@@ -98,6 +101,18 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     private static final int MODE_SERIES = 1;
     private static final long HIDE_DELAY_MS = 4000;
     private static final long FS_HIDE_DELAY_MS = 3000;
+    /** 传感器进/退横屏的朝向稳定窗：同一朝向带持续这段时间才算数（去抖，
+     * 防握持晃动在带界来回跳时误触发进/退横屏）。 */
+    private static final long SENSOR_STABLE_MS = 600;
+
+    /**
+     * 本实例是不是横屏页：竖屏页恒 false，横屏页 HongguoLandActivity
+     * 覆写为 true。页面构成/事件链只有一套、靠它在 initView 分家装配；
+     * 取代旧「别名＋intent 模式旗」冒充（2026-10-30 横屏对齐整删）。
+     */
+    protected boolean isLandPage() {
+        return false;
+    }
 
     public static void start(Context context) {
         Intent intent = new Intent(context, HongguoFeedActivity.class);
@@ -167,19 +182,19 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     }
 
     /**
-     * 横屏剧进剧（他亲授：点击/全屏观看＝全屏直接进剧集）：走横屏实例
-     * （activity-alias HongguoLandEntry，真横屏窗口、本类集流以横屏面落），
-     * 落点走 HgStore 断点（集＋秒）与竖屏进剧同口径。
+     * 横屏剧进剧（他亲授：点击/全屏观看＝全屏直接进剧集）：走真独立
+     * 横屏页 HongguoLandActivity（清单 userLandscape、本类子类以横屏面
+     * 落），落点走 HgStore 断点（集＋秒）与竖屏进剧同口径。栈内实例
+     * 发起时另经 HgPlayerPool 迁移播放器续播（见 launchLand，本静态
+     * 入口是它最终的拉页落点）。
      */
     public static void startSeriesLandscape(Context context, String seriesId, String title, String cover,
                                             String authorUid, String publisher) {
-        Intent intent = new Intent();
-        intent.setClassName(context, "com.fongmi.android.tv.hongguo.ui.HongguoLandEntry");
+        Intent intent = new Intent(context, HongguoLandActivity.class);
         intent.putExtra(EXTRA_MODE, MODE_SERIES);
         intent.putExtra(EXTRA_SERIES_ID, seriesId);
         intent.putExtra(EXTRA_TITLE, title);
         intent.putExtra(EXTRA_COVER, cover);
-        intent.putExtra(EXTRA_LAND_INSTANCE, true);
         if (authorUid != null) intent.putExtra(EXTRA_AUTHOR_UID, authorUid);
         if (publisher != null) intent.putExtra(EXTRA_PUBLISHER, publisher);
         context.startActivity(intent);
@@ -232,9 +247,26 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     private int currentPos = -1;
     /** 精彩片段自动进剧：落集不走断点、从第一集起（EXTRA_START_FIRST）。 */
     private boolean startFromFirst;
-    /** 横屏独立页实例（经别名 HongguoLandEntry 启动的本类横屏集流）：竖屏件
-     * 全不显、互动走横排控制条，落点走断点与竖屏集流同口径。 */
+    /** 横屏独立页实例（HongguoLandActivity，initView 按 isLandPage() 定）：
+     * 竖屏件全不显、互动走横排控制条，落点走断点与竖屏集流同口径。 */
     private boolean landInstance;
+    /** 本实例的播放器已泊进 HgPlayerPool 交给对面页：销毁时不许 release
+     * 它、也不许 closeAll 关掉它正在播的流（归属已过手）。 */
+    private boolean engineParkedOut;
+    /** 刚从池中领回的播放器正装着的 vid：play() 命中它即同流续播、
+     * 不重开 spec（消费一次即清）。 */
+    private String adoptedVid;
+    /** 本页在场的弹窗数（传感器进横屏总闸的「无弹窗」条件；show/dismiss
+     * 两端计数，计数点见 trackPopup 与各面板的 onDismiss 重载）。 */
+    private int popupDepth;
+    /** 本实例处于 resumed 态（onResume/onPause 维护）：传感器进/退横屏
+     * 只许在前台实例上触发，被盖住的实例不许抢。 */
+    private boolean activityResumed;
+    /** 传感器朝向带（HgLandLogic.orientationBand）与进带时刻：稳定窗去抖用。 */
+    private int sensorBand = -1;
+    private long sensorBandSinceMs;
+    /** 传感器进横屏的闩：进过一次后须先回竖带才许再触发（防横带内反复重入）。 */
+    private boolean sensorLatch;
     /** 横屏实例锁定态：禁滑、chrome 全收，点屏只唤锁定钮（5 秒自动淡出）。 */
     private boolean landLocked;
     private final Runnable landLockFadeRunnable = () -> {
@@ -260,13 +292,6 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     /** 「刷新设备档案」在途旗：确认后到收口前防连点重入（只许手动触发，不自动重试）。 */
     private boolean profileResetting;
     private boolean resumeAfterMine;
-    /** 横屏窗内转模式（整页转 90°，窗口不转）；进入时的页下标，滑走即退出。 */
-    private boolean landMode;
-    // 窗内转方向随握持（传感器）：窗口被 behind＋竖屏锁住、系统不转，
-    // 显示方向读不到——旧版写死 -90°，他往另一边转手机画面就是倒着的
-    // （他 07:35 点名「竖屏横屏进入全屏完全乱」的实证之一）。监听器取
-    // 物理朝向定方向：60–120°（顶边朝左）用 -90°、240–300°（顶边朝右）
-    // 用 +90°；横屏中途翻面（两横向区之间）跟着翻 180°。
     // 下拉刷新（官方 feed 有此件）：手势接管状态与提示胶囊
     private boolean pullTracking;
     private boolean pullRefreshing;
@@ -274,9 +299,6 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     private float pullDy;
     private final Runnable hideRefreshHintRunnable = this::hideRefreshHint;
     private android.view.OrientationEventListener orientationListener;
-    private int lastOrientationDeg = -1;
-    private float landRotation = -90f;
-    private int landPos = -1;
     private boolean seeking;
     private long lastSaveMs;
     /** 长按快进中（临时 2x 覆盖；松手恢复 HgStore 面板档，两者不互改）。 */
@@ -292,8 +314,8 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     private final Runnable timerFireRunnable = this::onTimerFire;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final Runnable hideChromeRunnable = () -> {
-        // 自动全隐只在横屏观看态成立（横屏实例或窗内转保底，见类头显隐口径）
-        if (landMode || landInstance) setChromeHidden(true);
+        // 自动全隐只在横屏观看态成立（横屏页，见类头显隐口径）
+        if (landInstance) setChromeHidden(true);
     };
     private final Runnable hideFsRunnable = () -> binding.hgFsBar.setVisibility(View.GONE);
     private final Runnable ticker = new Runnable() {
@@ -464,15 +486,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             @Override
             public void onOrientationChanged(int orientation) {
                 if (orientation == ORIENTATION_UNKNOWN) return;
-                lastOrientationDeg = orientation;
-                if (!landMode) return;
-                float want = Float.NaN;
-                if (orientation >= 60 && orientation <= 120) want = -90f;
-                else if (orientation >= 240 && orientation <= 300) want = 90f;
-                if (!Float.isNaN(want) && want != landRotation) {
-                    landRotation = want;
-                    binding.getRoot().animate().rotation(want).setDuration(200).start();
-                }
+                onSensorOrientation(orientation);
             }
         };
         if (orientationListener.canDetectOrientation()) orientationListener.enable();
@@ -494,7 +508,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         mode = getIntent().getIntExtra(EXTRA_MODE, MODE_FEED);
         adapter.setSeriesMode(mode == MODE_SERIES);
         startFromFirst = getIntent().getBooleanExtra(EXTRA_START_FIRST, false);
-        landInstance = getIntent().getBooleanExtra(EXTRA_LAND_INSTANCE, false);
+        landInstance = isLandPage();
         if (mode == MODE_SERIES) {
             // 集流页不是刷剧页：刷剧页的页签栏/搜索/抽屉与自家底栏在集流里
             // 全不该在场（此前从没按 mode 分过 chrome，集流里点页签会把
@@ -581,7 +595,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             if (currentPos < 0) return;
             // 流页走 onEnterSeries 统一分发（合集型条目落合集路，批一）
             if (mode == MODE_FEED) onEnterSeries(currentPos);
-            else HgEpisodeSheet.show(this, session, currentPos, this::jumpTo);
+            else HgEpisodeSheet.show(this, session, currentPos, this::jumpTo, popupCountedDismiss());
         });
         binding.hgFsSeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
@@ -669,7 +683,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
      * 的一条自救路也没有）。页签再点与下拉刷新共用此口。
      */
     private boolean pullEnabled() {
-        return mode == MODE_FEED && !landMode && !mineShowing && !pullRefreshing
+        return mode == MODE_FEED && !mineShowing && !pullRefreshing
                 && binding.hgPager.getCurrentItem() == 0
                 && binding.hgPager.getScrollState() == ViewPager2.SCROLL_STATE_IDLE;
     }
@@ -839,7 +853,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
      * 下次滑到尾部再试），不打扰当前播放。
      */
     private void maybeLoadMore() {
-        if (mode != MODE_FEED || mineShowing || landMode) return;
+        if (mode != MODE_FEED || mineShowing) return;
         final HgFeedSources.Source source = currentSource;
         if (source == null || feedLoadingMore || !source.hasMore()) return;
         if (currentPos < 0 || currentPos < session.items.size() - 3) return;
@@ -878,7 +892,6 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
 
     private void onSettle(int position) {
         if (position < 0 || position >= session.items.size()) return;
-        if (landMode && position != landPos) exitLandMode(); // 滑离横屏页：窗内转自动退出
         if (position != currentPos) saveProgress();
         currentPos = position;
         // 发现流位置随 settle 落盘：进程被杀重进时落位用（集流不记，断点在剧一级）
@@ -1064,6 +1077,23 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     private void play(String videoId, String localUrl, HgFeedItem item) {
         ensureEngine();
         if (engine == null || player == null) return;
+        if (videoId.equals(adoptedVid)) {
+            // 迁移续播（官方共享播放器池同型）：领回的播放器里就装着这条
+            // 流、进度与倍速都在——不重开 spec、不 seek、不重设倍速，只把
+            // 本实例的表面/标题/弹幕接上。解链回调能走到这里，靠的是
+            // resolver 对同 vid 的已解链缓存直回（不重拉模型）
+            adoptedVid = null;
+            playingVideoId = videoId;
+            HgFeedAdapter.Holder holderNow = currentHolder();
+            if (holderNow != null) attachSurface(holderNow);
+            refreshSeriesSpeedText();
+            refreshSeriesTitle(item);
+            if (landInstance) refreshLandTexts();
+            startDanmakuFor(item, Math.max(0, player.getCurrentPosition()));
+            armAutoHide();
+            HgCommentsPanel.prefetchFirstPage(item);
+            return;
+        }
         long startAt;
         if (pendingSeekMs >= 0) {
             // 清晰度切换续播：回原位置，不走断点口径
@@ -1138,6 +1168,26 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
 
     private void ensureEngine() {
         if (engine != null) return;
+        // 共享播放器池（HgPlayerPool）：进/退横屏时同一播放器过手——池里
+        // 有泊出物先领它（换绑本实例的 listener：泊出方入池前已摘自己的，
+        // 回调不许进错实例），领到且它还装着交接单那条流时记下
+        // adoptedVid，play() 命中走同流续播、不重开 spec
+        HgPlayerPool.Bag bag = HgPlayerPool.peekBag();
+        if (bag != null) {
+            ExoPlayerEngine pooled = HgPlayerPool.takeEngine();
+            if (pooled != null && pooled.getPlayer() != null) {
+                engine = pooled;
+                player = pooled.getPlayer();
+                player.addListener(playerListener);
+                if (playerView != null) playerView.setPlayer(player);
+                engineParkedOut = false;
+                if (bag.vid != null && player.getPlaybackState() != Player.STATE_IDLE
+                        && player.getCurrentMediaItem() != null) {
+                    adoptedVid = bag.vid;
+                }
+                return;
+            }
+        }
         try {
             int decode = PlayerSetting.isVideoPrefer(PlayerSetting.EXO) ? PlayerEngine.HARD : PlayerEngine.SOFT;
             engine = new ExoPlayerEngine(decode, playerListener);
@@ -1364,14 +1414,14 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         if (mode == MODE_FEED) {
             binding.hgTopBar.setVisibility(hidden ? View.GONE : View.VISIBLE);
         }
-        // 剧页标题栏：竖屏集流常显（与刷剧面常驻件同口径），横屏观看态
-        // （landMode 保底）与横屏实例随全屏全隐藏一起收——进/出横屏都经此函数收口
+        // 剧页标题栏：竖屏集流常显（与刷剧面常驻件同口径），横屏页随
+        // 全屏全隐藏一起收——进/出横屏都经此函数收口
         binding.hgSeriesBar.setVisibility(
-                mode == MODE_SERIES && !landMode && !landInstance ? View.VISIBLE : View.GONE);
+                mode == MODE_SERIES && !landInstance ? View.VISIBLE : View.GONE);
         // 顶部渐变随标题栏同显隐，清屏态一并收（exitCleanMode 时 cleanMode
         // 已先清零、经此恢复）
         binding.hgTopScrim.setVisibility(
-                mode == MODE_SERIES && !landMode && !landInstance && !cleanMode ? View.VISIBLE : View.GONE);
+                mode == MODE_SERIES && !landInstance && !cleanMode ? View.VISIBLE : View.GONE);
         HgFeedAdapter.Holder h = currentHolder();
         if (h != null) {
             if (landInstance) {
@@ -1432,10 +1482,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         }
         boolean portrait = currentPos < 0 || currentPos >= session.items.size()
                 || !session.items.get(currentPos).isLandscape();
-        // 横屏全屏观看态（landMode，窗内转、窗口仍竖）也要连系统栏一起隐：
-        // 旧条件只认条目朝向，landMode 下条目是横屏、portrait=false，系统栏
-        // 一直赖着不走，与「全屏全隐藏」定案对不上
-        if (hidden && (portrait || landMode)) {
+        if (hidden && portrait) {
             new WindowInsetsControllerCompat(getWindow(), getWindow().getDecorView())
                     .hide(WindowInsetsCompat.Type.systemBars());
         } else if (!hidden) {
@@ -1501,8 +1548,8 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     private void armAutoHide() {
         ui.removeCallbacks(hideChromeRunnable);
         // 刷剧面常显件不自动隐（他真机亲点，见类头显隐口径）；
-        // 自动全隐只在横屏观看态（横屏实例或窗内转保底）排期
-        if (!landMode && !landInstance) return;
+        // 自动全隐只在横屏观看态（横屏页）排期
+        if (!landInstance) return;
         if (player != null && player.isPlaying()) ui.postDelayed(hideChromeRunnable, HIDE_DELAY_MS);
     }
 
@@ -1548,7 +1595,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             ui.removeCallbacks(hideFsRunnable);
             return;
         }
-        if (mode == MODE_SERIES && !landMode && !landInstance) {
+        if (mode == MODE_SERIES && !landInstance) {
             // 清屏口径（用户亲点）：集流竖屏点画面即进清屏、清屏中点画面恢复。
             // 准入不以 isPlaying() 为门：缓冲态 isPlaying() 同样为 false，旧门
             // 会让点按落空到 togglePlayPause 的空转 play()、屏幕零变化（定根
@@ -1567,7 +1614,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         }
         if (chromeHidden) {
             boolean portrait = !session.items.get(currentPos).isLandscape();
-            if (portrait || landMode) {
+            if (portrait) {
                 // 全屏沉浸点屏：只唤极简控制，自动再隐
                 updateFsBar();
                 binding.hgFsBar.setVisibility(View.VISIBLE);
@@ -1595,15 +1642,15 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
 
     /**
      * 长按分工（他定版＋官方 F6 定版）：竖屏点在横向中间 1/3 带内＝开
-     * 五项面板；带外＝按住 2 倍速快进。横屏观看态（横屏实例与 landMode
-     * 保底）不分带、任何位置都只有快进；锁定态长按不响应。长按触发后
+     * 五项面板；带外＝按住 2 倍速快进。横屏观看态（横屏页）不分带、
+     * 任何位置都只有快进；锁定态长按不响应。长按触发后
      * 本次单击已被适配器抑制（suppressTap）。
      */
     @Override
     public void onLongPress(int position, float x, int width) {
         if (position != currentPos || mineShowing || drawerOpen) return;
         if (landLocked) return;
-        if (!landInstance && !landMode && HgPanelLogic.inCenterBand(x, width)) {
+        if (!landInstance && HgPanelLogic.inCenterBand(x, width)) {
             showMorePanel();
             return;
         }
@@ -1635,15 +1682,236 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     private void enterSeriesFullscreen(int position) {
         if (position < 0 || position >= session.items.size()) return;
         HgFeedItem item = session.items.get(position);
-        if (item.seriesId == null) {
-            // 无剧归属的单条横屏短片：保底原地窗内转（不跳页）——横屏实例是
-            // 集流形态、装不下无剧短片，此边角官方形态未证实，维持现状
-            if (landMode) exitLandMode();
-            else enterLandMode(position);
+        // 无剧归属的单条横屏短片不再有横屏去向：窗内转保底已整删（官方
+        // 无此形态，抠查账未抠到它的官方横屏落点），点按回落竖屏播停
+        if (item.seriesId == null || item.seriesId.isEmpty()) return;
+        launchLand(item);
+    }
+
+    // ---------- 横屏进/退：总闸、播放器迁移、传感器（2026-10-30 对齐施工） ----------
+
+    /** 当前页条（传感器/按钮进横屏的候选）：越界返回 null。 */
+    private HgFeedItem currentItemOrNull() {
+        if (currentPos < 0 || currentPos >= session.items.size()) return null;
+        return session.items.get(currentPos);
+    }
+
+    /**
+     * 进横屏总闸＋横版门（官方 x1.a.n＋isSupportShowLandIcon 的咱家
+     * 落点，判定本体在 HgLandLogic）：横版门先读条目自带尺寸、再读
+     * cell 朝向预判、再读已播实测尺寸——三路都判不了横版就不放行
+     * （无画幅信息不送横屏，账口径）；总闸四条件（滚动 idle／已起播／
+     * 非倍速长按中／无弹窗）由 HgLandLogic.canEnterLand 收口，弹窗含
+     * 本页各面板与侧边抽屉，按钮路（fromButton）对弹窗豁免。
+     */
+    private boolean canEnterLandNow(HgFeedItem item, boolean fromButton) {
+        if (item == null) return false;
+        boolean eligible = item.isLandscape() || item.landscapeHint;
+        if (!eligible && item.videoId != null) {
+            int[] sz = playedVideoSizes.get(item.videoId);
+            if (sz != null) eligible = HgLandLogic.isLandEligible(sz[0], sz[1]);
+        }
+        if (!eligible) return false;
+        boolean started = player != null && playingVideoId != null
+                && player.getPlaybackState() != Player.STATE_IDLE;
+        boolean idle = binding.hgPager.getScrollState()
+                == androidx.viewpager2.widget.ViewPager2.SCROLL_STATE_IDLE;
+        return HgLandLogic.canEnterLand(idle, started, speedBoost,
+                popupDepth > 0 || drawerOpen, fromButton);
+    }
+
+    /** 传感器横转自动进横屏：与按钮路同一道门（弹窗不豁免），过了才走 launchLand。 */
+    private void trySensorEnterLand() {
+        HgFeedItem item = currentItemOrNull();
+        if (item == null || item.seriesId == null || item.seriesId.isEmpty()) return;
+        if (!canEnterLandNow(item, false)) return;
+        launchLand(item);
+    }
+
+    /**
+     * 进横屏的统一落点：先把本实例播放器泊进 HgPlayerPool（有在播才
+     * 泊），再拉横屏页。回来不刷新不丢位（suppressResumeRefresh），
+     * 落点口径（集流按 HgStore 断点/迁移续播）由横屏页 init 与 play 收口。
+     */
+    private void launchLand(HgFeedItem item) {
+        parkPlayerForLand(item);
+        suppressResumeRefresh = true;
+        startSeriesLandscape(this, item.seriesId, item.title, item.coverUrl,
+                item.authorUid, item.publisher);
+    }
+
+    /**
+     * 竖屏侧泊出：落盘断点→收倍速临时覆盖→写交接单（vid/集序号/位置/
+     * 播放意愿/弹幕开关/倍速）→摘本实例 listener 与表面→引擎入池。
+     * 泊出后本实例 engine/player 置空：onPause 不许再 pause 它、
+     * onDestroy 不许 release 它、resolver 不许 closeAll 关它的流
+     * （engineParkedOut 在 onDestroy 收口）。没在播（player 为空）时
+     * 整步跳过——横屏页自建引擎走断点落位（静态入口同路）。
+     */
+    private void parkPlayerForLand(HgFeedItem item) {
+        if (player == null || engine == null || playingVideoId == null) return;
+        saveProgress();
+        stopSpeedBoost();
+        HgPlayerPool.Bag bag = new HgPlayerPool.Bag();
+        bag.seriesId = item.seriesId;
+        bag.vid = playingVideoId;
+        bag.episodeIndex = item.episodeIndex;
+        bag.positionMs = Math.max(0, player.getCurrentPosition());
+        bag.playWhenReady = player.getPlayWhenReady();
+        bag.danmakuOn = HgStore.isDanmakuOn();
+        bag.speed = player.getPlaybackParameters().speed;
+        player.removeListener(playerListener);
+        if (playerView != null) playerView.setPlayer(null);
+        HgPlayerPool.park(bag, engine);
+        engine = null;
+        player = null;
+        engineParkedOut = true;
+    }
+
+    /**
+     * 横屏侧泊回（退横屏统一收口）：交接单按横屏页当前条写回（集序号
+     * 以当前条为准——横屏里换过集，竖屏页领回时按它跳集续播，官方
+     * resumeFromLandPage 同型），其余同泊出口径。
+     */
+    private void parkPlayerForReturn() {
+        if (player == null || engine == null) return;
+        HgFeedItem item = currentItemOrNull();
+        saveProgress();
+        stopSpeedBoost();
+        HgPlayerPool.Bag bag = new HgPlayerPool.Bag();
+        bag.seriesId = item != null && item.seriesId != null
+                ? item.seriesId : getIntent().getStringExtra(EXTRA_SERIES_ID);
+        String vidNow = currentVideoId();
+        bag.vid = vidNow != null ? vidNow : playingVideoId;
+        bag.episodeIndex = item != null ? item.episodeIndex : 0;
+        bag.positionMs = Math.max(0, player.getCurrentPosition());
+        bag.playWhenReady = player.getPlayWhenReady();
+        bag.danmakuOn = HgStore.isDanmakuOn();
+        bag.speed = player.getPlaybackParameters().speed;
+        player.removeListener(playerListener);
+        if (playerView != null) playerView.setPlayer(null);
+        HgPlayerPool.park(bag, engine);
+        engine = null;
+        player = null;
+        engineParkedOut = true;
+    }
+
+    /** 退横屏（返回键与传感器转竖共用）：泊回播放器再 finish，栈下竖屏页 onResume 领回续播。 */
+    private void exitLandPage() {
+        if (!isLandPage()) {
+            finish();
             return;
         }
-        suppressResumeRefresh = true;
-        startSeriesLandscape(this, item.seriesId, item.title, item.coverUrl, item.authorUid, item.publisher);
+        parkPlayerForReturn();
+        finish();
+    }
+
+    /**
+     * 竖屏页领回（onResume 在常规续播尾巴之前调）：池里有交接单且剧
+     * 对得上才认领。对不上剧＝脏状态，整池释放不留。集流：横屏里换
+     * 过集（交接单集序号≠当前页）→jumpTo 那一集续播（play 里引擎领回
+     * 后按断点对位）；同集回落常规尾巴（play 的迁移续播路收口）。流页
+     * （短片）：交接单 vid 就是当前短片→当场领回同一播放器原地续播；
+     * 横屏里换过集→回落常规尾巴起播短片（引擎在 play 里领回重开）。
+     * 弹幕开关经 HgStore 同源：领回时按现值回刷自家渲染层启停（横屏
+     * 页内拨过的开关就此同步回竖屏，双向同理）。
+     */
+    private boolean tryReclaimLandReturn() {
+        HgPlayerPool.Bag bag = HgPlayerPool.peekBag();
+        if (bag == null) return false;
+        boolean seriesCtx = mode == MODE_SERIES;
+        HgFeedItem cur = currentItemOrNull();
+        String ctxSeries = seriesCtx
+                ? getIntent().getStringExtra(EXTRA_SERIES_ID)
+                : cur != null ? cur.seriesId : null;
+        int decision = HgLandLogic.reclaimDecision(seriesCtx, bag.seriesId, ctxSeries,
+                bag.vid, cur != null ? cur.videoId : null,
+                bag.episodeIndex, cur != null ? cur.episodeIndex : -1);
+        if (decision == HgLandLogic.RECLAIM_MISMATCH) {
+            // 不归本页的交接单＝脏状态：整池释放，不留给后面的页面误领
+            HgPlayerPool.releaseParked();
+            return false;
+        }
+        // 弹幕开关经 HgStore 同源：按现值回刷自家渲染层启停（对面页拨过
+        // 的开关就此同步回来）；倍速在播放器本体里随迁、标题栏文案读档回刷
+        if (playerView != null) playerView.setDanmakuEnabled(danmakuVisibleNow());
+        if (decision == HgLandLogic.RECLAIM_SERIES_JUMP) {
+            refreshSeriesSpeedText();
+            int target = findEpisodePosition(bag.seriesId, bag.episodeIndex);
+            if (target >= 0 && target != currentPos) {
+                jumpTo(target);
+                return true;
+            }
+            return false;
+        }
+        if (decision == HgLandLogic.RECLAIM_FEED_SAME) {
+            ensureEngine();
+            if (player != null) {
+                playingVideoId = bag.vid;
+                HgFeedAdapter.Holder holder = currentHolder();
+                if (holder != null) attachSurface(holder);
+                if (bag.playWhenReady) player.play();
+            }
+            return true;
+        }
+        // SERIES_SAME／FEED_DIFF：落回常规起播尾巴，play() 里领回引擎收口
+        if (decision == HgLandLogic.RECLAIM_SERIES_SAME) refreshSeriesSpeedText();
+        return false;
+    }
+
+    /** 朝向带落稳后的补评：握持不动时传感器回调会停发，进带当时排一
+     * 次延后评估，不然稳定窗永远等不到下一次回调来触发。 */
+    private final Runnable sensorSettleRunnable = () -> evaluateSensorBand();
+
+    /**
+     * 传感器朝向回调（官方竖屏页朝向监视→横转进横屏、横屏页转竖自动
+     * 退的咱家落点）：朝向带须稳定 SENSOR_STABLE_MS 才算数（评估点＝
+     * 回调本体＋进带时排的延后补评）；只有 resumed 的实例响应。
+     */
+    private void onSensorOrientation(int deg) {
+        int band = HgLandLogic.orientationBand(deg);
+        if (band != sensorBand) {
+            sensorBand = band;
+            sensorBandSinceMs = android.os.SystemClock.uptimeMillis();
+            ui.removeCallbacks(sensorSettleRunnable);
+            if (band >= 0) ui.postDelayed(sensorSettleRunnable, SENSOR_STABLE_MS);
+        }
+        evaluateSensorBand();
+    }
+
+    /** 朝向评估：竖屏页落进横带＋闩未立→过总闸自动进（立闩，回竖带才
+     * 解）；横屏页落进竖带且未锁→退（锁开时 shouldSensorExitLand 整路
+     * 拦截，照官方横屏锁门）。 */
+    private void evaluateSensorBand() {
+        if (!activityResumed || isFinishing() || isDestroyed()) return;
+        if (sensorBand < 0) return;
+        if (android.os.SystemClock.uptimeMillis() - sensorBandSinceMs < SENSOR_STABLE_MS) return;
+        if (isLandPage()) {
+            if (HgLandLogic.shouldSensorExitLand(sensorBand == 0, landLocked)) exitLandPage();
+            return;
+        }
+        if (sensorBand == 0) {
+            sensorLatch = false;
+        } else if (sensorBand == 1 && !sensorLatch) {
+            sensorLatch = true;
+            trySensorEnterLand();
+        }
+    }
+
+    /** 本页弹窗计数（总闸「无弹窗」条件）：本地 Dialog 两端挂监听。 */
+    private void trackPopup(android.app.Dialog dialog) {
+        dialog.setOnShowListener(d -> popupDepth++);
+        dialog.setOnDismissListener(d -> {
+            if (popupDepth > 0) popupDepth--;
+        });
+    }
+
+    /** 面板类弹窗（选集/评论/详情/系列/召回）的计数入口：show 前 +1、onDismiss 回调 -1。 */
+    private Runnable popupCountedDismiss() {
+        popupDepth++;
+        return () -> {
+            if (popupDepth > 0) popupDepth--;
+        };
     }
 
     @Override
@@ -1679,7 +1947,8 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                 if (item.seriesId != null) session.commentCounts.put(item.seriesId, total);
                 HgFeedAdapter.Holder ch = currentHolder();
                 if (ch != null && position == currentPos) adapter.bindInteractionState(ch, item);
-            }, () -> player == null ? 0L : Math.max(0L, player.getCurrentPosition()));
+            }, () -> player == null ? 0L : Math.max(0L, player.getCurrentPosition()),
+                    popupCountedDismiss());
             case SHARE -> share(item);
         }
         armAutoHide();
@@ -1743,7 +2012,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             enterSeries(position);
             return;
         }
-        HgEpisodeSheet.show(this, session, position, this::jumpTo);
+        HgEpisodeSheet.show(this, session, position, this::jumpTo, popupCountedDismiss());
     }
 
     @Override
@@ -1794,7 +2063,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             public void onPanelEpisodes() {
                 if (mode == MODE_SERIES) {
                     HgEpisodeSheet.show(HongguoFeedActivity.this, session, position,
-                            HongguoFeedActivity.this::jumpTo);
+                            HongguoFeedActivity.this::jumpTo, popupCountedDismiss());
                 } else {
                     onEnterSeries(position);
                 }
@@ -1805,7 +2074,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                 HongguoSeriesDetailActivity.start(HongguoFeedActivity.this,
                         item.seriesId, item.title, item.coverUrl);
             }
-        });
+        }, popupCountedDismiss());
     }
 
     /**
@@ -1873,7 +2142,8 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     private void showSeriesSheet(HgFeedItem item, java.util.List<com.fongmi.android.tv.hongguo.model.HgSeriesItem> siblings) {
         HgSeriesSheet.show(this, siblings, item, session.interactions,
                 picked -> startSeries(this, picked.getSeriesId(), picked.getTitle(),
-                        picked.getCoverUrl(), picked.getAuthorUid(), picked.getPublisher()));
+                        picked.getCoverUrl(), picked.getAuthorUid(), picked.getPublisher()),
+                popupCountedDismiss());
     }
 
     /**
@@ -2081,6 +2351,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         };
         db.hgDmInput.addTextChangedListener(watcher);
         db.hgDmCancel.setOnClickListener(v -> dialog.dismiss());
+        trackPopup(dialog);
         db.hgDmPublish.setOnClickListener(v -> {
             if (sending[0]) return;
             String text = db.hgDmInput.getText() == null ? "" : db.hgDmInput.getText().toString().trim();
@@ -2164,6 +2435,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         pb.hgPanelTimer.setOnClickListener(v -> showTimerDialog(
                 () -> pb.hgPanelTimerValue.setText(
                         HgPanelLogic.timerStateText(timerMode, timerMinutes))));
+        trackPopup(dialog);
         dialog.show();
     }
 
@@ -2351,6 +2623,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             dialog.dismiss();
             onChanged.run();
         });
+        trackPopup(dialog);
         dialog.show();
     }
 
@@ -2472,6 +2745,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             android.widget.Toast.makeText(this, "已恢复默认",
                     android.widget.Toast.LENGTH_SHORT).show();
         });
+        trackPopup(dialog);
         dialog.show();
     }
 
@@ -2728,6 +3002,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             dialog.dismiss();
             addOneDanmaku(dm);
         });
+        trackPopup(dialog);
         dialog.show();
     }
 
@@ -2969,14 +3244,14 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
      * 右下全屏方钮（集流竖屏，用户亲点定版）：它是清屏开关，不是全屏
      * 跳转——按下进清屏（界面全隐、只剩此钮且变淡 0.4，防烧屏），再按
      * 退出恢复。旧版方钮与「全屏观看」筹同走 onFullscreenWatch，按下被
-     * 扔进横屏实例页是串线（他真机实证 113577/113578）。进清屏复用
+     * 扔进横屏页是串线（他真机实证 113577/113578）。进清屏复用
      * enterCleanMode/exitCleanMode（与点画面清屏同一套）；集流竖屏之外
-     * 的语境（窗内转保底等）维持原全屏观看口径。
+     * 的语境维持原全屏观看口径。
      */
     @Override
     public void onFsButton(int position) {
         if (position != currentPos || landInstance) return;
-        if (mode == MODE_SERIES && !landMode) {
+        if (mode == MODE_SERIES) {
             if (cleanMode) exitCleanMode();
             else enterCleanMode();
             return;
@@ -2993,29 +3268,22 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     @Override
     public void onFullscreenWatch(int position) {
         if (position != currentPos || landInstance) return;
-        saveProgress();
-        // 首页（流）里点它＝全屏直接进剧集（他亲授）；竖屏集流里点
-        // 「全屏观看」筹同样进横屏实例（断点已落盘、横屏实例按断点集/秒
-        // 落位）；旧窗内转只剩 enterSeriesFullscreen 无剧归属短片的保底，
-        // 不再是剧的去向。注意右下全屏方钮不走这里（见 onFsButton）
+        HgFeedItem item = session.items.get(position);
+        // 「全屏观看」钮与传感器路同一道总闸＋横版门（官方 transformToLand
+        // Activity 的统一入口）：按钮路对弹窗门豁免（enterFrom="horizontal"
+        // 口径），其余三条件与横版门照查——没起播/滚动中/倍速长按中/非横版
+        // 一律不进。注意右下全屏方钮不走这里（见 onFsButton）
+        if (!canEnterLandNow(item, true)) return;
+        // 首页（流）里点它＝全屏直接进剧集（他亲授）；竖屏集流里点它
+        // 同样进横屏页——两路都经 launchLand 迁移播放器续播
         if (mode == MODE_FEED) {
             enterSeriesFullscreen(position);
             return;
         }
-        HgFeedItem item = session.items.get(position);
-        if (item.seriesId != null) {
-            suppressResumeRefresh = true;
-            startSeriesLandscape(this, item.seriesId, item.title, item.coverUrl, item.authorUid, item.publisher);
-        }
+        if (item.seriesId != null) launchLand(item);
     }
 
-    /**
-     * 进横屏窗内转：根视图宽高互换＋绕中心转 90°＋平移回窗口中心，视频层与
-     * 控制层（顶栏/右列/本剧条/全屏控制条）整体转过去铺满。窗口本身保持
-     * behind＋竖屏锁定、永不旋转，故进出没有任何窗口旋转残影。
-     * 旋转方向随握持传感器定（见 orientationListener 字段注），不再写死。
-     */
-    // ---------- 横屏独立页（landInstance）：状态条/横排控制条/锁定/抽屉 ----------
+    // ---------- 横屏页（landInstance）：状态条/横排控制条/锁定/抽屉 ----------
 
     /**
      * 横屏 chrome 接线（集流 init 的横屏分支调）：三件互动走 onAction 同路
@@ -3048,7 +3316,10 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             if (!landLocked) showLandSpeedDrawer();
         });
         binding.hgLandEpisodes.setOnClickListener(v -> {
-            if (!landLocked) HgEpisodeDrawer.show(this, session, currentPos, this::jumpTo);
+            // 选集与竖屏共用同一条事件链（HgEpisodeSheet＋jumpTo）：横屏
+            // 分家抽屉 HgEpisodeDrawer 已整删，不许两套并存（官方选集同样
+            // 是同一事件链按 vid 页内跳集，见抠查账 §六）
+            if (!landLocked) HgEpisodeSheet.show(this, session, currentPos, this::jumpTo);
         });
         binding.hgLandLock.setOnClickListener(v -> toggleLandLock());
         binding.hgLandPlayHint.setOnClickListener(v -> {
@@ -3329,64 +3600,6 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         });
     }
 
-    private void enterLandMode(int position) {
-        if (landMode) return;
-        android.view.View root = binding.getRoot();
-        int w = root.getWidth();
-        int h = root.getHeight();
-        if (w <= 0 || h <= 0) {
-            android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
-            w = dm.widthPixels;
-            h = dm.heightPixels;
-        }
-        if (w >= h) return; // 已是横向尺寸（异常），不转
-        landMode = true;
-        landPos = position;
-        ViewGroup.LayoutParams lp = root.getLayoutParams();
-        lp.width = h;
-        lp.height = w;
-        root.setLayoutParams(lp);
-        root.setPivotX(h / 2f);
-        root.setPivotY(w / 2f);
-        root.setTranslationX((w - h) / 2f);
-        root.setTranslationY((h - w) / 2f);
-        // 初始方向按最近一次物理朝向（横持另一边就 +90°，别把画面转倒）
-        landRotation = lastOrientationDeg >= 240 && lastOrientationDeg <= 300 ? 90f : -90f;
-        root.setRotation(landRotation);
-        if (playerView != null) playerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FIT);
-        // 全屏全隐藏（他定案）：底栏随界面一起藏，pager 底距一并收掉铺满
-        binding.hgBottomBar.setVisibility(View.GONE);
-        setPagerBottomMargin(0);
-        setChromeHidden(false);
-        armAutoHide();
-    }
-
-    /** 出横屏窗内转：全部变换复原，播放器与页表原样不动（同窗同引擎，无交接）。 */
-    private void exitLandMode() {
-        if (!landMode) return;
-        landMode = false;
-        landPos = -1;
-        landRotation = -90f;
-        binding.getRoot().animate().cancel();
-        android.view.View root = binding.getRoot();
-        root.setRotation(0f);
-        root.setTranslationX(0f);
-        root.setTranslationY(0f);
-        ViewGroup.LayoutParams lp = root.getLayoutParams();
-        lp.width = ViewGroup.LayoutParams.MATCH_PARENT;
-        lp.height = ViewGroup.LayoutParams.MATCH_PARENT;
-        root.setLayoutParams(lp);
-        if (playerView != null && currentPos >= 0 && currentPos < session.items.size()) {
-            playerView.setResizeMode(resizeModeFor(session.items.get(currentPos).isLandscape()));
-        }
-        if (mode == MODE_FEED) {
-            binding.hgBottomBar.setVisibility(View.VISIBLE);
-            setPagerBottomMargin(56);
-        }
-        setChromeHidden(false);
-        armAutoHide();
-    }
-
     @Override
     public void onRetry(int position) {
         if (position != currentPos) return;
@@ -3416,6 +3629,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     @Override
     protected void onResume() {
         super.onResume();
+        activityResumed = true;
         // 回前台不重载（用户亲点「切到后台，再进去，短剧又重新加载」）：
         // onPause 只暂停播放器、onStop 只置标记，会话与播放器都没拆——
         // 旧实现却在回前台无条件 stopPlayback＋loadTab 回第一页，纯属自找。
@@ -3443,6 +3657,9 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         suppressResumeRefresh = false;
         if (mineShowing) return;
         maybeCheckSubscribeRecall();
+        // 横屏页退回时的领回优先于常规续播尾巴（交接单在池里才走这路；
+        // 领回未接管才落回原地续播/起播兜底的旧口径）
+        if (tryReclaimLandReturn()) return;
         if (player != null && playingVideoId != null) {
             player.play();
         } else if (currentPos >= 0 && currentPos < session.items.size()) {
@@ -3458,12 +3675,15 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
 
     @Override
     protected void onPause() {
+        activityResumed = false;
         saveProgress();
+        // 播放器已泊出（进横屏）时 player 已置空，此处天然跳过——不许把
+        // 对面页正在播的同一播放器按停（迁移连续性的关键护栏）
         if (player != null) player.pause();
         super.onPause();
     }
 
-    /** 窗口不转、config 自管（Manifest 已声明全套 configChanges）：配置变化不重建页面，窗内转由 landMode 处理。 */
+    /** 窗口不转、config 自管（Manifest 已声明全套 configChanges）：配置变化不重建页面；进/退横屏走独立横屏页＋传感器链，不靠配置重建。 */
     @Override
     public void onConfigurationChanged(@androidx.annotation.NonNull android.content.res.Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
@@ -3472,9 +3692,10 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
     @Override
     protected void onBackInvoked() {
         if (landInstance) {
-            // 横屏页屏上无返回钮、系统返回即退回竖屏实例（官方同口径）：
+            // 横屏页屏上无返回钮、系统返回即退回竖屏页（官方同口径）：
+            // 先把播放器泊回池再 finish，竖屏页领回落原条目续播；
             // 不被「唤 chrome」等分支截留
-            super.onBackInvoked();
+            exitLandPage();
             return;
         }
         if (drawerOpen) {
@@ -3483,10 +3704,6 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         }
         if (mineShowing) {
             showFeedFace();
-            return;
-        }
-        if (landMode) {
-            exitLandMode();
             return;
         }
         if (binding.hgFsBar.getVisibility() == View.VISIBLE) {
@@ -3556,7 +3773,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                                     binding.hgMine.getRoot().openReservations();
                                     showMineFace();
                                 }
-                            });
+                            }, popupCountedDismiss());
                 });
             }
 
@@ -3603,6 +3820,9 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
 
     /** 系统导航区真实高度（手势/三键都读 insets，不写死数值）；底栏让位与 pager 边距联动用。 */
     private int navBottomPx;
+    /** 横屏侧边导航区让位的变更键（左/右 inset 编码）：横屏下导航区落
+     * 在侧边、不是底部，竖屏的底部数值在横屏页不适用（见 insets 监听内横屏段）。 */
+    private int landSideKey = -1;
 
     /**
      * 顶栏/抽屉/「我的」面的顶部留距按状态栏真实高度走 insets，不写死数值（他亲点）。
@@ -3614,6 +3834,8 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(getWindow().getDecorView(), (v, insets) -> {
             int top = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top;
             int nav = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom;
+            int navLeft = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).left;
+            int navRight = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).right;
             if (nav != navBottomPx) {
                 navBottomPx = nav;
                 ViewGroup.LayoutParams blp = binding.hgBottomBar.getLayoutParams();
@@ -3662,6 +3884,26 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
                 if (klp.leftMargin != lockMargin) {
                     klp.leftMargin = lockMargin;
                     binding.hgLandLock.setLayoutParams(klp);
+                }
+            }
+            if (landInstance) {
+                // 横屏手势让位（全应用口径的横屏形态）：导航区在横屏落于
+                // 侧边——横排控制条左右内距按左右 inset 让位、底内距仍按
+                // 底部 inset（横屏底沿也可能留手势区）；锁定钮左边距在
+                // 屏宽×11% 定版上叠加左侧 inset，不许被侧边手势区压住
+                int sideKey = navLeft * 100003 + navRight;
+                if (sideKey != landSideKey) {
+                    landSideKey = sideKey;
+                    binding.hgLandBar.setPadding(navLeft,
+                            binding.hgLandBar.getPaddingTop(), navRight, nav);
+                    ViewGroup.MarginLayoutParams klp2 =
+                            (ViewGroup.MarginLayoutParams) binding.hgLandLock.getLayoutParams();
+                    int lockMargin = (int) (getResources().getDisplayMetrics().widthPixels * 0.11f)
+                            + navLeft;
+                    if (klp2.leftMargin != lockMargin) {
+                        klp2.leftMargin = lockMargin;
+                        binding.hgLandLock.setLayoutParams(klp2);
+                    }
                 }
             }
             ViewGroup.MarginLayoutParams lp =
@@ -3805,12 +4047,12 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
      */
     private void confirmResetDeviceProfile() {
         if (profileResetting) return;
-        new AlertDialog.Builder(this)
+        trackPopup(new AlertDialog.Builder(this)
                 .setMessage("刷新设备档案？\n\n会换一份新的设备档案，重新向服务端取数。"
                         + "历史、收藏、追更不会丢，换完会重新拉取当前页数据。")
                 .setNegativeButton("取消", null)
                 .setPositiveButton("刷新", (d, w) -> resetDeviceProfileNow())
-                .show();
+                .show());
     }
 
     private void resetDeviceProfileNow() {
@@ -3858,6 +4100,7 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
         ui.removeCallbacks(ticker);
         ui.removeCallbacks(timerFireRunnable);
         ui.removeCallbacks(hideChromeRunnable);
+        ui.removeCallbacks(sensorSettleRunnable);
         ui.removeCallbacks(hideFsRunnable);
         ui.removeCallbacks(hideRefreshHintRunnable);
         saveProgress();
@@ -3871,7 +4114,10 @@ public class HongguoFeedActivity extends BaseActivity implements HgFeedAdapter.H
             player = null;
         }
         binding.hgMine.getRoot().cancelPending();
-        session.resolver.closeAll();
+        // 播放器已泊出给对面页时不许 closeAll：会把对面正在播的那条流
+        // 一并关掉（归属已过手，见 engineParkedOut）。引擎 release 同理
+        // 已由上方 engine==null 天然跳过（泊出时置空）
+        if (!engineParkedOut) session.resolver.closeAll();
         if (tableSnapshotPushed) {
             // 还表放在本实例一切读表收口（saveProgress 等）之后：把页表
             // 恢复成进剧前的样子，在下实例 onResume 只需重绑即可对上画面

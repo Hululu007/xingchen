@@ -713,8 +713,8 @@ public class HongguoSearchActivity extends BaseActivity {
 
     /**
      * 小说卡落点（2026-10-30 打通）：进小说详情页 HongguoNovelDetailActivity
-     * （mobile 源集的红果页，主源集按类名字符串拉起——横屏实例 HongguoLandEntry
-     * 同法；详情页在红果包内、朋友版整套剥离）。类不在（剥离版/异味构建）时
+     * （mobile 源集的红果页，主源集按类名字符串拉起；详情页在红果包内、
+     * 朋友版整套剥离）。类不在（剥离版/异味构建）时
      * 才回落诚实提示，不假跳。
      */
     private void openNovel(HgSearchRow row) {

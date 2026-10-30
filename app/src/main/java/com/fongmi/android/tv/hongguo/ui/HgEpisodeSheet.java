@@ -54,6 +54,14 @@ public final class HgEpisodeSheet {
 
     public static void show(Activity activity, HgFeedSession session, int currentGlobalPos,
                             IntConsumer onPick) {
+        show(activity, session, currentGlobalPos, onPick, null);
+    }
+
+    /** 带关闭回调的重载：宿主的横屏传感器总闸要数「弹窗在场」（官方
+     * 总闸的无弹窗条件），选集单的在场状态只能由它自己的 dismiss
+     * 出口报回，不许宿主另猜。竖屏与横屏选集共用本单（同一条事件链）。 */
+    public static void show(Activity activity, HgFeedSession session, int currentGlobalPos,
+                            IntConsumer onPick, Runnable onDismiss) {
         if (currentGlobalPos < 0 || currentGlobalPos >= session.items.size()) return;
         HgFeedItem current = session.items.get(currentGlobalPos);
         List<Integer> positions = new ArrayList<>();
@@ -76,6 +84,7 @@ public final class HgEpisodeSheet {
         bindDesc(binding, current, detail);
         bindGrid(activity, binding, dialog, session, current, positions, currentGlobalPos, onPick);
 
+        if (onDismiss != null) dialog.setOnDismissListener(d -> onDismiss.run());
         // 半屏起步（官方单高＝屏高 50%）、可拉升到近全屏
         int half = (int) (activity.getResources().getDisplayMetrics().heightPixels * 0.5f);
         dialog.setOnShowListener(d -> {

@@ -12,7 +12,7 @@
 #   - Nano 本地服务器的红果代理解密 process（HongguoStream 本体＋Nano 的 import 与注册行）；
 #   - 底栏短剧格：HomeActivity 的 import／注册行／点击分发支、isHongguoTabEnabled 改回
 #     false（格子不注册）、ic_nav_duanju 双态图标、nav_duanju 字符串；
-#   - Manifest（mobile）里红果七个 Activity＋书城浏览页＋横屏别名的登记。
+#   - Manifest（mobile）里红果十个 Activity（含横屏页 HongguoLandActivity）＋书城浏览页的登记。
 #
 # 不许误伤的共用件（海阔规则年代就有的壳子件，只是名字里带 Hongguo，与本功能无关，留）：
 #   - com.fongmi.android.tv.api.HongguoCommentApi / HongguoDanmakuApi / FqCommentSigner
@@ -23,7 +23,7 @@
 #   - 登录框架本体（LoginManager 注册表与通用口、PanLoginDialog、CloudAccountStore）、
 #     底栏组件本体（XcBottomBar/BottomTabs 与 ids.xml 的 hongguo 预声明 id——无害占位、
 #     与 2e7ddcc3 预声明时同状态）、Nano 其余 process。
-# 终检只认本功能专属标识（tv.hongguo 包名与七个 Activity 名、HongguoLoginProvider、
+# 终检只认本功能专属标识（tv.hongguo 包名与十个 Activity 名、HongguoLoginProvider、
 # loginHongguo 系入口名、HongguoStream、ic_nav_duanju/nav_duanju），不认泛 Hongguo 字样，
 # 免得把上面的共用件误报成残留。
 set -euo pipefail
@@ -59,7 +59,7 @@ grep -qF "tabs.add(new BottomTabs.Spec(R.id.hongguo, R.drawable.ic_nav_duanju_ou
 grep -qF "if (itemId == R.id.hongguo) {" "$HOME" || fail "HomeActivity 的短剧格点击分发对不上"
 grep -qF "红果「启动直达短剧」" "$HOME" || fail "HomeActivity 的启动直达短剧块对不上"
 grep -qF "<string name=\"nav_duanju\">短剧</string>" "$MSTRINGS" || fail "短剧格字符串 nav_duanju 对不上"
-for a in HongguoFeedActivity HongguoSearchActivity HongguoAuthorActivity HongguoSeriesDetailActivity HongguoPreferenceActivity HongguoFeedbackActivity HongguoPostActivity HongguoAlbumActivity HongguoNovelDetailActivity; do
+for a in HongguoFeedActivity HongguoSearchActivity HongguoAuthorActivity HongguoSeriesDetailActivity HongguoPreferenceActivity HongguoFeedbackActivity HongguoPostActivity HongguoAlbumActivity HongguoNovelDetailActivity HongguoLandActivity; do
   grep -qF "android:name=\"com.fongmi.android.tv.hongguo.ui.$a\"" "$MANIFEST" || fail "Manifest 的红果登记对不上：$a"
 done
 grep -qF "android:name=\"com.fongmi.android.tv.hongguo.book.HgBookBrowseActivity\"" "$MANIFEST" || fail "Manifest 的红果书城浏览页登记对不上"
@@ -84,7 +84,6 @@ app/src/main/res/layout/dialog_hongguo_comment_editor.xml
 app/src/main/res/layout/dialog_hongguo_episodes.xml
 app/src/main/res/layout/dialog_hongguo_more_panel.xml
 app/src/main/res/layout/dialog_hongguo_timer.xml
-app/src/main/res/layout/dialog_hongguo_land_episodes.xml
 app/src/main/res/layout/dialog_hongguo_land_list.xml
 app/src/main/res/layout/dialog_hongguo_subscribe_recall.xml
 app/src/main/res/layout/item_hongguo_comment.xml
@@ -381,31 +380,28 @@ if hlines[k + 1].strip() != "return true;":
 hlines[k + 1] = "        return false;"
 save(home_path, "\n".join(hlines))
 
-# ---- Manifest：红果五个 Activity 登记逐个删（每个必须恰好一处） ----
+# ---- Manifest：红果十个 Activity 登记逐个删（每个必须恰好一处） ----
 # 登记上方的说明注释同属本功能，整块一并删（留着会成无主注释、且带类名残留）。
 manifest = load(manifest_path)
 manifest = cut_exact(manifest, """        <!-- 红果刷剧页（三阶段）：点进就是竖屏刷剧流，独立一套界面与控制，
              不借 VideoActivity。底栏接线在五阶段，本阶段只静态入口。 -->
-        <!-- 竖屏面窗口不转（照官方主界面口径）：screenOrientation="behind"
-             ＋configChanges 全套自管。横屏观看走真横屏页（2026-10-28 重核
-             定案）：官方全屏观看去向是独立横屏 Activity
-             （ShortSeriesLandActivity），四阶段「窗内转代横屏页」作废；
-             下方别名 HongguoLandEntry 即横屏实例入口（同类、真横屏窗口），
-             窗内转只剩单条无剧短片的原地保底。 -->
+        <!-- 竖屏面窗口不转（照官方竖屏页 ShortSeriesActivity 口径）：
+             screenOrientation="behind"＋configChanges 全套自管。横屏观看
+             走下方真独立横屏页（官方 ShortSeriesLandActivity 对应件，
+             2026-10-30 横屏对齐施工）：旧别名 HongguoLandEntry＋intent
+             模式旗冒充与窗内转保底已整删。 -->
 """, "刷剧页登记注释")
-manifest = cut_exact(manifest, """        <!-- 横屏独立页别名：与本体同类，靠 intent 旗 EXTRA_LAND_INSTANCE
-             切换横屏面（状态条/横排控制条/锁定/右侧抽屉）。 -->
-""", "横屏别名登记注释")
-for name in ("HongguoFeedActivity", "HongguoSearchActivity", "HongguoAuthorActivity", "HongguoSeriesDetailActivity", "HongguoPreferenceActivity", "HongguoFeedbackActivity", "HongguoPostActivity", "HongguoAlbumActivity", "HongguoNovelDetailActivity"):
+manifest = cut_exact(manifest, """        <!-- 横屏独立页（官方 ShortSeriesLandActivity 声明对位，抠查账
+             hongguo-orientation-dig-20261030 §一）：userLandscape 横屏
+             锁定、singleTop、configChanges 全套、支持 PiP；与竖屏页同类
+             共体（HongguoFeedActivity 子类），播放器经 HgPlayerPool
+             迁移续播。 -->
+""", "横屏页登记注释")
+for name in ("HongguoFeedActivity", "HongguoSearchActivity", "HongguoAuthorActivity", "HongguoSeriesDetailActivity", "HongguoPreferenceActivity", "HongguoFeedbackActivity", "HongguoPostActivity", "HongguoAlbumActivity", "HongguoNovelDetailActivity", "HongguoLandActivity"):
     pattern = r"<activity\s+android:name=\"com\.fongmi\.android\.tv\.hongguo\.ui\." + name + r"\"[^>]*/>"
     manifest, n = re.subn(pattern, "", manifest)
     if n != 1:
         sys.exit("python: Manifest 红果登记对不上（%s，命中 %d 处）" % (name, n))
-# 横屏别名（activity-alias，target 指向本体）：本体删后别名成无主入口，一并删
-pattern = r"<activity-alias\s+android:name=\"com\.fongmi\.android\.tv\.hongguo\.ui\.HongguoLandEntry\"[^>]*/>"
-manifest, n = re.subn(pattern, "", manifest)
-if n != 1:
-    sys.exit("python: Manifest 红果横屏别名对不上（命中 %d 处）" % n)
 # 红果书城浏览页（内置小说/听书源的面）：注释与登记整块删（本体在 mobile 的 hongguo/book 目录另行整删）
 manifest = cut_exact(manifest, """        <!-- 红果书城浏览（内置小说/听书源点进去的面） -->
         <activity

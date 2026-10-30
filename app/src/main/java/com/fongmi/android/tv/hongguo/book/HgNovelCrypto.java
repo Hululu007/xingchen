@@ -28,6 +28,8 @@ public final class HgNovelCrypto {
     private static final String FIXED_KEY_HEX = "ac25c67ddd8f38c1b37a2348828e222e";
     private static final String K_KEY_A = "hg_book_key_a";
     private static final String K_KEY_VER = "hg_book_key_ver";
+    /** keyA 注册时绑定的设备身份（device_id|install_id）：换脸/刷新档案后必须重注册。 */
+    private static final String K_KEY_DEV = "hg_book_key_dev";
 
     private HgNovelCrypto() {
     }
@@ -50,10 +52,19 @@ public final class HgNovelCrypto {
         }
     }
 
-    /** 注册内容密钥并缓存 keyA/keyver（同步，调用方在后台线程）。已注册直接返回。 */
+    /**
+     * 注册内容密钥并缓存 keyA/keyver（同步，调用方在后台线程）。
+     * keyA 是按注册当刻的设备档案（device_id＋install_id）绑定的：档案变了
+     * （刷新设备档案/一次性换脸）旧 keyA 立刻作废，服务端对所有章只回
+     * content="Invalid"——所以「有缓存」不等于「还能用到」，
+     * 必须核对绑定身份，不一致就按当前档案重注册。
+     */
     public static void ensureRegistered(HgBookClient client) throws Exception {
-        if (hasKey()) return;
         HgDevice.Profile p = HgDevice.profile();
+        String want = (p.deviceId == null ? "" : p.deviceId) + "|"
+                + (p.installId == null ? "" : p.installId);
+        String bound = Prefers.getString(K_KEY_DEV, "");
+        if (hasKey() && want.equals(bound == null ? "" : bound)) return;
         long deviceId = parseLong(p.deviceId);
         long installId = parseLong(p.installId);
         String seed = UUID.randomUUID().toString().substring(0, 16);
@@ -65,6 +76,14 @@ public final class HgNovelCrypto {
         String keyAHex = deriveKeyA(keyB64);
         Prefers.put(K_KEY_A, keyAHex);
         Prefers.put(K_KEY_VER, String.valueOf(keyVer));
+        Prefers.put(K_KEY_DEV, want);
+    }
+
+    /** 清掉缓存的内容密钥（正文在已注册状态下仍回 Invalid 时，强制重注册用）。 */
+    public static void resetKey() {
+        Prefers.put(K_KEY_A, "");
+        Prefers.put(K_KEY_VER, "");
+        Prefers.put(K_KEY_DEV, "");
     }
 
     /**

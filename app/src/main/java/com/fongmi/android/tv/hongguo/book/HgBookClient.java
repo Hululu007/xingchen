@@ -200,6 +200,14 @@ public final class HgBookClient {
             HgNovelCrypto.ensureRegistered(this);
             item = fullOnce(bookId, itemId);
             content = str(item, "content");
+            if ("Invalid".equals(content)) {
+                // 绑定核对过了还 Invalid：缓存密钥本身已失效（服务端轮换/过期），
+                // 清掉强制重注册，再取最后一次（每次开章最多两次注册）。
+                HgNovelCrypto.resetKey();
+                HgNovelCrypto.ensureRegistered(this);
+                item = fullOnce(bookId, itemId);
+                content = str(item, "content");
+            }
         }
         if (content == null || content.isEmpty() || "Invalid".equals(content)) {
             throw new Exception("这一章没取到正文");

@@ -4,6 +4,7 @@ import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
+import android.os.Parcelable;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -97,6 +98,38 @@ public class HongguoTheaterActivity extends AppCompatActivity {
     private final List<String> filterSeen = new ArrayList<>();
     private int clipChain;
     private int aiChain;
+    /** 分格状态保留（常驻口径，他 2026-10-30 定）：切格离开时整份
+     * 存下，再切回来原样恢复、不重拉；没存过/上次没拉成的格才重拉。 */
+    private final Map<Integer, TabState> tabStates = new HashMap<>();
+    /** 当前格是否已成功落过一页（存档凭据；load(true) 起复位）。 */
+    private boolean pageSettled;
+    /** 请求代次：切格后旧格的在途回包一律作废，防串进当前格。 */
+    private int loadGen;
+
+    private static final class TabState {
+        final List<DramaItem> items = new ArrayList<>();
+        final List<DramaItem> clips = new ArrayList<>();
+        HgContinuation continuation;
+        boolean hasMore;
+        boolean reqFilter;
+        int filterOffset;
+        String filterSession;
+        final List<String> filterSeen = new ArrayList<>();
+        int clipChain;
+        int aiChain;
+        String dimKey;
+        String dimValue;
+        boolean settled;
+        Parcelable scrollState;
+    }
+
+    /** 入口（短剧首页底栏）：与首页同口径常驻——已有实例提到前台
+     * 复用，格/筹/滚动位置全留住；没有实例才新建。 */
+    public static void start(android.content.Context context) {
+        Intent intent = new Intent(context, HongguoTheaterActivity.class);
+        intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+        context.startActivity(intent);
+    }
 
     private int dp(float v) {
         return (int) (v * getResources().getDisplayMetrics().density + 0.5f);
@@ -150,16 +183,7 @@ public class HongguoTheaterActivity extends AppCompatActivity {
             t.setTextSize(14.5f);
             t.setPadding(dp(13), dp(6), dp(13), dp(6));
             t.setOnClickListener(v -> {
-                if (channel != idx) {
-                    channel = idx;
-                    activeDimKey = null;
-                    activeDimValue = null;
-                    rebuildChips();
-                    selectTab();
-                    applyLayout();
-                    load(true);
-                    ensurePanel(idx);
-                }
+                if (channel != idx) switchTab(idx);
             });
             tabViews[i] = t;
             tabs.addView(t);
@@ -255,7 +279,7 @@ public class HongguoTheaterActivity extends AppCompatActivity {
         bar.setBackgroundColor(Color.WHITE);
         bar.setPadding(0, 0, 0, navBarHeight());
         LinearLayout.LayoutParams cell = new LinearLayout.LayoutParams(0, dp(50), 1f);
-        bar.addView(bottomCell(R.drawable.ic_drama_home, "首页", false, v -> finish()), cell);
+        bar.addView(bottomCell(R.drawable.ic_drama_home, "首页", false, v -> goHomeFeed()), cell);
         bar.addView(bottomCell(R.drawable.ic_drama_theater, "剧场", true, null), cell);
         return bar;
     }
@@ -275,6 +299,88 @@ public class HongguoTheaterActivity extends AppCompatActivity {
         c.addView(t);
         if (click != null) c.setOnClickListener(click);
         return c;
+    }
+
+    /** 回短剧首页：不销毁本页，把首页提到前台，本页留在任务栈里
+     * 常驻（与首页同口径），再进剧场原样回来。 */
+    private void goHomeFeed() {
+        HongguoFeedActivity.start(this);
+    }
+
+    @Override
+    public void onBackPressed() {
+        goHomeFeed();
+    }
+
+    /** 切格：离开的格整份存下，目标格有存货就原样恢复（数据/筹/
+     * 滚动都不动、不重拉），没存货或上次没拉成才整格新拉。 */
+    private void switchTab(int idx) {
+        saveTabState(channel);
+        loadGen++;
+        loading = false;
+        channel = idx;
+        TabState st = tabStates.get(idx);
+        if (st != null && st.settled) {
+            restoreTabState(st);
+        } else {
+            activeDimKey = null;
+            activeDimValue = null;
+            rebuildChips();
+            selectTab();
+            applyLayout();
+            load(true);
+        }
+        ensurePanel(idx);
+    }
+
+    private void saveTabState(int ch) {
+        TabState s = new TabState();
+        s.items.addAll(items);
+        s.clips.addAll(clips);
+        s.continuation = continuation;
+        s.hasMore = hasMore;
+        s.reqFilter = reqFilter;
+        s.filterOffset = filterOffset;
+        s.filterSession = filterSession;
+        s.filterSeen.addAll(filterSeen);
+        s.clipChain = clipChain;
+        s.aiChain = aiChain;
+        s.dimKey = activeDimKey;
+        s.dimValue = activeDimValue;
+        s.settled = pageSettled;
+        RecyclerView.LayoutManager lm = grid.getLayoutManager();
+        s.scrollState = lm == null ? null : lm.onSaveInstanceState();
+        tabStates.put(ch, s);
+    }
+
+    private void restoreTabState(TabState s) {
+        items.clear();
+        items.addAll(s.items);
+        clips.clear();
+        clips.addAll(s.clips);
+        continuation = s.continuation;
+        hasMore = s.hasMore;
+        reqFilter = s.reqFilter;
+        filterOffset = s.filterOffset;
+        filterSession = s.filterSession;
+        filterSeen.clear();
+        filterSeen.addAll(s.filterSeen);
+        clipChain = s.clipChain;
+        aiChain = s.aiChain;
+        activeDimKey = s.dimKey;
+        activeDimValue = s.dimValue;
+        pageSettled = s.settled;
+        loading = false;
+        selectTab();
+        applyLayout();
+        gridAdapter.notifyDataSetChanged();
+        clipAdapter.notifyDataSetChanged();
+        boolean empty = channel == TAB_CLIPS ? clips.isEmpty() : items.isEmpty();
+        stateText.setVisibility(empty ? View.VISIBLE : View.GONE);
+        if (empty) stateText.setText("暂时没有内容，点按重试");
+        if (s.scrollState != null && grid.getLayoutManager() != null) {
+            grid.getLayoutManager().onRestoreInstanceState(s.scrollState);
+        }
     }
 
     private void selectTab() {
@@ -418,8 +524,10 @@ public class HongguoTheaterActivity extends AppCompatActivity {
     private void load(boolean first) {
         if (loading) return;
         loading = true;
+        final int gen = ++loadGen;
         reqFilter = activeDimValue != null && channel != TAB_CLIPS;
         if (first) {
+            pageSettled = false;
             items.clear();
             clips.clear();
             gridAdapter.notifyDataSetChanged();
@@ -437,12 +545,15 @@ public class HongguoTheaterActivity extends AppCompatActivity {
         HgCallback<DramaCellPage> cb = new HgCallback<DramaCellPage>() {
             @Override
             public void onSuccess(DramaCellPage page) {
-                runOnUiThread(() -> onPage(page, first));
+                runOnUiThread(() -> {
+                    if (gen == loadGen) onPage(page, first);
+                });
             }
 
             @Override
             public void onError(int code, String msg) {
                 runOnUiThread(() -> {
+                    if (gen != loadGen) return;
                     loading = false;
                     if ((channel == TAB_CLIPS ? clips : items).isEmpty()) {
                         stateText.setText("取数据失败，点按重试");
@@ -490,6 +601,7 @@ public class HongguoTheaterActivity extends AppCompatActivity {
 
     private void onPage(DramaCellPage page, boolean first) {
         loading = false;
+        pageSettled = true;
         if (channel == TAB_CLIPS) {
             advanceContinuation(page, first);
             Set<String> seen = new HashSet<>();

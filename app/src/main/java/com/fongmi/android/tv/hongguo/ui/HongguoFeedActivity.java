@@ -99,7 +99,12 @@ public class HongguoFeedActivity extends AppCompatActivity {
     private static final String HOME_POS_KEY = "首页";
 
     public static void start(Context context) {
-        context.startActivity(new Intent(context, HongguoFeedActivity.class));
+        // 常驻口径（他 2026-10-30 定）：只要人不退出星辰，短剧首页
+        // 就不算后台——已有实例直接提到前台复用，不新建、不重拉，
+        // 数据/pager 位置/播放状态全留住；没有实例才新建。
+        Intent intent = new Intent(context, HongguoFeedActivity.class);
+        intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+        context.startActivity(intent);
     }
 
     /** 视频页·合集（定稿第 7 条）：按 album 拉全合集队列，底部合集条。 */
@@ -231,6 +236,8 @@ public class HongguoFeedActivity extends AppCompatActivity {
     // 横屏交接（阶段8）：泊出旗/列表静止旗/最近一集画幅/弹窗守卫
     // （传感器横转入口已按定稿摘掉，横屏只从「全屏观看」钮进）
     private boolean engineParked;
+    /** 离开本页前是否在播（回来续播守卫，见 onPause/onResume）。 */
+    private boolean resumeOnReturn;
     private boolean pagerIdle = true;
     private int lastVideoW;
     private int lastVideoH;
@@ -350,7 +357,33 @@ public class HongguoFeedActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        if (engineParked) reclaimFromLand();
+        if (engineParked) {
+            reclaimFromLand();
+            return;
+        }
+        // 切后台/被别的页盖住再回来：不重拉、位置不动，只把离开前
+        // 正在播的续上（离开前就是暂停的保持暂停）；进度在原播放器
+        // 里留着，续播不重头。
+        if (resumeOnReturn && player != null) player.setPlayWhenReady(true);
+        resumeOnReturn = false;
+    }
+
+    /**
+     * 首页模式（MODE_FEED）按返回不销毁本页：把壳子首页提到前台，
+     * 本页留在任务栈里常驻（口径见 start()），再点短剧签原样回来。
+     * 其它模式（播放页/视频页/单条）是内容页，返回照常关页回来源。
+     */
+    @Override
+    public void onBackPressed() {
+        if (mode == MODE_FEED) {
+            Intent home = new Intent();
+            home.setClassName(getPackageName(),
+                    "com.fongmi.android.tv.ui.activity.HomeActivity");
+            home.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+            startActivity(home);
+            return;
+        }
+        super.onBackPressed();
     }
 
     // ---------- UI 构建 ----------
@@ -553,7 +586,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
             LinearLayout.LayoutParams cell = new LinearLayout.LayoutParams(0, dp(50), 1f);
             bar.addView(bottomCell(R.drawable.ic_drama_home, "首页", true, null), cell);
             bar.addView(bottomCell(R.drawable.ic_drama_theater, "剧场", false,
-                    v -> startActivity(new Intent(this, HongguoTheaterActivity.class))), cell);
+                    v -> HongguoTheaterActivity.start(this)), cell);
             stack.addView(bar);
             bottomStack = stack;
             cleanBaseBottom = bottomBlockH() + dp(12);
@@ -1900,7 +1933,10 @@ public class HongguoFeedActivity extends AppCompatActivity {
         super.onPause();
         saveProgressNow();
         saveFeedPos();
-        if (player != null && !engineParked) player.pause();
+        if (player != null && !engineParked) {
+            resumeOnReturn = player.getPlayWhenReady();
+            player.pause();
+        }
     }
 
     @Override

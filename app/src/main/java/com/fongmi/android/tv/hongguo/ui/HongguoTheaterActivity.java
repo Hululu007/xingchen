@@ -38,17 +38,25 @@ import java.util.Set;
 
 /**
  * 剧场页（2026-10-30 从零重建，他亲定底栏第二签）：简单分类浏览。
- * 大分类只有两个（他亲令）：真人剧/漫剧——各配一行小分类筹（数据源
- * 分类面回包抽取、单选、无数据整行不显）＋三列海报网格；AI 剧数据
- * 归漫剧侧呈现。第三签「视频」（UI 同步批由「短片」改名，内容不变）：
- * UGC 短片/合集双列瀑布卡。点封面直接进播放页开播，不绕详情页
- * （定稿口径）；底栏白色（定稿），与首页黑块底栏分开。
+ * 大分类四格（他 2026-10-30 改口径，旧「AI 归漫剧侧」作废）：真人剧/
+ * 漫剧/AI剧/视频，各配一行小分类筹（单选、无数据整行不显）＋网格/瀑布。
+ * 数据分法（分类探针实拉配对定版，账 hongguo-theater-ai-20261030）：
+ * 服务端类型类 content_category_type——「1」真人剧走 39 频道、
+ * 「1004」漫剧走 36 频道（漫剧格剔除 AI 类收纯）、「1004_ai_video」
+ * AI剧在 36 频道里实拉为零、只在发现流（-1,16）成量出现，AI 格即
+ * 发现流按该字段过滤成格；ai_usage_type 是作者声明标记、两类都带，
+ * 不是分家字段。筹面各走各格数据源：真人/漫剧筹取自各自频道回包
+ * 抽取，AI 筹只取本格 AI 条目自带的 category_schema，不借别格类目。
+ * 视频格：UGC 短片/合集双列瀑布卡。点封面直接进播放页开播，不绕
+ * 详情页（定稿口径）；底栏白色（定稿），与首页黑块底栏分开。
  */
 public class HongguoTheaterActivity extends AppCompatActivity {
 
     private static final int[][] CHANNELS = {{39, 39}, {36, 36}};
-    private static final String[] CHANNEL_NAMES = {"真人剧", "漫剧", "视频"};
-    private static final int TAB_CLIPS = 2;
+    private static final String[] CHANNEL_NAMES = {"真人剧", "漫剧", "AI剧", "视频"};
+    private static final int TAB_MANJU = 1;
+    private static final int TAB_AI = 2;
+    private static final int TAB_CLIPS = 3;
 
     private RecyclerView grid;
     private GridAdapter gridAdapter;
@@ -69,6 +77,7 @@ public class HongguoTheaterActivity extends AppCompatActivity {
     private boolean reqLanding;
     private int landingOffset;
     private int clipChain;
+    private int aiChain;
 
     private int dp(float v) {
         return (int) (v * getResources().getDisplayMetrics().density + 0.5f);
@@ -315,6 +324,7 @@ public class HongguoTheaterActivity extends AppCompatActivity {
             continuation = null;
             landingOffset = 0;
             clipChain = 0;
+            aiChain = 0;
             hasMore = false;
             stateText.setText("加载中…");
             stateText.setVisibility(View.VISIBLE);
@@ -337,6 +347,11 @@ public class HongguoTheaterActivity extends AppCompatActivity {
             }
         };
         if (channel == TAB_CLIPS) {
+            if (first || continuation == null) DramaClient.fetchChannel(-1, 16, cb);
+            else DramaClient.fetchChannelMore(continuation, cb);
+        } else if (channel == TAB_AI && !reqLanding) {
+            // AI剧格数据源＝发现流（与视频格同口），回包在 onPage 按
+            // 服务端类型类 1004_ai_video 过滤成格。
             if (first || continuation == null) DramaClient.fetchChannel(-1, 16, cb);
             else DramaClient.fetchChannelMore(continuation, cb);
         } else if (reqLanding) {
@@ -383,22 +398,74 @@ public class HongguoTheaterActivity extends AppCompatActivity {
         } else {
             hasMore = page.isHasMore();
             if (page.getContinuation() != null) continuation = page.getContinuation();
-            if (first && !page.getCategories().isEmpty()) {
+            // AI 格的筹不取频道回包抽取（那是发现流的混合面），只取
+            // 本格条目自带分类，见 rebuildAiCategories；其余格照旧。
+            if (first && channel != TAB_AI && !page.getCategories().isEmpty()) {
                 categories.clear();
                 categories.addAll(page.getCategories());
                 rebuildChips();
             }
         }
+        // 分格过滤（服务端类型类为准，不靠标题猜）：AI 格只收
+        // 1004_ai_video（频道面另加 SERIES 型门），漫剧格剔除 AI 类收纯。
+        List<DramaItem> src = page.getItems();
+        if (channel == TAB_AI) {
+            List<DramaItem> f = new ArrayList<>();
+            for (DramaItem it : src) {
+                boolean keep = reqLanding ? it.isAiDrama()
+                        : (it.kind == DramaItemKind.SERIES && it.isAiDrama());
+                if (keep) f.add(it);
+            }
+            src = f;
+        } else if (channel == TAB_MANJU && !reqLanding) {
+            List<DramaItem> f = new ArrayList<>();
+            for (DramaItem it : src) if (!it.isAiDrama()) f.add(it);
+            src = f;
+        }
         Set<String> seen = new HashSet<>();
         for (DramaItem it : items) if (it.getSeriesId() != null) seen.add(it.getSeriesId());
-        for (DramaItem it : page.getItems()) {
+        int added = 0;
+        for (DramaItem it : src) {
             String sid = it.getSeriesId();
             if (sid == null || !seen.add(sid)) continue;
             items.add(it);
+            added++;
         }
         gridAdapter.notifyDataSetChanged();
         stateText.setVisibility(items.isEmpty() ? View.VISIBLE : View.GONE);
         if (items.isEmpty()) stateText.setText("暂时没有内容，点按重试");
+        if (channel == TAB_AI) {
+            if (!reqLanding) rebuildAiCategories();
+            if (added > 0) aiChain = 0;
+            // 整页被过滤光但还有下页：自动续拉（最多连 4 页），免得
+            // AI 格假空（与短片格 clipChain 同法）。
+            if (added == 0 && hasMore && aiChain < 4) {
+                aiChain++;
+                load(false);
+            }
+        }
+    }
+
+    /** AI剧格筹面：只取本格已收 AI 条目自带的分类（category_schema 的
+     * id＋名），逐条攒齐去重；不借真人/漫剧任何一格的类目。 */
+    private void rebuildAiCategories() {
+        List<DramaCategory> union = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (DramaItem it : items) {
+            if (it.itemCategories == null) continue;
+            for (DramaCategory c : it.itemCategories) {
+                if (c.id != null && !c.id.isEmpty() && seen.add(c.id)) union.add(c);
+            }
+        }
+        StringBuilder now = new StringBuilder();
+        for (DramaCategory c : categories) now.append(c.id).append(',');
+        StringBuilder next = new StringBuilder();
+        for (DramaCategory c : union) next.append(c.id).append(',');
+        if (!now.toString().equals(next.toString())) {
+            categories.clear();
+            categories.addAll(union);
+            rebuildChips();
+        }
     }
 
     /** 定稿：点封面直接进播放页开播（从断点集），不绕详情页。 */

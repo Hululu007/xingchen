@@ -1258,12 +1258,15 @@ public final class DramaParser {
         }
         if (!el.isJsonObject()) return;
         JsonObject cell = el.getAsJsonObject();
+        // 服务端类型类挂在 cell 本体的长按卡上（不在 video_data 条目里），
+        // 借道随本 cell 的自有条目下发（跨推卡不是本 cell 的剧，不借）。
+        String cellCct = contentCategoryTypeOf(cell);
         JsonElement vd = cell.get("video_data");
         if (vd != null) {
             if (vd.isJsonArray()) {
-                for (JsonElement entry : vd.getAsJsonArray()) addDiscoverItem(entry, out);
+                for (JsonElement entry : vd.getAsJsonArray()) addDiscoverItem(entry, out, cellCct);
             } else {
-                addDiscoverItem(vd, out);
+                addDiscoverItem(vd, out, cellCct);
             }
         }
         JsonObject detail = obj(cell, "video_detail");
@@ -1307,7 +1310,7 @@ public final class DramaParser {
                         wrapped.add("video_detail", carrier);
                         first = wrapped;
                     }
-                    addDiscoverItem(first, out);
+                    addDiscoverItem(first, out, cellCct);
                 }
             }
             JsonArray cards = arr(detail, "video_detail_list");
@@ -1334,10 +1337,10 @@ public final class DramaParser {
                             carrier.addProperty("followed_cnt", longOf(detail, "followed_cnt", -1));
                         }
                         wrapped.add("video_detail", carrier);
-                        addDiscoverItem(wrapped, out);
+                        addDiscoverItem(wrapped, out, null);
                         continue;
                     }
-                    addDiscoverItem(card, out);
+                    addDiscoverItem(card, out, null);
                 }
             }
         }
@@ -1345,10 +1348,34 @@ public final class DramaParser {
         if (inner != null) collectDiscoverCells(inner, out, depth + 1);
     }
 
-    private static void addDiscoverItem(JsonElement entry, List<DramaItem> out) {
+    private static void addDiscoverItem(JsonElement entry, List<DramaItem> out, String cellCct) {
         if (entry == null || !entry.isJsonObject()) return;
         DramaItem item = asSeriesItem(normalizeDiscoverEntry(entry.getAsJsonObject()));
-        if (item != null) out.add(item);
+        if (item != null) {
+            if (cellCct != null) item.contentCategoryType = cellCct;
+            out.add(item);
+        }
+    }
+
+    /**
+     * 服务端类型类抽取：cell 长按卡（cell_long_press_action）里
+     * selection_id＝30「视频类型」一项的 selection_dislike_report_extra
+     * .content_category_type（"1"真人剧／"1004"漫剧／"1004_ai_video"
+     * AI剧，分类探针 2026-10-30 实拉配对定版）；没带返回 null。
+     */
+    private static String contentCategoryTypeOf(JsonObject cell) {
+        JsonObject lp = obj(cell, "cell_long_press_action");
+        if (lp == null) return null;
+        JsonArray cards = arr(lp, "new_long_press_action_card_playlet");
+        if (cards == null) return null;
+        for (JsonElement el : cards) {
+            if (el == null || !el.isJsonObject()) continue;
+            JsonObject card = el.getAsJsonObject();
+            if (intOf(card, "selection_id", -1) != 30) continue;
+            JsonObject extra = obj(card, "selection_dislike_report_extra");
+            if (extra != null) return str(extra, "content_category_type");
+        }
+        return null;
     }
 
     /**
@@ -1427,6 +1454,12 @@ public final class DramaParser {
             // video_detail（借道载体），不抬到顶层 fillInfoStack 读不到
             JsonArray recTags = arr(vd, "rec_tags");
             if (recTags != null) merged.add("rec_tags", recTags.deepCopy());
+            // 分类架构同在 video_detail 里（category_schema 字符串化
+            // JSON）——不抬到顶层，asSeriesItem 的 tags 与 itemCategories
+            // 永远空（剧场 AI剧格的筹面就靠条目自带分类，无此抬升整格
+            // 无筹；条目自带同名键时下方覆盖循环以自带为准）
+            JsonElement schemaEl = vd.get("category_schema");
+            if (schemaEl != null) merged.add("category_schema", schemaEl.deepCopy());
             // 专辑关系与 UGC 作者同在 video_detail 里（存档逐层实证：详情面
             // is_multi_season/related_album_id、cell 面 ugc_user_info）——不抬
             // 到条目顶层，asSeriesItem 读不到：多季剧在流里永远认不出、
@@ -1735,12 +1768,20 @@ public final class DramaParser {
             }
         }
         List<String> tags = new ArrayList<>();
+        List<DramaCategory> itemCats = new ArrayList<>();
         JsonArray schema = asArray(o.get("category_schema"));
         if (schema != null) {
             for (JsonElement te : schema) {
                 if (te.isJsonObject()) {
                     String name = str(te.getAsJsonObject(), "name");
                     if (name != null && !name.isEmpty()) tags.add(name);
+                    String cid = firstStr(te.getAsJsonObject(), "category_id");
+                    if (cid != null && !cid.isEmpty() && name != null && !name.isEmpty()) {
+                        DramaCategory dc = new DramaCategory();
+                        dc.id = cid;
+                        dc.name = name;
+                        itemCats.add(dc);
+                    }
                 }
             }
         }
@@ -1834,6 +1875,7 @@ public final class DramaParser {
         item.authorCanFollow = authorCanFollow;
         item.kind = kindOf(o, albumInfo);
         item.contentType = contentTypeOf(o);
+        item.itemCategories = itemCats.isEmpty() ? null : itemCats;
         item.bottomBarText = bottomBarTextOf(o);
         fillInfoStack(item, o, rrl);
         // 合集条的追更数挂 album_info（fillInfoStack 只读本体 followed_cnt）

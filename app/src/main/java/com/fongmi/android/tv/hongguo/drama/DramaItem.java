@@ -129,6 +129,27 @@ public final class DramaItem {
         return contentType == 1004;
     }
     /**
+     * 服务端类型类（cell 长按卡 selection_id＝30「视频类型」的
+     * selection_dislike_report_extra.content_category_type 原值：
+     * "1"＝真人剧、"1004"＝漫剧、"1004_ai_video"＝AI剧；分类探针
+     * 2026-10-30 实拉配对定版，账 hongguo-theater-cat-probe-20261030）：
+     * 解析器后置填充（不进构造器，与 contentType 同惯例），回包没带
+     * 为 null。注意 ai_usage_type（作者声明）不是分家字段——漫剧与
+     * AI剧条目都带，不许拿它分格（同账实证）。
+     */
+    public String contentCategoryType;
+    /**
+     * 条目自带分类（category_schema 的 category_id＋name 对，解析器
+     * 后置填充）：剧场 AI剧格的筹面数据源（AI 条目自带分类，不借
+     * 漫剧/真人类目）；没带为 null。
+     */
+    public List<DramaCategory> itemCategories;
+
+    /** 是否 AI剧（服务端类型类＝1004_ai_video，分家口径见上）。 */
+    public boolean isAiDrama() {
+        return "1004_ai_video".equals(contentCategoryType);
+    }
+    /**
      * 作者关系态（ugc_user_info.user_relation.relation_type，官方
      * UserRelationType 原值：1=None 未关注、2=Follow 我已关注他、
      * 3=Followed 他关注我、4=MutualFollow 互关）；解析器后置填充

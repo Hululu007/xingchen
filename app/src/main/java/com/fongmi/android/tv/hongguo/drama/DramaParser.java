@@ -1105,6 +1105,11 @@ public final class DramaParser {
      * cell 取 cell_id_str 非空且 show_type≠0 的、优先带嵌套 cell_data 的）。
      */
     public static DramaCellPage parseDiscoverTab(String json, int tabType) {
+        return parseDiscoverTab(json, tabType, false);
+    }
+
+    /** skipLive=true 时直播型 cell 在组表层整条跳过（仅刷流口传此旗）。 */
+    public static DramaCellPage parseDiscoverTab(String json, int tabType, boolean skipLive) {
         JsonObject root = JsonParser.parseString(json).getAsJsonObject();
         int code = intOf(root, "code", 0);
         String msg = str(root, "message");
@@ -1117,7 +1122,7 @@ public final class DramaParser {
             hasMore = boolOf(tab, "has_more");
             JsonArray cells = arr(tab, "cell_data");
             if (cells != null) {
-                for (JsonElement cell : cells) collectDiscoverCells(cell, items, 0);
+                for (JsonElement cell : cells) collectDiscoverCells(cell, items, 0, skipLive);
             }
             cont = extractContinuation(tab, tabType);
         }
@@ -1203,6 +1208,11 @@ public final class DramaParser {
      * next_offset, session_id, cell_view}，cell_view 走同一套单元格抽取。
      */
     public static DramaCellPage parseCellChange(String json) {
+        return parseCellChange(json, false);
+    }
+
+    /** skipLive=true 时直播型 cell 在组表层整条跳过（仅刷流口传此旗）。 */
+    public static DramaCellPage parseCellChange(String json, boolean skipLive) {
         JsonObject root = JsonParser.parseString(json).getAsJsonObject();
         int code = intOf(root, "code", 0);
         String msg = str(root, "message");
@@ -1222,7 +1232,7 @@ public final class DramaParser {
             }
             sessionId = str(data, "session_id");
             JsonElement view = data.get("cell_view");
-            if (view != null) collectDiscoverCells(view, items, 0);
+            if (view != null) collectDiscoverCells(view, items, 0, skipLive);
         }
         return new DramaCellPage(code, msg, items, root, hasMore, nextOffset, sessionId, null);
     }
@@ -1284,13 +1294,25 @@ public final class DramaParser {
 
     /** 单元格递归抽取（对照 appendCatalogCell 的三路：video_data 数组/对象、video_detail 卡表、嵌套 cell_data）。 */
     private static void collectDiscoverCells(JsonElement el, List<DramaItem> out, int depth) {
+        collectDiscoverCells(el, out, depth, false);
+    }
+
+    private static void collectDiscoverCells(JsonElement el, List<DramaItem> out, int depth,
+                                             boolean skipLive) {
         if (el == null || depth > 8) return;
         if (el.isJsonArray()) {
-            for (JsonElement child : el.getAsJsonArray()) collectDiscoverCells(child, out, depth);
+            for (JsonElement child : el.getAsJsonArray()) collectDiscoverCells(child, out, depth, skipLive);
             return;
         }
         if (!el.isJsonObject()) return;
         JsonObject cell = el.getAsJsonObject();
+        // 直播型 cell 整条跳过（仅刷流 skipLive 时）：官方 cell 模型
+        // CellViewData 的直播载荷是本体字段 room_list（List<LiveRoomData>，
+        // 条目带 room_id/room_id_str），video_data 条目自身无此字段——按
+        // 本体类型字段判，不按文案猜。命中即整条不收（含其嵌套 cell_data），
+        // 条目根本不进 items，分页/补拉计数天然按过滤后条数走（账
+        // hongguo-live-skip-20261030）。
+        if (skipLive && isLiveCell(cell)) return;
         // 服务端类型类挂在 cell 本体的长按卡上（不在 video_data 条目里），
         // 借道随本 cell 的自有条目下发（跨推卡不是本 cell 的剧，不借）。
         String cellCct = contentCategoryTypeOf(cell);
@@ -1378,7 +1400,18 @@ public final class DramaParser {
             }
         }
         JsonElement inner = cell.get("cell_data");
-        if (inner != null) collectDiscoverCells(inner, out, depth + 1);
+        if (inner != null) collectDiscoverCells(inner, out, depth + 1, skipLive);
+    }
+
+    /**
+     * 直播型 cell 判定：cell 本体带非空 room_list（官方 rpc 模型
+     * CellViewData.roomList，@SerializedName("room_list")，元素
+     * LiveRoomData 带 room_id）。空数组/缺失都不算——没房间就不是
+     * 直播条目。存档样本未见此型（账 hongguo-live-skip-20261030）。
+     */
+    private static boolean isLiveCell(JsonObject cell) {
+        JsonArray rooms = arr(cell, "room_list");
+        return rooms != null && rooms.size() > 0;
     }
 
     private static void addDiscoverItem(JsonElement entry, List<DramaItem> out, String cellCct) {
@@ -1908,6 +1941,17 @@ public final class DramaParser {
         item.authorCanFollow = authorCanFollow;
         item.kind = kindOf(o, albumInfo);
         item.contentType = contentTypeOf(o);
+        // 高光标记四键（条目 highlight 对象；官方 VideoHighlight 模型
+        // 逐字键名，频道存档回包实证条目带此对象、缺省全 0 形）。
+        // 以前只消费 highlight.vid 定被推集，其余三键在此补收——
+        // 播完进剧的同集/下一集分流（官方 T7）全靠它们（互动账 §五.1）。
+        JsonObject hlObj = obj(o, "highlight");
+        if (hlObj != null) {
+            item.highlightType = intOf(hlObj, "highlight_type", -1);
+            item.highlightProgressBarType = intOf(hlObj, "progress_bar_type", -1);
+            item.highlightStartMs = intOf(hlObj, "start_time_in_millisecond", -1);
+            item.highlightEndMs = intOf(hlObj, "end_time_in_millisecond", -1);
+        }
         item.itemCategories = itemCats.isEmpty() ? null : itemCats;
         item.bottomBarText = bottomBarTextOf(o);
         fillInfoStack(item, o, rrl);

@@ -35,8 +35,9 @@ public final class DramaItem {
     private final int albumSerialCount;
     /** 同专辑的兄弟部（album_data_list 逐条抽，§5.3）；回包没带为空表。 */
     private final List<DramaItem> siblings;
-    /** 评论数（cell video_data.comment_count，2026-10-28 频道真回包实证）；没带为 -1。 */
-    private final long commentCount;
+    /** 评论数（cell video_data.comment_count，2026-10-28 频道真回包实证）；没带为 -1。
+     * 非 final：评论面板拉到真实 total 后回写本条（D6 两面同源）。 */
+    private long commentCount;
     /** 点赞数（cell video_data.digged_count，同上实证）；没带为 -1。 */
     private final long diggCount;
     /**
@@ -127,6 +128,38 @@ public final class DramaItem {
     /** 是否漫剧（content_type＝1004，官方 VideoContentType.MotionComic）。 */
     public boolean isMotionComic() {
         return contentType == 1004;
+    }
+    /**
+     * 高光片段标记（cell 条目 highlight 对象四键，官方 rpc 模型
+     * VideoHighlight 逐字：highlight_type／progress_bar_type／
+     * start_time_in_millisecond／end_time_in_millisecond；官方包
+     * VideoHighlight.java SerializedName 实证＋频道存档回包实证——
+     * 推荐频道条目带 highlight 对象、缺省全 0 形）：解析器后置填充
+     * （不进构造器，与 vidIndex 同惯例），对象或键没带为 -1。
+     */
+    public int highlightType = -1;
+    public int highlightProgressBarType = -1;
+    public int highlightStartMs = -1;
+    public int highlightEndMs = -1;
+
+    /**
+     * 高光/片段类素材判定（官方 videolike/f.b∩c 原式逐项，互动账
+     * §五.1 铰链）：内容类型不在 {正片 ShortSeriesPlay＝1、ScenePlay
+     * ＝2、漫剧 MotionComic＝1004} 三类内 ∧ highlight_type＝
+     * HighLightFragment（枚举值 0）∧ 起止毫秒不等 ∧ progress_bar_type
+     * ＝HighLight（枚举值 1）。枚举值据官方 rpc 模型
+     * VideoHighlightType／ProgressBarType findByValue 定版。
+     * 播完分流靠它定 isNext（false＝落同一集续看，见流页 onPlayEnded）。
+     */
+    public boolean isHighlightFragment() {
+        if (contentType == 1 || contentType == 2 || contentType == 1004) return false;
+        // 起止毫秒在官方生成类里是 int（缺键缺省 0），-1 哨兵按 0 读；
+        // 两枚举是对象型（缺键为 null、永不命中），-1 哨兵天然不命中。
+        int start = highlightStartMs < 0 ? 0 : highlightStartMs;
+        int end = highlightEndMs < 0 ? 0 : highlightEndMs;
+        return highlightType == 0
+                && highlightProgressBarType == 1
+                && start != end;
     }
     /**
      * 服务端类型类（cell 长按卡 selection_id＝30「视频类型」的
@@ -267,6 +300,8 @@ public final class DramaItem {
     public int getAlbumSerialCount() { return albumSerialCount; }
     public List<DramaItem> getSiblings() { return siblings; }
     public long getCommentCount() { return commentCount; }
+    /** 评论面板真实 total 回写（D6）；只接受正数回写，不拿 0 冲掉下发值。 */
+    public void setCommentCount(long total) { if (total > 0) commentCount = total; }
     public long getDiggCount() { return diggCount; }
     /** 完结态原值（series_status）；没带为 null。 */
     public Integer getSeriesStatus() { return seriesStatus; }

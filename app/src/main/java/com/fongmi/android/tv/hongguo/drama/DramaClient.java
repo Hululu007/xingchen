@@ -225,6 +225,19 @@ public final class DramaClient {
      * 其成败原样收口、不回写任一策略，故两面永不同时锁死。
      */
     private static void postModel(String path, JsonObject bodyObj, Sink sink) {
+        postModel(path, bodyObj, sink, false);
+    }
+
+    /**
+     * 推测发（邻条/全集预取）专用：本发的成败只决定本发要不要改走
+     * 共享兜底，绝不许碰 PLAY_POLICY 的冷却状态——预取是替正片探路
+     * 的，它在计量窗里撞到的空体若把自家面打进 15 分钟冷却，随后
+     * 每条正片都会被赶去走经常回空的共享面、连环失败（1.4.63 真机
+     * 「第一条能播、后面全灭」定根，账 hongguo-1463-triage2-20261030）。
+     * 正片取链（speculative=false）口径不变：结局照常推进冷却。
+     */
+    private static void postModel(String path, JsonObject bodyObj, Sink sink,
+                                  boolean speculative) {
         if (PLAY_POLICY.route() == DramaPlayFetchPolicy.Route.SHARED) {
             sharedPost(path, bodyObj, sink);
             return;
@@ -232,14 +245,19 @@ public final class DramaClient {
         ownModelPost(path, bodyObj, new Sink() {
             @Override
             public void body(String text) {
-                PLAY_POLICY.onOwnOutcome(DramaPlayFetchPolicy.OwnOutcome.SUCCESS);
+                if (!speculative) {
+                    PLAY_POLICY.onOwnOutcome(DramaPlayFetchPolicy.OwnOutcome.SUCCESS);
+                }
                 sink.body(text);
             }
 
             @Override
             public void fail(int code, String msg) {
-                DramaPlayFetchPolicy.Action a =
-                        PLAY_POLICY.onOwnOutcome(DramaPlayFetchPolicy.classify(code));
+                DramaPlayFetchPolicy.Action a = speculative
+                        ? DramaPlayFetchPolicy.classify(code) == DramaPlayFetchPolicy.OwnOutcome.ENTRY_REJECT
+                        ? DramaPlayFetchPolicy.Action.FAIL_AS_IS
+                        : DramaPlayFetchPolicy.Action.FALLBACK_SHARED
+                        : PLAY_POLICY.onOwnOutcome(DramaPlayFetchPolicy.classify(code));
                 if (a == DramaPlayFetchPolicy.Action.FALLBACK_SHARED) sharedPost(path, bodyObj, sink);
                 else sink.fail(code, msg);
             }
@@ -370,6 +388,13 @@ public final class DramaClient {
      */
     public static void fetchModels(List<ModelRequest> requests,
                                    HgCallback<Map<String, DramaVideoModel>> cb) {
+        fetchModels(requests, cb, false);
+    }
+
+    /** speculative=true＝预取发：走 postModel 推测口，不动播放冷却。 */
+    public static void fetchModels(List<ModelRequest> requests,
+                                   HgCallback<Map<String, DramaVideoModel>> cb,
+                                   boolean speculative) {
         Map<String, DramaVideoModel> out = new LinkedHashMap<>();
         Map<String, List<String>> grouped = new LinkedHashMap<>();
         if (requests != null) {
@@ -389,12 +414,13 @@ public final class DramaClient {
         }
         // 按 ≤20 切发，串行累积（预取/首屏批量都在这个量级）
         List<Map.Entry<String, List<String>>> groups = new ArrayList<>(grouped.entrySet());
-        fetchChunk(groups, 0, out, cb);
+        fetchChunk(groups, 0, out, cb, speculative);
     }
 
     private static void fetchChunk(List<Map.Entry<String, List<String>>> groups, int index,
                                    Map<String, DramaVideoModel> out,
-                                   HgCallback<Map<String, DramaVideoModel>> cb) {
+                                   HgCallback<Map<String, DramaVideoModel>> cb,
+                                   boolean speculative) {
         // 找到下一块未发完的分组切片
         while (index < groups.size() && groups.get(index).getValue().isEmpty()) index++;
         if (index >= groups.size()) {
@@ -418,15 +444,15 @@ public final class DramaClient {
                     String vid = m.getRequestedId() != null ? m.getRequestedId() : m.getVideoId();
                     if (vid != null) out.put(vid, m);
                 }
-                fetchChunk(groups, idx, out, cb);
+                fetchChunk(groups, idx, out, cb, speculative);
             }
 
             @Override
             public void fail(int code, String msg) {
                 // 本块失败不连坐其余块：跳过本块继续（缺失 vid 由上层单集兜底）
-                fetchChunk(groups, idx, out, cb);
+                fetchChunk(groups, idx, out, cb, speculative);
             }
-        });
+        }, speculative);
     }
 
     /**
@@ -704,14 +730,26 @@ public final class DramaClient {
     /** 频道开页：requestTabType 开页请求值、responseTabType 回包要读的频道。 */
     public static void fetchChannel(int requestTabType, int responseTabType,
                                     HgCallback<DramaCellPage> cb) {
+        fetchChannel(requestTabType, responseTabType, cb, false);
+    }
+
+    /** skipLive=true 时解析层跳过直播型条目（仅刷流口传此旗，剧场不传）。 */
+    public static void fetchChannel(int requestTabType, int responseTabType,
+                                    HgCallback<DramaCellPage> cb, boolean skipLive) {
         getBrowse(HgDevice.PATH_BOOKMALL_TAB, HgRequests.discoverPairs(requestTabType), false,
-                sinkOf(cb, text -> DramaParser.parseDiscoverTab(text, responseTabType)));
+                sinkOf(cb, text -> DramaParser.parseDiscoverTab(text, responseTabType, skipLive)));
     }
 
     /** 频道续页。 */
     public static void fetchChannelMore(HgContinuation cont, HgCallback<DramaCellPage> cb) {
+        fetchChannelMore(cont, cb, false);
+    }
+
+    /** skipLive=true 时解析层跳过直播型条目（仅刷流口传此旗，剧场不传）。 */
+    public static void fetchChannelMore(HgContinuation cont, HgCallback<DramaCellPage> cb,
+                                        boolean skipLive) {
         getBrowse(HgDevice.PATH_BOOKMALL_CELL_CHANGE, HgRequests.cellChangePairs(cont), false,
-                sinkOf(cb, DramaParser::parseCellChange));
+                sinkOf(cb, text -> DramaParser.parseCellChange(text, skipLive)));
     }
 
     // ---------- 官方筛选面（distribution 分类浏览） ----------

@@ -43,6 +43,7 @@ public final class DramaSeriesPrefetch {
     }
 
     private static volatile SliceFetcher fetcher = (slice, done) ->
+            // 推测口（speculative=true）：预取成败不动播放冷却状态。
             DramaClient.fetchModels(slice, new HgCallback<Map<String, DramaVideoModel>>() {
                 @Override
                 public void onSuccess(Map<String, DramaVideoModel> r) {
@@ -53,7 +54,7 @@ public final class DramaSeriesPrefetch {
                 public void onError(int c, String m) {
                     done.run();
                 }
-            });
+            }, true);
 
     private static final ScheduledExecutorService TIMER =
             Executors.newSingleThreadScheduledExecutor(r -> {

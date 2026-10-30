@@ -557,7 +557,10 @@
                 分发（书源/正文），见 ImportActivity 类头注；
              ③ 分享路兜底：ACTION_SEND 带 EXTRA_STREAM，MIME 口径同 ①。
              label 单独写「导入插件」，与 HomeActivity 的同名条目在系统名单里分得开。
-             documentLaunchMode=never 与其余外部门同口径：并回既有任务不另开卡。 -->
+             documentLaunchMode=never 与其余外部门同口径：并回既有任务不另开卡。
+             主题必须用 Theme.XingChen.ImportGate（AppCompat 血统的透明样式）：
+             本类是 AppCompatActivity，挂平台 Translucent 主题会在 onPostCreate
+             抛 IllegalStateException（1.4.63 真机实证），不许改回平台主题。 -->
         <activity
             android:name=".ui.activity.ImportActivity"
             android:configChanges="screenSize|smallestScreenSize|screenLayout"
@@ -565,7 +568,7 @@
             android:exported="true"
             android:label="导入插件"
             android:screenOrientation="fullUser"
-            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            android:theme="@style/Theme.XingChen.ImportGate">
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />

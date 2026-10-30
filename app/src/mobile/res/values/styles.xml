@@ -276,6 +276,23 @@
         <item name="android:windowBackground">#FFFBFBFA</item>
     </style>
 
+    <!-- 外部文件导入总门（ImportActivity）专用：静默无界面，登记分发完即 finish，
+         观感＝透明、无标题、无转场闪烁。父链必须是 AppCompat 血统
+         （Theme.XingChen→Material3），否则 AppCompatActivity 在 onPostCreate 抛
+         IllegalStateException——1.4.63 真机实证：旧写法挂平台
+         @android:style/Theme.Translucent.NoTitleBar 踩的就是这个。
+         透明靠 windowIsTranslucent＋窗底透明（钉死，不随父链漂移）；
+         windowDisablePreview 防外部拉起时最近任务预览闪一帧；
+         windowAnimationStyle 置空，去掉普通页那套进出转场。 -->
+    <style name="Theme.XingChen.ImportGate" parent="Theme.XingChen">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:colorBackground">@android:color/transparent</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowDisablePreview">true</item>
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
+
     <!-- 音乐设置页行：跟首页导航行同一张卡皮，名字左、值/开关右。
          v1 稿落码：行不再各自成卡，改由分组卡包行（卡皮见布局内分组容器）；
          行背景透明、行高由 36dp 图标块＋12dp 上下内边距撑到 60dp。

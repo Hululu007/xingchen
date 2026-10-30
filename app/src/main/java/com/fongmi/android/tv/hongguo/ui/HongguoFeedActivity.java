@@ -1667,6 +1667,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
         if (item != null) {
             HgStore.putMeta(currentSeriesId, item.getTitle(), item.getCoverUrl(),
                     item.getEpisodeCount());
+            HgStore.putType(currentSeriesId, HgStore.typeCodeOf(item));
         }
         HgStore.saveProgressQuiet(currentSeriesId, currentEpisodeIndex, pos);
         if (watchAccumMs > 0) {
@@ -2387,9 +2388,11 @@ public class HongguoFeedActivity extends AppCompatActivity {
             if (mode == MODE_VIDEO && videoAlbum != null) {
                 HgStore.putMeta(key, videoAlbum.title, videoAlbum.cover,
                         videoAlbum.episodeCount);
+                HgStore.putType(key, HgStore.TYPE_ALBUM);
             } else {
                 HgStore.putMeta(key, item.getTitle(), item.getCoverUrl(),
                         item.getEpisodeCount());
+                HgStore.putType(key, HgStore.typeCodeOf(item));
             }
             h.favIcon.setColorFilter(now ? 0xFFFFC531 : Color.WHITE);
             styleFavPill(h, now);

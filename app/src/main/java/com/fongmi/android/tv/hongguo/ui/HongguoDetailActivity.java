@@ -392,6 +392,9 @@ public class HongguoDetailActivity extends AppCompatActivity {
         boolean now = HgStore.toggleFaved(seriesId);
         HgStore.putMeta(seriesId, detail.getTitle(), detail.getCoverUrl(),
                 detail.getEpisodeCount());
+        // 详情面判不出真人/漫剧/AI（无类型类字段），只落未上线预告态，
+        // 其余不写、留给流条目在手的写点补（putType 判不出不冲已有值）。
+        HgStore.putType(seriesId, detail.hasAppointment() ? HgStore.TYPE_PREVIEW : null);
         styleFav(now);
     }
 

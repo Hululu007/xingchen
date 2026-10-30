@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- 评论面板底部假输入条底（官方实拍 113610：白面上浅灰胶囊 #FFF5F6F7、圆角 20dp）。 -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <corners android:radius="20dp" />
-    <solid android:color="#FFF5F6F7" />
-</shape>

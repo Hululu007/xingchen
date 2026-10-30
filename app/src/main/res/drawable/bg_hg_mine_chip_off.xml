@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- 「我的」子筛筹·未选底（官方 bb8 的 selector 定版：
-     skin_bg_bookshelf_mine_multi_tab_unselected_light＝圆角 @dimen/q_ 8dp
-     ＋solid skin_color_gray_03_light #08000000）。 -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <corners android:radius="8dp" />
-    <solid android:color="#08000000" />
-</shape>

@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- 红果详情页「红果分」旁小问号圈（官方 113563：细圈＋问号） -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="oval">
-    <stroke
-        android:width="0.8dp"
-        android:color="#99FFFFFF" />
-    <solid android:color="#00000000" />
-</shape>

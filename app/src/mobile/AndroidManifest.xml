@@ -571,74 +571,15 @@
             android:configChanges="screenSize|smallestScreenSize|screenLayout"
             android:screenOrientation="fullUser" />
 
-        <!-- 红果刷剧页（三阶段）：点进就是竖屏刷剧流，独立一套界面与控制，
-             不借 VideoActivity。底栏接线在五阶段，本阶段只静态入口。 -->
-        <!-- 竖屏面窗口不转（照官方竖屏页 ShortSeriesActivity 口径）：
-             screenOrientation="behind"＋configChanges 全套自管。横屏观看
-             走下方真独立横屏页（官方 ShortSeriesLandActivity 对应件，
-             2026-10-30 横屏对齐施工）：旧别名 HongguoLandEntry＋intent
-             模式旗冒充与窗内转保底已整删。 -->
+        <!-- 红果刷剧页（2026-10-30 从零重建）：竖屏刷剧流，独立一套
+             界面与控制，不借 VideoActivity。窗口不转：screenOrientation
+             ="behind"＋configChanges 全套自管；横屏观看走独立横屏页
+             （重建阶段8 加回登记）。 -->
         <activity
             android:name="com.fongmi.android.tv.hongguo.ui.HongguoFeedActivity"
             android:configChanges="fontScale|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
             android:exported="false"
             android:screenOrientation="behind" />
-
-        <!-- 横屏独立页（官方 ShortSeriesLandActivity 声明对位，抠查账
-             hongguo-orientation-dig-20261030 §一）：userLandscape 横屏
-             锁定、singleTop、configChanges 全套、支持 PiP；与竖屏页同类
-             共体（HongguoFeedActivity 子类），播放器经 HgPlayerPool
-             迁移续播。 -->
-        <activity
-            android:name="com.fongmi.android.tv.hongguo.ui.HongguoLandActivity"
-            android:configChanges="fontScale|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
-            android:exported="false"
-            android:launchMode="singleTop"
-            android:screenOrientation="userLandscape"
-            android:supportsPictureInPicture="true" />
-
-        <activity
-            android:name="com.fongmi.android.tv.hongguo.ui.HongguoSearchActivity"
-            android:configChanges="screenSize|smallestScreenSize|screenLayout|uiMode|orientation"
-            android:exported="false"
-            android:screenOrientation="portrait"
-            android:windowSoftInputMode="adjustResize" />
-
-        <activity
-            android:name="com.fongmi.android.tv.hongguo.ui.HongguoAuthorActivity"
-            android:configChanges="screenSize|smallestScreenSize|screenLayout|uiMode|orientation"
-            android:exported="false"
-            android:screenOrientation="portrait" />
-
-        <activity
-            android:name="com.fongmi.android.tv.hongguo.ui.HongguoSeriesDetailActivity"
-            android:configChanges="screenSize|smallestScreenSize|screenLayout|uiMode|orientation"
-            android:exported="false"
-            android:screenOrientation="portrait" />
-
-        <activity
-            android:name="com.fongmi.android.tv.hongguo.ui.HongguoPreferenceActivity"
-            android:configChanges="screenSize|smallestScreenSize|screenLayout|uiMode|orientation"
-            android:exported="false"
-            android:screenOrientation="portrait" />
-
-        <activity
-            android:name="com.fongmi.android.tv.hongguo.ui.HongguoFeedbackActivity"
-            android:configChanges="screenSize|smallestScreenSize|screenLayout|uiMode|orientation"
-            android:exported="false"
-            android:screenOrientation="portrait" />
-
-        <activity
-            android:name="com.fongmi.android.tv.hongguo.ui.HongguoPostActivity"
-            android:configChanges="screenSize|smallestScreenSize|screenLayout|uiMode|orientation"
-            android:exported="false"
-            android:screenOrientation="portrait" />
-
-        <activity
-            android:name="com.fongmi.android.tv.hongguo.ui.HongguoAlbumActivity"
-            android:configChanges="screenSize|smallestScreenSize|screenLayout|uiMode|orientation"
-            android:exported="false"
-            android:screenOrientation="portrait" />
 
 
 

@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- 红果详情页集格·普通态（官方 113563：白约 15% 方格、圆角 10dp） -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="rectangle">
-    <corners android:radius="10dp" />
-    <solid android:color="#26FFFFFF" />
-</shape>

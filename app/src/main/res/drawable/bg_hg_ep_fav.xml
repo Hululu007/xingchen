@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- 选集单头部收藏钮底·未收藏态（官方 E9：72×28dp、圆角 8dp（@dimen/p2）；
-     BrandTextButton 本体品牌底色未从包内解出，借选集当前集橙 #FFFA7705）。 -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="rectangle">
-    <corners android:radius="8dp" />
-    <solid android:color="#FFFA7705" />
-</shape>

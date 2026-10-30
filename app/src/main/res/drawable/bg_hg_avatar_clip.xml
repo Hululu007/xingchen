@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- 头像圆形裁剪轮廓：配 clipToOutline 用（官方 b7l 作者头像 roundAsCircle 同位）。 -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="oval">
-    <solid android:color="#00000000" />
-</shape>

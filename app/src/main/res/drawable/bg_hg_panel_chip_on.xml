@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- 更多面板选中筹底（官方实拍 113510：白片＋深字加粗，未选为透明底灰字）。 -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="rectangle">
-    <corners android:radius="8dp" />
-    <solid android:color="#FFFFFFFF" />
-</shape>

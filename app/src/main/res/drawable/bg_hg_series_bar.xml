@@ -1,5 +1,0 @@
-<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <!-- 流页剧条底（官方实拍 113482/113476 像素采样 #262626–#363435 近实底；
-         旧值 #B31C1C1E 偏透偏黑） -->
-    <solid android:color="#E62E2E33"/>
-</shape>

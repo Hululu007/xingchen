@@ -17,8 +17,8 @@ import java.util.UUID;
  * <p>旧 multi 口径（mixed_video_id_map＋platform=1024＋content_type=1004）已在
  * openhongguo-dig-20261028.md 定罪废弃：无签名＋随机假指纹恒回 200 空体；
  * 取址链改走 HgDevice 注册身份＋HgSign 签名（见 HgApiClient.postSigned）。
- * freshQuery 仅剩书架/订阅等非取址链老口在用；取址链与登录链均禁用
- * （登录走 HgDevice 注册档案＋HgSign 签名，见 HgPassportClient）。</p>
+ * freshQuery 供小说书城等已验链路在用；短剧登录全套已随 2026-10-30
+ * 重建删除，本类只留小说与通用 pairs 构造。</p>
  */
 public final class HgRequests {
 
@@ -64,105 +64,8 @@ public final class HgRequests {
      */
     public static final String PASSPORT_HOST = "https://security.snssdk.com";
 
-    /**
-     * 发码 type 的登录场景值：passport SDK 内 impl/c.t 的便捷方法硬编码 24；
-     * impl/c.r 是 type 透传形态，龙族登录页最终传值未追到底（UI 不走 zy0/a
-     * 门面）——先用 24，真机回包校准（见挖掘账未定版第 1 条）。
-     */
-    public static final int SEND_CODE_TYPE_SMS_LOGIN = 24;
-
-    /**
-     * passport 字段混淆 StringUtils.encryptWithXor（classes23.dex 本体逐指令）：
-     * UTF-8 字节逐字节 XOR 0x05，再转十六进制串。
-     */
-    public static String xorHex(String s) {
-        if (s == null || s.isEmpty()) return "";
-        byte[] bytes;
-        try {
-            bytes = s.getBytes("UTF-8");
-        } catch (Exception e) {
-            return "";
-        }
-        StringBuilder sb = new StringBuilder(bytes.length * 2);
-        for (byte b : bytes) {
-            int v = (b ^ 0x05) & 0xFF;
-            sb.append(Character.forDigit(v >> 4, 16)).append(Character.forDigit(v & 0xF, 16));
-        }
-        return sb.toString();
-    }
-
-    /**
-     * 发码表单 POST /passport/mobile/send_code/v1/（xz0/g.H 组参逐字段）：
-     * mobile/type 走 xor 混淆、mix_mode=1、check_register=1（查注册态，
-     * 登录场景官方口径）；captcha/shark_ticket 等风控回填字段被要求时才带，
-     * 首次发码不带。公共参数由客户端另行拼到查询串（与官方网络层
-     * NetworkParams.putCommonParams 并入同源一套）。
-     */
-    public static java.util.Map<String, String> sendCodeForm(String mobile) {
-        java.util.Map<String, String> form = new LinkedHashMap<>();
-        form.put("mobile", xorHex(mobile));
-        form.put("type", xorHex(String.valueOf(SEND_CODE_TYPE_SMS_LOGIN)));
-        form.put("mix_mode", "1");
-        form.put("check_register", "1");
-        return form;
-    }
-
-    /** 短信登录表单 POST /passport/mobile/sms_login/（xz0/d.H 组参逐字段）。 */
-    public static java.util.Map<String, String> smsLoginForm(String mobile, String code) {
-        java.util.Map<String, String> form = new LinkedHashMap<>();
-        form.put("mobile", xorHex(mobile));
-        form.put("code", xorHex(code));
-        form.put("mix_mode", "1");
-        return form;
-    }
-
-    /**
-     * 抖音授权码兑换表单 POST /passport/auth/login/（impl/b.b() 组参逐字：
-     * platform=aweme_v2、expires_in=0、code 明文不 xor、platform_app_id=
-     * 红果登记值 7828）。探针 P4 以此形状假码实跑：回 error_code=1902、
-     * dialog_tips=aweme_v2_10007:code_expired——兑换口判到码本身、非身份
-     * 拒绝（证据账 douyin-login-probe-20261028.md）。platform 与 app_id
-     * 的定值在 {@link HgDouyinAuth}。
-     */
-    public static java.util.Map<String, String> douyinAuthForm(String code) {
-        java.util.Map<String, String> form = new LinkedHashMap<>();
-        form.put("platform", HgDouyinAuth.PLATFORM);
-        form.put("expires_in", "0");
-        form.put("code", code == null ? "" : code);
-        form.put("platform_app_id", HgDouyinAuth.PLATFORM_APP_ID);
-        return form;
-    }
-
-    /**
-     * 批量取模型 multi_video_model 请求体：照红果果[短]源码逐字口径
-     * （hongguo-thirdparty-ref-20261030 §一-①）——biz_param 八字段、
-     * video_platform=1024、mixed_video_id_map 按 content_type 分组、
-     * 无 dr_scene（dr_scene 只属 preload 变体口，本口不带）。
-     * 入参为已分组的 content_type→vid 表（保持插入序）。
-     */
-    public static JsonObject multiPlaybackBody(java.util.Map<String, java.util.List<String>> grouped) {
-        JsonObject biz = new JsonObject();
-        biz.addProperty("detail_page_version", 0);
-        biz.addProperty("device_level", 3);
-        biz.addProperty("disable_digg_stat", false);
-        biz.addProperty("need_all_video_definition", true);
-        biz.addProperty("need_mp4_align", false);
-        biz.addProperty("use_os_player", false);
-        biz.addProperty("use_server_dns", false);
-        biz.addProperty("video_platform", 1024);
-        JsonObject map = new JsonObject();
-        for (java.util.Map.Entry<String, java.util.List<String>> e : grouped.entrySet()) {
-            com.google.gson.JsonArray ids = new com.google.gson.JsonArray();
-            for (String id : e.getValue()) ids.add(id);
-            map.add(e.getKey(), ids);
-        }
-        JsonObject body = new JsonObject();
-        body.add("biz_param", biz);
-        body.add("mixed_video_id_map", map);
-        return body;
-    }
-
-    /** 单集 video_model 请求体（openhongguo PlaybackBody）：biz 仅三字段、platform=3。 */
+    
+                        /** 单集 video_model 请求体（openhongguo PlaybackBody）：biz 仅三字段、platform=3。 */
     public static JsonObject playbackBody(String videoId) {
         JsonObject biz = new JsonObject();
         biz.addProperty("need_all_video_definition", true);

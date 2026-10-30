@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- 作者页头衔徽标底（官方 user_title_info 呈现：浅蓝底、圆角 4dp；
-     蓝字在布局侧定 #FF2E6BE6——色为实拍读值，非包内定版，见汇总留痕） -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="rectangle">
-    <corners android:radius="4dp" />
-    <solid android:color="#FFEAF2FF" />
-</shape>

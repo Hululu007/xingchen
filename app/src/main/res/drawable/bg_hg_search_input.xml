@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- 红果搜索框底：官方 c8m 原值——底色 skin_color_gray_03_light #08000000，
-     圆角 8dp（EComSearchEditTextView 经 SilkyRoundedHelper t6.e(a, 8dp) 裁剪）。 -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="rectangle">
-    <solid android:color="#08000000" />
-    <corners android:radius="8dp" />
-</shape>

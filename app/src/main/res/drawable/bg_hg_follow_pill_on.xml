@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- 剧条品牌药丸·已追更态（色对官方 ks3.i：底 #1AFFFFFF、字 #66FFFFFF；
-     形状同未追更态，全圆药丸） -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="rectangle">
-    <corners android:radius="100dp" />
-    <solid android:color="#1AFFFFFF" />
-</shape>

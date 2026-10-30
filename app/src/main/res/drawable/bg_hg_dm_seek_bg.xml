@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- 弹幕滑杆轨道垫（官方 a57 @drawable/ad5：圆角 50dp、#FFF7F7F7，SeekBar 28dp 高的整条垫底）。 -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <corners android:radius="50dp" />
-    <solid android:color="#FFF7F7F7" />
-</shape>

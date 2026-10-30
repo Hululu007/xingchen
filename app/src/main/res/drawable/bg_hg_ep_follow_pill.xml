@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- 选集弹窗头追更药丸底（官方 aib/q7 的 dlw 定版：底
-     @color/skin_color_orange_brand_10_light＝#1AFA7705、圆角 8dp；
-     图标与字同为品牌橘 #FFFA7705，在布局/绑定里给色） -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="rectangle">
-    <corners android:radius="8dp" />
-    <solid android:color="#1AFA7705" />
-</shape>

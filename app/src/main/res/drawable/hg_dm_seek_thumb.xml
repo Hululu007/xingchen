@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- 弹幕滑杆圆钮（官方 a57 @drawable/adl：20dp 白圆；自家加 0.5dp 极浅描边，
-     白钮压在 #F7F7F7 轨道上才读得出轮廓，官方件为无边白圆、此为唯一自加）。 -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
-    <size android:width="20dp" android:height="20dp" />
-    <solid android:color="#FFFFFFFF" />
-    <stroke android:width="0.5dp" android:color="#1A000000" />
-</shape>

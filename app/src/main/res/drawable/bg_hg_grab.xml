@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- 半屏单顶部小横把（官方真值：36×4dp、marginTop 8dp、水平居中）。 -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <corners android:radius="2dp" />
-    <solid android:color="#66FFFFFF" />
-</shape>

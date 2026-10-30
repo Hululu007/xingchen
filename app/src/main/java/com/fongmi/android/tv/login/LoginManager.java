@@ -46,7 +46,6 @@ public class LoginManager {
         register(new KuaishouLoginProvider());
         register(new GoogleLoginProvider());
         register(new QQLoginProvider());
-        register(new HongguoLoginProvider());
     }
 
     public static LoginManager get() {
@@ -179,47 +178,6 @@ public class LoginManager {
                     if (callback != null) callback.onSuccess(QQLoginProvider.ID, cookie);
                 })
                 .showLogin(activity);
-    }
-
-    /**
-     * 弹红果官方形态登录页（{@link HongguoLoginPage}，壳子统一登录
-     * 托管的红果入口）：照官方登录页实拍构成——整页、抖音一键登录
-     * 大钮为主入口、底部手机图标圆钮点开切换手机号验证码登录、协议
-     * 勾选两路共享。抖音路是 web 授权＋原生兑换：受控 WebView 只装
-     * 抖音授权页本体、回跳加载前拦截取 code、再走原生 passport
-     * auth/login 兑换（证据账 hongguo/douyin-login-probe-20261028.md）；
-     * 登录表单不 WebView 化（他 2026-10-28 亲令），手机号路是原生
-     * passport 短信链（设备注册＋HgSign 签名两道门探针实证全过，
-     * login-route-dig-20261028.md）。此前的网页登录路
-     * （hongguoduanju.com/番茄）已整撤，不留兜底。异步，登录成功落
-     * 托管走 callback，并顺带跑登录后第一验（HgLoginSessionCheck，
-     * 只记回包形状进日志）；用户直接关页视为取消，不回调。
-     */
-    public void loginHongguo(FragmentActivity activity, LoginCallback callback) {
-        if (activity == null || activity.isFinishing()) {
-            if (callback != null) callback.onError("界面不可用");
-            return;
-        }
-        HongguoLoginPage.create()
-                .callback(new LoginCallback() {
-                    @Override
-                    public void onSuccess(String providerId, String cookie) {
-                        HongguoLoginProvider.putCookie(cookie);
-                        com.fongmi.android.tv.hongguo.api.HgLoginSessionCheck.runAfterLogin();
-                        if (callback != null) callback.onSuccess(HongguoLoginProvider.ID, cookie);
-                    }
-
-                    @Override
-                    public void onError(String msg) {
-                        if (callback != null) callback.onError(msg);
-                    }
-
-                    @Override
-                    public void onCancel() {
-                        if (callback != null) callback.onCancel();
-                    }
-                })
-                .show(activity);
     }
 
     private void openMethod(FragmentActivity activity, LoginMethod method, LoginCallback callback) {
@@ -359,36 +317,6 @@ public class LoginManager {
         return true;
     }
 
-    /** 弹红果官方形态登录页（异步）。 */
-    public static void loginHongguo() {
-        FragmentActivity activity = currentActivity();
-        if (activity == null) return;
-        App.post(() -> get().loginHongguo(activity, null));
-    }
-
-    /** 同 loginHongguo，但带回执：无前台界面时弹窗投不出去、回 false（与 QQ 同口径）。 */
-    public static boolean loginHongguoDelivered() {
-        FragmentActivity activity = currentActivity();
-        if (activity == null || activity.isFinishing()) return false;
-        App.post(() -> get().loginHongguo(activity, null));
-        return true;
-    }
-
-    /** 红果是否已登录（托管 Cookie 含会话键 sessionid） */
-    public static boolean isHongguoLoggedIn() {
-        return isLoggedIn(HongguoLoginProvider.ID);
-    }
-
-    /** 红果登录 cookie，未登录返回空串（HgLoginAuthProvider 即读此口） */
-    public static String getHongguoCookie() {
-        return getCookie(HongguoLoginProvider.ID);
-    }
-
-    /** 退出红果登录 */
-    public static void logoutHongguo() {
-        get().logout(HongguoLoginProvider.ID);
-    }
-
     /** QQ 是否已登录（托管 Cookie 含账号标识＋音乐钥匙） */
     public static boolean isQQLoggedIn() {
         return isLoggedIn(QQLoginProvider.ID);
@@ -425,9 +353,6 @@ public class LoginManager {
         }
         if ("115".equals(providerId)) {
             return login115Delivered();
-        }
-        if (HongguoLoginProvider.ID.equals(providerId)) {
-            return loginHongguoDelivered();
         }
         return false;
     }

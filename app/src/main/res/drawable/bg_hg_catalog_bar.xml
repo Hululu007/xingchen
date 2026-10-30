@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- 集流页选集条/全屏方钮底（官方 catalogview zc：solid #1AFFFFFF、圆角 8dp；
-     与流页全宽深底条 bg_hg_series_bar 是两副面孔，只集流模式用） -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="rectangle">
-    <corners android:radius="8dp" />
-    <solid android:color="#1AFFFFFF" />
-</shape>

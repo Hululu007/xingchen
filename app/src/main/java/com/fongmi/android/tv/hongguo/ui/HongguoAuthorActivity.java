@@ -306,9 +306,18 @@ public class HongguoAuthorActivity extends AppCompatActivity {
                 h.cover.setImageDrawable(null);
             }
             h.title.setText(work.title == null ? "" : work.title);
-            h.meta.setText(work.episodeCount > 0 ? "全" + work.episodeCount + "集"
-                    : (work.playCount > 0
-                    ? HongguoFeedActivity.HgTimeTextCount.format(work.playCount) + " 播放" : ""));
+            // 角标文案：服务端副标题段优先（自带完结态，如「更新至12集」），
+            // 无则回退集数/播放量（DramaWork 无完结态字段，不编完结）
+            String meta = null;
+            if (work.subTitles != null && !work.subTitles.isEmpty()
+                    && work.subTitles.get(0) != null && !work.subTitles.get(0).isEmpty()) {
+                meta = work.subTitles.get(0);
+            } else if (work.episodeCount > 0) {
+                meta = work.episodeCount + "集";
+            } else if (work.playCount > 0) {
+                meta = HongguoFeedActivity.HgTimeTextCount.format(work.playCount) + " 播放";
+            }
+            h.meta.setText(meta == null ? "" : meta);
             h.itemView.setOnClickListener(v -> {
                 if (work.seriesId != null && !work.seriesId.isEmpty()
                         && work.kind != DramaWork.KIND_VIDEO) {

@@ -31,7 +31,9 @@ public final class DramaCellPage {
      * hasMore/nextOffset 即签段服务端下发的续拉口径（has_more/next_offset），
      * 搜索续拉以此为准、不按条数自算。其余面为空表）。 */
     private final List<DramaSearchRow> searchRows;
-    /** 小分类面（频道回包递归抽取 category_id+名称；其余面为空表）。 */
+    /** 小分类面（已退役恒空表：旧版从频道回包递归抽 category_id 的
+     * 路实证抽 0，筹面正源改官方筛选面 DramaFilterRow，账
+     * hongguo-chip-fix-20261030；字段保留仅为构造器形状稳定）。 */
     private final List<DramaCategory> categories;
 
     DramaCellPage(int code, String message, List<DramaItem> items, JsonObject raw) {

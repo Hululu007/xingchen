@@ -60,6 +60,14 @@ public final class HgDevice {
      * hongguo-hotsearch-dig-20261030 §1.1，官方模板 a45/c 的
      * $GET /reading/bookapi/plan/v:version/ 互证）。 */
     public static final String PATH_PLAN = "/reading/bookapi/plan/v1/";
+    /**
+     * 短剧筛选面（distribution 族分类浏览口）：官方筛选面板（主题/设定/
+     * 背景等维度表）与带筛选取列表共用此口（openhongguo PathShortFilter
+     * 线协议实证，探针账 hongguo-chip-probe-20261030：两面实拉全通，
+     * 内容类型纯）。只在 API_HOST——distribution 族在 reading.snssdk.com
+     * 宿主 404，hostFor 默认回 API_HOST 正合此口径。
+     */
+    public static final String PATH_DISTRIBUTION_FILTER = "/reading/distribution/category/landpage/v1/";
 
     // ---------- 设备 persona（档案随身携带，openhongguo sdk/model.Device 同构） ----------
     //

@@ -1121,48 +1121,81 @@ public final class DramaParser {
             }
             cont = extractContinuation(tab, tabType);
         }
-        List<DramaCategory> categories = new ArrayList<>();
-        collectCategories(root, categories, new java.util.HashSet<>(), 0);
+        // 小分类筹的正源是官方筛选面（distribution 面板），不在频道回包
+        // 里抽——旧 collectCategories 对字符串形 category_schema 抽 0、
+        // 唯一命中的是长按举报项，整条已废（账 hongguo-chip-fix-20261030）。
         return new DramaCellPage(code, msg, items, root, hasMore,
                 cont == null ? null : cont.getOffset(),
                 cont == null ? null : cont.getSessionId(), cont,
-                Collections.emptyList(), Collections.emptyList(), categories);
+                Collections.emptyList(), Collections.emptyList(),
+                Collections.emptyList());
     }
 
-    /** 小分类筛选落地页回包 → 条目页（全树走同一套单元格抽取）。 */
-    public static DramaCellPage parseLandingPage(String json) {
+    /**
+     * 官方筛选面面板回包 → 维度行表（对照 openhongguo ParseShortFilter
+     * 的 selector_rows 读取）：data.selector_rows[]＝{type,row_name,
+     * items[{show_name,selector_item_id}]}，全行原样返回，消费方按
+     * key 取需要的维度（剧场用 category_dim_theme 主题＋
+     * category_dim_role 设定两行）。
+     */
+    public static List<DramaFilterRow> parseFilterPanel(String json) {
+        JsonObject root = JsonParser.parseString(json).getAsJsonObject();
+        List<DramaFilterRow> rows = new ArrayList<>();
+        JsonObject data = obj(root, "data");
+        JsonArray srows = data == null ? null : arr(data, "selector_rows");
+        if (srows == null) return rows;
+        for (JsonElement re : srows) {
+            if (re == null || !re.isJsonObject()) continue;
+            JsonObject r = re.getAsJsonObject();
+            DramaFilterRow row = new DramaFilterRow();
+            row.key = str(r, "type");
+            row.name = str(r, "row_name");
+            JsonArray items = arr(r, "items");
+            if (items != null) {
+                for (JsonElement ie : items) {
+                    if (ie == null || !ie.isJsonObject()) continue;
+                    JsonObject it = ie.getAsJsonObject();
+                    String nm = firstStr(it, "show_name");
+                    String val = firstStr(it, "selector_item_id");
+                    if (nm != null && !nm.isEmpty() && val != null && !val.isEmpty()) {
+                        row.options.add(new DramaFilterRow.Option(nm, val));
+                    }
+                }
+            }
+            if (row.key != null && !row.key.isEmpty()) rows.add(row);
+        }
+        return rows;
+    }
+
+    /**
+     * 官方筛选面内容回包 → 条目页：data.video_data 是扁平剧条目数组
+     * （顶层 series_id/title/cover/episode_cnt/category_schema…），走
+     * 与频道面同一套单元格抽取；游标取 data 的 has_more/next_offset/
+     * session_id（filter_ids 排除已展示由请求侧维护，探针实证页间
+     * 零重叠）。
+     */
+    public static DramaCellPage parseFilterList(String json) {
         JsonObject root = JsonParser.parseString(json).getAsJsonObject();
         int code = intOf(root, "code", 0);
         String msg = str(root, "message");
         List<DramaItem> items = new ArrayList<>();
-        collectDiscoverCells(root, items, 0);
-        return new DramaCellPage(code, msg, items, root);
-    }
-
-    /** 分类面抽取（与小说线同口径：递归找 category_id + 名称的对象，去重）。 */
-    private static void collectCategories(JsonElement el, List<DramaCategory> out,
-                                          java.util.Set<String> seen, int depth) {
-        if (el == null || depth > 10) return;
-        if (el.isJsonArray()) {
-            for (JsonElement child : el.getAsJsonArray()) {
-                collectCategories(child, out, seen, depth);
+        JsonObject data = obj(root, "data");
+        boolean hasMore = false;
+        String nextOffset = null;
+        String sessionId = null;
+        if (data != null) {
+            hasMore = boolOf(data, "has_more");
+            nextOffset = firstStr(data, "next_offset");
+            if (nextOffset == null) {
+                JsonElement no = data.get("next_offset");
+                if (no != null && no.isJsonPrimitive() && no.getAsJsonPrimitive().isNumber()) {
+                    nextOffset = String.valueOf(no.getAsLong());
+                }
             }
-            return;
+            sessionId = str(data, "session_id");
+            collectDiscoverCells(data, items, 0);
         }
-        if (!el.isJsonObject()) return;
-        JsonObject o = el.getAsJsonObject();
-        String cid = firstStr(o, "category_id");
-        String name = firstStr(o, "name", "title", "category_name");
-        if (cid != null && !cid.isEmpty() && name != null && !name.isEmpty()
-                && seen.add(cid)) {
-            DramaCategory c = new DramaCategory();
-            c.id = cid;
-            c.name = name;
-            out.add(c);
-        }
-        for (Map.Entry<String, JsonElement> en : o.entrySet()) {
-            collectCategories(en.getValue(), out, seen, depth + 1);
-        }
+        return new DramaCellPage(code, msg, items, root, hasMore, nextOffset, sessionId, null);
     }
 
     /**

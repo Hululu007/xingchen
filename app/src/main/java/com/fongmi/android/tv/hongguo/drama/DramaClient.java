@@ -646,17 +646,108 @@ public final class DramaClient {
                 sinkOf(cb, DramaParser::parseCellChange));
     }
 
-    private static final String PATH_LANDING = "/reading/bookapi/new_category/landing/v1/";
+    // ---------- 官方筛选面（distribution 分类浏览） ----------
 
-    /** 小分类筛选（数据源既有口径：landing 口 + category_id，单选一类一拉）。 */
-    public static void fetchCategoryLanding(String categoryId, int offset,
-                                            HgCallback<DramaCellPage> cb) {
-        List<String[]> pairs = HgDevice.deviceQueryPairs();
-        pairs.add(new String[]{"category_id", categoryId});
-        pairs.add(new String[]{"query_gender", "8"});
-        pairs.add(new String[]{"offset", String.valueOf(offset)});
-        pairs.add(new String[]{"count", "20"});
-        getBrowse(PATH_LANDING, pairs, false, sinkOf(cb, DramaParser::parseLandingPage));
+    /** 筛选维度键序（openhongguo ShortFilterBody 字面序，实拉验通）。 */
+    private static final String[] FILTER_KEYS = {
+            "category_dim_epoch", "online_time", "gender", "category_dim_role",
+            "genre", "creation_status", "sort", "category_dim_theme"};
+
+    /** 体裁（genre 取值）→ 筛选面场景：真人 default、漫剧/AI 各用自名。 */
+    private static String filterScene(String genre) {
+        if ("comic_series".equals(genre) || "ai_series".equals(genre)) return genre;
+        return "default";
+    }
+
+    private static JsonObject filterPanelBody(String genre) {
+        JsonObject body = new JsonObject();
+        body.addProperty("req_scene", filterScene(genre));
+        body.addProperty("need_selector_panel", false);
+        body.addProperty("req_type", "only_panel");
+        return body;
+    }
+
+    private static JsonObject filterContentBody(String genre, String dimKey, String dimValue,
+                                                int offset, String sessionId,
+                                                List<String> seenIds) {
+        JsonObject body = new JsonObject();
+        StringBuilder ids = new StringBuilder();
+        if (seenIds != null) {
+            for (String id : seenIds) {
+                if (id == null || id.isEmpty()) continue;
+                if (ids.length() > 0) ids.append(',');
+                ids.append(id);
+            }
+        }
+        body.addProperty("filter_ids", ids.toString());
+        body.addProperty("req_scene", filterScene(genre));
+        body.addProperty("offset", offset);
+        body.addProperty("limit", 18);
+        body.addProperty("need_selector_panel", false);
+        JsonObject items = new JsonObject();
+        for (String key : FILTER_KEYS) {
+            JsonArray arr = new JsonArray();
+            if ("genre".equals(key)) arr.add(genre);
+            else if (key.equals(dimKey) && dimValue != null) arr.add(dimValue);
+            items.add(key, arr);
+        }
+        body.add("select_items", items);
+        body.addProperty("session_id", sessionId == null ? "" : sessionId);
+        body.addProperty("req_type", "only_content");
+        return body;
+    }
+
+    /**
+     * 筛选面统一包覆：走 postPlayer 两面策略；服务端偶发静默节流会回
+     * code=0 的空结果（探针实证同序重发即有数，账 hongguo-chip-fix
+     * -20261030 §四），首发解析为空时经自家面补发一发再判空。
+     */
+    private static <T> void postFilter(JsonObject bodyObj,
+                                       java.util.function.Function<String, T> parse,
+                                       java.util.function.Predicate<T> isEmpty,
+                                       HgCallback<T> cb) {
+        postPlayer(HgDevice.PATH_DISTRIBUTION_FILTER, bodyObj, new Sink() {
+            @Override
+            public void body(String text) {
+                T v;
+                try {
+                    v = parse.apply(text);
+                } catch (Exception e) {
+                    cb.onError(-2, "回包解析失败");
+                    return;
+                }
+                if (v == null) {
+                    cb.onError(-2, "回包解析失败");
+                } else if (isEmpty.test(v)) {
+                    ownPost(HgDevice.PATH_DISTRIBUTION_FILTER, bodyObj, sinkOf(cb, parse));
+                } else {
+                    cb.onSuccess(v);
+                }
+            }
+
+            @Override
+            public void fail(int code, String msg) {
+                cb.onError(code, msg);
+            }
+        });
+    }
+
+    /** 筛选面面板（维度表）：genre＝short_play 真人/comic_series 漫剧/ai_series AI剧。 */
+    public static void fetchFilterPanel(String genre, HgCallback<List<DramaFilterRow>> cb) {
+        postFilter(filterPanelBody(genre), DramaParser::parseFilterPanel,
+                rows -> rows.isEmpty(), cb);
+    }
+
+    /**
+     * 筛选面内容（单选一维一值）：offset/sessionId/seenIds 游标由调用方
+     * 持有递进（filter_ids 排除已展示，页间零重叠为服务端语义）。
+     */
+    public static void fetchFilterList(String genre, String dimKey, String dimValue,
+                                       int offset, String sessionId, List<String> seenIds,
+                                       HgCallback<DramaCellPage> cb) {
+        postFilter(filterContentBody(genre, dimKey, dimValue, offset, sessionId, seenIds),
+                DramaParser::parseFilterList,
+                page -> offset == 0 && page.getItems().isEmpty(), cb);
     }
 
     // ---------- 搜索 ----------

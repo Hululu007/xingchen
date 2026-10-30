@@ -334,8 +334,12 @@ public class HkListActivity extends AppCompatActivity
                             o.put("url", target);
                             o.put("pic", "");
                             one.put(o);
+                            // sig=4 是「播放音频」钮：专辑名用页标题（帖子名），
+                            // 钮面文字只作章节名，不拿它当专辑名。
+                            String albumName = sig == 4 && !pTitle.isEmpty() ? pTitle
+                                    : (title == null ? "" : title);
                             if (com.fongmi.android.tv.ui.HkRadioRouter.routeHkWithTitles(activity,
-                                    hTitle, pTitle, title, "默认", target, title, title, "",
+                                    hTitle, pTitle, title, "默认", target, title, albumName, "",
                                     one.toString(), 0)) {
                                 return;
                             }

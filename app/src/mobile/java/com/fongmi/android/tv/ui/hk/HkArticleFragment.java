@@ -2701,6 +2701,37 @@ public class HkArticleFragment extends Fragment implements HkArticleListModel.Ca
             // 红果定根诊断：记 collect 定值与实际走的分支（单播/单集章节/收全选集），不记地址内容
             SpiderDebug.log("hk", "collect-branch collect=%b byPlayDataOnly=%b branch=%s", collect, byPlayDataOnly,
                     byPlayDataOnly ? "single-chapter" : (!collect ? "single" : "chapters"));
+            // 电台问询（媒体支补问，与下方非媒体支的问询前置同口径）：媒体门
+            // 认出的地址此前直奔 startHkPlay，那里只认规则名——规则名不含
+            // 电台字时（如「一个APP」电台帖里的「播放音频」钮解出真音频
+            // 地址），标题/钮面信号一次都不会被问，音频落视频/音乐链。
+            // 在此先问 claimSignal：规则名命中（sig=1）不拦、仍走下方原
+            // 分发（startHkPlay 内 routeHk 会认领）；标题/钮面命中
+            // （sig>=2）按问询前置同款 askRadioDirect 直问路由器，未成
+            // 原样落回下方分发，一行不变。
+            {
+                String rTitle = articleListRule == null ? null : articleListRule.getTitle();
+                int sig = com.fongmi.android.tv.ui.HkRadioRouter.claimSignal(rTitle, actTitle, itemTitle);
+                if (sig >= 2) {
+                    dealBranchMark("radio-ask-media", url);
+                    java.util.List<HkChapter> chs = byPlayDataOnly
+                            ? singleChapter(url, position, titlePrefix, codeAndHeader)
+                            : getChapters(url, position, titlePrefix, codeAndHeader);
+                    int sel = 0;
+                    for (int i = 0; i < chs.size(); i++) {
+                        if (chs.get(i).use) {
+                            sel = i;
+                            break;
+                        }
+                    }
+                    String albumName = !TextUtils.isEmpty(actTitle) ? actTitle : itemTitle;
+                    if (askRadioDirect(getActivity(), rTitle, actTitle, itemTitle, url,
+                            albumName, item.getPic() == null ? "" : item.getPic(), chs, sel)) {
+                        return;
+                    }
+                    // 认领未成：落回下方原分发
+                }
+            }
             if (!collect && !byPlayDataOnly) {
                 detailBridge.startPlayerSingle(getActivity(), itemTitle, url);
                 return;

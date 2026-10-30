@@ -13,6 +13,12 @@ import com.fongmi.android.tv.api.loader.BaseLoader;
 import com.fongmi.android.tv.api.music.MusicSourceManager;
 import com.fongmi.android.tv.bean.Site;
 import com.fongmi.android.tv.event.RefreshEvent;
+import com.fongmi.android.tv.legado.LegadoStore;
+import com.fongmi.android.tv.localbook.LocalBook;
+import com.fongmi.android.tv.localbook.LocalBookImporter;
+import com.fongmi.android.tv.localbook.LocalBookSession;
+import com.fongmi.android.tv.read.ReadingRouter;
+import com.fongmi.android.tv.read.ReadingSession;
 import com.fongmi.android.tv.utils.PyExtConfig;
 import com.fongmi.android.tv.utils.Task;
 import com.fongmi.android.tv.utils.ToastUtil;
@@ -21,7 +27,9 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 
 /**
  * .py/.js「打开方式」总门（清单三份申报的落点）：
@@ -41,11 +49,26 @@ import java.nio.charset.StandardCharsets;
  * 「源首页」概念：文件照样登记进插件管理，打开落音乐插件管理页——但它
  * 不会出现在音乐插件列表里（音乐侧是另一套登记：MusicSourceManager 按
  * srcUrl/本地副本入库，本门不往那套里塞，冲突与理由记在导入账里）。
+ * <p>
+ * txt 一类（扩展名 .txt，或无/杂扩展名且脚本嗅探不中）走阅读分发
+ * （TxtFileJudge 三分）：书源 JSON → LegadoStore.importText 现行链登记
+ * （整包多源、同 bookSourceUrl 覆盖），导完打开书源列表（LegadoActivity）；
+ * 小说正文 → LocalBookImporter.importUri 现行链落本地书存储（流式拷贝、
+ * 上限与索引口径全随现行导入），直接打开阅读器（LocalBookSession＋
+ * ReadingRouter，与 LocalBookOpenActivity 同路）。取舍钉死：扩展名是 .txt
+ * 就只走阅读分发，不许 py/js 内容嗅探翻案抢走（py 被误命名 .txt 极少，
+ * 真发生了它会按正文落成本地书，详见 txt 导入账）。
  */
 public class ImportActivity extends AppCompatActivity {
 
     /** 导入体积上限：脚本源常见几十~几百 KB，10MB 足够兜住胖源、又挡住误点的大文件 */
     private static final long MAX_BYTES = 10L * 1024 * 1024;
+
+    /** txt 分发探头样本上限：判定只看头部，512KB 足够书源特征与章节行露头 */
+    private static final int HEAD_BYTES = 512 * 1024;
+
+    /** 书源文件上限：与书源现行文件导入同口径（LegadoActivity 选择器、LegadoStore.importFile 均 2MB） */
+    private static final long SOURCE_MAX_BYTES = 2L * 1024 * 1024;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -71,9 +94,37 @@ public class ImportActivity extends AppCompatActivity {
 
     private void doImport(Uri uri) {
         String displayName = queryDisplayName(uri);
+        String ext = PluginFileJudge.extensionOf(PluginFileJudge.sanitize(displayName));
+        if ("txt".equals(ext)) {
+            // .txt 钉死走阅读分发，不许脚本嗅探翻案（取舍见类头注）
+            doImportTxt(uri, displayName, null);
+            return;
+        }
+        if (ext == null || (!"py".equals(ext) && !"js".equals(ext) && !"wv".equals(ext))) {
+            // 无/杂扩展名：先探头嗅脚本（标志专一、优先），嗅不出再按 txt 三分
+            HeadSample head = readHead(uri);
+            if (head == null) {
+                fail("读不到这个文件");
+                return;
+            }
+            if (head.bytes.length == 0) {
+                fail("文件是空的");
+                return;
+            }
+            if (PluginFileJudge.sniff(head.bytes) != PluginFileJudge.Kind.UNKNOWN) {
+                doImportScript(uri, displayName);
+                return;
+            }
+            doImportTxt(uri, displayName, head);
+            return;
+        }
+        doImportScript(uri, displayName);
+    }
+
+    private void doImportScript(Uri uri, String displayName) {
         byte[] bytes;
         try {
-            bytes = readAll(uri);
+            bytes = readAll(uri, MAX_BYTES);
         } catch (TooLargeException e) {
             fail("文件太大了，超过 10MB 没法导入");
             return;
@@ -126,6 +177,176 @@ public class ImportActivity extends AppCompatActivity {
         }
     }
 
+    // ---------- txt 分发（书源／正文／拒收） ----------
+
+    /** 头样本：bytes 为文件头部（≤HEAD_BYTES）；wholeFile 表示样本即全文（流已到尾） */
+    private static class HeadSample {
+        final byte[] bytes;
+        final boolean wholeFile;
+
+        HeadSample(byte[] bytes, boolean wholeFile) {
+            this.bytes = bytes;
+            this.wholeFile = wholeFile;
+        }
+    }
+
+    private void doImportTxt(Uri uri, String displayName, HeadSample preRead) {
+        HeadSample head = preRead != null ? preRead : readHead(uri);
+        if (head == null) {
+            fail("读不到这个文件");
+            return;
+        }
+        if (head.bytes.length == 0) {
+            fail("文件是空的");
+            return;
+        }
+        TxtFileJudge.Kind kind = TxtFileJudge.judge(head.bytes, head.wholeFile, querySize(uri));
+        switch (kind) {
+            case BOOK_SOURCE:
+                importBookSource(uri);
+                break;
+            case NOVEL:
+                importNovel(uri, displayName);
+                break;
+            default:
+                fail("认不出这个文件是书源还是小说");
+                break;
+        }
+    }
+
+    /** 书源：现行导入链 LegadoStore.importText 登记（整包多源），导完打开书源列表；成功静默 */
+    private void importBookSource(Uri uri) {
+        byte[] bytes;
+        try {
+            bytes = readAll(uri, SOURCE_MAX_BYTES);
+        } catch (TooLargeException e) {
+            fail("书源文件太大了，超过 2MB 没法导入");
+            return;
+        } catch (Exception e) {
+            fail("读不到这个文件");
+            return;
+        }
+        try {
+            // 最终裁定在导入器：逐项验 bookSourceUrl、坏项跳过、同 url 覆盖
+            LegadoStore.importText(new String(bytes, StandardCharsets.UTF_8));
+        } catch (Throwable t) {
+            fail("书源没导进来，格式可能不对");
+            return;
+        }
+        runOnUiThread(() -> {
+            LegadoActivity.start(this);
+            finish();
+        });
+    }
+
+    /**
+     * 正文：现行本地书链 LocalBookImporter.importUri 落盘＋建索引，直接开阅读器。
+     * 文件名不以 .txt 结尾（探头嗅出的无扩展名正文）时先流式暂存成同名 .txt 再走同一条链，
+     * 因为现行导入按文件名认格式；暂存文件在导入拷完后即删（导入是拷入私有目录，非引用原文件）。
+     */
+    private void importNovel(Uri uri, String displayName) {
+        String name = PluginFileJudge.sanitize(displayName);
+        boolean txtNamed = name != null && name.toLowerCase(Locale.ROOT).endsWith(".txt");
+        File tmp = null;
+        try {
+            Uri target = uri;
+            if (!txtNamed) {
+                String base = "导入的小说";
+                if (name != null) {
+                    int dot = name.lastIndexOf('.');
+                    base = dot > 0 ? name.substring(0, dot) : name;
+                    if (base.isEmpty()) base = "导入的小说";
+                }
+                tmp = new File(getCacheDir(), base + ".txt");
+                copyToFile(uri, tmp);
+                target = Uri.fromFile(tmp);
+            }
+            LocalBookImporter.Result r = LocalBookImporter.importUri(getApplicationContext(), target);
+            LocalBook book = r.book;
+            String warn = r.warn;
+            if (tmp != null) tmp.delete();
+            runOnUiThread(() -> openNovel(book, warn));
+        } catch (LocalBookImporter.ImportException e) {
+            if (tmp != null) tmp.delete();
+            fail(e.getMessage());
+        } catch (Exception e) {
+            if (tmp != null) tmp.delete();
+            fail("这本书没导进来");
+        }
+    }
+
+    /** 打开正文：与 LocalBookOpenActivity 同路（建会话→阅读器），导入侧的截断提示照现行口径出 */
+    private void openNovel(LocalBook book, String warn) {
+        if (book == null) {
+            ToastUtil.show(this, "打不开这本书", Toast.LENGTH_LONG);
+            finish();
+            return;
+        }
+        if (warn != null && !warn.isEmpty()) {
+            ToastUtil.show(this, warn, Toast.LENGTH_LONG);
+        }
+        ReadingSession s = LocalBookSession.build(book, 0);
+        if (s != null) {
+            if (s.kind == ReadingSession.Kind.COMIC) {
+                ReadingRouter.openReadingWithStartPage(this, s, 0);
+            } else {
+                ReadingRouter.openReading(this, s);
+            }
+        } else {
+            ToastUtil.show(this, "打不开这本书", Toast.LENGTH_LONG);
+        }
+        finish();
+    }
+
+    /** 只读头部样本（≤HEAD_BYTES），不整读大文件；打开流失败返回 null */
+    private HeadSample readHead(Uri uri) {
+        try (InputStream in = getContentResolver().openInputStream(uri)) {
+            if (in == null) return null;
+            ByteArrayOutputStream buf = new ByteArrayOutputStream();
+            byte[] chunk = new byte[8192];
+            int len;
+            while (buf.size() < HEAD_BYTES && (len = in.read(chunk, 0,
+                    Math.min(chunk.length, HEAD_BYTES - buf.size()))) > 0) {
+                buf.write(chunk, 0, len);
+            }
+            // 没填满样本上限就是流已到尾（样本即全文）；填满则不下整本结论
+            return new HeadSample(buf.toByteArray(), buf.size() < HEAD_BYTES);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** 流式暂存到文件（正文暂存用）；上限随本地书现行导入（2GB），超限抛 TooLargeException */
+    private void copyToFile(Uri uri, File dest) throws Exception {
+        try (InputStream in = getContentResolver().openInputStream(uri);
+             OutputStream out = new FileOutputStream(dest)) {
+            if (in == null) throw new IllegalStateException("openInputStream null");
+            byte[] chunk = new byte[64 * 1024];
+            int len;
+            long total = 0;
+            while ((len = in.read(chunk)) > 0) {
+                total += len;
+                if (total > 2L * 1024 * 1024 * 1024) throw new TooLargeException();
+                out.write(chunk, 0, len);
+            }
+            if (total == 0) throw new IllegalStateException("empty");
+        }
+    }
+
+    /** 文件总字节数：先问 SIZE 列，取不到 -1（判定侧以样本长度兜底） */
+    private long querySize(Uri uri) {
+        if ("content".equals(uri.getScheme())) {
+            try (android.database.Cursor cursor = getContentResolver().query(uri, null, null, null, null)) {
+                if (cursor != null && cursor.moveToFirst()) {
+                    int idx = cursor.getColumnIndex(android.provider.OpenableColumns.SIZE);
+                    if (idx >= 0 && !cursor.isNull(idx)) return cursor.getLong(idx);
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return -1;
+    }
+
     private void openImported(File dest, boolean py, byte[] bytes) {
         if (!py) {
             // 音乐插件类没有点播源首页：打开落它现行的管理页（登记仍在插件管理，见类头注）
@@ -172,14 +393,14 @@ public class ImportActivity extends AppCompatActivity {
     private static class TooLargeException extends Exception {
     }
 
-    private byte[] readAll(Uri uri) throws Exception {
+    private byte[] readAll(Uri uri, long cap) throws Exception {
         try (InputStream in = getContentResolver().openInputStream(uri)) {
             if (in == null) throw new IllegalStateException("openInputStream null");
             ByteArrayOutputStream buf = new ByteArrayOutputStream();
             byte[] chunk = new byte[8192];
             int len;
             while ((len = in.read(chunk)) > 0) {
-                if (buf.size() + len > MAX_BYTES) throw new TooLargeException();
+                if (buf.size() + len > cap) throw new TooLargeException();
                 buf.write(chunk, 0, len);
             }
             return buf.toByteArray();

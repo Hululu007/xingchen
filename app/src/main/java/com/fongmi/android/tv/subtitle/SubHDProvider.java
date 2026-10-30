@@ -54,8 +54,16 @@ public class SubHDProvider implements SubtitleProvider {
             String url = BASE + "/search/" + Uri.encode(query);
             String html = OkHttp.string(url, headers());
             if (ShieldBypass.isShieldPage(html)) {
-                ShieldBypass.setBlocked(getId());
-                return result;
+                // 盾页：改走 WebView 浏览器栈取页（通行证绑指纹，
+                // OkHttp 带 Cookie 重放 Cloudflare 不认——ShieldWebFetch 注）。
+                // 取回真页就照常解析；还取不到才记 blocked 提示人工验证。
+                String web = ShieldWebFetch.fetch(getId(), url, 20000);
+                if (!TextUtils.isEmpty(web) && !ShieldBypass.isShieldPage(web)) {
+                    html = web;
+                } else {
+                    ShieldBypass.setBlocked(getId());
+                    return result;
+                }
             }
             if (TextUtils.isEmpty(html)) return result;
             Matcher m = ITEM.matcher(html);
@@ -87,6 +95,12 @@ public class SubHDProvider implements SubtitleProvider {
     public static String resolveDownloadUrl(String detailPath) {
         try {
             String html = OkHttp.string(BASE + detailPath, headers());
+            if (ShieldBypass.isShieldPage(html)) {
+                // 详情页同搜索：盾住就走浏览器栈取页（顺带把 Cookie
+                // 存回 ShieldBypass，下面的 ajax 请求能复用）。
+                String web = ShieldWebFetch.fetch("subhd", BASE + detailPath, 20000);
+                if (!TextUtils.isEmpty(web) && !ShieldBypass.isShieldPage(web)) html = web;
+            }
             if (TextUtils.isEmpty(html)) return "";
             // 找下载按钮上的 data-id / sid 参数
             Matcher m = Pattern.compile("down_ajax[^0-9]*([0-9]+)").matcher(html);

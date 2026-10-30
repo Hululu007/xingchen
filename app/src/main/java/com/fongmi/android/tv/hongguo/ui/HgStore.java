@@ -84,7 +84,7 @@ public final class HgStore {
     // 全局键（此前喂 PlayerView 用的是点播那套配置，两边互串已断）。
     // 档表/缺省/映射全在 HgPanelLogic（官方 DanmakuOptionDialog 定版）。
 
-    /** 不透明度百分比（20–100，缺省 100）。 */
+    /** 不透明度百分比（20–100，缺省 90，官方真机缺省）。 */
     public static int getDanmakuOpacity() {
         return HgPanelLogic.clampDanmakuOpacity(
                 Prefers.getInt(K_DM_OPACITY, HgPanelLogic.DM_OPACITY_DEFAULT));
@@ -94,7 +94,7 @@ public final class HgStore {
         Prefers.put(K_DM_OPACITY, HgPanelLogic.clampDanmakuOpacity(percent));
     }
 
-    /** 移动速度档下标（0–4，缺省适中）。 */
+    /** 移动速度档下标（0–4，缺省末档「快」，官方真机缺省）。 */
     public static int getDanmakuSpeedIndex() {
         return HgPanelLogic.clampDanmakuIndex(
                 Prefers.getInt(K_DM_SPEED, HgPanelLogic.DM_SPEED_DEFAULT_INDEX),
@@ -106,7 +106,7 @@ public final class HgStore {
                 index, HgPanelLogic.DM_SPEED_FACTORS.length));
     }
 
-    /** 显示区域行数（1–4，缺省自家定 3，理由见 HgPanelLogic.DM_LINES_DEFAULT）。 */
+    /** 显示区域行数（1–4，缺省 2，官方真机缺省；见 HgPanelLogic.DM_LINES_DEFAULT）。 */
     public static int getDanmakuLines() {
         return HgPanelLogic.clampDanmakuLines(
                 Prefers.getInt(K_DM_LINES, HgPanelLogic.DM_LINES_DEFAULT));

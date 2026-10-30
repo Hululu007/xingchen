@@ -406,17 +406,32 @@ public class HongguoLandActivity extends AppCompatActivity {
         });
     }
 
-    /** 弹幕配置与竖屏页同一套档表（HgPanelLogic/HgStore）。 */
+    /**
+     * 弹幕配置与竖屏页同一套档表（HgPanelLogic/HgStore）；横屏显示区域
+     * 不走竖屏行数，走行高档（lineSpace）：档比折算滚动行数，缺省
+     * QUARTER＝1/4 屏（官方横屏口径）。置顶/置底行数仍沿用竖屏行数键。
+     */
     private androidx.media3.ui.danmaku.DanmakuConfig danmakuConfig() {
         int lines = HgStore.getDanmakuLines();
-        return androidx.media3.ui.danmaku.DanmakuConfig.DEFAULT.buildUpon()
+        float areaRatio = HgPanelLogic.danmakuAreaRatio(HgStore.getDanmakuLineSpaceIndex());
+        androidx.media3.ui.danmaku.DanmakuConfig.Builder builder =
+                androidx.media3.ui.danmaku.DanmakuConfig.DEFAULT.buildUpon()
                 .setTransparency(HgPanelLogic.danmakuTransparency(HgStore.getDanmakuOpacity()))
                 .setScrollSpeedFactor(HgPanelLogic.danmakuSpeedFactor(HgStore.getDanmakuSpeedIndex()))
                 .setTextScale(HgPanelLogic.danmakuFontScale(HgStore.getDanmakuFontIndex()))
+                .setTextSizeSp(HgPanelLogic.DM_TEXT_SIZE_SP)
+                .setDurationMs(HgPanelLogic.DM_DURATION_MS_LANDSCAPE)
                 .setMaxTopLines(lines)
-                .setMaxBottomLines(lines)
-                .setMaxScrollLines(lines)
-                .build();
+                .setMaxBottomLines(lines);
+        if (areaRatio < 0) {
+            // SINGLE 档＝单行哨兵（HgPanelLogic.danmakuAreaRatio 定版）：滚动区钉 1 行
+            builder.setMaxScrollLines(1);
+        } else {
+            // 其余档：滚动行数＝⌊可排轨道×屏高比⌋（引擎 TrackManager
+            // configuredCount），maxScrollLines 置 0＝不另封顶
+            builder.setScrollAreaRatio(areaRatio).setMaxScrollLines(0);
+        }
+        return builder.build();
     }
 
     // ---------- 弹幕（与竖屏页同源：HongguoDanmakuApi 落盘 XML） ----------

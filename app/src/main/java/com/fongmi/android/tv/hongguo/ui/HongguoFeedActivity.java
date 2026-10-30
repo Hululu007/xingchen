@@ -1754,6 +1754,8 @@ public class HongguoFeedActivity extends AppCompatActivity {
                 .setTransparency(HgPanelLogic.danmakuTransparency(HgStore.getDanmakuOpacity()))
                 .setScrollSpeedFactor(HgPanelLogic.danmakuSpeedFactor(HgStore.getDanmakuSpeedIndex()))
                 .setTextScale(HgPanelLogic.danmakuFontScale(HgStore.getDanmakuFontIndex()))
+                .setTextSizeSp(HgPanelLogic.DM_TEXT_SIZE_SP)
+                .setDurationMs(HgPanelLogic.DM_DURATION_MS_PORTRAIT)
                 .setMaxTopLines(lines)
                 .setMaxBottomLines(lines)
                 .setMaxScrollLines(lines)

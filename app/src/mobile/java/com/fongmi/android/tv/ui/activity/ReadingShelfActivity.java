@@ -8,6 +8,7 @@ import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.text.TextUtils;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
@@ -21,6 +22,7 @@ import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.widget.NestedScrollView;
 
 import com.fongmi.android.tv.legado.LegadoAudio;
 import com.fongmi.android.tv.legado.LegadoSource;
@@ -311,13 +313,50 @@ public class ReadingShelfActivity extends AppCompatActivity {
             contentBox.addView(novelHeader);
             if (novels.isEmpty()) contentBox.addView(emptyView(
                     "还没有在看的小说\n导入一本 txt / epub，或去看一本在线小说，或去听一本书"));
-            else {
-                // 在看只留最近 3 本（他 2026-10-31 定：后面都折叠起来，
-                // 不在首页往下堆）；全量走标题栏「全部 ›」的完整页。
-                int show = Math.min(3, novels.size());
-                for (int i = 0; i < show; i++) {
-                    contentBox.addView(bookCard(novels.get(i), false));
-                }
+            else if (novels.size() <= 3) {
+                for (ReadingStore.Record r : novels) contentBox.addView(bookCard(r, false));
+            } else {
+                // 在看区只露 3 本的高度，多的在区域内滑动看（他 2026-10-31
+                // 亲口纠正：留 3＋多的可以滑动，不是折叠走全部页——初版
+                // 只渲染 3 本是助手会错意，已按原话重落）。全量仍可走
+                // 标题栏「全部 ›」。内层 NestedScrollView 嵌在页面
+                // ScrollView 里：手势一落在本区，先禁外层拦截，
+                // 保证拖动滚的是书单而不是整页。
+                LinearLayout novelList = new LinearLayout(this);
+                novelList.setOrientation(LinearLayout.VERTICAL);
+                for (ReadingStore.Record r : novels) novelList.addView(bookCard(r, false));
+                NestedScrollView nsv = new NestedScrollView(this) {
+                    @Override
+                    public boolean onInterceptTouchEvent(MotionEvent ev) {
+                        if (ev.getAction() == MotionEvent.ACTION_DOWN) {
+                            getParent().requestDisallowInterceptTouchEvent(true);
+                        }
+                        return super.onInterceptTouchEvent(ev);
+                    }
+                };
+                nsv.addView(novelList, new ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT));
+                contentBox.addView(nsv, new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT));
+                // 布局完成后把区域高度钉成前 3 本（含卡间距）的总高
+                nsv.post(() -> {
+                    int h = 0;
+                    for (int i = 0; i < 3 && i < novelList.getChildCount(); i++) {
+                        View child = novelList.getChildAt(i);
+                        ViewGroup.MarginLayoutParams mlp =
+                                (ViewGroup.MarginLayoutParams) child.getLayoutParams();
+                        h += child.getHeight() + mlp.topMargin + mlp.bottomMargin;
+                    }
+                    if (h > 0) {
+                        ViewGroup.LayoutParams lp = nsv.getLayoutParams();
+                        if (lp != null && lp.height != h) {
+                            lp.height = h;
+                            nsv.setLayoutParams(lp);
+                        }
+                    }
+                });
             }
             if (latestAudio != null) {
                 contentBox.addView(ReadingSkin.sectionHeader(this, "听书", "小说直接听", null));

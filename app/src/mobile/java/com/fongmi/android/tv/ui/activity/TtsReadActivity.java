@@ -854,6 +854,14 @@ public class TtsReadActivity extends Activity
     /** 章正文（worker 线程调）：照小说阅读器同口径懒取。 */
     private String resolveText(int chapterIndex) {
         try {
+            // 先吃阅读页落盘的章缓存（与阅读页 cachedOrResolve 同口径、同键）：
+            // 读过的章朗读不再现抓，源侧一时抓不到（密钥/网络）也不整本哑火。
+            if (rs.localId == null || rs.localId.isEmpty()) {
+                String key = "NOVEL|" + rs.sourceName + "|" + rs.bookTitle;
+                String cached = com.fongmi.android.tv.read.ReadingDownload
+                        .loadNovelChapter(this, key, chapterIndex);
+                if (cached != null && !cached.isEmpty()) return cached;
+            }
             rs.chapterIndex = chapterIndex;
             ReadingSession.Chapter ch = rs.chapters.get(chapterIndex);
             return NovelReaderActivity.resolveText(rs, ch);
@@ -867,7 +875,7 @@ public class TtsReadActivity extends Activity
         new Thread(() -> {
             List<String> segs = engine.segmentsOf(chapter);
             if (segs.isEmpty()) {
-                runOnUiThread(() -> skipEmptyChapter(chapter, 1));
+                skipEmptyChapter(chapter, 1);
                 return;
             }
             int s = Math.max(0, Math.min(seg, segs.size() - 1));
@@ -912,29 +920,45 @@ public class TtsReadActivity extends Activity
         saveProgress();
     }
 
+    /**
+     * 跳过空章：探章必须在后台线程跑——segmentsOf 会现抓正文（网络），
+     * 调用方有两处是经 runOnUiThread 进来的，在主线程上逐章探抓取，
+     * 源侧一慢就是几十秒主线程埋死→ANR（2026-10-31 他真机实证：
+     * 红果正文抓取失败时每章都空、连探带卡整App 无响应）。本方法自带
+     * 线程，调用方在哪个线程调都安全；提示与起播动作回主线程发。
+     */
     private void skipEmptyChapter(int chapter, int dir) {
-        int next = chapter + dir;
-        int guard = 0;
-        while (next >= 0 && next < job.chapters.size() && guard++ < 50) {
-            final int n = next;
-            List<String> segs;
-            try {
-                segs = engine.segmentsOf(n);
-            } catch (Throwable t) {
-                segs = new ArrayList<>();
-            }
-            if (!segs.isEmpty()) {
-                if (guard > 1 || dir > 0) {
-                    final ReadingSession.Chapter c = job.chapters.get(n);
-                    ToastUtil.show(this, "「" + c.name + "」没有正文，已跳过",
-                            Toast.LENGTH_SHORT);
+        new Thread(() -> {
+            int next = chapter + dir;
+            int guard = 0;
+            while (next >= 0 && next < job.chapters.size() && guard++ < 50) {
+                final int n = next;
+                List<String> segs;
+                try {
+                    segs = engine.segmentsOf(n);
+                } catch (Throwable t) {
+                    segs = new ArrayList<>();
                 }
-                prepareChapter(n, 0, false);
-                return;
+                if (!segs.isEmpty()) {
+                    final boolean say = guard > 1 || dir > 0;
+                    runOnUiThread(() -> {
+                        if (released) return;
+                        if (say) {
+                            final ReadingSession.Chapter c = job.chapters.get(n);
+                            ToastUtil.show(this, "「" + c.name + "」没有正文，已跳过",
+                                    Toast.LENGTH_SHORT);
+                        }
+                        prepareChapter(n, 0, false);
+                    });
+                    return;
+                }
+                next += dir;
             }
-            next += dir;
-        }
-        ToastUtil.show(this, "后面没有可读的章节了", Toast.LENGTH_SHORT);
+            runOnUiThread(() -> {
+                if (released) return;
+                ToastUtil.show(this, "后面没有可读的章节了", Toast.LENGTH_SHORT);
+            });
+        }).start();
     }
 
     private void jumpChapter(int d) {

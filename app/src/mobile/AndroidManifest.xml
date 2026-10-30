@@ -547,6 +547,64 @@
             android:configChanges="screenSize|smallestScreenSize|screenLayout"
             android:screenOrientation="fullUser" />
 
+        <!-- .py/.js「打开方式」总门（ImportActivity）：外部点开脚本文件 → 静默登记进
+             插件管理并直接打开该源，成功零打扰、失败才提示。三份申报分工：
+             ① 按 MIME 接：文件管理器/TG 等按类型分发时命中（各家给脚本报的 MIME
+                不一，text/plain 是多数管理器对 .py/.js 的兜底报法，一并收）；
+             ② 按扩展名兜底：MIME 给成 octet-stream 等杂值、但路径带 .py/.js 时命中
+                （照 HkPageActivity/LabInstallActivity 先例，*/* 只与 pathPattern
+                组合出现、被扩展名钉死，不是裸 */* 全收）；
+             ③ 分享路兜底：ACTION_SEND 带 EXTRA_STREAM，MIME 口径同 ①。
+             label 单独写「导入插件」，与 HomeActivity 的同名条目在系统名单里分得开。
+             documentLaunchMode=never 与其余外部门同口径：并回既有任务不另开卡。 -->
+        <activity
+            android:name=".ui.activity.ImportActivity"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout"
+            android:documentLaunchMode="never"
+            android:exported="true"
+            android:label="导入插件"
+            android:screenOrientation="fullUser"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="text/x-python" />
+                <data android:mimeType="application/x-python" />
+                <data android:mimeType="text/javascript" />
+                <data android:mimeType="application/javascript" />
+                <data android:mimeType="application/x-javascript" />
+                <data android:mimeType="text/x-javascript" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:host="*" />
+                <data android:mimeType="*/*" />
+                <data android:pathPattern=".*\.py" />
+                <data android:pathPattern=".*\.PY" />
+                <data android:pathPattern=".*\.js" />
+                <data android:pathPattern=".*\.JS" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/x-python" />
+                <data android:mimeType="application/x-python" />
+                <data android:mimeType="text/javascript" />
+                <data android:mimeType="application/javascript" />
+                <data android:mimeType="application/x-javascript" />
+                <data android:mimeType="text/x-javascript" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+
         <activity
             android:name=".ui.activity.HistoryActivity"
             android:configChanges="screenSize|smallestScreenSize|screenLayout"

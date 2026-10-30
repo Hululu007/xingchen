@@ -855,22 +855,6 @@ public class HongguoFeedActivity extends AppCompatActivity {
         }));
         panel.addView(drawerSwitch("自动连播", HgStore.isAutoNext(),
                 on -> HgStore.setAutoNext(on)));
-        panel.addView(drawerAction("刷新设备档案", v -> {
-            closeDrawer();
-            HgApiClient.getInstance().resetDeviceProfile(new HgCallback<Boolean>() {
-                @Override
-                public void onSuccess(Boolean ok) {
-                    runOnUiThread(() -> Toast.makeText(HongguoFeedActivity.this,
-                            "设备档案已刷新", Toast.LENGTH_SHORT).show());
-                }
-
-                @Override
-                public void onError(int code, String msg) {
-                    runOnUiThread(() -> Toast.makeText(HongguoFeedActivity.this,
-                            "刷新失败，请重试", Toast.LENGTH_SHORT).show());
-                }
-            });
-        }));
         panel.addView(drawerAction("清红果缓存", v -> {
             DramaCache.clear();
             closeDrawer();

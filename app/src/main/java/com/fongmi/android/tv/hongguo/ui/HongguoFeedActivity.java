@@ -424,8 +424,14 @@ public class HongguoFeedActivity extends AppCompatActivity implements CastDialog
         View spacer = new View(this);
         bar.addView(spacer, new LinearLayout.LayoutParams(0, -2, 1f));
 
+        // 他亲定的入口形态：右上角圆形搜索钮（圆圈底＋放大镜），顶栏只留这一个搜索入口
         ImageView search = iconBtn(R.drawable.ic_drama_search,
                 v -> startActivity(new Intent(this, HongguoSearchActivity.class)));
+        GradientDrawable searchBg = new GradientDrawable();
+        searchBg.setShape(GradientDrawable.OVAL);
+        searchBg.setColor(0x66000000);
+        search.setBackground(searchBg);
+        search.setPadding(dp(9), dp(9), dp(9), dp(9));
         bar.addView(search, new LinearLayout.LayoutParams(dp(40), dp(40)));
 
         topBar = bar;

@@ -357,6 +357,27 @@ public class HongguoLandActivity extends AppCompatActivity {
         LinearLayout.LayoutParams epLp = new LinearLayout.LayoutParams(-2, -2);
         epLp.leftMargin = dp(10);
         top.addView(epView, epLp);
+        // 「···」更多钮（#22，他 2026-10-31 14:53 亲令）：右上角，
+        // 与左端返回＋「第X集」以弹性空段隔开；形态同竖屏播放页
+        // 右上更多钮（38dp 玻璃圆＋ic_drama_more、与本页返回钮同
+        // 玻璃底）。点开横屏更多面板（倍速/清晰度/弹幕开关＋设置）。
+        View topSpacer = new View(this);
+        top.addView(topSpacer, new LinearLayout.LayoutParams(0, -2, 1f));
+        ImageView moreBtn = new ImageView(this);
+        moreBtn.setImageResource(R.drawable.ic_drama_more);
+        moreBtn.setColorFilter(Color.WHITE);
+        android.graphics.drawable.GradientDrawable moreBg =
+                new android.graphics.drawable.GradientDrawable();
+        moreBg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        moreBg.setColor(0x52141212);
+        moreBg.setStroke(1, 0x2EFFFFFF);
+        moreBtn.setBackground(moreBg);
+        moreBtn.setPadding(dp(9), dp(9), dp(9), dp(9));
+        moreBtn.setOnClickListener(v -> {
+            HgFeedPanels.showMoreLand(this, landHost());
+            pokeChrome();
+        });
+        top.addView(moreBtn, new LinearLayout.LayoutParams(dp(38), dp(38)));
         topBar = top;
         FrameLayout.LayoutParams topLp = new FrameLayout.LayoutParams(-1, -2);
         topLp.gravity = Gravity.TOP;
@@ -592,6 +613,97 @@ public class HongguoLandActivity extends AppCompatActivity {
             return;
         }
         HgEpisodeSheet.show(this, detail, curEp, idx -> switchEpisode(idx, false));
+    }
+
+    /** 横屏更多面板宿主（#22）：与竖屏 host 同一回调面。 */
+    private HgFeedPanels.Host landHost() {
+        return new HgFeedPanels.Host() {
+            @Override
+            public Player player() {
+                return player;
+            }
+
+            @Override
+            public String vid() {
+                return curVid;
+            }
+
+            @Override
+            public String seriesId() {
+                return seriesId;
+            }
+
+            @Override
+            public DramaVideoModel currentModel() {
+                return curVid == null ? null : DramaCache.get(curVid);
+            }
+
+            @Override
+            public String currentDefinition() {
+                return resolver.currentDefinition(curVid);
+            }
+
+            @Override
+            public void changeDefinition(String definition) {
+                if (curVid == null || player == null) return;
+                final long pos = player.getCurrentPosition();
+                resolver.resolveAs(curVid, contentType, definition,
+                        new DramaResolver.Listener() {
+                            @Override
+                            public void onReady(String videoId, String url, int w, int h) {
+                                if (!videoId.equals(curVid) || player == null) return;
+                                player.setMediaItem(MediaItem.fromUri(url));
+                                player.prepare();
+                                if (pos > 0) player.seekTo(pos);
+                                player.setPlayWhenReady(true);
+                            }
+
+                            @Override
+                            public void onFailed(String videoId, String code, String message) {
+                                Toast.makeText(HongguoLandActivity.this,
+                                        "切换清晰度失败", Toast.LENGTH_SHORT).show();
+                            }
+                        });
+            }
+
+            @Override
+            public void setSpeed(float speed) {
+                HgStore.setSpeed(speed);
+                if (player != null) player.setPlaybackSpeed(speed);
+            }
+
+            @Override
+            public void openEpisodes() {
+                showEpisodes();
+            }
+
+            @Override
+            public void openDanmakuSettings() {
+                HgFeedPanels.showDanmakuSettings(HongguoLandActivity.this, this);
+            }
+
+            @Override
+            public void onDanmakuOptionsChanged() {
+                applyDanmakuOptions();
+            }
+        };
+    }
+
+    /**
+     * 弹幕设置变更落效（#22，与竖屏 onDanmakuOptionsChanged 同口径）：
+     * 重算配置、开关落到弹幕层与发弹幕标、刚打开且无货时补拉当前集。
+     */
+    private void applyDanmakuOptions() {
+        if (playerView != null) {
+            playerView.getDanmakuController().setConfig(danmakuConfig());
+            playerView.setDanmakuEnabled(HgStore.isDanmakuOn());
+        }
+        if (dmSend != null) {
+            dmSend.setVisibility(HgStore.isDanmakuOn() ? View.VISIBLE : View.GONE);
+        }
+        if (HgStore.isDanmakuOn() && curVid != null && dmItems.isEmpty()) {
+            startDanmaku(curVid);
+        }
     }
 
     private void switchEpisode(int episodeIndex, boolean retry) {

@@ -190,6 +190,48 @@ public final class HgFeedPanels {
         LinearLayout root = sheetRoot(a, 0xFFF4F4F6);
         root.setPadding(dp(a, 14), 0, dp(a, 14), dp(a, 14) + navBarHeight(a));
 
+        addMainCard(a, root, host, dialog);
+
+        // 卡二：定时关闭（状态文案在右）
+        LinearLayout card2 = card(a);
+        LinearLayout.LayoutParams c2lp = new LinearLayout.LayoutParams(-1, -2);
+        c2lp.topMargin = dp(a, 12);
+        root.addView(card2, c2lp);
+        LinearLayout timerRow = new LinearLayout(a);
+        timerRow.setOrientation(LinearLayout.HORIZONTAL);
+        timerRow.setGravity(Gravity.CENTER_VERTICAL);
+        timerRow.setPadding(0, dp(a, 14), 0, dp(a, 14));
+        timerRow.addView(rowLabel(a, "定时关闭", false),
+                new LinearLayout.LayoutParams(0, -2, 1f));
+        TextView timerState = new TextView(a);
+        timerState.setText(HgPanelLogic.timerStateText(
+                HgStore.getTimerMode(), HgStore.getTimerMinutes()));
+        timerState.setTextColor(0xFF8A8A93);
+        timerState.setTextSize(13.5f);
+        timerRow.addView(timerState);
+        android.widget.ImageView timerChev = chevron(a);
+        LinearLayout.LayoutParams tclp = new LinearLayout.LayoutParams(dp(a, 13), dp(a, 13));
+        tclp.leftMargin = dp(a, 6);
+        timerRow.addView(timerChev, tclp);
+        timerRow.setOnClickListener(v -> {
+            dialog.dismiss();
+            showTimerOptions(a, host);
+        });
+        card2.addView(timerRow);
+
+        dialog.setContentView(root);
+        dialog.show();
+        clearSheetBg(dialog);
+    }
+
+
+    /**
+     * 更多面板卡一（横竖共用）：倍速 seg＋清晰度 seg＋弹幕开关行
+     * ＋弹幕设置行。showMore（竖屏）与 showMoreLand（横屏）同件，
+     * 对应官方横竖同源的 ShortSeriesMorePanelDialog。
+     */
+    private static void addMainCard(AppCompatActivity a, LinearLayout root,
+                                    Host host, BottomSheetDialog dialog) {
         LinearLayout card1 = card(a);
         LinearLayout.LayoutParams c1lp = new LinearLayout.LayoutParams(-1, -2);
         c1lp.topMargin = dp(a, 6);
@@ -303,34 +345,24 @@ public final class HgFeedPanels {
             host.openDanmakuSettings();
         });
         card1.addView(dmsRow);
+    }
 
-        // 卡二：定时关闭（状态文案在右）
-        LinearLayout card2 = card(a);
-        LinearLayout.LayoutParams c2lp = new LinearLayout.LayoutParams(-1, -2);
-        c2lp.topMargin = dp(a, 12);
-        root.addView(card2, c2lp);
-        LinearLayout timerRow = new LinearLayout(a);
-        timerRow.setOrientation(LinearLayout.HORIZONTAL);
-        timerRow.setGravity(Gravity.CENTER_VERTICAL);
-        timerRow.setPadding(0, dp(a, 14), 0, dp(a, 14));
-        timerRow.addView(rowLabel(a, "定时关闭", false),
-                new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView timerState = new TextView(a);
-        timerState.setText(HgPanelLogic.timerStateText(
-                HgStore.getTimerMode(), HgStore.getTimerMinutes()));
-        timerState.setTextColor(0xFF8A8A93);
-        timerState.setTextSize(13.5f);
-        timerRow.addView(timerState);
-        android.widget.ImageView timerChev = chevron(a);
-        LinearLayout.LayoutParams tclp = new LinearLayout.LayoutParams(dp(a, 13), dp(a, 13));
-        tclp.leftMargin = dp(a, 6);
-        timerRow.addView(timerChev, tclp);
-        timerRow.setOnClickListener(v -> {
-            dialog.dismiss();
-            showTimerOptions(a, host);
-        });
-        card2.addView(timerRow);
 
+    /**
+     * 横屏更多面板（#22，他 2026-10-31 14:53 亲令）：只挂卡一
+     * （倍速/清晰度/弹幕开关＋弹幕设置行）——官方更多面板横竖
+     * 同源（ShortSeriesMorePanelDialog、动作项含 danmaku_options），
+     * 弹幕设置是本单的主件且全项已接（开关/四滑杆/两屏蔽开关走
+     * 同一套 HgStore 档表，横屏 onDanmakuOptionsChanged 重算配置）。
+     * 卡二定时关闭不带：其执行口（完播守卫与计时 tick）在竖屏页，
+     * 横屏页内无执行口——带行不执行是半截，是否给横屏补执行口
+     * 待裁（账 hongguo-ep-switch-smooth-20261031）。
+     */
+    public static void showMoreLand(AppCompatActivity a, Host host) {
+        BottomSheetDialog dialog = new BottomSheetDialog(a);
+        LinearLayout root = sheetRoot(a, 0xFFF4F4F6);
+        root.setPadding(dp(a, 14), 0, dp(a, 14), dp(a, 14) + navBarHeight(a));
+        addMainCard(a, root, host, dialog);
         dialog.setContentView(root);
         dialog.show();
         clearSheetBg(dialog);

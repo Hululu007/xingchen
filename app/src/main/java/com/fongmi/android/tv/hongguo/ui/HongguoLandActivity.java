@@ -84,10 +84,18 @@ public class HongguoLandActivity extends AppCompatActivity {
     private final java.util.List<androidx.media3.ui.danmaku.Danmaku> dmItems =
             new java.util.ArrayList<>();
     private ImageView lockBtn;
-    private ImageView likeBtn;
     private ImageView playBtn;
-    private TextView titleView;
     private TextView epView;
+    private TextView commentBtn;
+    /** 实流尺寸（onVideoSizeChanged 回报，画面框计算的单一数据源）。 */
+    private int videoW;
+    private int videoH;
+    /** 系统栏与挖孔让位（insets 监听捕获）。 */
+    private int barsTop;
+    private int barsBottom;
+    private int cutoutLeft;
+    /** 竖滑切集已触发时吞掉随之而来的点按（防 chrome 跟着翻）。 */
+    private boolean suppressTap;
     private TextView timeView;
     private TextView timeDurView;
     private FrameLayout progressWrap;
@@ -182,28 +190,14 @@ public class HongguoLandActivity extends AppCompatActivity {
         androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(root, (v, insets) -> {
             androidx.core.graphics.Insets bars = insets.getInsets(
                     androidx.core.view.WindowInsetsCompat.Type.systemBars());
-            // 画面本身铺满整屏（沉浸式，不内缩）；只让字钮让位：
-            // 顶行/底行/锁钮按系统栏真实高度挪开，播放面不受影响
-            if (topBar != null) {
-                FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) topBar.getLayoutParams();
-                lp.topMargin = bars.top;
-                topBar.setLayoutParams(lp);
-            }
-            if (bottomBar != null) {
-                FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) bottomBar.getLayoutParams();
-                lp.bottomMargin = bars.bottom;
-                bottomBar.setLayoutParams(lp);
-            }
-            if (lockBtn != null) {
-                FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) lockBtn.getLayoutParams();
-                lp.leftMargin = dp(10) + bars.left;
-                lockBtn.setLayoutParams(lp);
-            }
-            if (likeBtn != null) {
-                FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) likeBtn.getLayoutParams();
-                lp.rightMargin = dp(10) + bars.right;
-                likeBtn.setLayoutParams(lp);
-            }
+            androidx.core.graphics.Insets cut = insets.getInsets(
+                    androidx.core.view.WindowInsetsCompat.Type.displayCutout());
+            // 画面本身铺满整屏（沉浸式，不内缩）；数值只存下，控件
+            // 落位由 layoutChromeToFrame 按画面框统一算（#17）。
+            barsTop = bars.top;
+            barsBottom = bars.bottom;
+            cutoutLeft = cut.left;
+            layoutChromeToFrame();
             return insets;
         });
 
@@ -215,6 +209,34 @@ public class HongguoLandActivity extends AppCompatActivity {
         playerView.getDanmakuController().setConfig(danmakuConfig());
         playerView.setPlayer(player);
         playerView.setOnClickListener(v -> onSurfaceTap());
+        // 上下滑切集（#17，此前横屏手动切集从未接）：竖直位移过
+        // 64dp 且纵大于横判切集——上滑下一集、下滑上一集（与竖屏
+        // 流的上滑看下一条同向）；触发后随之而来的点按吞掉，防
+        // chrome 跟着翻。锁定态不理。不消费事件、点按链原样走。
+        final float[] touchDown = new float[2];
+        playerView.setOnTouchListener((v, ev) -> {
+            switch (ev.getActionMasked()) {
+                case android.view.MotionEvent.ACTION_DOWN:
+                    touchDown[0] = ev.getX();
+                    touchDown[1] = ev.getY();
+                    break;
+                case android.view.MotionEvent.ACTION_UP:
+                    if (locked || detail == null) break;
+                    float dx = ev.getX() - touchDown[0];
+                    float dy = ev.getY() - touchDown[1];
+                    if (Math.abs(dy) > dp(64) && Math.abs(dy) > Math.abs(dx)) {
+                        suppressTap = true;
+                        if (dy < 0) switchEpisode(curEp + 1, false);
+                        else switchEpisode(curEp - 1, false);
+                    }
+                    break;
+                default:
+                    break;
+            }
+            return false;
+        });
+        playerView.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or2, ob) ->
+                layoutChromeToFrame());
         root.addView(playerView, new FrameLayout.LayoutParams(-1, -1));
 
         spin = new ProgressBar(this);
@@ -250,40 +272,18 @@ public class HongguoLandActivity extends AppCompatActivity {
         lockLp.leftMargin = dp(10);
         root.addView(lockBtn, lockLp);
 
-        // 点赞钮（右侧中部、与锁钮对称；横屏无右列整列，只落点赞一颗，
-        // 与竖屏页共用 HgStore liked 集与激活红，显隐跟 chrome 走）
-        likeBtn = new ImageView(this);
-        likeBtn.setImageResource(R.drawable.ic_mine_heart);
-        likeBtn.setPadding(dp(10), dp(10), dp(10), dp(10));
-        likeBtn.setOnClickListener(v -> {
-            if (seriesId == null) return;
-            // 账号终定口径（#22）：点赞绑账号，未登录跳登录页
-            if (!com.fongmi.android.tv.hongguo.api.HgAccountStore.isLoggedIn()) {
-                HongguoLoginActivity.start(this);
-                return;
-            }
-            HgStore.toggleLiked(seriesId);
-            if (detail != null) {
-                HgStore.putMeta(seriesId, detail.getTitle(), detail.getCoverUrl(),
-                        detail.getEpisodeCount());
-            }
-            paintLike();
-            pokeChrome();
-        });
-        FrameLayout.LayoutParams likeLp = new FrameLayout.LayoutParams(dp(44), dp(44));
-        likeLp.gravity = Gravity.END | Gravity.CENTER_VERTICAL;
-        likeLp.rightMargin = dp(10);
-        root.addView(likeBtn, likeLp);
-        paintLike();
+        // 点赞钮已按 #17 亲定整颗摘除（横屏不要点赞）。
 
         // 顶行
         LinearLayout top = new LinearLayout(this);
         top.setOrientation(LinearLayout.HORIZONTAL);
         top.setGravity(Gravity.CENTER_VERTICAL);
         top.setPadding(dp(14), dp(8), dp(16), dp(8));
-        // 返回：38dp 玻璃圆钮（与播放页 .iconbtn 同形态）
+        // 返回：38dp 玻璃圆钮（与播放页 .iconbtn 同形态）；箭头字形
+        // 换官方包原样 ic_back（#17，官方包 drawable-xxhdpi 抠出、
+        // 白色着色沿用），归属待真机对帧。
         ImageView back = new ImageView(this);
-        back.setImageResource(R.drawable.ic_drama_back);
+        back.setImageResource(R.drawable.hg_ic_back_official);
         back.setColorFilter(Color.WHITE);
         android.graphics.drawable.GradientDrawable backBg =
                 new android.graphics.drawable.GradientDrawable();
@@ -294,21 +294,14 @@ public class HongguoLandActivity extends AppCompatActivity {
         back.setPadding(dp(9), dp(9), dp(9), dp(9));
         back.setOnClickListener(v -> exitLand());
         top.addView(back, new LinearLayout.LayoutParams(dp(38), dp(38)));
-        titleView = new TextView(this);
-        titleView.setText(seriesTitle == null ? "" : seriesTitle);
-        titleView.setTextColor(Color.WHITE);
-        titleView.setTextSize(15.5f);
-        titleView.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        titleView.setMaxLines(1);
-        titleView.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(0, -2, 1f);
-        titleLp.leftMargin = dp(10);
-        top.addView(titleView, titleLp);
+        // #17：横屏不挂标题，只留集数。
         epView = new TextView(this);
         epView.setTextColor(0xFFD8D8DC);
         epView.setTextSize(13);
         epView.setText("第" + curEp + "集");
-        top.addView(epView);
+        LinearLayout.LayoutParams epLp = new LinearLayout.LayoutParams(-2, -2);
+        epLp.leftMargin = dp(10);
+        top.addView(epView, epLp);
         topBar = top;
         FrameLayout.LayoutParams topLp = new FrameLayout.LayoutParams(-1, -2);
         topLp.gravity = Gravity.TOP;
@@ -418,6 +411,26 @@ public class HongguoLandActivity extends AppCompatActivity {
         eps.setPadding(dp(14), dp(8), dp(6), dp(8));
         eps.setOnClickListener(v -> showEpisodes());
         bottom.addView(eps);
+        // 评论入口（#17 横屏补数）：此前横屏根本没有评论入口、更
+        // 无数字。文案与竖屏同口径——有数显数（竖屏 HgTimeTextCount
+        // 格式化）、没数先显「评论」，数随集补拉（refreshCommentCount）。
+        commentBtn = new TextView(this);
+        commentBtn.setText("评论");
+        commentBtn.setTextColor(Color.WHITE);
+        commentBtn.setTextSize(13.5f);
+        commentBtn.setPadding(dp(14), dp(8), dp(6), dp(8));
+        commentBtn.setOnClickListener(v -> {
+            if (seriesId == null || curVid == null) return;
+            HgCommentsSheet.show(this, seriesId, curVid, seriesTitle,
+                    total -> {
+                        if (commentBtn != null && total > 0) {
+                            commentBtn.setText("评论 "
+                                    + HongguoFeedActivity.HgTimeTextCount.format(total));
+                        }
+                    });
+            pokeChrome();
+        });
+        bottom.addView(commentBtn);
         bottomBar = bottom;
         FrameLayout.LayoutParams bottomLp = new FrameLayout.LayoutParams(-1, -2);
         bottomLp.gravity = Gravity.BOTTOM;
@@ -476,6 +489,14 @@ public class HongguoLandActivity extends AppCompatActivity {
         }
 
         @Override
+        public void onVideoSizeChanged(@NonNull androidx.media3.common.VideoSize size) {
+            // 画面框的单一数据源（#17）：像素比折算后的实显示尺寸
+            videoW = Math.round(size.width * size.pixelWidthHeightRatio);
+            videoH = size.height;
+            layoutChromeToFrame();
+        }
+
+        @Override
         public void onRenderedFirstFrame() {
             spin.setVisibility(View.GONE);
         }
@@ -508,9 +529,7 @@ public class HongguoLandActivity extends AppCompatActivity {
             public void onSuccess(DramaDetail d) {
                 runOnUiThread(() -> {
                     detail = d;
-                    if (d != null && d.getTitle() != null && titleView != null) {
-                        titleView.setText(d.getTitle());
-                    }
+                    refreshCommentCount();
                 });
             }
 
@@ -546,6 +565,7 @@ public class HongguoLandActivity extends AppCompatActivity {
         curEp = episodeIndex;
         curVid = vid;
         epView.setText("第" + curEp + "集");
+        refreshCommentCount();
         spin.setVisibility(View.VISIBLE);
         failView.setVisibility(View.GONE);
         DramaResolver.Listener listener = new DramaResolver.Listener() {
@@ -685,6 +705,10 @@ public class HongguoLandActivity extends AppCompatActivity {
     // ---------- 显隐与退出 ----------
 
     private void onSurfaceTap() {
+        if (suppressTap) {
+            suppressTap = false;
+            return;
+        }
         if (locked) {
             lockBtn.setVisibility(lockBtn.getVisibility() == View.VISIBLE
                     ? View.GONE : View.VISIBLE);
@@ -700,7 +724,6 @@ public class HongguoLandActivity extends AppCompatActivity {
         topBar.setVisibility(vis);
         bottomBar.setVisibility(vis);
         if (!locked) lockBtn.setVisibility(vis);
-        if (likeBtn != null) likeBtn.setVisibility(locked ? View.GONE : vis);
         if (dmSend != null) {
             dmSend.setVisibility(show && HgStore.isDanmakuOn() && !locked
                     ? View.VISIBLE : View.GONE);
@@ -777,10 +800,69 @@ public class HongguoLandActivity extends AppCompatActivity {
     }
 
     /** 点赞态回显：已赞激活红、未赞白（与竖屏页 LIKE_ON_COLOR 同值）。 */
-    private void paintLike() {
-        if (likeBtn == null) return;
-        boolean liked = seriesId != null && HgStore.isLiked(seriesId);
-        likeBtn.setColorFilter(liked ? HongguoFeedActivity.LIKE_ON_COLOR : Color.WHITE);
+    /**
+     * 控件按画面框落位（#17）：视频显示矩形是单一坐标源——实流
+     * 尺寸（onVideoSizeChanged）与播放面尺寸算出 FIT 后的画面框，
+     * 顶/底行宽度与左右边距收进框内，锁钮贴框左缘并避开摄像头
+     * 挖孔（cutout 让位取大），发弹幕标贴框左、坐在底行上方。
+     */
+    private void layoutChromeToFrame() {
+        if (playerView == null) return;
+        int vw = playerView.getWidth();
+        int vh = playerView.getHeight();
+        if (vw <= 0 || vh <= 0) return;
+        int frameLeft = 0;
+        int frameW = vw;
+        if (videoW > 0 && videoH > 0) {
+            float scale = Math.min((float) vw / videoW, (float) vh / videoH);
+            frameW = Math.round(videoW * scale);
+            frameLeft = (vw - frameW) / 2;
+        }
+        if (topBar != null) {
+            FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) topBar.getLayoutParams();
+            lp.width = frameW;
+            lp.leftMargin = frameLeft;
+            lp.topMargin = barsTop;
+            topBar.setLayoutParams(lp);
+        }
+        if (bottomBar != null) {
+            FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) bottomBar.getLayoutParams();
+            lp.width = frameW;
+            lp.leftMargin = frameLeft;
+            lp.bottomMargin = barsBottom;
+            bottomBar.setLayoutParams(lp);
+        }
+        if (lockBtn != null) {
+            FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) lockBtn.getLayoutParams();
+            lp.leftMargin = Math.max(frameLeft, cutoutLeft) + dp(10);
+            lockBtn.setLayoutParams(lp);
+        }
+        if (dmSend != null) {
+            FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) dmSend.getLayoutParams();
+            lp.leftMargin = frameLeft + dp(16);
+            int barH = bottomBar != null && bottomBar.getHeight() > 0
+                    ? bottomBar.getHeight() : dp(58);
+            lp.bottomMargin = barsBottom + barH + dp(8);
+            dmSend.setLayoutParams(lp);
+        }
+    }
+
+    /** 评论数随集补拉（与竖屏 ensureCommentCount 同口同法）。 */
+    private void refreshCommentCount() {
+        if (commentBtn == null || seriesId == null || curVid == null) return;
+        final String sid = seriesId;
+        final String vid = curVid;
+        commentBtn.setText("评论");
+        worker.execute(() -> {
+            com.fongmi.android.tv.api.HongguoCommentApi.Page page =
+                    com.fongmi.android.tv.api.HongguoCommentApi.episodeComments(sid, vid, "");
+            runOnUiThread(() -> {
+                if (commentBtn == null || !vid.equals(curVid)) return;
+                if (page != null && page.total > 0) {
+                    commentBtn.setText("评论 " + HongguoFeedActivity.HgTimeTextCount.format(page.total));
+                }
+            });
+        });
     }
 
     private void pokeChrome() {

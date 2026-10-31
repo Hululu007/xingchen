@@ -1516,13 +1516,14 @@ public class HongguoFeedActivity extends AppCompatActivity {
                                 detail.getCoverUrl(), detail.getDesc(), detail.getEpisodeCount(),
                                 ep.getVideoId(), detail.getSeriesStatus(), detail.getAuthorName(),
                                 null, detail.getAuthorUid(), detail.getContentType(), -1,
-                                ep.getDiggCount()));
+                                ep.getDiggCount(), detail.getFollowedCnt()));
                     }
                     if (items.isEmpty()) {
                         items.add(DramaItem.fromDetail(detail.getSeriesId(), detail.getTitle(),
                                 detail.getCoverUrl(), detail.getDesc(), detail.getEpisodeCount(),
                                 null, detail.getSeriesStatus(), detail.getAuthorName(),
-                                null, detail.getAuthorUid(), detail.getContentType(), -1, -1));
+                                null, detail.getAuthorUid(), detail.getContentType(), -1, -1,
+                                detail.getFollowedCnt()));
                     }
                     adapter.notifyDataSetChanged();
                     hideState();
@@ -3497,6 +3498,20 @@ public class HongguoFeedActivity extends AppCompatActivity {
             }
             h.favIcon.setColorFilter(now ? 0xFFFFB03A : Color.WHITE);
             if (h.favLabel != null) h.favLabel.setText(now ? "已收藏" : "收藏");
+            // 收藏数随动作增减并即时重画（普查两断之一：此前 toggle
+            // 不动 followedCnt、数字永远停在进页那一刻）。没带数
+            // （-1）不动，保持未知不冒充。
+            if (item.followedCnt >= 0) {
+                item.followedCnt = Math.max(0, item.followedCnt + (now ? 1 : -1));
+                if (h.favCount != null) {
+                    if (item.followedCnt > 0) {
+                        h.favCount.setText(HgTimeTextCount.format(item.followedCnt));
+                        h.favCount.setVisibility(View.VISIBLE);
+                    } else {
+                        h.favCount.setVisibility(View.GONE);
+                    }
+                }
+            }
             styleFavPill(h, now);
             // 账号动作上报追剧架（#22：未登录已在入口跳登录页、到不
             // 了这里；本地集只是账号镜像，失败静默、同步拉取收口）

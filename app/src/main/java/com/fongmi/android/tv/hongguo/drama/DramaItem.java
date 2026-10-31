@@ -264,11 +264,23 @@ public final class DramaItem {
                                        int episodeCount, String firstVid, Integer seriesStatus,
                                        String authorName, String authorAvatar, String authorUid,
                                        int contentType, long commentCount, long diggCount) {
+        return fromDetail(seriesId, title, coverUrl, desc, episodeCount, firstVid,
+                seriesStatus, authorName, authorAvatar, authorUid, contentType,
+                commentCount, diggCount, -1);
+    }
+
+    /** followedCnt 版：收藏数随详情带入（此前恒 -1、播放页收藏数永远显不出）。 */
+    public static DramaItem fromDetail(String seriesId, String title, String coverUrl, String desc,
+                                       int episodeCount, String firstVid, Integer seriesStatus,
+                                       String authorName, String authorAvatar, String authorUid,
+                                       int contentType, long commentCount, long diggCount,
+                                       long followedCnt) {
         DramaItem item = new DramaItem(seriesId, title, coverUrl, desc, episodeCount,
                 false, false, null, firstVid, null, null, Collections.emptyList(), null,
                 false, null, -1, Collections.emptyList(), commentCount, diggCount, seriesStatus,
                 null, authorName, authorAvatar, authorUid, null, null);
         item.contentType = contentType;
+        item.followedCnt = followedCnt;
         return item;
     }
 

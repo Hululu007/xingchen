@@ -27,13 +27,16 @@ import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.HongguoDanmakuApi;
 import com.fongmi.android.tv.bean.Danmaku;
 import com.fongmi.android.tv.hongguo.api.HgCallback;
+import com.fongmi.android.tv.hongguo.drama.DramaCache;
 import com.fongmi.android.tv.hongguo.drama.DramaClient;
 import com.fongmi.android.tv.hongguo.drama.DramaDetail;
 import com.fongmi.android.tv.hongguo.drama.DramaResolver;
+import com.fongmi.android.tv.hongguo.drama.DramaVideoModel;
 import com.fongmi.android.tv.player.engine.ExoPlayerEngine;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -64,6 +67,8 @@ public class HongguoLandActivity extends AppCompatActivity {
     private String curVid;
     private int curEp = 1;
     private DramaDetail detail;
+    /** 取链窗口去重（resolveWithWindow，与刷剧页同口径）：已发窗口的起始位。 */
+    private int windowStart = -1;
     private String danmakuVid;
     private boolean locked;
     private boolean exited;
@@ -484,7 +489,7 @@ public class HongguoLandActivity extends AppCompatActivity {
         epView.setText("第" + curEp + "集");
         spin.setVisibility(View.VISIBLE);
         failView.setVisibility(View.GONE);
-        resolver.resolve(vid, contentType, new DramaResolver.Listener() {
+        DramaResolver.Listener listener = new DramaResolver.Listener() {
             @Override
             public void onReady(String videoId, String localUrl, int w, int h) {
                 if (!videoId.equals(curVid) || player == null) return;
@@ -500,7 +505,62 @@ public class HongguoLandActivity extends AppCompatActivity {
                 spin.setVisibility(View.GONE);
                 failView.setVisibility(View.VISIBLE);
             }
-        });
+        };
+        resolveWithWindow(vid, contentType, listener);
+    }
+
+    /**
+     * 取链窗口（与刷剧页 HongguoFeedActivity.resolveWithWindow 同口径，
+     * 2026-10-31）：服务端对 video_model 家族每身份只放行少数发，
+     * 单集逐发会把放行发浪费在一集上。当前集未命中缓存且不在已发
+     * 窗口内时，先用一发批量把「当前集起 20 集」取回落缓存再 resolve；
+     * 窗内切集全走缓存、不另发网。成败都回 resolve，不堵播放。
+     */
+    private void resolveWithWindow(String vid, int contentType,
+                                   DramaResolver.Listener listener) {
+        if (detail == null) {
+            resolver.resolve(vid, contentType, listener);
+            return;
+        }
+        DramaVideoModel cached = DramaCache.get(vid);
+        if (cached != null && cached.firstPlayableEntry() != null) {
+            resolver.resolve(vid, contentType, listener);
+            return;
+        }
+        List<DramaDetail.Episode> eps = detail.getEpisodes();
+        int pos = -1;
+        for (int i = 0; i < eps.size(); i++) {
+            if (vid.equals(eps.get(i).getVideoId())) {
+                pos = i;
+                break;
+            }
+        }
+        if (pos < 0 || (windowStart >= 0 && pos >= windowStart && pos < windowStart + 20)) {
+            resolver.resolve(vid, contentType, listener);
+            return;
+        }
+        windowStart = pos;
+        int ct = detail.getContentType();
+        List<DramaClient.ModelRequest> reqs = new ArrayList<>();
+        for (int i = pos; i < Math.min(pos + 20, eps.size()); i++) {
+            String ev = eps.get(i).getVideoId();
+            if (ev != null) reqs.add(new DramaClient.ModelRequest(ev, ct));
+        }
+        if (reqs.isEmpty()) {
+            resolver.resolve(vid, contentType, listener);
+            return;
+        }
+        DramaClient.fetchModels(reqs, new HgCallback<Map<String, DramaVideoModel>>() {
+            @Override
+            public void onSuccess(Map<String, DramaVideoModel> r) {
+                resolver.resolve(vid, contentType, listener);
+            }
+
+            @Override
+            public void onError(int c, String m) {
+                resolver.resolve(vid, contentType, listener);
+            }
+        }, false);
     }
 
     /**

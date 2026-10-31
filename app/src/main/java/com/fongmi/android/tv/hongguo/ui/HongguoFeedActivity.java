@@ -259,6 +259,9 @@ public class HongguoFeedActivity extends AppCompatActivity {
     private int currentEpisodeIndex = 1;
     private String seriesIdArg;
     private List<DramaDetail.Episode> episodes = new ArrayList<>();
+    /** 取链窗口去重（resolveWithWindow）：已发过窗口批量的剧与起始下标。 */
+    private String windowSeriesId;
+    private int windowStart = -1;
     private boolean cleanMode;
     private boolean boosting;
     private boolean prefetchedNext;
@@ -1874,7 +1877,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
         danmakuVid = null;
         player.stop();
         final boolean fitClip = playingClipContent();
-        resolver.resolve(vid, contentType, new DramaResolver.Listener() {
+        DramaResolver.Listener playListener = new DramaResolver.Listener() {
             @Override
             public void onReady(String videoId, String localUrl, int w, int h) {
                 if (!videoId.equals(currentVid) || player == null) return;
@@ -1902,7 +1905,66 @@ public class HongguoFeedActivity extends AppCompatActivity {
                         + " code=" + code + " msg=" + message);
                 showPlayFailure();
             }
-        });
+        };
+        resolveWithWindow(vid, contentType, playListener);
+    }
+
+    /**
+     * 系列起播取链（2026-10-31 改，账 hongguo-play-once-verdict）：播放
+     * 取链现状是新脸第一发之后即回空——原链「当前集先单发解链＋全集
+     * 预取再逐批单发」把能成的那一发只用在当前集一集上，后面全灭。
+     * 改成：当前集模型未落缓存时，先用一发 multi 把「当前集起 20 集」
+     * 窗口一次取回落缓存，再走既有 resolve（当前集命中缓存出链，
+     * 后续窗内切集全命中）。窗口按（剧、起始下标）去重，窗内不重发；
+     * 滚到窗外再开新窗。非系列模式/已缓存/找不到集位时直走 resolve。
+     */
+    private void resolveWithWindow(String vid, int contentType,
+                                   DramaResolver.Listener listener) {
+        if (mode != MODE_SERIES || seriesIdArg == null || episodes.isEmpty()) {
+            resolver.resolve(vid, contentType, listener);
+            return;
+        }
+        DramaVideoModel cached = DramaCache.get(vid);
+        if (cached != null && cached.firstPlayableEntry() != null) {
+            resolver.resolve(vid, contentType, listener);
+            return;
+        }
+        int idx = -1;
+        for (int i = 0; i < episodes.size(); i++) {
+            if (vid.equals(episodes.get(i).getVideoId())) {
+                idx = i;
+                break;
+            }
+        }
+        if (idx < 0 || (seriesIdArg.equals(windowSeriesId)
+                && idx >= windowStart && idx < windowStart + 20)) {
+            resolver.resolve(vid, contentType, listener);
+            return;
+        }
+        windowSeriesId = seriesIdArg;
+        windowStart = idx;
+        DramaDetail d = detailCache.get(seriesIdArg);
+        int ct = d == null ? contentType : d.getContentType();
+        List<DramaClient.ModelRequest> reqs = new ArrayList<>();
+        for (int i = idx; i < Math.min(idx + 20, episodes.size()); i++) {
+            String ev = episodes.get(i).getVideoId();
+            if (ev != null) reqs.add(new DramaClient.ModelRequest(ev, ct));
+        }
+        if (reqs.isEmpty()) {
+            resolver.resolve(vid, contentType, listener);
+            return;
+        }
+        DramaClient.fetchModels(reqs, new HgCallback<Map<String, DramaVideoModel>>() {
+            @Override
+            public void onSuccess(Map<String, DramaVideoModel> r) {
+                resolver.resolve(vid, contentType, listener);
+            }
+
+            @Override
+            public void onError(int c, String m) {
+                resolver.resolve(vid, contentType, listener);
+            }
+        }, false);
     }
 
     /**
@@ -1912,10 +1974,10 @@ public class HongguoFeedActivity extends AppCompatActivity {
      * 视频页（短片/合集）不走本路。
      */
     private void maybePrefetchSeries(String vid) {
-        if (mode != MODE_SERIES || seriesIdArg == null) return;
-        DramaDetail d = detailCache.get(seriesIdArg);
-        if (d == null || episodes.isEmpty()) return;
-        DramaSeriesPrefetch.start(seriesIdArg, episodes, d.getContentType(), vid);
+        // 2026-10-31 停用（账 hongguo-play-once-verdict）：全集预取的逐批
+        // 单发在当前取链形势下全是白烧——窗口批量已并进 playVid 的
+        // resolveWithWindow（当前集起 20 集一发取回落缓存，滚窗再取）。
+        // DramaSeriesPrefetch 类保留，取链形势恢复常态后再议去留。
     }
 
     private void onPlayEnded() {
@@ -2047,25 +2109,11 @@ public class HongguoFeedActivity extends AppCompatActivity {
     }
 
     private void prefetchNeighbors(int index) {
-        // 备链条数对齐官方包内缺省：后三条（他 2026-10-30 议定 2→3）
-        List<DramaClient.ModelRequest> reqs = new ArrayList<>();
-        for (int i = index + 1; i <= Math.min(index + 3, items.size() - 1); i++) {
-            DramaItem it = items.get(i);
-            if (it.getVid() != null) {
-                reqs.add(new DramaClient.ModelRequest(it.getVid(), it.contentType));
-            }
-        }
-        if (!reqs.isEmpty()) {
-            DramaClient.fetchModels(reqs, new HgCallback<Map<String, DramaVideoModel>>() {
-                @Override
-                public void onSuccess(Map<String, DramaVideoModel> r) {
-                }
-
-                @Override
-                public void onError(int c, String m) {
-                }
-            }, true);
-        }
+        // 2026-10-31 停用（账 hongguo-play-once-verdict）：刷流停住预取
+        // 后三条播放模型＝每停一次多烧一发取链，当前形势下会把用户真
+        // 要点播的那一发先烧掉。只停播放模型预取，条目本身照常滑动
+        // 起播（起播走 playVid 正链）。后三条口径（他 2026-10-30 议定）
+        // 待取链形势恢复常态后再恢复本方法。
     }
 
     /** D7 历史进度线落位（FEED 剧条下缘那条）：按存档比例设填充宽＋点位。 */

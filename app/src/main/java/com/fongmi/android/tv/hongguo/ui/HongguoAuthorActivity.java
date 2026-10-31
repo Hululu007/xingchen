@@ -18,7 +18,6 @@ import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
-import com.bumptech.glide.load.resource.bitmap.RoundedCorners;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.hongguo.api.HgCallback;
 import com.fongmi.android.tv.hongguo.drama.DramaClient;
@@ -708,8 +707,8 @@ public class HongguoAuthorActivity extends AppCompatActivity {
             DramaWork.AlbumInfo al = work.album;
             if (al == null) return;
             if (!work.cover.isEmpty()) {
-                Glide.with(HongguoAuthorActivity.this).load(work.cover)
-                        .transform(new RoundedCorners(dp(9))).into(h.thumb);
+                HgCoverClip.round(h.thumb, dp(9));
+                Glide.with(HongguoAuthorActivity.this).load(work.cover).into(h.thumb);
             } else {
                 h.thumb.setImageDrawable(null);
             }
@@ -742,8 +741,8 @@ public class HongguoAuthorActivity extends AppCompatActivity {
                 cov.setScaleType(ImageView.ScaleType.CENTER_CROP);
                 cov.setBackground(roundBg(0xFFE8E6E2, dp(10)));
                 if (!ep.cover.isEmpty()) {
-                    Glide.with(HongguoAuthorActivity.this).load(ep.cover)
-                            .transform(new RoundedCorners(dp(10))).into(cov);
+                    HgCoverClip.round(cov, dp(10));
+                    Glide.with(HongguoAuthorActivity.this).load(ep.cover).into(cov);
                 }
                 box.addView(cov, new android.widget.FrameLayout.LayoutParams(-1, -1));
                 TextView epChip = new TextView(HongguoAuthorActivity.this);
@@ -790,8 +789,8 @@ public class HongguoAuthorActivity extends AppCompatActivity {
             h.itemView.setPadding(col == 0 ? 0 : dp(5), 0,
                     col == 2 ? 0 : dp(5), dp(14));
             if (work.cover != null && !work.cover.isEmpty()) {
-                Glide.with(HongguoAuthorActivity.this).load(work.cover)
-                        .transform(new RoundedCorners(dp(13))).into(h.cover);
+                HgCoverClip.round(h.cover, dp(13));
+                Glide.with(HongguoAuthorActivity.this).load(work.cover).into(h.cover);
             } else {
                 h.cover.setImageDrawable(null);
             }

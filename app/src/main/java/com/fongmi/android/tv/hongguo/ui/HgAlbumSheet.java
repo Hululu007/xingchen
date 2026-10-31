@@ -15,7 +15,6 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
-import com.bumptech.glide.load.resource.bitmap.RoundedCorners;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.hongguo.drama.DramaAlbumDetail;
 import com.fongmi.android.tv.hongguo.drama.DramaItem;
@@ -263,8 +262,8 @@ public final class HgAlbumSheet {
             boolean on = position == currentIndex;
             h.name.setText(item.getTitle() == null ? "" : item.getTitle());
             if (item.getCoverUrl() != null && !item.getCoverUrl().isEmpty()) {
-                Glide.with(activity).load(item.getCoverUrl())
-                        .transform(new RoundedCorners(dp.applyAsInt(10))).into(h.cover);
+                HgCoverClip.round(h.cover, dp.applyAsInt(10));
+                Glide.with(activity).load(item.getCoverUrl()).into(h.cover);
             } else {
                 h.cover.setImageDrawable(null);
             }

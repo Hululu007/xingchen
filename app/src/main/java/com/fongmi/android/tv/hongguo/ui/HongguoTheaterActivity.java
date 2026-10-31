@@ -31,7 +31,6 @@ import androidx.recyclerview.widget.StaggeredGridLayoutManager;
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.load.DataSource;
 import com.bumptech.glide.load.engine.GlideException;
-import com.bumptech.glide.load.resource.bitmap.RoundedCorners;
 import com.bumptech.glide.request.RequestListener;
 import com.bumptech.glide.request.target.Target;
 import com.fongmi.android.tv.R;
@@ -1012,8 +1011,9 @@ public class HongguoTheaterActivity extends AppCompatActivity {
             h.itemView.setPadding(position % 2 == 0 ? 0 : dp(6), 0,
                     position % 2 == 0 ? dp(6) : 0, dp(18));
             if (item.getCoverUrl() != null && !item.getCoverUrl().isEmpty()) {
+                HgCoverClip.round(h.cover, dp(16));
                 Glide.with(HongguoTheaterActivity.this).load(item.getCoverUrl())
-                        .transform(new RoundedCorners(dp(16))).into(h.cover);
+                        .into(h.cover);
             } else {
                 h.cover.setImageDrawable(null);
             }
@@ -1130,8 +1130,8 @@ public class HongguoTheaterActivity extends AppCompatActivity {
             flp.height = (int) (w * ratio);
             frame.setLayoutParams(flp);
             if (coverUrl != null && !coverUrl.isEmpty()) {
+                HgCoverClip.round(h.cover, dp(16));
                 Glide.with(HongguoTheaterActivity.this).load(coverUrl)
-                        .transform(new RoundedCorners(dp(16)))
                         .listener(new RequestListener<Drawable>() {
                             @Override
                             public boolean onLoadFailed(@Nullable GlideException e, Object model,

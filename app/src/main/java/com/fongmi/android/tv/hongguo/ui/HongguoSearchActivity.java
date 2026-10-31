@@ -29,7 +29,6 @@ import androidx.recyclerview.widget.RecyclerView;
 import androidx.recyclerview.widget.StaggeredGridLayoutManager;
 
 import com.bumptech.glide.Glide;
-import com.bumptech.glide.load.resource.bitmap.RoundedCorners;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.hongguo.api.HgCallback;
 import com.fongmi.android.tv.hongguo.drama.DramaCellPage;
@@ -795,8 +794,8 @@ public class HongguoSearchActivity extends AppCompatActivity {
                 iv.setImageDrawable(null);
                 return;
             }
-            Glide.with(HongguoSearchActivity.this).load(url)
-                    .transform(new RoundedCorners(dp(8))).into(iv);
+            HgCoverClip.round(iv, dp(8));
+            Glide.with(HongguoSearchActivity.this).load(url).into(iv);
         }
 
         @Override

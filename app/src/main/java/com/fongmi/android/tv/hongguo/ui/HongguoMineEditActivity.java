@@ -19,8 +19,6 @@ import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
-import com.bumptech.glide.load.resource.bitmap.RoundedCorners;
-import com.bumptech.glide.request.RequestOptions;
 import com.fongmi.android.tv.R;
 
 import java.util.ArrayList;
@@ -452,8 +450,8 @@ public class HongguoMineEditActivity extends AppCompatActivity {
         public void onBindViewHolder(@NonNull H h, int position) {
             EditRow row = rows.get(position);
             if (row.cover != null && !row.cover.isEmpty()) {
+                HgCoverClip.round(h.cover, dp(8));
                 Glide.with(HongguoMineEditActivity.this).load(row.cover)
-                        .apply(RequestOptions.bitmapTransform(new RoundedCorners(dp(8))))
                         .into(h.cover);
             } else {
                 h.cover.setImageDrawable(null);

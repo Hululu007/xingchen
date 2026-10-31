@@ -22,7 +22,6 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
-import com.bumptech.glide.load.resource.bitmap.RoundedCorners;
 import com.fongmi.android.tv.R;
 import android.text.method.LinkMovementMethod;
 import com.fongmi.android.tv.api.HongguoCommentApi;
@@ -691,8 +690,8 @@ public class HongguoDetailActivity extends AppCompatActivity {
         applyGradient(d.getColorHex());
         if (d.getTitle() != null) titleText.setText(d.getTitle());
         if (d.getCoverUrl() != null && !d.getCoverUrl().isEmpty()) {
-            Glide.with(this).load(d.getCoverUrl())
-                    .transform(new RoundedCorners(dp(12))).into(coverView);
+            HgCoverClip.round(coverView, dp(12));
+            Glide.with(this).load(d.getCoverUrl()).into(coverView);
             Glide.with(this).load(d.getCoverUrl()).into(backdropView);
         }
         int total = d.getEpisodeCount() > 0 ? d.getEpisodeCount() : d.getEpisodes().size();
@@ -1220,8 +1219,8 @@ public class HongguoDetailActivity extends AppCompatActivity {
         public void onBindViewHolder(@NonNull H h, int position) {
             DramaDetail.RelatedWork item = data.get(position);
             if (item.getCoverUrl() != null && !item.getCoverUrl().isEmpty()) {
-                Glide.with(HongguoDetailActivity.this).load(item.getCoverUrl())
-                        .transform(new RoundedCorners(dp(11))).into(h.cover);
+                HgCoverClip.round(h.cover, dp(11));
+                Glide.with(HongguoDetailActivity.this).load(item.getCoverUrl()).into(h.cover);
             } else {
                 h.cover.setImageDrawable(null);
             }

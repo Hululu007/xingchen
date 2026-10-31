@@ -78,13 +78,17 @@ public class HongguoMineActivity extends AppCompatActivity {
     public static void startTab(android.content.Context context) {
         android.content.Intent intent = new android.content.Intent(context, HongguoMineActivity.class);
         intent.putExtra(EXTRA_TAB, true);
-        HgTransition.push(context, intent);
+        // 签位口径与另两签同轨（切换手感扫查）：三签互切一律
+        // fade，此前独此签走 push 滑入、与首页/剧场淡入混轨。
+        HgTransition.fade(context, intent);
     }
 
     @Override
     public void finish() {
         super.finish();
-        HgTransition.applyPushExit(this);
+        // tab 入口的退出回签位 fade；抽屉纵深入口（历史/收藏）保持 push 退出。
+        if (tabEntry) HgTransition.applyFadeExit(this);
+        else HgTransition.applyPushExit(this);
     }
 
     private LinearLayout root;

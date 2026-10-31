@@ -98,6 +98,13 @@ public final class HgRequests {
      * 首次发码不带。公共参数由客户端另行拼到查询串（与官方网络层
      * NetworkParams.putCommonParams 并入同源一套）。
      */
+    /**
+     * 发码表单：维持现行 SDK 形（xor mobile＋type=24）——今晨真机
+     * 实证此形码真到、断点只在登录步（审表）；登录对齐（2026-10-31）
+     * 只动登录形与发码回包的会话件抓存（在 HgPassportClient），不拿
+     * 已证步冒险。assistant 发码簇里的 auto_read 字段静态抠不到值，
+     * 登记未抠到、不自创（见修复账）。
+     */
     public static java.util.Map<String, String> sendCodeForm(String mobile) {
         java.util.Map<String, String> form = new LinkedHashMap<>();
         form.put("mobile", xorHex(mobile));
@@ -107,11 +114,18 @@ public final class HgRequests {
         return form;
     }
 
-    /** 短信登录表单 POST /passport/mobile/sms_login/（xz0/d.H 组参逐字段）。 */
+    /**
+     * 短信登录表单 POST /passport/mobile/sms_login/（2026-10-31 登录
+     * 对齐，照 assistant 链字段簇原文：mobile/code 明文、type=0、
+     * unbind_exist）。unbind_exist 的值在静态材料里抠不到（同上），
+     * 按布尔字段表单惯例取 "true"，是本表单头号未验变量（见修复账）。
+     */
     public static java.util.Map<String, String> smsLoginForm(String mobile, String code) {
         java.util.Map<String, String> form = new LinkedHashMap<>();
-        form.put("mobile", xorHex(mobile));
-        form.put("code", xorHex(code));
+        form.put("mobile", mobile);
+        form.put("code", code);
+        form.put("type", "0");
+        form.put("unbind_exist", "true");
         form.put("mix_mode", "1");
         return form;
     }

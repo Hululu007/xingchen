@@ -45,14 +45,21 @@ import okhttp3.ResponseBody;
  * 本版先查 data.error_code、再查顶层（防御）。错误文案一律翻成人话
  * （见 humanError），不把错误码、英文与 desc_url 糊到用户脸上。</p>
  *
- * <p>未定（如实）：①发码 type=24 未单独证（探针假号全倒在手机号关，
- * type 没轮到被判，真号首登若回 type 类错误再换候选值）；②真号发码
- * 是否触发图形验证码/shark 二次验证由服务端风险决定，假号验不到，
- * 触发时回包 data.captcha 非空，本版先给人话提示、票据路待续挖；
- * ③登录成功回包→会话落盘未验（无真码）：本客户端只组 HgAccountStore.Session
- * 回调（data.session_key 组 sessionid，Set-Cookie 优先；账号信息与
- * x-tt-token / csrf 按 metasec-integration-design-20261031.md §5 定版摘取），
- * 落盘由调用方走 HgAccountStore.save。</p>
+ * <p>未定（如实）：①真号发码是否触发图形验证码/shark 二次验证由
+ * 服务端风险决定，假号验不到，触发时回包 data.captcha 非空，本版
+ * 先给人话提示、票据路待续挖；②登录成功回包→会话落盘未验（无真
+ * 码）：本客户端只组 HgAccountStore.Session 回调（data.session_key
+ * 组 sessionid，Set-Cookie 优先；账号信息与 x-tt-token / csrf 按
+ * metasec-integration-design-20261031.md §5 定版摘取），落盘由调用
+ * 方走 HgAccountStore.save。</p>
+ *
+ * <p>2026-10-31 登录对齐（照 hongguo-assistant 的 account.rs 链，
+ * 审表补记口径）：sms_login 表单改明文 mobile/code＋type=0＋
+ * unbind_exist（HgRequests.smsLoginForm）；发码回包 Set-Cookie 与
+ * x-tt-passport-csrf-token 抓存、验码回带；发请求前预热原生签名
+ * 并留一行诊断日志（本发采纳原生还是仿算）；失败回包 http/错误码
+ * 留痕。发码表单维持 SDK 形（今晨真机实证码真到，见 HgRequests
+ * .sendCodeForm 注）。</p>
  */
 public final class HgPassportClient {
 
@@ -60,6 +67,15 @@ public final class HgPassportClient {
 
     /** 只借它的设备注册门（ensureDevice），注册身份与全 App 红果链同一份 HgDevice 档案。 */
     private final HgApiClient deviceGate = new HgApiClient();
+
+    /**
+     * 发码回包的会话件（登录对齐，照 hongguo-assistant 链恢复——
+     * 2026-10-29 旧版有此回带、1.4.67 复活重写时整件丢失，审表嫌疑
+     * 二）：发码响应 Set-Cookie 的名值对串与 x-tt-passport-csrf-token
+     * 抓存于此，验码请求原样回带（Cookie 头＋csrf 头）。
+     */
+    private volatile String sendCodeCookie;
+    private volatile String sendCodeCsrf;
 
     public HgPassportClient() {
     }
@@ -71,11 +87,16 @@ public final class HgPassportClient {
      * （不吞错、不贴原始码）。
      */
     public void sendSmsCode(String mobile, HgCallback<Integer> cb) {
-        postForm("/passport/mobile/send_code/v1/", HgRequests.sendCodeForm(mobile), (text, setCookie, ttToken, csrf) -> {
-            String err = passportError(text);
-            if (err == null) cb.onSuccess(retrySeconds(text));
-            else cb.onError(-2, err);
-        }, cb::onError);
+        postForm("/passport/mobile/send_code/v1/", HgRequests.sendCodeForm(mobile), null,
+                (text, setCookie, ttToken, csrf) -> {
+                    // 会话件先抓存（成败都存：验码要回带的是发码这一
+                    // 发建立的会话上下文，照 assistant 会话捕获口径）
+                    if (setCookie != null && !setCookie.isEmpty()) sendCodeCookie = setCookie;
+                    if (csrf != null && !csrf.isEmpty()) sendCodeCsrf = csrf;
+                    String err = passportError(text);
+                    if (err == null) cb.onSuccess(retrySeconds(text));
+                    else cb.onError(-2, err);
+                }, cb::onError);
     }
 
     /**
@@ -88,7 +109,15 @@ public final class HgPassportClient {
      * Session、不直接落盘（落盘由调用方 save）。
      */
     public void smsLogin(String mobile, String code, HgCallback<HgAccountStore.Session> cb) {
-        postForm("/passport/mobile/sms_login/", HgRequests.smsLoginForm(mobile, code), (text, setCookie, ttToken, csrf) -> {
+        Map<String, String> extra = new HashMap<>();
+        if (sendCodeCookie != null && !sendCodeCookie.isEmpty()) {
+            extra.put("Cookie", sendCodeCookie);
+        }
+        if (sendCodeCsrf != null && !sendCodeCsrf.isEmpty()) {
+            extra.put("x-tt-passport-csrf-token", sendCodeCsrf);
+        }
+        postForm("/passport/mobile/sms_login/", HgRequests.smsLoginForm(mobile, code), extra,
+                (text, setCookie, ttToken, csrf) -> {
             String cookie = loginCookie(text, setCookie);
             HgAccountStore.Session session = cookie == null ? null : sessionFrom(text, cookie, ttToken, csrf);
             if (session != null) cb.onSuccess(session);
@@ -246,7 +275,8 @@ public final class HgPassportClient {
         void fail(int code, String msg);
     }
 
-    private void postForm(String path, Map<String, String> form, BodyHandler ok, FailHandler fail) {
+    private void postForm(String path, Map<String, String> form, Map<String, String> extraHeaders,
+                          BodyHandler ok, FailHandler fail) {
         StringBuilder body = new StringBuilder();
         for (Map.Entry<String, String> e : form.entrySet()) {
             if (body.length() > 0) body.append('&');
@@ -268,9 +298,16 @@ public final class HgPassportClient {
                 // Content-Type 由 RequestBody 承载（表单口径），签名头里的 JSON 值摘掉（与 postSigned 同处理）。
                 headers.remove("Content-Type");
                 headers.put("x-ss-dp", "8662");
+                if (extraHeaders != null) headers.putAll(extraHeaders);
                 String url = HgRequests.PASSPORT_HOST + path + "?" + signed.query;
-                // HgSign 组头完成后、发请求前原生优先重签六头（原生失败自动回退仿算头，不用判空）。
+                // 发请求前预热原生签名（审表嫌疑一：此前 init 全靠
+                // resign 懒触发、失败置 DEAD 后无观测点）；重签后留
+                // 一行诊断日志，把本发实际采纳的签名集记下来。
+                boolean nativeReady = HgNativeSign.warmUp();
                 headers = HgNativeSign.resign(url, headers, formBytes);
+                android.util.Log.i("HgPassport", "path=" + path
+                        + " nativeReady=" + nativeReady
+                        + " signedBy=" + (HgNativeSign.lastResignWasNative() ? "native" : "simulated"));
                 RequestBody rb = RequestBody.create(FORM, body.toString());
                 Call call = OkHttp.newCall(url, headers, rb);
                 if (call == null) {
@@ -289,8 +326,18 @@ public final class HgPassportClient {
                             ResponseBody rb2 = r.body();
                             String text = rb2 == null ? "" : rb2.string();
                             if (!r.isSuccessful() || text.isEmpty()) {
+                                // 失败留痕（复活批丢件之一，审表六节附带
+                                // 发现）：连失败码都不留，下次真机失败就
+                                // 无从定段——http 码＋回包错误码各记一行。
+                                android.util.Log.w("HgPassport", "path=" + path
+                                        + " http=" + r.code() + " bodyEmpty=" + text.isEmpty());
                                 fail.fail(r.code(), "服务暂时不可用，请稍后再试");
                             } else {
+                                int ec = passportErrorCode(text);
+                                if (ec != 0) {
+                                    android.util.Log.w("HgPassport", "path=" + path
+                                            + " error_code=" + ec);
+                                }
                                 ok.handle(text, cookiePairs(r),
                                         r.header("x-tt-token"), r.header("x-tt-passport-csrf-token"));
                             }

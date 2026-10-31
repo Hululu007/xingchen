@@ -102,6 +102,22 @@ public final class HgNativeSign {
         return state == ST_READY;
     }
 
+    /** 上一发 resign 是否整套采纳了原生六头（诊断留痕用，登录链观测点）。 */
+    private static volatile boolean lastResignNative;
+
+    public static boolean lastResignWasNative() {
+        return lastResignNative;
+    }
+
+    /**
+     * 预热：主动触发一次初始化并报就绪态（登录链在发请求前调用——
+     * 此前 init 全靠 resign 内懒触发，失败一次置 DEAD 后整进程不再
+     * 试，登录侧连「原生到底活没活」都没有观测点，审表嫌疑一）。
+     */
+    public static boolean warmUp() {
+        return ensureInit();
+    }
+
     /**
      * 原生重签：返回合并后的新 Map（不改入参）。原生未就绪／失败／
      * 无产出时返回入参的副本（与现行仿算行为逐字等价）。
@@ -116,7 +132,10 @@ public final class HgNativeSign {
         if (url == null || url.isEmpty()) return out;
         synchronized (SIGN_LOCK) {
             try {
-                if (!ensureInit()) return out;
+                if (!ensureInit()) {
+                    lastResignNative = false;
+                    return out;
+                }
                 refillIdentityIfChanged();
                 Map<String, String> nativeHeads = new LinkedHashMap<>();
                 collect(nativeHeads, invokeMap(mGetFeatureHash, url, body));
@@ -133,10 +152,14 @@ public final class HgNativeSign {
                 // x-khronos 与 URL 查询串 ts= 同字串（防原生时钟与票据
                 // 错秒，worker 校验实证、设计表 §3），才整套替换仿算
                 // 六头；任一不满足，整发保留仿算头、原生头一个不采。
-                if (!isCompleteNativeSet(url, nativeHeads)) return out;
+                if (!isCompleteNativeSet(url, nativeHeads)) {
+                    lastResignNative = false;
+                    return out;
+                }
                 for (String h : SIX_HEADERS) {
                     putIgnoreCase(out, h, nativeHeads.get(h));
                 }
+                lastResignNative = true;
                 return out;
             } catch (Throwable t) {
                 // 签名期异常只放弃本次：整发保留仿算头，状态不置 DEAD。

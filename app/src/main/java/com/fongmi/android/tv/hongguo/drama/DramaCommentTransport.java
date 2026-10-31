@@ -2,6 +2,7 @@ package com.fongmi.android.tv.hongguo.drama;
 
 import com.fongmi.android.tv.api.FqCommentSigner;
 import com.fongmi.android.tv.api.HongguoCommentApi;
+import com.fongmi.android.tv.hongguo.api.HgAccountStore;
 import com.github.catvod.net.OkHttp;
 import com.github.catvod.utils.Prefers;
 
@@ -23,8 +24,9 @@ import okhttp3.ResponseBody;
 /**
  * 评论栈共用传输（2026-10-30 从零重建）：POST /novel/commentapi/<path>/v1/，
  * 设备号与壳子评论栈共用同一 Prefers 键（fq_comment_device_id /
- * fq_comment_iid，同一设备身份），签名走 FqCommentSigner，恒匿名
- * （不带任何账号 Cookie）。发弹幕与作者作品流共用本件。
+ * fq_comment_iid，同一设备身份），签名走 FqCommentSigner。post 恒
+ * 匿名（不带任何账号 Cookie），发弹幕与作者作品流共用；postAuthed
+ * 是发评论专用口（2026-10-31 增），同传输加挂账号会话头。
  */
 public final class DramaCommentTransport {
 
@@ -42,6 +44,34 @@ public final class DramaCommentTransport {
     }
 
     public static void post(String path, String payloadJson, Sink sink) {
+        post(path, payloadJson, null, sink);
+    }
+
+    /**
+     * 带账号会话头的 POST（发评论专用，DramaCommentPoster 用）：在
+     * post 的同一传输上加挂登录落盘的会话头（Cookie＋x-tt-token＋
+     * x-tt-passport-csrf-token，照 HgAccountSync 会话头口径）。匿名
+     * 的 post（发弹幕/作者作品流）不经此口、行为逐字不变。
+     */
+    public static void postAuthed(String path, String payloadJson, Sink sink) {
+        Map<String, String> extra = new LinkedHashMap<>();
+        HgAccountStore.Session session = HgAccountStore.load();
+        if (session != null) {
+            if (session.cookie != null && !session.cookie.isEmpty()) {
+                extra.put("Cookie", session.cookie);
+            }
+            if (session.ttToken != null && !session.ttToken.isEmpty()) {
+                extra.put("x-tt-token", session.ttToken);
+            }
+            if (session.csrf != null && !session.csrf.isEmpty()) {
+                extra.put("x-tt-passport-csrf-token", session.csrf);
+            }
+        }
+        post(path, payloadJson, extra, sink);
+    }
+
+    private static void post(String path, String payloadJson,
+                             Map<String, String> extraHeaders, Sink sink) {
         long now = System.currentTimeMillis();
         Map<String, String> query = new TreeMap<>();
         query.put("aid", "8662");
@@ -79,6 +109,7 @@ public final class DramaCommentTransport {
         byte[] nonce = new byte[11];
         new SecureRandom().nextBytes(nonce);
         headers.putAll(FqCommentSigner.headers(encoded, now, nonce));
+        if (extraHeaders != null) headers.putAll(extraHeaders);
         Call call = OkHttp.newCall(HOST + "/novel/commentapi/" + path + "/v1/?" + encoded,
                 headers, RequestBody.create(payloadJson, JSON));
         if (call == null) {

@@ -352,8 +352,11 @@ public class HongguoTheaterActivity extends AppCompatActivity {
         return t;
     }
 
-    /** 回短剧首页：不销毁本页，把首页提到前台，本页留在任务栈里
-     * 常驻（与首页同口径），再进剧场原样回来。 */
+    /** 回短剧首页（底栏「首页」格专用）：不销毁本页，把首页提到
+     * 前台，本页留在任务栈里常驻（与首页同口径），再进剧场原样
+     * 回来。注意返回键不走这里——#5 定根：旧 onBackPressed 复用
+     * 本法不 finish，本页就恒垫在所有签层页正下方，哪儿按返回都
+     * 落剧场；返回键已改回标准 finish，从哪进回哪去。 */
     private void goHomeFeed() {
         HongguoFeedActivity.start(this);
     }
@@ -362,11 +365,6 @@ public class HongguoTheaterActivity extends AppCompatActivity {
     public void finish() {
         super.finish();
         HgTransition.applyFadeExit(this);
-    }
-
-    @Override
-    public void onBackPressed() {
-        goHomeFeed();
     }
 
     /** 切格：离开的格整份存下，目标格有存货就原样恢复（数据/筹/

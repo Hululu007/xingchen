@@ -2438,10 +2438,103 @@ public class HongguoFeedActivity extends AppCompatActivity {
     }
 
     private void applyDanmakuVisibility() {
-        // 只管弹幕显示层本身：开关/清屏缺省都只落到 PlayerView 的弹幕层
-        // （发弹幕药丸已整件摘除，此处不再有药丸显隐，账 triage2 §4.2）
+        // 弹幕显示层＋发弹幕入口同闸：开关/清屏落到 PlayerView 弹幕
+        // 层，入口显隐跟开关走（#21 乙，官方门同口径）。
         boolean on = HgStore.isDanmakuOn() && (!cleanMode || HgStore.getDanmakuShowInClean());
         if (playerView != null) playerView.setDanmakuEnabled(on);
+        FeedAdapter.Holder h = currentHolder();
+        if (h != null && h.dmSend != null) {
+            DramaItem item = currentIndex >= 0 && currentIndex < items.size()
+                    ? items.get(currentIndex) : null;
+            h.dmSend.setVisibility(danmakuEntranceVisible(item) ? View.VISIBLE : View.GONE);
+        }
+    }
+
+    /**
+     * 发弹幕入口显隐（#21 乙，照官方多重门收）：弹幕开着、且条目是
+     * 有剧归属的正剧/合集（短片无弹幕面）、在刷流与播放页两形态显。
+     */
+    private boolean danmakuEntranceVisible(DramaItem item) {
+        if (item == null || item.kind == DramaItemKind.UGC_CLIP) return false;
+        if (mode != MODE_SERIES && mode != MODE_FEED) return false;
+        return HgStore.isDanmakuOn();
+    }
+
+    /**
+     * 点发弹幕入口（#21 乙 + 账号终定口径）：未登录一律先跳登录页
+     *（官方原行为、与点赞/收藏同门），登录后才开编辑层。
+     */
+    private void onDanmakuSendTap() {
+        if (!com.fongmi.android.tv.hongguo.api.HgAccountStore.isLoggedIn()) {
+            HongguoLoginActivity.start(this);
+            return;
+        }
+        showDanmakuSendDialog();
+    }
+
+    /** 发弹幕编辑层：占位文案照官方资源（发条友善的弹幕吧）；发表
+     * 走 DramaDanmakuSender 定版载荷，成功把自己这条并入当前弹幕
+     * 列表回显，失败留层重试（A25 旧行为同口径）。 */
+    private void showDanmakuSendDialog() {
+        if (currentVid == null || currentSeriesId == null || player == null) return;
+        final String vid = currentVid;
+        final String sid = currentSeriesId;
+        final long offset = Math.max(0, player.getCurrentPosition());
+        android.widget.EditText input = new android.widget.EditText(this);
+        input.setHint("发条友善的弹幕吧");
+        input.setTextColor(0xFF1B1B1F);
+        input.setHintTextColor(0xFF8A8A93);
+        input.setTextSize(14.5f);
+        input.setSingleLine(true);
+        androidx.appcompat.app.AlertDialog dialog =
+                new androidx.appcompat.app.AlertDialog.Builder(this)
+                        .setTitle("发弹幕")
+                        .setView(input)
+                        .setNegativeButton("取消", null)
+                        .setPositiveButton("发表", null)
+                        .create();
+        dialog.setOnShowListener(d -> {
+            android.widget.Button ok = dialog.getButton(
+                    androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE);
+            ok.setOnClickListener(v -> {
+                String text = input.getText() == null ? ""
+                        : input.getText().toString().trim();
+                if (text.isEmpty()) {
+                    input.setError("先写点什么");
+                    return;
+                }
+                ok.setEnabled(false);
+                com.fongmi.android.tv.hongguo.drama.DramaDanmakuSender.publish(
+                        sid, vid, text, offset, new HgCallback<Void>() {
+                            @Override
+                            public void onSuccess(Void r) {
+                                runOnUiThread(() -> {
+                                    dialog.dismiss();
+                                    if (vid.equals(currentVid) && playerView != null) {
+                                        danmakuItems.add(new androidx.media3.ui.danmaku.Danmaku(
+                                                text, offset,
+                                                androidx.media3.ui.danmaku.Danmaku.TYPE_SCROLL,
+                                                Color.WHITE, 0f, 0, null, 0));
+                                        playerView.getDanmakuController()
+                                                .setItems(new ArrayList<>(danmakuItems));
+                                    }
+                                    Toast.makeText(HongguoFeedActivity.this,
+                                            "已发送", Toast.LENGTH_SHORT).show();
+                                });
+                            }
+
+                            @Override
+                            public void onError(int c, String m) {
+                                runOnUiThread(() -> {
+                                    ok.setEnabled(true);
+                                    Toast.makeText(HongguoFeedActivity.this,
+                                            "没发出去，再试试", Toast.LENGTH_SHORT).show();
+                                });
+                            }
+                        });
+            });
+        });
+        dialog.show();
     }
 
     private void startDanmaku(String vid) {
@@ -2772,6 +2865,8 @@ public class HongguoFeedActivity extends AppCompatActivity {
             final TextView favLabel;
             final TextView commentLabel;
             final TextView fullPill;
+            /** 发弹幕入口「弹」标（#21 乙）。 */
+            final TextView dmSend;
             final View rail;
             int boundIndex = -1;
 
@@ -2804,6 +2899,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
                 favLabel = page.findViewWithTag("favlab");
                 commentLabel = page.findViewWithTag("cmtlab");
                 fullPill = page.findViewWithTag("fullpill");
+                dmSend = page.findViewWithTag("dmsend");
                 rail = page.findViewWithTag("rail");
             }
         }
@@ -3048,6 +3144,23 @@ public class HongguoFeedActivity extends AppCompatActivity {
             pillRow.addView(strip, stlp);
             info.addView(pillRow, prlp);
 
+            // 发弹幕入口（#21 乙按官方加回）：信息摞最下行左端「弹」
+            // 标——官方 PublishDanmakuEntranceView 同位（信息区左下、
+            // 横排内，普查卡 21/台账 S-03）；显隐跟弹幕开关走（官方
+            // 门：关弹幕即不显），点击先过登录门再开编辑层（见
+            // onDanmakuSendTap）。字形精确度量官方未抠到、形态待裁。
+            TextView dmSend = new TextView(HongguoFeedActivity.this);
+            dmSend.setTag("dmsend");
+            dmSend.setText("弹");
+            dmSend.setTextColor(0xF2FFFFFF);
+            dmSend.setTextSize(12.5f);
+            dmSend.setBackground(roundBg(0x59000000, dp(13)));
+            dmSend.setPadding(dp(11), dp(5), dp(11), dp(5));
+            dmSend.setVisibility(View.GONE);
+            LinearLayout.LayoutParams dmlp = new LinearLayout.LayoutParams(-2, -2);
+            dmlp.topMargin = dp(10);
+            info.addView(dmSend, dmlp);
+
             FrameLayout.LayoutParams ilp = new FrameLayout.LayoutParams(-1, -2);
             ilp.gravity = Gravity.START | Gravity.BOTTOM;
             ilp.rightMargin = dp(76);
@@ -3265,6 +3378,10 @@ public class HongguoFeedActivity extends AppCompatActivity {
             h.fullPill.setVisibility(landscape && mode != MODE_VIDEO ? View.VISIBLE : View.GONE);
             h.fullPill.setOnClickListener(v -> {
                 if (position == currentIndex) enterLand(true);
+            });
+            h.dmSend.setVisibility(danmakuEntranceVisible(item) ? View.VISIBLE : View.GONE);
+            h.dmSend.setOnClickListener(v -> {
+                if (position == currentIndex) onDanmakuSendTap();
             });
             resetInfo(h);
             if (mode == MODE_FEED) bindFeedChrome(h, item, position);

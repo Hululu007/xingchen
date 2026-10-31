@@ -78,6 +78,11 @@ public class HongguoLandActivity extends AppCompatActivity {
 
     private View topBar;
     private View bottomBar;
+    /** 发弹幕入口「弹」标（#21 乙）。 */
+    private TextView dmSend;
+    /** 当前弹幕列表留存（自己发的回显并入用）。 */
+    private final java.util.List<androidx.media3.ui.danmaku.Danmaku> dmItems =
+            new java.util.ArrayList<>();
     private ImageView lockBtn;
     private ImageView likeBtn;
     private ImageView playBtn;
@@ -413,6 +418,27 @@ public class HongguoLandActivity extends AppCompatActivity {
         bottomLp.gravity = Gravity.BOTTOM;
         root.addView(bottom, bottomLp);
 
+        // 发弹幕入口（#21 乙，横屏同加）：左下「弹」标，座位在 #17
+        // 控件按画面框重排时随底行一并收进框内；显隐跟弹幕开关＋
+        // chrome 同步，点击先过登录门（与竖屏同口径）。
+        dmSend = new TextView(this);
+        dmSend.setText("弹");
+        dmSend.setTextColor(0xF2FFFFFF);
+        dmSend.setTextSize(12.5f);
+        android.graphics.drawable.GradientDrawable dmBg =
+                new android.graphics.drawable.GradientDrawable();
+        dmBg.setColor(0x59000000);
+        dmBg.setCornerRadius(dp(13));
+        dmSend.setBackground(dmBg);
+        dmSend.setPadding(dp(11), dp(5), dp(11), dp(5));
+        dmSend.setOnClickListener(v -> onDanmakuSendTap());
+        dmSend.setVisibility(HgStore.isDanmakuOn() ? View.VISIBLE : View.GONE);
+        FrameLayout.LayoutParams dmlp = new FrameLayout.LayoutParams(-2, -2);
+        dmlp.gravity = Gravity.START | Gravity.BOTTOM;
+        dmlp.leftMargin = dp(16);
+        dmlp.bottomMargin = dp(64);
+        root.addView(dmSend, dmlp);
+
         setContentView(root);
         androidx.core.view.ViewCompat.requestApplyInsets(root);
         main.postDelayed(ticker, 300);
@@ -623,7 +649,11 @@ public class HongguoLandActivity extends AppCompatActivity {
 
     private void startDanmaku(String vid) {
         danmakuVid = vid;
+        dmItems.clear();
         if (playerView != null) playerView.getDanmakuController().clearItems();
+        if (dmSend != null) {
+            dmSend.setVisibility(HgStore.isDanmakuOn() ? View.VISIBLE : View.GONE);
+        }
         if (!HgStore.isDanmakuOn() || seriesId == null || vid == null) return;
         final String sid = seriesId;
         worker.execute(() -> HongguoDanmakuApi.fetchToFile(sid, vid, 0, item -> {
@@ -640,7 +670,9 @@ public class HongguoLandActivity extends AppCompatActivity {
             if (parsed == null) return;
             runOnUiThread(() -> {
                 if (!vid.equals(danmakuVid) || playerView == null) return;
-                playerView.getDanmakuController().setItems(new ArrayList<>(parsed));
+                dmItems.clear();
+                dmItems.addAll(parsed);
+                playerView.getDanmakuController().setItems(new ArrayList<>(dmItems));
             });
         });
     }
@@ -664,6 +696,79 @@ public class HongguoLandActivity extends AppCompatActivity {
         bottomBar.setVisibility(vis);
         if (!locked) lockBtn.setVisibility(vis);
         if (likeBtn != null) likeBtn.setVisibility(locked ? View.GONE : vis);
+        if (dmSend != null) {
+            dmSend.setVisibility(show && HgStore.isDanmakuOn() && !locked
+                    ? View.VISIBLE : View.GONE);
+        }
+    }
+
+    /** 点发弹幕入口（#21 乙＋账号终定口径，与竖屏同门）：未登录
+     * 跳登录页，登录后开编辑层；发表走 DramaDanmakuSender 定版
+     * 载荷，成功把自己这条并入弹幕列表回显。 */
+    private void onDanmakuSendTap() {
+        if (!com.fongmi.android.tv.hongguo.api.HgAccountStore.isLoggedIn()) {
+            HongguoLoginActivity.start(this);
+            return;
+        }
+        if (curVid == null || seriesId == null || player == null) return;
+        final String vid = curVid;
+        final String sid = seriesId;
+        final long offset = Math.max(0, player.getCurrentPosition());
+        android.widget.EditText input = new android.widget.EditText(this);
+        input.setHint("发条友善的弹幕吧");
+        input.setTextColor(0xFF1B1B1F);
+        input.setHintTextColor(0xFF8A8A93);
+        input.setTextSize(14.5f);
+        input.setSingleLine(true);
+        androidx.appcompat.app.AlertDialog dialog =
+                new androidx.appcompat.app.AlertDialog.Builder(this)
+                        .setTitle("发弹幕")
+                        .setView(input)
+                        .setNegativeButton("取消", null)
+                        .setPositiveButton("发表", null)
+                        .create();
+        dialog.setOnShowListener(d -> {
+            android.widget.Button ok = dialog.getButton(
+                    androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE);
+            ok.setOnClickListener(v -> {
+                String text = input.getText() == null ? ""
+                        : input.getText().toString().trim();
+                if (text.isEmpty()) {
+                    input.setError("先写点什么");
+                    return;
+                }
+                ok.setEnabled(false);
+                com.fongmi.android.tv.hongguo.drama.DramaDanmakuSender.publish(
+                        sid, vid, text, offset, new HgCallback<Void>() {
+                            @Override
+                            public void onSuccess(Void r) {
+                                runOnUiThread(() -> {
+                                    dialog.dismiss();
+                                    if (vid.equals(curVid) && playerView != null) {
+                                        dmItems.add(new androidx.media3.ui.danmaku.Danmaku(
+                                                text, offset,
+                                                androidx.media3.ui.danmaku.Danmaku.TYPE_SCROLL,
+                                                Color.WHITE, 0f, 0, null, 0));
+                                        playerView.getDanmakuController()
+                                                .setItems(new java.util.ArrayList<>(dmItems));
+                                    }
+                                    Toast.makeText(HongguoLandActivity.this,
+                                            "已发送", Toast.LENGTH_SHORT).show();
+                                });
+                            }
+
+                            @Override
+                            public void onError(int c, String m) {
+                                runOnUiThread(() -> {
+                                    ok.setEnabled(true);
+                                    Toast.makeText(HongguoLandActivity.this,
+                                            "没发出去，再试试", Toast.LENGTH_SHORT).show();
+                                });
+                            }
+                        });
+            });
+        });
+        dialog.show();
     }
 
     /** 点赞态回显：已赞激活红、未赞白（与竖屏页 LIKE_ON_COLOR 同值）。 */

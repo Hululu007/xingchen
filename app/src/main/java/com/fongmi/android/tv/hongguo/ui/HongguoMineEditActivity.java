@@ -29,14 +29,17 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * 历史/收藏的独立编辑页（2026-10-30 海报格批，照官方实图 113707＋他
- * 亲口的官方行为）：点「编辑」与长按任意一格海报都进本页（长按的
- * 那格预勾），不是在原页原地切换状态。顶栏三段——左「全选」、
- * 中标题（全部历史/全部收藏）＋副行「已选择 N 个」、右「完成」
- * 返回上一页；每格海报右下角圆形勾选圈（未选＝深色半透底白勾，
- * 选中＝橙色实心白勾）；底部固定删除条（垃圾桶＋「删除」红橙字，
- * 选中 0 个置灰禁点、不隐藏）。删除落本地 HgStore 记录，删完留在
- * 本页刷新格子。数据全量（不吃原页的筹过滤——标题「全部」即此义）。
+ * 五模式（历史/收藏/点赞/预约/追更）的独立编辑页（2026-10-30 海报格批
+ * 立页，2026-10-31 他亲定扩到五模式全量）：点「编辑」与长按任意一格
+ * 海报都进本页（长按的那格预勾），不是在原页原地切换状态。顶栏三段——
+ * 左「全选」、中标题（全部历史/全部收藏/全部点赞/全部预约/全部追更）
+ * ＋副行「已选择 N 个」、右「完成」返回上一页；每格海报右下角圆形
+ * 勾选圈（未选＝深色半透底白勾，选中＝橙色实心白勾）；底部固定删除
+ * 条（垃圾桶＋「删除」红橙字，选中 0 个置灰禁点、不隐藏）。删除落
+ * 本地 HgStore 对应 id 集（追更与收藏同源同删法：删一边两边同消，
+ * 批二同体定案），收藏/追更/预约的删除同步上报服务端（登录态，
+ * HgAccountSync），删完留在本页刷新格子。数据全量（不吃原页的筹
+ * 过滤——标题「全部」即此义）。
  */
 public class HongguoMineEditActivity extends AppCompatActivity {
 
@@ -88,7 +91,6 @@ public class HongguoMineEditActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         HgWindowStyle.apply(this, true, true);
         editMode = getIntent().getIntExtra(EXTRA_MODE, HongguoMineActivity.MODE_HISTORY);
-        boolean history = editMode == HongguoMineActivity.MODE_HISTORY;
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -110,7 +112,7 @@ public class HongguoMineEditActivity extends AppCompatActivity {
         titleBox.setOrientation(LinearLayout.VERTICAL);
         titleBox.setGravity(Gravity.CENTER);
         TextView titleText = new TextView(this);
-        titleText.setText(history ? "全部历史" : "全部收藏");
+        titleText.setText(titleFor(editMode));
         titleText.setTextColor(0xFF1B1B1E);
         titleText.setTextSize(17);
         titleText.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
@@ -141,7 +143,7 @@ public class HongguoMineEditActivity extends AppCompatActivity {
         root.addView(grid, new LinearLayout.LayoutParams(-1, 0, 1f));
 
         emptyText = new TextView(this);
-        emptyText.setText(history ? "暂无历史" : "暂无收藏");
+        emptyText.setText(emptyFor(editMode));
         emptyText.setTextColor(0xFF8E8E96);
         emptyText.setTextSize(14);
         emptyText.setGravity(Gravity.CENTER);
@@ -196,7 +198,7 @@ public class HongguoMineEditActivity extends AppCompatActivity {
                 rows.add(row);
             }
         } else {
-            for (String id : HgStore.favedIds()) {
+            for (String id : idsFor(editMode)) {
                 String[] meta = HgStore.metaOf(id);
                 EditRow row = new EditRow();
                 row.id = id;
@@ -219,6 +221,69 @@ public class HongguoMineEditActivity extends AppCompatActivity {
                 }
                 rows.add(row);
             }
+        }
+    }
+
+    /** 非历史四模式的 id 集来源（追更与收藏同源：两模式读同一份 followed 集）。 */
+    private static java.util.List<String> idsFor(int mode) {
+        if (mode == HongguoMineActivity.MODE_LIKE) return HgStore.likedIds();
+        if (mode == HongguoMineActivity.MODE_RESERVE) return HgStore.reservedIds();
+        if (mode == HongguoMineActivity.MODE_FOLLOW) return HgStore.followedIds();
+        return HgStore.favedIds();
+    }
+
+    private static String titleFor(int mode) {
+        if (mode == HongguoMineActivity.MODE_HISTORY) return "全部历史";
+        if (mode == HongguoMineActivity.MODE_LIKE) return "全部点赞";
+        if (mode == HongguoMineActivity.MODE_RESERVE) return "全部预约";
+        if (mode == HongguoMineActivity.MODE_FOLLOW) return "全部追更";
+        return "全部收藏";
+    }
+
+    private static String emptyFor(int mode) {
+        if (mode == HongguoMineActivity.MODE_HISTORY) return "暂无历史";
+        if (mode == HongguoMineActivity.MODE_LIKE) return "暂无点赞";
+        if (mode == HongguoMineActivity.MODE_RESERVE) return "暂无预约";
+        if (mode == HongguoMineActivity.MODE_FOLLOW) return "暂无追更";
+        return "暂无收藏";
+    }
+
+    private String confirmFor(int n) {
+        if (editMode == HongguoMineActivity.MODE_HISTORY) {
+            return "删除所选 " + n + " 条历史？删除后无法恢复。";
+        }
+        if (editMode == HongguoMineActivity.MODE_LIKE) {
+            return "删除所选 " + n + " 条点赞？将取消点赞。";
+        }
+        if (editMode == HongguoMineActivity.MODE_RESERVE) {
+            return "删除所选 " + n + " 条预约？将取消预约。";
+        }
+        if (editMode == HongguoMineActivity.MODE_FOLLOW) {
+            return "删除所选 " + n + " 条追更？将取消追更。";
+        }
+        return "删除所选 " + n + " 条收藏？将取消收藏。";
+    }
+
+    /**
+     * 删一条（按模式落对应 id 集）：历史摘断点＋索引；收藏/追更同源——
+     * 都从 followed 正源移除并上报 DelShelf（删一边另一边同消，同体
+     * 定案）；点赞摘 liked 集（上报通道未接，见 HgAccountSync 类注）；
+     * 预约摘 reserved 集并上报取消预约。
+     */
+    private void deleteOne(String id) {
+        if (editMode == HongguoMineActivity.MODE_HISTORY) {
+            HgStore.removeHistory(id);
+        } else if (editMode == HongguoMineActivity.MODE_LIKE) {
+            HgStore.setLiked(id, false);
+        } else if (editMode == HongguoMineActivity.MODE_RESERVE) {
+            HgStore.setReserved(id, false);
+            com.fongmi.android.tv.hongguo.api.HgAccountSync.reportReserve(id, false);
+        } else if (editMode == HongguoMineActivity.MODE_FOLLOW) {
+            HgStore.setFollowed(id, false);
+            com.fongmi.android.tv.hongguo.api.HgAccountSync.reportShelf(id, false);
+        } else {
+            HgStore.setFaved(id, false);
+            com.fongmi.android.tv.hongguo.api.HgAccountSync.reportShelf(id, false);
         }
     }
 
@@ -254,23 +319,18 @@ public class HongguoMineEditActivity extends AppCompatActivity {
     private void confirmDelete() {
         int n = selected.size();
         if (n == 0) return;
-        boolean history = editMode == HongguoMineActivity.MODE_HISTORY;
         new AlertDialog.Builder(this)
-                .setMessage(history
-                        ? "删除所选 " + n + " 条历史？删除后无法恢复。"
-                        : "删除所选 " + n + " 条收藏？将取消收藏。")
+                .setMessage(confirmFor(n))
                 .setNegativeButton("取消", null)
                 .setPositiveButton("删除", (d, w) -> doDelete())
                 .show();
     }
 
     private void doDelete() {
-        boolean history = editMode == HongguoMineActivity.MODE_HISTORY;
         List<EditRow> keep = new ArrayList<>();
         for (EditRow row : rows) {
             if (selected.contains(row.id)) {
-                if (history) HgStore.removeHistory(row.id);
-                else HgStore.setFaved(row.id, false);
+                deleteOne(row.id);
             } else {
                 keep.add(row);
             }

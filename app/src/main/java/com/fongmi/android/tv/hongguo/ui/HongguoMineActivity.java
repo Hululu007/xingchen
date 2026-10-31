@@ -41,8 +41,9 @@ import java.util.List;
  * <p>列表模式：历史/收藏/点赞/预约/追更＝白底三列 3:4 海报格（圆角、
  * 右上类型角标、海报下剧名一行＋灰字子行）、顶行筹单选过滤（历史＝
  * 全部/已看完/未看完，其余＝全部/真人剧/漫剧/AI剧）、右上「编辑」进
- * 独立编辑页（HongguoMineEditActivity，仅历史/收藏/追更——编辑页只认
- * 历史与收藏架两套删法），长按任意一格同落点且该格预勾。
+ * 独立编辑页（HongguoMineEditActivity，五模式全开——他 2026-10-31
+ * 亲定：历史/收藏/点赞/预约/追更都要有编辑删除口，追更与收藏同源
+ * 同删法），长按任意一格同落点且该格预勾。
  * 小说历史维持原列表行与深底。</p>
  */
 public class HongguoMineActivity extends AppCompatActivity {
@@ -51,8 +52,8 @@ public class HongguoMineActivity extends AppCompatActivity {
     static final int MODE_HISTORY = 1;
     static final int MODE_FAV = 2;
     private static final int MODE_NOVEL = 3;
-    private static final int MODE_LIKE = 4;
-    private static final int MODE_RESERVE = 5;
+    static final int MODE_LIKE = 4;
+    static final int MODE_RESERVE = 5;
     static final int MODE_FOLLOW = 6;
 
     /** 直达入口（定稿：历史页/收藏页是两个独立页）：带此附加打开即落列表、返回即退页。 */
@@ -659,8 +660,9 @@ public class HongguoMineActivity extends AppCompatActivity {
                     : android.graphics.Typeface.DEFAULT);
         }
         if (editBtn != null) {
-            // 编辑页只认历史与收藏架两套删法：点赞/预约不给编辑口
-            boolean editable = mode == MODE_HISTORY || mode == MODE_FAV || mode == MODE_FOLLOW;
+            // 五模式全有编辑删除口（他 2026-10-31 亲定，编辑页五套删法齐）
+            boolean editable = mode == MODE_HISTORY || mode == MODE_FAV || mode == MODE_FOLLOW
+                    || mode == MODE_LIKE || mode == MODE_RESERVE;
             editBtn.setVisibility(editable && !allRows.isEmpty() ? View.VISIBLE : View.GONE);
         }
     }
@@ -710,7 +712,8 @@ public class HongguoMineActivity extends AppCompatActivity {
         if (requestCode == REQ_EDIT && mode == MODE_HOME) {
             loadHomeWall();
         } else if (requestCode == REQ_EDIT
-                && (mode == MODE_HISTORY || mode == MODE_FAV || mode == MODE_FOLLOW)) {
+                && (mode == MODE_HISTORY || mode == MODE_FAV || mode == MODE_FOLLOW
+                || mode == MODE_LIKE || mode == MODE_RESERVE)) {
             loadGridRows(mode);
             styleChips();
             applyFilter();
@@ -832,8 +835,7 @@ public class HongguoMineActivity extends AppCompatActivity {
             h.sub.setText(row.sub == null ? "" : row.sub);
             h.itemView.setOnClickListener(v -> openGridRow(row));
             h.itemView.setOnLongClickListener(v -> {
-                // 点赞/预约无编辑删法，长按不落编辑页；墙格长按走历史编辑
-                if (mode == MODE_LIKE || mode == MODE_RESERVE) return true;
+                // 五模式长按同口径落编辑页（他 2026-10-31 亲定）；墙格长按走历史编辑
                 if (mode == MODE_HOME) openEditPageFor(MODE_HISTORY, row.id);
                 else openEditPage(row.id);
                 return true;

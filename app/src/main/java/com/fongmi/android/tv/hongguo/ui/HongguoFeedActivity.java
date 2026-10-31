@@ -292,6 +292,8 @@ public class HongguoFeedActivity extends AppCompatActivity {
     private String danmakuVid;
     private final List<androidx.media3.ui.danmaku.Danmaku> danmakuItems = new ArrayList<>();
     private boolean firstFrameForVid;
+    /** 切集转圈延迟显的待发任务（切集顺滑：快切不许转圈闪）。 */
+    private Runnable spinDelayRunnable;
     private boolean feedStartPending = true;
     /** 首页流起播失败记账（条目键＝seriesId/vid）：失败条只呈失败态，封面不许回潮当内容（账 hongguo-feed-noposter-20261030）。 */
     private final java.util.Set<String> feedFailedKeys = new java.util.HashSet<>();
@@ -1829,6 +1831,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
      * 走、点失败钮可重试。其余模式维持原呈现（封面留作过渡底）。
      */
     private void showPlayFailure() {
+        cancelSpinDelay();
         FeedAdapter.Holder h = currentHolder();
         if (h != null) {
             h.spin.setVisibility(View.GONE);
@@ -2005,6 +2008,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
         @Override
         public void onPlaybackStateChanged(int state) {
             if (state == Player.STATE_READY) {
+                cancelSpinDelay();
                 FeedAdapter.Holder h = currentHolder();
                 if (h != null) h.spin.setVisibility(View.GONE);
             } else if (state == Player.STATE_ENDED) {
@@ -2027,6 +2031,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
 
         @Override
         public void onRenderedFirstFrame() {
+            cancelSpinDelay();
             FeedAdapter.Holder h = currentHolder();
             if (h != null) {
                 h.cover.setVisibility(View.GONE);
@@ -2098,15 +2103,47 @@ public class HongguoFeedActivity extends AppCompatActivity {
         return item != null && item.kind != DramaItemKind.SERIES;
     }
 
+    /**
+     * 切集转圈闸：压下当前页转圈，350ms 后若这一集仍未出首帧
+     * 才亮。mountPlayerView 在 settle 同栈里已把转圈设 VISIBLE，
+     * 本法在同一调用栈内压下，不会真画出一帧。冷进页（非切集）
+     * 不走本闸、转圈照旧即时亮。
+     */
+    private void gateSpinForSwitch(String vid) {
+        cancelSpinDelay();
+        FeedAdapter.Holder h = currentHolder();
+        if (h != null) h.spin.setVisibility(View.GONE);
+        spinDelayRunnable = () -> {
+            spinDelayRunnable = null;
+            if (!vid.equals(currentVid) || firstFrameForVid) return;
+            FeedAdapter.Holder hh = currentHolder();
+            if (hh != null) hh.spin.setVisibility(View.VISIBLE);
+        };
+        main.postDelayed(spinDelayRunnable, 350);
+    }
+
+    private void cancelSpinDelay() {
+        if (spinDelayRunnable != null) {
+            main.removeCallbacks(spinDelayRunnable);
+            spinDelayRunnable = null;
+        }
+    }
+
     private void playVid(String vid, int contentType, long seekMs) {
         if (vid == null || vid.isEmpty()) {
             showPlayFailure();
             return;
         }
         ensurePlayer();
+        // 切集顺滑（转圈延迟）：播放页内切集时，若是从正在播的
+        // 一集切走（firstFrameForVid 尚为真），先把转圈压下——
+        // 已预取的集首帧快到，转圈不该闪出来；350ms 还没出首帧
+        // 才亮转圈（按 vid 对位，连切只认最后一发）。
+        boolean switching = mode == MODE_SERIES && firstFrameForVid;
         currentVid = vid;
         scrubbedCurrent = false;
         firstFrameForVid = false;
+        if (switching) gateSpinForSwitch(vid);
         if (mode == MODE_FEED) armFeedWatchdog(vid);
         prefetchedNext = false;
         danmakuVid = null;

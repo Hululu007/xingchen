@@ -426,17 +426,33 @@ public class HongguoFeedActivity extends AppCompatActivity {
         }
     }
 
+    /**
+     * 回前台／从横屏领回后的画面层收口（#1、#18 同一口径）：切后台
+     * 期间 SurfaceView 的画面层被销毁、或播放视图还挂在旧 holder 上，
+     * 声音能续上、画面却回不来（#1 黑屏、#18 落竖屏条只剩封面）。
+     * resume 路径此前只续播不重挂，这里强制把播放视图重挂进当前条
+     * 的 holder，首帧旗复位——封面留到下一次首帧渲染时再摘。
+     */
+    private void remountSurfaceAfterReturn() {
+        if (player == null || playerView == null) return;
+        if (currentIndex < 0 || currentIndex >= items.size()) return;
+        firstFrameForVid = false;
+        mountPlayerView(currentIndex);
+    }
+
     @Override
     protected void onResume() {
         super.onResume();
         if (orientationListener != null) orientationListener.enable();
         if (engineParked) {
             reclaimFromLand();
+            remountSurfaceAfterReturn();
             return;
         }
         // 切后台/被别的页盖住再回来：不重拉、位置不动，只把离开前
         // 正在播的续上（离开前就是暂停的保持暂停）；进度在原播放器
         // 里留着，续播不重头。
+        remountSurfaceAfterReturn();
         if (resumeOnReturn && player != null) player.setPlayWhenReady(true);
         resumeOnReturn = false;
         // D5：详情页等外页改过收藏，回到常驻的流/播放页要立即同源

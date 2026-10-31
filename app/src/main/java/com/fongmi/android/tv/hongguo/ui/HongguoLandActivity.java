@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.hongguo.ui;
 
+import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.os.Handler;
@@ -105,6 +106,12 @@ public class HongguoLandActivity extends AppCompatActivity {
     private ProgressBar spin;
     private TextView failView;
     private OrientationEventListener orientationListener;
+    /** 切集顺滑（与竖屏同口径）：末帧冻结层/帧图/代次＋转圈延迟闸。 */
+    private ImageView freezeView;
+    private Bitmap freezeBitmap;
+    private int freezeSeq;
+    private String switchPendingVid;
+    private Runnable spinDelayRunnable;
 
     private int dp(float v) {
         return (int) (v * getResources().getDisplayMetrics().density + 0.5f);
@@ -238,6 +245,13 @@ public class HongguoLandActivity extends AppCompatActivity {
         playerView.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or2, ob) ->
                 layoutChromeToFrame());
         root.addView(playerView, new FrameLayout.LayoutParams(-1, -1));
+
+        // 切集末帧冻结层：盖播放面、衬在控件之下；切集时留上一
+        // 集末帧到新集首帧接上，平时藏起（切集顺滑，与竖屏同口径）
+        freezeView = new ImageView(this);
+        freezeView.setScaleType(ImageView.ScaleType.FIT_XY);
+        freezeView.setVisibility(View.GONE);
+        root.addView(freezeView, new FrameLayout.LayoutParams(-1, -1));
 
         spin = new ProgressBar(this);
         FrameLayout.LayoutParams spinLp = new FrameLayout.LayoutParams(dp(40), dp(40));
@@ -478,9 +492,12 @@ public class HongguoLandActivity extends AppCompatActivity {
         @Override
         public void onPlaybackStateChanged(int state) {
             if (state == Player.STATE_READY) {
+                cancelSpinDelay();
                 spin.setVisibility(View.GONE);
             } else if (state == Player.STATE_BUFFERING) {
-                spin.setVisibility(View.VISIBLE);
+                // 切集闸未到期时不抢亮转圈（闸到点自会亮）；非切集
+                // 的中途缓冲照旧即时亮
+                if (spinDelayRunnable == null) spin.setVisibility(View.VISIBLE);
             } else if (state == Player.STATE_ENDED) {
                 if (HgStore.isAutoNext() && detail != null) {
                     switchEpisode(curEp + 1, false);
@@ -498,11 +515,17 @@ public class HongguoLandActivity extends AppCompatActivity {
 
         @Override
         public void onRenderedFirstFrame() {
+            switchPendingVid = null;
+            cancelSpinDelay();
+            hideFreeze();
             spin.setVisibility(View.GONE);
         }
 
         @Override
         public void onPlayerError(@NonNull androidx.media3.common.PlaybackException error) {
+            switchPendingVid = null;
+            cancelSpinDelay();
+            hideFreeze();
             spin.setVisibility(View.GONE);
             failView.setVisibility(View.VISIBLE);
         }
@@ -562,11 +585,15 @@ public class HongguoLandActivity extends AppCompatActivity {
             return;
         }
         final String vid = target.getVideoId();
+        // 切集顺滑（与竖屏同口径）：先抓当前帧留屏、转圈延迟显；
+        // 抓帧必须赶在换源之前，代次按目标 vid 对位
+        switchPendingVid = vid;
+        initiateFreezeCapture(vid);
         curEp = episodeIndex;
         curVid = vid;
         epView.setText("第" + curEp + "集");
         refreshCommentCount();
-        spin.setVisibility(View.VISIBLE);
+        gateSpinForSwitch(vid);
         failView.setVisibility(View.GONE);
         DramaResolver.Listener listener = new DramaResolver.Listener() {
             @Override
@@ -581,11 +608,70 @@ public class HongguoLandActivity extends AppCompatActivity {
             @Override
             public void onFailed(String videoId, String code, String message) {
                 if (!videoId.equals(curVid)) return;
+                switchPendingVid = null;
+                cancelSpinDelay();
+                hideFreeze();
                 spin.setVisibility(View.GONE);
                 failView.setVisibility(View.VISIBLE);
             }
         };
         resolveWithWindow(vid, contentType, listener);
+    }
+
+    /** 发起抓帧：把播放面当前帧（上一集末帧）复制下来挂冻结层。 */
+    private void initiateFreezeCapture(String forVid) {
+        if (playerView == null || player == null) return;
+        final int seq = ++freezeSeq;
+        HgFrameCapture.capture(playerView, main, bmp -> {
+            if (bmp == null) return;
+            if (seq != freezeSeq || !forVid.equals(switchPendingVid)) {
+                bmp.recycle();
+                return;
+            }
+            clearFreezeBitmap();
+            freezeBitmap = bmp;
+            if (freezeView != null) {
+                freezeView.setImageBitmap(bmp);
+                freezeView.setVisibility(View.VISIBLE);
+            }
+        });
+    }
+
+    /** 切集转圈闸：先压转圈，350ms 后仍未出首帧（还卡在缓冲）才亮。 */
+    private void gateSpinForSwitch(String vid) {
+        cancelSpinDelay();
+        spin.setVisibility(View.GONE);
+        spinDelayRunnable = () -> {
+            spinDelayRunnable = null;
+            if (!vid.equals(switchPendingVid) || player == null) return;
+            if (player.getPlaybackState() == Player.STATE_READY) return;
+            spin.setVisibility(View.VISIBLE);
+        };
+        main.postDelayed(spinDelayRunnable, 350);
+    }
+
+    private void cancelSpinDelay() {
+        if (spinDelayRunnable != null) {
+            main.removeCallbacks(spinDelayRunnable);
+            spinDelayRunnable = null;
+        }
+    }
+
+    private void clearFreezeBitmap() {
+        if (freezeView != null) {
+            freezeView.setImageBitmap(null);
+            freezeView.setVisibility(View.GONE);
+        }
+        if (freezeBitmap != null) {
+            freezeBitmap.recycle();
+            freezeBitmap = null;
+        }
+    }
+
+    /** 新集首帧已接上（或失败收口）：冻结帧撤下回收、在途抓帧作废。 */
+    private void hideFreeze() {
+        freezeSeq++;
+        clearFreezeBitmap();
     }
 
     /**
@@ -927,6 +1013,8 @@ public class HongguoLandActivity extends AppCompatActivity {
     protected void onDestroy() {
         main.removeCallbacks(ticker);
         main.removeCallbacks(hideChrome);
+        cancelSpinDelay();
+        clearFreezeBitmap();
         if (!exited) parkBack(); // 异常退出兜底：把播放器泊回，不许泄漏
         resolver.closeAll();
         worker.shutdownNow();

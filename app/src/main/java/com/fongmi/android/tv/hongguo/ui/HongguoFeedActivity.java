@@ -1264,18 +1264,32 @@ public class HongguoFeedActivity extends AppCompatActivity {
                 }
             }, true);
         } else {
-            DramaClient.fetchChannelMore(continuation, new HgCallback<com.fongmi.android.tv.hongguo.drama.DramaCellPage>() {
-                @Override
-                public void onSuccess(com.fongmi.android.tv.hongguo.drama.DramaCellPage page) {
-                    runOnUiThread(() -> onChannelPage(page, false));
-                }
-
-                @Override
-                public void onError(int code, String msg) {
-                    runOnUiThread(() -> loadingPage = false);
-                }
-            }, true);
+            fetchMorePage(false);
         }
+    }
+
+    /**
+     * 频道续拉（#13）：失败不再全静默——留一行日志，并自动重试
+     * 一次（续拉失败此前只把 loadingPage 放下，流就永远停在第一
+     * 页条数、用户只见「滑不动」）。重试仍失败才收口。
+     */
+    private void fetchMorePage(boolean isRetry) {
+        DramaClient.fetchChannelMore(continuation, new HgCallback<com.fongmi.android.tv.hongguo.drama.DramaCellPage>() {
+            @Override
+            public void onSuccess(com.fongmi.android.tv.hongguo.drama.DramaCellPage page) {
+                runOnUiThread(() -> onChannelPage(page, false));
+            }
+
+            @Override
+            public void onError(int code, String msg) {
+                android.util.Log.w("HongguoFeed", "频道续拉失败 code=" + code
+                        + " msg=" + msg + " isRetry=" + isRetry);
+                runOnUiThread(() -> {
+                    if (!isRetry) fetchMorePage(true);
+                    else loadingPage = false;
+                });
+            }
+        }, true);
     }
 
     private void onChannelPage(com.fongmi.android.tv.hongguo.drama.DramaCellPage page, boolean first) {
@@ -3486,8 +3500,9 @@ public class HongguoFeedActivity extends AppCompatActivity {
         /**
          * 推荐药丸（标题上方一行，数据带才显）：系列剧（rec_type=15）
          * 优先、其次榜单——回包里两型同条共存零例，同位二选一。
-         * 系列剧＝两段文案＋尾箭（本单只渲染，季列表数据来源未定、
-         * 不挂点击）；榜单＝渐变底＋奖杯图标＋两段文案（解析侧已合成）。
+         * 系列剧＝两段文案＋尾箭，点击进剧（#20 甲接通，季/集数据由
+         * 播放页详情路自取）；榜单＝渐变底＋奖杯图标＋两段文案（解析
+         * 侧已合成），仍只渲染不挂点击。
          */
         private void bindRecPill(Holder h, DramaItem item) {
             boolean series = item.seriesReason != null && !item.seriesReason.isEmpty();
@@ -3504,6 +3519,13 @@ public class HongguoFeedActivity extends AppCompatActivity {
                     text += "｜" + item.seriesContent;
                 }
                 pill.addView(recPillText(text));
+                // 系列药丸带 › 形、本就是进剧入口（#20 甲：此前不挂
+                // 点击点了没反应）——接与观看完整条同路的进剧口。
+                if (item.getSeriesId() != null) {
+                    pill.setOnClickListener(v -> startSeries(
+                            HongguoFeedActivity.this, item.getSeriesId(),
+                            item.getTitle(), 0));
+                }
                 ImageView chev = new ImageView(HongguoFeedActivity.this);
                 chev.setImageResource(R.drawable.ic_drama_chev);
                 chev.setColorFilter(Color.WHITE);

@@ -1126,7 +1126,21 @@ public final class DramaParser {
             if (cells != null) {
                 for (JsonElement cell : cells) collectDiscoverCells(cell, items, 0, skipLive);
             }
-            cont = extractContinuation(tab, tabType);
+            // 续拉首轮 offset＝开页回包的 next_offset（HgContinuation
+            // 类注口径；此前 extractContinuation 硬编码 "0"，续拉恒
+            // 从第一页重拉、被消费侧去重整页滤光——#13「只有四条」
+            // 的成形路）。tab 上没有再看 data 层，都没有才 "0"。
+            String firstOffset = firstStr(tab, "next_offset");
+            if (firstOffset == null) {
+                JsonElement no = tab.get("next_offset");
+                if (no != null && no.isJsonPrimitive() && no.getAsJsonPrimitive().isNumber()) {
+                    firstOffset = String.valueOf(no.getAsLong());
+                }
+            }
+            if (firstOffset == null && data != null) {
+                firstOffset = firstStr(data, "next_offset");
+            }
+            cont = extractContinuation(tab, tabType, firstOffset);
         }
         // 小分类筹的正源是官方筛选面（distribution 面板），不在频道回包
         // 里抽——旧 collectCategories 对字符串形 category_schema 抽 0、
@@ -1251,8 +1265,10 @@ public final class DramaParser {
         return null;
     }
 
-    /** 续页凭证抽取（对照 DiscoverContinuationTab 的挑选顺序）。 */
-    private static HgContinuation extractContinuation(JsonObject tab, int tabType) {
+    /** 续页凭证抽取（对照 DiscoverContinuationTab 的挑选顺序）。
+     * initialOffset＝开页回包 next_offset（没给传 null、凭证内落 "0"）。 */
+    private static HgContinuation extractContinuation(JsonObject tab, int tabType,
+                                                      String initialOffset) {
         String sessionId = str(tab, "session_id");
         if (sessionId == null || sessionId.isEmpty()) return null;
         String template = null;
@@ -1291,7 +1307,8 @@ public final class DramaParser {
         if (pickId == null) return null;
         return new HgContinuation(pickId, sessionId,
                 template, String.valueOf(intOf(pick, "show_type", 0)),
-                String.valueOf(tabType), "0");
+                String.valueOf(tabType),
+                initialOffset == null || initialOffset.isEmpty() ? "0" : initialOffset);
     }
 
     /** 单元格递归抽取（对照 appendCatalogCell 的三路：video_data 数组/对象、video_detail 卡表、嵌套 cell_data）。 */

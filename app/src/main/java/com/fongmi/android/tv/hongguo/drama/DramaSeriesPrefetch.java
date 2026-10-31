@@ -12,23 +12,20 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 进播放页预取全集（他 2026-10-30 定「进入播放页了才预取全部集」）：
- * 用户在播放页（HongguoFeedActivity 的 MODE_SERIES）开始看某部剧后，
- * 后台把这部剧全部集数的播放模型经播放取数链（DramaClient.
- * fetchModels，自家先行＋共享兜底）按 multi 单发上限分批备进
- * DramaCache，之后切集直接命中缓存。
+ * 进播放页预取（深度口径 2026-10-31 他亲定，#19）：用户在播放页
+ *（HongguoFeedActivity 的 MODE_SERIES）开始看某部剧后，后台把
+ * 「当前集之后两集」的播放模型经播放取数链（DramaClient.
+ * fetchModels，自家先行＋共享兜底）备进 DramaCache，切集直接命中
+ * 缓存。深度不再是 2026-10-30 定的全集：全集逐批单发在取链受限
+ * 时全是白烧（hongguo-play-once-verdict 账），窗口只随当前集滚动。
  *
  * <p>纪律：①当前集永远优先——会话只由页面在当前集解链成功
  *（onReady）后开启，此时当前集模型已落缓存；预取请求与起播请求
- * 是取数池上的独立异步调用，互不排队；计划里当前集恒列第一位
+ * 是取数池上的独立异步调用，互不排队；窗口里当前集恒列第一位
  *（已缓存、fetchModels 发批前自查命中不发网）。②低优先慢拉：
- * 批与批之间留 GAP_MS 间歇，不连发抢带宽。③换剧/退出播放页即停：
- * 会话按代次管理，新会话或 stopFor 使旧代次排队中的批自弃。
- * ④已缓存的集不重拉（fetchModels 逐批自查）。</p>
- *
- * <p>缓存装不下一整部的实情（DramaCache 上限 120 条、满时淘汰最早
- * 写入的）：集数 &gt;120 的剧，最早备下的集会被后续批淘汰，见账
- * hongguo-player-prefetch-20261030，本类不静默截断、照批拉完。</p>
+ * 批与批之间留 GAP_MS 间歇，不连发抢带宽。③换剧/切集/退出播放
+ * 页即换窗：会话按代次＋窗口键管理，新会话或 stopFor 使旧代次
+ * 排队中的批自弃。④已缓存的集不重拉（fetchModels 逐批自查）。</p>
  */
 public final class DramaSeriesPrefetch {
 
@@ -114,21 +111,29 @@ public final class DramaSeriesPrefetch {
         return slices;
     }
 
+    /** 预取深度：当前集之后备几集（#19 他亲定＝2）。 */
+    static final int DEPTH_AFTER_CURRENT = 2;
+
     /**
-     * 开启全集预取会话（页面在当前集 onReady 后调用）。同剧同集表
-     * 重复开启忽略；异剧开启即顶替旧会话（旧批在间歇点自弃）。
-     * 已缓存集不在此预扫全账（DramaCache 逐条读太贵），由
-     * fetchModels 在每批发送前自查、命中不发网。
+     * 开启预取会话（页面在当前集 onReady 后调用）。窗口＝当前集＋
+     * 其后 {@link #DEPTH_AFTER_CURRENT} 集，不绕回补当前集之前的集。
+     * 同窗重复开启忽略；切集后窗口键变了、新窗顶替旧会话（旧批在
+     * 间歇点自弃）。已缓存集不在此预扫全账（DramaCache 逐条读太
+     * 贵），由 fetchModels 在每批发送前自查、命中不发网。
      */
     public static void start(String seriesId, List<DramaDetail.Episode> episodes,
                              int contentType, String currentVid) {
         if (seriesId == null || episodes == null || episodes.isEmpty()) return;
-        List<String> vids = new ArrayList<>();
+        List<String> all = new ArrayList<>();
         for (DramaDetail.Episode ep : episodes) {
-            if (ep != null) vids.add(ep.getVideoId());
+            if (ep != null) all.add(ep.getVideoId());
         }
-        if (vids.isEmpty()) return;
-        String key = seriesId + "#" + vids.size();
+        if (all.isEmpty()) return;
+        int from = currentVid == null ? -1 : all.indexOf(currentVid);
+        if (from < 0) from = 0;
+        List<String> vids = new ArrayList<>(all.subList(
+                from, Math.min(all.size(), from + 1 + DEPTH_AFTER_CURRENT)));
+        String key = seriesId + "@" + from + "#" + vids.size();
         final int gen;
         synchronized (LOCK) {
             if (key.equals(activeKey)) return;

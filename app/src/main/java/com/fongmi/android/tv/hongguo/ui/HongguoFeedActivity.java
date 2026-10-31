@@ -1976,16 +1976,21 @@ public class HongguoFeedActivity extends AppCompatActivity {
     }
 
     /**
-     * 进播放页预取全集（他 2026-10-30 定）：只在播放页（MODE_SERIES）、
-     * 且当前集解链成功后才开启——当前集模型此时已落缓存，预取不抢
-     * 当前集；切集时重复调用由 DramaSeriesPrefetch 按会话键忽略。
-     * 视频页（短片/合集）不走本路。
+     * 进播放页预取（#19 恢复，深度＝当前集之后两集）：只在播放页
+     *（MODE_SERIES）、且当前集解链成功后才开启——当前集模型此时
+     * 已落缓存，预取不抢当前集；切集时重复调用由 DramaSeriesPrefetch
+     * 按窗口键滚动换窗。视频页（短片/合集）不走本路。
      */
     private void maybePrefetchSeries(String vid) {
-        // 2026-10-31 停用（账 hongguo-play-once-verdict）：全集预取的逐批
-        // 单发在当前取链形势下全是白烧——窗口批量已并进 playVid 的
-        // resolveWithWindow（当前集起 20 集一发取回落缓存，滚窗再取）。
-        // DramaSeriesPrefetch 类保留，取链形势恢复常态后再议去留。
+        // #19 恢复（2026-10-31 他亲定）：播放已通、取链形势恢复，
+        // 按原通路恢复预取；深度不再是全集——只备当前集之后两集，
+        // 窗口口径在 DramaSeriesPrefetch.start 里收（窗口随切集滚动，
+        // 已缓存的集由 fetchModels 发批前自查、不重复发网）。预取只
+        // 在后台下数据落缓存、不占屏，与 #8 的起播不亮封面不冲突。
+        if (mode != MODE_SERIES || seriesIdArg == null) return;
+        DramaDetail d = detailCache.get(seriesIdArg);
+        if (d == null || episodes.isEmpty()) return;
+        DramaSeriesPrefetch.start(seriesIdArg, episodes, d.getContentType(), vid);
     }
 
     private void onPlayEnded() {

@@ -32,11 +32,15 @@ import java.util.concurrent.Executors;
  * 评论单（打回补修重落，定稿浅色 .sheet）：白底顶圆 22＋grab，
  * 头＝「评论」＋计数 span＋关闭圆钮，体＝草稿 .cmt 行（头像 34、
  * 名 13 粗 ink、正文 13 #33333A、脚行 11.5 sub、行下 1px line
- * 分隔），脚＝「评论区仅供浏览」（#FBFAF8 底＋顶线）。与选集单/
- * 合集单同口径，旧深色面整件弃用（账 hongguo-page-redo 补修②）。
- * 功能不变：只看——本集评论列表＋回复展开＋翻页，没有输入框、
- * 没有发送口（他定版）；数据走 HongguoCommentApi（匿名读口），
- * 真实 total 经 OnTotal 回写宿主（D6）。草稿 .who 的时间 span 未落：
+ * 分隔），脚＝真输入行（#FBFAF8 底＋顶线）。与选集单/合集单同
+ * 口径，旧深色面整件弃用（账 hongguo-page-redo 补修②）。
+ * 能发（2026-10-31 他亲定「能登录就能发」，只看定版作废）：本
+ * 集评论列表＋回复展开＋翻页＋发顶层评论——输入行文案照官方
+ * 「有什么想法，展开说说」＋发送钮，发送走 DramaCommentPoster
+ * （带账号会话头），未登录点输入行/发送先跳登录页（与收藏/点
+ * 赞/关注/发弹幕同门），成功本地插顶回显＋计数 +1、失败给明确
+ * 失败态。读数据走 HongguoCommentApi（匿名读口），真实 total
+ * 经 OnTotal 回写宿主（D6）。草稿 .who 的时间 span 未落：
  * Comment.created（create_timestamp）全树无渲染先例、单位未验，
  * 不编造显示。
  */
@@ -143,29 +147,55 @@ public final class HgCommentsSheet {
         list.setClipToPadding(false);
         root.addView(list, new LinearLayout.LayoutParams(-1, -2));
 
-        // 脚（定稿 .s-foot）：仅供浏览注脚，#FBFAF8 底＋顶线＋手势区让位
+        // 脚（定稿 .s-foot 底＋顶线＋手势区让位）：真输入行——文案
+        // 照官方「有什么想法，展开说说」＋发送钮；接线（登录门＋
+        // 发送）在适配器备好后经 wireComposer 统一挂（见下方）。
         LinearLayout foot = new LinearLayout(activity);
         foot.setOrientation(LinearLayout.VERTICAL);
         foot.setBackgroundColor(0xFFFBFAF8);
         View footLine = new View(activity);
         footLine.setBackgroundColor(0x121B1B1F);
         foot.addView(footLine, new LinearLayout.LayoutParams(-1, 1));
-        TextView footText = new TextView(activity);
-        footText.setText("评论区仅供浏览");
-        footText.setTextColor(0xFF8A8A93);
-        footText.setTextSize(12.5f);
-        footText.setGravity(Gravity.CENTER);
-        footText.setPadding(dp.applyAsInt(18), dp.applyAsInt(11), dp.applyAsInt(18),
-                dp.applyAsInt(13) + navBarHeight(activity));
-        foot.addView(footText);
+        LinearLayout footRow = new LinearLayout(activity);
+        footRow.setOrientation(LinearLayout.HORIZONTAL);
+        footRow.setGravity(Gravity.CENTER_VERTICAL);
+        footRow.setPadding(dp.applyAsInt(18), dp.applyAsInt(10), dp.applyAsInt(18),
+                dp.applyAsInt(12) + navBarHeight(activity));
+        android.widget.EditText input = new android.widget.EditText(activity);
+        input.setHint("有什么想法，展开说说");
+        input.setTextColor(0xFF1B1B1F);
+        input.setHintTextColor(0xFF8A8A93);
+        input.setTextSize(13.5f);
+        input.setSingleLine(true);
+        input.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEND);
+        GradientDrawable inputBg = new GradientDrawable();
+        inputBg.setColor(0x0D1B1B1F);
+        inputBg.setCornerRadius(dp.applyAsInt(18));
+        input.setBackground(inputBg);
+        input.setPadding(dp.applyAsInt(14), dp.applyAsInt(8),
+                dp.applyAsInt(14), dp.applyAsInt(8));
+        footRow.addView(input, new LinearLayout.LayoutParams(0, -2, 1f));
+        TextView sendBtn = new TextView(activity);
+        sendBtn.setText("发送");
+        sendBtn.setTextColor(0xFF1B1B1F);
+        sendBtn.setTextSize(14);
+        sendBtn.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        sendBtn.setPadding(dp.applyAsInt(14), dp.applyAsInt(6),
+                dp.applyAsInt(2), dp.applyAsInt(6));
+        footRow.addView(sendBtn, new LinearLayout.LayoutParams(-2, -2));
+        foot.addView(footRow);
         root.addView(foot);
 
+        final boolean[] dismissed = {false};
         ExecutorService worker = Executors.newSingleThreadExecutor(r -> {
             Thread t = new Thread(r, "hg-comments");
             t.setDaemon(true);
             return t;
         });
-        dialog.setOnDismissListener(d -> worker.shutdownNow());
+        dialog.setOnDismissListener(d -> {
+            dismissed[0] = true;
+            worker.shutdownNow();
+        });
 
         // 适配器必须在 show 之前装好（与选集单 HgEpisodeSheet 同序）：
         // 此前是 show 之后才 setAdapter，首帧测量时列表无适配器、
@@ -174,6 +204,7 @@ public final class HgCommentsSheet {
         // 状态行（加载中…）自首帧就在项数里，测量口径与选集单一致。
         CommentsAdapter adapter = new CommentsAdapter(activity, dp, worker, seriesId, vid, headInfo, onTotal);
         list.setAdapter(adapter);
+        wireComposer(activity, input, sendBtn, adapter, list, seriesId, vid, dismissed);
         list.addItemDecoration(new RecyclerView.ItemDecoration() {
             private final Paint linePaint = new Paint();
 
@@ -226,6 +257,85 @@ public final class HgCommentsSheet {
         return g;
     }
 
+    /**
+     * 输入行接线（与横屏面板同口径）：登录门——未登录点输入行在落
+     * 焦前拦下跳登录页（不弹键盘）、点发送同门（#22 口径）；发送
+     * 走 DramaCommentPoster，发送中禁再发防连点重发；成功清文案
+     * ＋本地插顶回显（计数 +1），失败保留文案给「没发出去」明确
+     * 失败态、不装成功；单已关/宿主已毁后回调一律不触视图。
+     */
+    private static void wireComposer(AppCompatActivity activity,
+                                     android.widget.EditText input, TextView sendBtn,
+                                     CommentsAdapter adapter, RecyclerView list,
+                                     String seriesId, String vid, boolean[] dismissed) {
+        final boolean[] sending = {false};
+        Runnable send = () -> {
+            if (dismissed[0] || sending[0]) return;
+            if (!com.fongmi.android.tv.hongguo.api.HgAccountStore.isLoggedIn()) {
+                HongguoLoginActivity.start(activity);
+                return;
+            }
+            String text = input.getText() == null ? "" : input.getText().toString().trim();
+            if (text.isEmpty()) {
+                input.setError("先写点什么");
+                return;
+            }
+            sending[0] = true;
+            sendBtn.setEnabled(false);
+            com.fongmi.android.tv.hongguo.drama.DramaCommentPoster.publish(
+                    seriesId, vid, text,
+                    new com.fongmi.android.tv.hongguo.api.HgCallback<String>() {
+                        @Override
+                        public void onSuccess(String commentId) {
+                            activity.runOnUiThread(() -> {
+                                sending[0] = false;
+                                sendBtn.setEnabled(true);
+                                if (dismissed[0] || activity.isFinishing()
+                                        || activity.isDestroyed()) return;
+                                input.setText("");
+                                com.fongmi.android.tv.hongguo.api.HgAccountStore.Session s =
+                                        com.fongmi.android.tv.hongguo.api.HgAccountStore.load();
+                                adapter.prependMine(HongguoCommentApi.localEcho(commentId,
+                                        s == null ? "" : s.name,
+                                        s == null ? "" : s.avatar, text));
+                                list.scrollToPosition(0);
+                            });
+                        }
+
+                        @Override
+                        public void onError(int code, String msg) {
+                            activity.runOnUiThread(() -> {
+                                sending[0] = false;
+                                sendBtn.setEnabled(true);
+                                if (dismissed[0] || activity.isFinishing()
+                                        || activity.isDestroyed()) return;
+                                android.widget.Toast.makeText(activity,
+                                        "没发出去，再试试",
+                                        android.widget.Toast.LENGTH_SHORT).show();
+                            });
+                        }
+                    });
+        };
+        sendBtn.setOnClickListener(v -> send.run());
+        input.setOnEditorActionListener((v, actionId, event) -> {
+            if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_SEND) {
+                send.run();
+                return true;
+            }
+            return false;
+        });
+        input.setOnTouchListener((v, e) -> {
+            if (dismissed[0]) return false;
+            if (!com.fongmi.android.tv.hongguo.api.HgAccountStore.isLoggedIn()) {
+                if (e.getAction() == android.view.MotionEvent.ACTION_UP) {
+                    HongguoLoginActivity.start(activity);
+                }
+                return true;
+            }
+            return false;
+        });
+    }
+
     private static final class CommentsAdapter extends RecyclerView.Adapter<CommentsAdapter.H> {
         private final AppCompatActivity activity;
         private final java.util.function.IntUnaryOperator dp;
@@ -239,6 +349,7 @@ public final class HgCommentsSheet {
         private boolean hasMore = true;
         private boolean loading;
         private boolean firstLoaded;
+        private long lastTotal = -1;
 
         CommentsAdapter(AppCompatActivity a, java.util.function.IntUnaryOperator dp,
                         ExecutorService worker, String seriesId, String vid, TextView headInfo,
@@ -256,6 +367,20 @@ public final class HgCommentsSheet {
             return rows.size();
         }
 
+        /** 自己刚发的评论本地插顶回显＋计数 +1（计数回写单独隔离，与 loadMore 同纪律）。 */
+        void prependMine(HongguoCommentApi.Comment c) {
+            rows.add(0, new Row(c, false));
+            notifyItemInserted(0);
+            if (lastTotal >= 0) {
+                lastTotal++;
+                try {
+                    headInfo.setText("· " + HongguoFeedActivity.HgTimeTextCount.format(lastTotal) + " 条");
+                    if (onTotal != null) onTotal.onTotal(lastTotal);
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+
         void loadMore() {
             if (loading || !hasMore) return;
             loading = true;
@@ -271,6 +396,7 @@ public final class HgCommentsSheet {
                         return;
                     }
                     if (page.total > 0) {
+                        lastTotal = page.total;
                         // 计数回写单独隔离：格式化/宿主回调哪一步抛了，
                         // 都不许连坐下面的入列与 notify（否则面板只剩
                         // 计数、列表全白——真机空白面板的候选链之一，

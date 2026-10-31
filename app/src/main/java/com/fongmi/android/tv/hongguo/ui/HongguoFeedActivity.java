@@ -3062,6 +3062,8 @@ public class HongguoFeedActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         main.removeCallbacks(ticker);
+        cancelSpinDelay();
+        hideFreeze();
         main.removeCallbacks(savePosRunnable);
         main.removeCallbacks(prefetchRunnable);
         if (feedWatchdog != null) main.removeCallbacks(feedWatchdog);

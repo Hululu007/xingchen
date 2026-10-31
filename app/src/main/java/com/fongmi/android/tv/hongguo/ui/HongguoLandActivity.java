@@ -426,6 +426,14 @@ public class HongguoLandActivity extends AppCompatActivity {
         public void onIsPlayingChanged(boolean isPlaying) {
             playBtn.setImageResource(isPlaying
                     ? R.drawable.ic_drama_pause : R.drawable.ic_drama_play);
+            // 播时常亮、停时放行：与主播放器 PlaybackActivity 同口径
+            // （本页此前没设过这面旗，播着也会按系统超时息屏）
+            if (isPlaying) {
+                getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            } else if (player == null
+                    || player.getPlaybackState() != Player.STATE_BUFFERING) {
+                getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            }
         }
     };
 

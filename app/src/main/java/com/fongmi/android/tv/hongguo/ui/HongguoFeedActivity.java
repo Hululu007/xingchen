@@ -1812,6 +1812,19 @@ public class HongguoFeedActivity extends AppCompatActivity {
             }
         }
 
+        // 播时常亮、停时放行：与主播放器 PlaybackActivity 同口径。
+        // 本页自建播放页、没走 PlaybackActivity，此前全页没人设过
+        // 这面旗，播着也会按系统超时息屏（他 2026-10-31 真机报）。
+        @Override
+        public void onIsPlayingChanged(boolean isPlaying) {
+            if (isPlaying) {
+                getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            } else if (player == null
+                    || player.getPlaybackState() != Player.STATE_BUFFERING) {
+                getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            }
+        }
+
         @Override
         public void onRenderedFirstFrame() {
             FeedAdapter.Holder h = currentHolder();

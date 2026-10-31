@@ -122,6 +122,11 @@ public final class HgDevice {
         return nz(profile().deviceId);
     }
 
+    /** 签名用的 channel（MSConfig.setChannel 与公参 channel 同源同值，档案 persona 的 channel）。 */
+    public static String signChannel() {
+        return deviceChannel();
+    }
+
     /** medusa 厂商位（字段 34）：注册体 device_manufacturer 口径＝品牌。 */
     public static String deviceManufacturer() {
         return deviceBrand();

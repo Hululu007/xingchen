@@ -246,3 +246,9 @@
 -keepclassmembers class com.fongmi.android.tv.ui.activity.ComicReaderActivity {
     public *** ai*(...);
 }
+
+# metasec 运行时 dex 的 SDK 类静态初始化靠它（运行时 dex 内的 SDK 类靠它过静态初始化，防 R8 摘除）
+-keep class com.bytedance.covode.number.Covode { *; }
+
+# 红果登录会话落盘 JSON 字段名保活（gson 按字段名序列化，防跨版本混淆改名把已存会话读废）
+-keep class com.fongmi.android.tv.hongguo.api.HgAccountStore$Session { *; }

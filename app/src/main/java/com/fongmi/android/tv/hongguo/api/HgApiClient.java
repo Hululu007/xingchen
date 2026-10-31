@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.hongguo.api;
 
+import com.fongmi.android.tv.hongguo.sign.HgNativeSign;
 import com.fongmi.android.tv.hongguo.sign.HgSign;
 import com.github.catvod.net.OkHttp;
 import com.google.gson.JsonObject;
@@ -369,6 +370,8 @@ public final class HgApiClient {
         h.put("x-ss-dp", "8662");
         h.put("lc", "101");
         h.put("x-reading-request", HgDevice.readingRequestId(ticket));
+        // 头组装完成、发请求前过一遍原生重签（未就绪/失败返回原样副本，行为不变）
+        h = HgNativeSign.resign(url, h, bodyBytes);
         RequestBody rb = RequestBody.create(body, JSON);
         Call call = OkHttp.newCall(url, h, rb);
         enqueue(call, cb, path);
@@ -411,6 +414,8 @@ public final class HgApiClient {
         h.put("x-ss-dp", "8662");
         h.put("lc", "101");
         h.put("x-reading-request", HgDevice.readingRequestId(ticket));
+        // 头组装完成、发请求前过一遍原生重签（未就绪/失败返回原样副本，行为不变）
+        h = HgNativeSign.resign(url, h, null);
         Call call = OkHttp.newCall(url, h);
         enqueue(call, cb, path);
     }

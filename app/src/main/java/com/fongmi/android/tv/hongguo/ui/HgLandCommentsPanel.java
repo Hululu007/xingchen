@@ -36,9 +36,13 @@ import java.util.concurrent.Executors;
  * （无图色块字母兜底）＋名 13 粗＋正文 13＋脚行（赞 N · 展开回
  * 复，点脚行展开、回复缩进 44），字号行距逐项沿用，仅底色与字
  * 色按横屏深形态换。数据同源 HongguoCommentApi（episodeComments
- * ＋episodeReplies 分页），只看不发（与评论单同口径：无输入口、
- * 无发送链，底部只留「评论区仅供浏览」注脚）。
- * 竖屏评论单一行未动，两面各自成件、只共享数据层。
+ * ＋episodeReplies 分页）。
+ * 能发（2026-10-31 他亲定「能登录就能发」，只看口径作废）：底部
+ * 真输入行（文案照官方「有什么想法，展开说说」＋发送钮），发送
+ * 走 DramaCommentPoster（带账号会话头）；未登录点输入行/发送先
+ * 跳登录页（与收藏/点赞/关注/发弹幕同门）；成功本地插顶回显、
+ * 计数 +1，失败留文案给明确失败态、不装成功。
+ * 竖屏评论单与本件各自成件，只共享数据层与发送链。
  */
 public final class HgLandCommentsPanel {
 
@@ -72,12 +76,16 @@ public final class HgLandCommentsPanel {
     private final ExecutorService worker;
     private final LinearLayout root;
     private final TextView title;
-    private final TextView footText;
+    private final LinearLayout footRow;
+    private final android.widget.EditText input;
+    private final TextView sendBtn;
+    private final RecyclerView list;
     private final LandAdapter adapter;
     private String seriesId;
     private String vid;
     private boolean bound;
     private boolean destroyed;
+    private boolean sending;
 
     public HgLandCommentsPanel(AppCompatActivity activity, Host host) {
         this.activity = activity;
@@ -122,7 +130,7 @@ public final class HgLandCommentsPanel {
         root.addView(headLine, new LinearLayout.LayoutParams(-1, 1));
 
         // 体：评论列表（行形态沿评论单，见类头注）
-        RecyclerView list = new RecyclerView(activity);
+        list = new RecyclerView(activity);
         list.setLayoutManager(new LinearLayoutManager(activity));
         list.setPadding(dp.applyAsInt(16), dp.applyAsInt(4),
                 dp.applyAsInt(16), dp.applyAsInt(10));
@@ -161,31 +169,126 @@ public final class HgLandCommentsPanel {
         });
         root.addView(list, new LinearLayout.LayoutParams(-1, 0, 1f));
 
-        // 脚：只看口径注脚（评论单 .s-foot 同文同义，深形态换色＋
-        // 手势区让位由宿主 insets 喂入）
+        // 脚：真输入行（官方截图同位，文案照官方「有什么想法，
+        // 展开说说」＋发送钮；手势区让位由宿主 insets 喂入下边距）。
+        // 登录门与竖屏评论单同口径：未登录点输入行先跳登录页（触摸
+        // 在落焦前拦下，不弹键盘）、点发送同门；发送走 trySend。
         View footLine = new View(activity);
         footLine.setBackgroundColor(0x14FFFFFF);
         root.addView(footLine, new LinearLayout.LayoutParams(-1, 1));
-        footText = new TextView(activity);
-        footText.setText("评论区仅供浏览");
-        footText.setTextColor(0xFF8A8A93);
-        footText.setTextSize(12.5f);
-        footText.setGravity(Gravity.CENTER);
-        footText.setPadding(dp.applyAsInt(16), dp.applyAsInt(11),
+        footRow = new LinearLayout(activity);
+        footRow.setOrientation(LinearLayout.HORIZONTAL);
+        footRow.setGravity(Gravity.CENTER_VERTICAL);
+        footRow.setPadding(dp.applyAsInt(16), dp.applyAsInt(10),
                 dp.applyAsInt(16), dp.applyAsInt(13));
-        root.addView(footText);
+        input = new android.widget.EditText(activity);
+        input.setHint("有什么想法，展开说说");
+        input.setTextColor(0xFFF2F2F4);
+        input.setHintTextColor(0xFF8A8A93);
+        input.setTextSize(13.5f);
+        input.setSingleLine(true);
+        input.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEND);
+        GradientDrawable inputBg = new GradientDrawable();
+        inputBg.setColor(0x14FFFFFF);
+        inputBg.setCornerRadius(dp.applyAsInt(18));
+        input.setBackground(inputBg);
+        input.setPadding(dp.applyAsInt(14), dp.applyAsInt(8),
+                dp.applyAsInt(14), dp.applyAsInt(8));
+        input.setOnTouchListener((v, e) -> {
+            if (destroyed) return false;
+            if (!com.fongmi.android.tv.hongguo.api.HgAccountStore.isLoggedIn()) {
+                if (e.getAction() == android.view.MotionEvent.ACTION_UP) {
+                    HongguoLoginActivity.start(activity);
+                }
+                return true;
+            }
+            return false;
+        });
+        input.setOnEditorActionListener((v, actionId, event) -> {
+            if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_SEND) {
+                trySend();
+                return true;
+            }
+            return false;
+        });
+        footRow.addView(input, new LinearLayout.LayoutParams(0, -2, 1f));
+        sendBtn = new TextView(activity);
+        sendBtn.setText("发送");
+        sendBtn.setTextColor(Color.WHITE);
+        sendBtn.setTextSize(14);
+        sendBtn.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        sendBtn.setPadding(dp.applyAsInt(14), dp.applyAsInt(6),
+                dp.applyAsInt(2), dp.applyAsInt(6));
+        sendBtn.setOnClickListener(v -> trySend());
+        footRow.addView(sendBtn, new LinearLayout.LayoutParams(-2, -2));
+        root.addView(footRow);
+    }
+
+    /**
+     * 发送顶层评论（登录门同 #22 口径）：未登录跳登录页；空文案在
+     * 输入行报错不发；发送中禁再发（连点不重发）；成功清文案＋本
+     * 地插顶回显（面板已切到别的集则不插、等回拉校准）＋计数 +1；
+     * 失败保留文案、给「没发出去」明确失败态、不装成功。
+     */
+    private void trySend() {
+        if (destroyed || sending) return;
+        if (!com.fongmi.android.tv.hongguo.api.HgAccountStore.isLoggedIn()) {
+            HongguoLoginActivity.start(activity);
+            return;
+        }
+        String text = input.getText() == null ? "" : input.getText().toString().trim();
+        if (text.isEmpty()) {
+            input.setError("先写点什么");
+            return;
+        }
+        if (seriesId == null || vid == null) return;
+        final String sid = seriesId;
+        final String v = vid;
+        sending = true;
+        sendBtn.setEnabled(false);
+        com.fongmi.android.tv.hongguo.drama.DramaCommentPoster.publish(
+                sid, v, text, new com.fongmi.android.tv.hongguo.api.HgCallback<String>() {
+                    @Override
+                    public void onSuccess(String commentId) {
+                        activity.runOnUiThread(() -> {
+                            sending = false;
+                            sendBtn.setEnabled(true);
+                            if (destroyed) return;
+                            input.setText("");
+                            if (sid.equals(seriesId) && v.equals(vid)) {
+                                com.fongmi.android.tv.hongguo.api.HgAccountStore.Session s =
+                                        com.fongmi.android.tv.hongguo.api.HgAccountStore.load();
+                                adapter.prependMine(HongguoCommentApi.localEcho(commentId,
+                                        s == null ? "" : s.name,
+                                        s == null ? "" : s.avatar, text));
+                                list.scrollToPosition(0);
+                            }
+                        });
+                    }
+
+                    @Override
+                    public void onError(int code, String msg) {
+                        activity.runOnUiThread(() -> {
+                            sending = false;
+                            sendBtn.setEnabled(true);
+                            if (destroyed) return;
+                            android.widget.Toast.makeText(activity,
+                                    "没发出去，再试试", android.widget.Toast.LENGTH_SHORT).show();
+                        });
+                    }
+                });
     }
 
     public View view() {
         return root;
     }
 
-    /** 手势区让位：宿主 insets 捕获的底部系统栏高喂进来补脚行下边距。 */
+    /** 手势区让位：宿主 insets 捕获的底部系统栏高喂进来补输入行下边距。 */
     public void setBottomInset(int px) {
         float density = activity.getResources().getDisplayMetrics().density;
         int base = (int) (13 * density + 0.5f);
-        footText.setPadding(footText.getPaddingLeft(), footText.getPaddingTop(),
-                footText.getPaddingRight(), base + px);
+        footRow.setPadding(footRow.getPaddingLeft(), footRow.getPaddingTop(),
+                footRow.getPaddingRight(), base + px);
     }
 
     public boolean isBound() {
@@ -230,6 +333,7 @@ public final class HgLandCommentsPanel {
         private boolean loading;
         private boolean firstLoaded;
         private int generation;
+        private long lastTotal = -1;
 
         LandAdapter(java.util.function.IntUnaryOperator dp) {
             this.dp = dp;
@@ -248,7 +352,23 @@ public final class HgLandCommentsPanel {
             hasMore = true;
             loading = false;
             firstLoaded = false;
+            lastTotal = -1;
             notifyDataSetChanged();
+        }
+
+        /** 自己刚发的评论本地插顶回显＋计数 +1（标题与宿主计数签同源回写，单独隔离）。 */
+        void prependMine(HongguoCommentApi.Comment c) {
+            rows.add(0, new Row(c, false));
+            notifyItemInserted(0);
+            if (lastTotal >= 0) {
+                lastTotal++;
+                try {
+                    title.setText(HongguoFeedActivity.HgTimeTextCount.format(lastTotal)
+                            + "条评论");
+                    if (host != null) host.onTotal(lastTotal);
+                } catch (Throwable ignored) {
+                }
+            }
         }
 
         void loadMore() {
@@ -270,6 +390,7 @@ public final class HgLandCommentsPanel {
                         return;
                     }
                     if (page.total > 0) {
+                        lastTotal = page.total;
                         // 计数回写单独隔离（与评论单同纪律）：标题与
                         // 宿主计数签哪一步抛了都不连坐入列
                         try {

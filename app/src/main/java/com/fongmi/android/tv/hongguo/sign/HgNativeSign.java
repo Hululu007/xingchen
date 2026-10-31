@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.hongguo.sign;
 
+import android.app.Application;
 import android.content.Context;
 
 import com.fongmi.android.tv.App;
@@ -63,6 +64,8 @@ public final class HgNativeSign {
     private static final String CLS_FETCH_BY_KEY = "com.bytedance.mobsec.metasec.ml.MSConfig$Builder$IFetchAppSettingsByKey";
     private static final String CLS_CHECK_UPDATED = "com.bytedance.mobsec.metasec.ml.MSConfig$Builder$ICheckAppSettingsUpdated";
     private static final String CLS_COMPLIANCE = "com.bytedance.mobsec.metasec.ml.MSConfig$Builder$IMsComplianceScene";
+    /** 类包闭包补全时并入的宿主门面桩（官方 App 私有类，见 kit 桩源）：context() 回它。 */
+    private static final String CLS_DRAGON_APP = "com.dragon.read.app.App";
 
     /** 只采纳的六头（小写口径，与 HgSign 现行键名一致）。 */
     private static final String[] SIX_HEADERS = {
@@ -165,6 +168,15 @@ public final class HgNativeSign {
                 codeCacheDir.getAbsolutePath(),
                 ctx.getApplicationInfo().nativeLibraryDir,
                 HgNativeSign.class.getClassLoader());
+
+        // 宿主喂入（类包闭包补全的收口）：类包内 dragon App 是桩，其
+        // context() 是 SDK 旁路（网络参数/监控）取宿主 Context 的口子，
+        // 必须在 init 之前喂真 Application。喂入失败按 init 失败处理
+        // （置 DEAD 走仿算）：类包与本类同包同版，缺面说明包内类包
+        // 不是验过的那只，不半接线硬跑。
+        Class.forName(CLS_DRAGON_APP, true, loader)
+                .getMethod("setHostApplication", Application.class)
+                .invoke(null, (Application) ctx);
 
         Class<?> builderClass = Class.forName(CLS_BUILDER, true, loader);
         Class<?> configClass = Class.forName(CLS_CONFIG, false, loader);

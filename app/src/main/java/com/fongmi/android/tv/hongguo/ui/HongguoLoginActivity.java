@@ -327,6 +327,9 @@ public class HongguoLoginActivity extends AppCompatActivity {
             @Override
             public void onSuccess(HgAccountStore.Session session) {
                 HgAccountStore.save(session);
+                // 登录成功即拉云端片单合并本地镜像（收藏/历史/点赞/预约，
+                // HgAccountSync 内部后台跑、失败静默，不挡退页）
+                com.fongmi.android.tv.hongguo.api.HgAccountSync.syncAfterLogin();
                 runOnUiThread(() -> {
                     loggingIn = false;
                     toast("登录成功");

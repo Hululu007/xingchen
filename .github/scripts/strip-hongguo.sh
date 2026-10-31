@@ -18,7 +18,10 @@
 #   - 底栏短剧格：HomeActivity 的 import／注册行／点击分发支／启动直达块、
 #     isHongguoTabEnabled 改回 false（格子不注册）、ic_nav_duanju 双态图标、nav_duanju 字符串；
 #   - Manifest（mobile）里红果十个 Activity＋书城浏览页＋红果听书播放页
-#     （2026-10-30 听书分家新增 HgAudioPlayActivity）的登记。
+#     （2026-10-30 听书分家新增 HgAudioPlayActivity）的登记；
+#   - 2026-10-31 签名/登录批新增：短信登录页 HongguoLoginActivity 的 Manifest
+#     登记、我的页五格字形 ic_mine_* 四份、原版签名三件（jniLibs 的
+#     libmetasec_ml.so、assets/hg-metasec/metasec.dex、Covode 桩）。
 #
 # 不许误伤的共用件（海阔规则年代就有的壳子件，只是名字里带 Hongguo，与本功能无关，留）：
 #   - com.fongmi.android.tv.api.HongguoCommentApi / HongguoDanmakuApi / FqCommentSigner
@@ -65,11 +68,15 @@ grep -qF "<string name=\"nav_duanju\">短剧</string>" "$MSTRINGS" || fail "短�
 if grep -q "Hongguo" "$LM"; then
   fail "LoginManager 出现红果字样（重建后应为零，疑回潮）"
 fi
-for a in HongguoFeedActivity HongguoDetailActivity HongguoTheaterActivity HongguoSearchActivity HongguoAuthorActivity HongguoMineActivity HongguoMineEditActivity HongguoLandActivity HongguoNovelDetailActivity; do
+for a in HongguoFeedActivity HongguoDetailActivity HongguoTheaterActivity HongguoSearchActivity HongguoAuthorActivity HongguoMineActivity HongguoMineEditActivity HongguoLandActivity HongguoNovelDetailActivity HongguoLoginActivity; do
   grep -qF "android:name=\"com.fongmi.android.tv.hongguo.ui.$a\"" "$MANIFEST" || fail "Manifest 的红果登记对不上：$a"
 done
 grep -qF "android:name=\"com.fongmi.android.tv.hongguo.book.HgBookBrowseActivity\"" "$MANIFEST" || fail "Manifest 的红果书城浏览页登记对不上"
 grep -qF "android:name=\"com.fongmi.android.tv.hongguo.book.HgAudioPlayActivity\"" "$MANIFEST" || fail "Manifest 的红果听书播放页登记对不上"
+# 原版签名三件预检（2026-10-31 签名/登录批入树，朋友版随红果整包剥）
+[ -f app/src/main/jniLibs/arm64-v8a/libmetasec_ml.so ] || fail "原版签名 .so 找不到"
+[ -f app/src/main/assets/hg-metasec/metasec.dex ] || fail "原版签名运行时 dex 找不到"
+[ -f app/src/main/java/com/bytedance/covode/number/Covode.java ] || fail "Covode 桩找不到"
 
 # ---- 本体资源清单（main/mobile 源集，逐份核在再删） ----
 RES_FILES="
@@ -95,6 +102,10 @@ app/src/main/res/drawable/bg_hg_book_searchbar.xml
 app/src/main/res/drawable/bg_hg_cover_r6.xml
 app/src/main/res/drawable/bg_hg_follow_btn.xml
 app/src/main/res/drawable/ic_hg_search_gray.xml
+app/src/main/res/drawable/ic_mine_clock.xml
+app/src/main/res/drawable/ic_mine_heart.xml
+app/src/main/res/drawable/ic_mine_calendar.xml
+app/src/main/res/drawable/ic_mine_bell.xml
 app/src/main/res/layout/item_hongguo_search_book.xml
 app/src/main/res/anim/hg_push_in.xml
 app/src/main/res/anim/hg_pop_out.xml
@@ -192,7 +203,7 @@ manifest = cut_exact(manifest, """        <!-- 红果书城浏览（内置小说
 """, "书城浏览页登记注释")
 manifest = cut_exact(manifest, """        <!-- 红果听书单独的播放页（分家令：不与普通听书共用播放页） -->
 """, "红果听书播放页登记注释")
-for name in ("HongguoFeedActivity", "HongguoDetailActivity", "HongguoTheaterActivity", "HongguoSearchActivity", "HongguoAuthorActivity", "HongguoMineActivity", "HongguoMineEditActivity", "HongguoNovelDetailActivity", "HongguoLandActivity"):
+for name in ("HongguoFeedActivity", "HongguoDetailActivity", "HongguoTheaterActivity", "HongguoSearchActivity", "HongguoAuthorActivity", "HongguoMineActivity", "HongguoMineEditActivity", "HongguoNovelDetailActivity", "HongguoLandActivity", "HongguoLoginActivity"):
     pattern = r"<activity\s+android:name=\"com\.fongmi\.android\.tv\.hongguo\.ui\." + name + r"\"[^>]*/>"
     manifest, n = re.subn(pattern, "", manifest)
     if n != 1:
@@ -218,6 +229,10 @@ sed -i "/<string name=\"nav_duanju\">/d" "$MSTRINGS"
 # ---- 本体文件整删 ----
 rm -rf "$HGPKG" "$HGTEST"
 rm "$STREAM"
+# 原版签名三件整删（朋友版不带 metasec .so/运行时 dex/Covode 桩）
+rm app/src/main/jniLibs/arm64-v8a/libmetasec_ml.so
+rm -rf app/src/main/assets/hg-metasec
+rm -rf app/src/main/java/com/bytedance
 rm -rf app/src/mobile/java/com/fongmi/android/tv/hongguo/book
 rm -rf app/src/mobile/java/com/fongmi/android/tv/hongguo/ui
 for f in $RES_FILES; do
@@ -228,6 +243,9 @@ done
 if grep -rn -E "com\.fongmi\.android\.tv\.hongguo|HongguoFeedActivity|HongguoDetailActivity|HongguoTheaterActivity|HongguoSearchActivity|HongguoAuthorActivity|HongguoMineActivity|HongguoLandActivity|HongguoNovelDetailActivity|HongguoStream|ic_nav_duanju|nav_duanju|ic_drama_" app/src/main app/src/mobile app/src/leanback app/src/test --include=*.java --include=*.xml; then
   fail "删完后仍有红果本功能残留"
 fi
+[ ! -e app/src/main/jniLibs/arm64-v8a/libmetasec_ml.so ] || fail "删完后原版签名 .so 仍在"
+[ ! -e app/src/main/assets/hg-metasec ] || fail "删完后原版签名 dex 目录仍在"
+[ ! -e app/src/main/java/com/bytedance ] || fail "删完后 Covode 桩目录仍在"
 
 # ---- 复查二：共用件与框架必须完好 ----
 for f in app/src/main/java/com/fongmi/android/tv/api/FqCommentSigner.java \

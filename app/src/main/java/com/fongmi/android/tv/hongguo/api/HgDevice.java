@@ -1,5 +1,9 @@
 package com.fongmi.android.tv.hongguo.api;
 
+import android.content.res.Resources;
+import android.os.Build;
+import android.util.DisplayMetrics;
+
 import com.github.catvod.utils.Prefers;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -75,11 +79,23 @@ public final class HgDevice {
     // 配额按档案计、合成档案被压进深罚区（feed-fail-1460-20261029.md 定根）。
     // 此前全网每份档案共用同一台设备描述＋同一套 medusa 抓样指纹（传感器
     // 浮点/token/环境哈希逐位相同）——真机群不可能共享这些值，这是合成
-    // 设备农场的一眼特征。现改为：persona 在档案生成时从已证真机元组池里
+    // 设备农场的一眼特征。当时改为：persona 在档案生成时从已证真机元组池里
     // 掷定、随档案落盘、终身稳定；注册体/公参/UA/medusa 四处都经下面的
     // 访问口现取档案 persona，不许再各写一份（medusa 对齐口径见
-    // login-medusa-align-20261029.md）。存量档案（无 persona 字段）迁移时
-    // 钉 legacy persona——它注册时报的就是这台，钉死才自洽。
+    // login-medusa-align-20261029.md）。
+    //
+    // 2026-10-31 签名收口再进一步（hongguo-signer-map-20261031.md 第三节）：
+    // 原生 metasec 的 medusa 设备快照是 SDK 在宿主真机上自采的，档案再报
+    // 池里别人的机型，一发之内就是两台设备。persona 就此改用宿主真机
+    // 实值（HOST_PERSONA：Build 品牌/型号/构建/系统版本＋系统实测分辨
+    // 率/dpi），注册、公参、仿签内嵌、原生自采四处同一个设备；元组池
+    // 退役。存量档案是按旧 persona 注册的，不许在旧脸上换口径——升级
+    // 后首取档案走一次性换脸重注册（swapToRealDevicePersonaOnce，新标
+    // 记与 1.4.66 的 hongguo_face_swap 分开立），换完的新脸自始即真机
+    // 口径。更早的存量档案（无 persona 字段）迁移时仍钉 legacy
+    // persona——它注册时报的就是这台，钉死才自洽（且正常路径下先被
+    // 换脸重置，走不到迁移）。channel 不是设备属性、是应用分发渠道串
+    // （抓样实值 xiaomi_8662_64），与机型无关，保持原值不随真机变。
     private static final class Persona {
         final String brand;
         final String model;
@@ -103,19 +119,43 @@ public final class HgDevice {
         }
     }
 
-    /** 池 0＝legacy：openhongguo sdk/model DefaultDevice（Xiaomi 23127PN0CC / Android 14）。 */
+    /** legacy：openhongguo sdk/model DefaultDevice（Xiaomi 23127PN0CC / Android 14）。
+     * 只剩两职：档案字段缺位时的访问口兜底、与无 persona 存量档案的迁移钉值
+     * ——这两处要的都是「该脸注册时报的那台」，不许换成真机值（见上方口径注）。 */
     private static final Persona PERSONA_LEGACY = new Persona(
             "Xiaomi", "23127PN0CC", "UKQ1.230804.001", "14", 34, "1200*2670", 460, "xiaomi_8662_64");
-    /** 池 1：评论栈实抓样机（HongguoCommentApi 的 UA 与查询串逐字段在案）：
-     * Redmi 25053RT47C / Android 16 / Build BP2A.250605.031.A3 / 1280*2772 / dpi 520。 */
-    private static final Persona PERSONA_REDMI_A16 = new Persona(
-            "Redmi", "25053RT47C", "BP2A.250605.031.A3", "16", 36, "1280*2772", 520, "xiaomi_8662_64");
-    private static final Persona[] PERSONA_POOL = {PERSONA_LEGACY, PERSONA_REDMI_A16};
+
+    /** 应用分发渠道串（抓样实值；非设备属性，不随宿主真机变，见上方口径注）。 */
+    private static final String CHANNEL_APP = "xiaomi_8662_64";
+
+    /** 宿主真机 persona：新档案生成时套用（2026-10-31 收口，见上方口径注）。 */
+    private static final Persona HOST_PERSONA = buildHostPersona();
+
+    private static Persona buildHostPersona() {
+        String resolution = "";
+        int dpi = 0;
+        try {
+            DisplayMetrics dm = Resources.getSystem().getDisplayMetrics();
+            if (dm != null && dm.widthPixels > 0 && dm.heightPixels > 0) {
+                resolution = dm.widthPixels + "*" + dm.heightPixels;
+                dpi = dm.densityDpi;
+            }
+        } catch (Throwable ignored) {
+            // 取不到实测显示参数时留空：注册体不带这两项、公参由档案空值
+            // 透传——如实留空，不编造数值（类加载期偶发，正常真机不走此路）。
+        }
+        return new Persona(nz(Build.BRAND), nz(Build.MODEL), nz(Build.ID),
+                nz(Build.VERSION.RELEASE), Build.VERSION.SDK_INT,
+                resolution, dpi, CHANNEL_APP);
+    }
 
     private static final String PREF_KEY = "hongguo_device_profile_v1";
 
     /** 一次性换脸标记键（1.4.66，见 swapBurnedFaceOnce）。 */
     private static final String FACE_SWAP_KEY = "hongguo_face_swap_20261031";
+
+    /** 一次性换脸标记键（2026-10-31 签名收口，见 swapToRealDevicePersonaOnce；与 1.4.66 标记分开立）。 */
+    private static final String FACE_SWAP_REALDEV_KEY = "hongguo_face_swap_realdev_20261031";
 
     /** 签名用的 device_id（自家注册档案）。 */
     public static String signDeviceId() {
@@ -255,7 +295,7 @@ public final class HgDevice {
 
     /**
      * 重置设备档案：整份匿名身份作废——本地派生标识（cdid/openudid/
-     * clientudid/oaid/req_id）重新派生，persona 与指纹种子一并重掷，
+     * clientudid/oaid/req_id）重新派生、指纹种子重掷，persona 套宿主真机实值，
      * 注册回的 device_id/install_id 与注册派生的游客 Cookie 材料
      * （ttreq/store-region）随旧档案一并清掉，
      * 落盘后即未注册态；重新注册走 HgApiClient.ensureDevice 既有流程。
@@ -295,8 +335,37 @@ public final class HgDevice {
         }
     }
 
+    /** 真机口径换脸标记已查旗（每进程只查一次盘）。 */
+    private static boolean realDevSwapChecked;
+
+    /**
+     * 一次性换脸·真机口径（2026-10-31 签名收口）：存量档案都是按旧
+     * persona 池的机型注册的，口径切到宿主真机后，旧脸的注册描述与
+     * 新口径对不上——不许在旧脸上混用。升级后第一次取档案先整份
+     * 作废旧档案、按真机 persona 重新派生一张未注册的新脸，随后既有
+     * ensureDevice 流程负责注册。本次重置同时完成 1.4.66 换脸的
+     * 目的（旧脸作废换新脸），故旧标记一并落下、防紧接着二次重置；
+     * 本检查排在 swapBurnedFaceOnce 之前。标记落盘保证终身只换这一
+     * 次；只动设备档案这一份落盘，历史／收藏／配置一概不碰。
+     */
+    private static void swapToRealDevicePersonaOnce() {
+        if (realDevSwapChecked) return;
+        realDevSwapChecked = true;
+        try {
+            if (Prefers.getString(FACE_SWAP_REALDEV_KEY).isEmpty()) {
+                Prefers.put(FACE_SWAP_REALDEV_KEY, "1");
+                Prefers.put(FACE_SWAP_KEY, "1");
+                resetProfile();
+            }
+        } catch (Throwable ignored) {
+            // 换脸失败不拦业务：旧档案照常走既有流程。
+        }
+    }
+
     /** 取档案：没有就本地派生一份并落盘（device_id/install_id 待注册回填）。 */
     public static synchronized Profile profile() {
+        if (cached != null) return cached;
+        swapToRealDevicePersonaOnce();
         if (cached != null) return cached;
         swapBurnedFaceOnce();
         if (cached != null) return cached;
@@ -726,10 +795,12 @@ public final class HgDevice {
         p.clientUdid = uuid(raw, 24);
         p.oaid = uuid(raw, 40);
         p.reqId = uuid(raw, 56);
-        // 指纹种子与 persona 同批掷定（根治账）：种子 32 字节取 [72,104)，
-        // persona 池下标取字节 104。新档案自此是一台自洽且唯一的设备。
+        // 指纹种子在生成时掷定（根治账）：种子 32 字节取 [72,104)。
+        // persona 不再掷池——套宿主真机实值（2026-10-31 收口，见
+        // HOST_PERSONA 口径注）：新档案自此就是这台真机本人，唯一性
+        // 由本地派生标识与种子保证，不靠编造机型区分。
         p.fpSeed = hexLower(raw, 72, 32);
-        p.applyPersona(PERSONA_POOL[(raw[104] & 0xFF) % PERSONA_POOL.length]);
+        p.applyPersona(HOST_PERSONA);
         return p;
     }
 

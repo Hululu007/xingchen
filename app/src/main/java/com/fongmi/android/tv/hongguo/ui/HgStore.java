@@ -297,6 +297,17 @@ public final class HgStore {
         return contains(K_FOLLOWED, seriesId);
     }
 
+    /** 追剧架（收藏）全量 id 集读口：账号同步的存量上行迁移用（#22）。 */
+    public static java.util.Set<String> followedIds() {
+        ensureShelfMigrated();
+        return readSet(K_FOLLOWED);
+    }
+
+    /** 点赞全量 id 集读口（#22；上行口未验到前只读不用）。 */
+    public static java.util.Set<String> likedIds() {
+        return readSet(K_LIKED);
+    }
+
     public static boolean toggleFollowed(String seriesId) {
         ensureShelfMigrated();
         return toggle(K_FOLLOWED, seriesId);

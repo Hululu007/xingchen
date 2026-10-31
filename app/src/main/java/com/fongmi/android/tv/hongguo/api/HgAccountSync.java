@@ -164,11 +164,20 @@ public final class HgAccountSync {
                     "/reading/bookapi/bookshelf/video/list" + BV, new ArrayList<>());
             DramaCellPage page = DramaParser.parseCellPage(text);
             if (page == null || page.getItems() == null) return;
+            java.util.Set<String> cloud = new java.util.HashSet<>();
             for (DramaItem item : page.getItems()) {
                 if (item == null || item.getSeriesId() == null) continue;
+                cloud.add(item.getSeriesId());
                 HgStore.setShelfMirrored(item.getSeriesId(), true);
                 fillMeta(new Entry(item.getSeriesId(), item.getTitle(),
                         item.getCoverUrl(), item.getEpisodeCount()));
+            }
+            // 存量上行迁移（#22）：本地优先时代攒下、云端还没有的
+            // 收藏逐个 AddShelf 上行——上行后归账号，此后以云端态
+            // 为准（下次拉取即收口）。点赞无已验上行口，存量暂留
+            // 镜像待端点验到再迁，不删用户数据。
+            for (String id : HgStore.followedIds()) {
+                if (!cloud.contains(id)) reportShelf(id, true);
             }
         } catch (Exception e) {
             android.util.Log.w(TAG, "收藏拉取失败 " + e.getMessage());

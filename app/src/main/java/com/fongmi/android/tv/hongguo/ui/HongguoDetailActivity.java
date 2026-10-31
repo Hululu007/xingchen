@@ -558,6 +558,11 @@ public class HongguoDetailActivity extends AppCompatActivity {
 
     private void toggleFav() {
         if (detail == null || seriesId == null) return;
+        // 账号终定口径（#22）：收藏绑账号，未登录跳登录页、不落本地
+        if (!com.fongmi.android.tv.hongguo.api.HgAccountStore.isLoggedIn()) {
+            HongguoLoginActivity.start(this);
+            return;
+        }
         boolean now = HgStore.toggleFaved(seriesId);
         HgStore.putMeta(seriesId, detail.getTitle(), detail.getCoverUrl(),
                 detail.getEpisodeCount());
@@ -565,7 +570,7 @@ public class HongguoDetailActivity extends AppCompatActivity {
         // 其余不写、留给流条目在手的写点补（putType 判不出不冲已有值）。
         HgStore.putType(seriesId, detail.hasAppointment() ? HgStore.TYPE_PREVIEW : null);
         styleFav(now);
-        // 登录态下同步上报追剧架（未登录空转、失败静默，本地镜像为准）
+        // 账号动作上报追剧架（#22：未登录已在入口跳登录页）
         com.fongmi.android.tv.hongguo.api.HgAccountSync.reportShelf(seriesId, now);
     }
 

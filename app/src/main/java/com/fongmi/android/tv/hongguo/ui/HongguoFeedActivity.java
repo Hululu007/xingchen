@@ -3414,6 +3414,12 @@ public class HongguoFeedActivity extends AppCompatActivity {
         private void toggleFav(DramaItem item, Holder h) {
             String key = favKeyOf(item);
             if (key == null) return;
+            // 账号终定口径（#22）：收藏绑账号、官方无本地收藏——
+            // 未登录点了一律跳登录页，不落任何本地状态。
+            if (!com.fongmi.android.tv.hongguo.api.HgAccountStore.isLoggedIn()) {
+                HongguoLoginActivity.start(HongguoFeedActivity.this);
+                return;
+            }
             boolean now = HgStore.toggleFaved(key);
             if (mode == MODE_VIDEO && videoAlbum != null) {
                 HgStore.putMeta(key, videoAlbum.title, videoAlbum.cover,
@@ -3427,7 +3433,8 @@ public class HongguoFeedActivity extends AppCompatActivity {
             h.favIcon.setColorFilter(now ? 0xFFFFB03A : Color.WHITE);
             if (h.favLabel != null) h.favLabel.setText(now ? "已收藏" : "收藏");
             styleFavPill(h, now);
-            // 登录态下同步上报追剧架（未登录空转、失败静默，本地镜像为准）
+            // 账号动作上报追剧架（#22：未登录已在入口跳登录页、到不
+            // 了这里；本地集只是账号镜像，失败静默、同步拉取收口）
             com.fongmi.android.tv.hongguo.api.HgAccountSync.reportShelf(key, now);
         }
 
@@ -3435,6 +3442,12 @@ public class HongguoFeedActivity extends AppCompatActivity {
         private void toggleLike(DramaItem item, Holder h) {
             String key = favKeyOf(item);
             if (key == null) return;
+            // 账号终定口径（#22）：点赞绑账号——未登录点了跳登录页
+            //（他亲述的官方原行为），不落任何本地状态。
+            if (!com.fongmi.android.tv.hongguo.api.HgAccountStore.isLoggedIn()) {
+                HongguoLoginActivity.start(HongguoFeedActivity.this);
+                return;
+            }
             HgStore.toggleLiked(key);
             if (mode == MODE_VIDEO && videoAlbum != null) {
                 HgStore.putMeta(key, videoAlbum.title, videoAlbum.cover,

@@ -323,6 +323,10 @@ public class HongguoMineActivity extends AppCompatActivity {
                 .setNegativeButton("取消", null)
                 .setPositiveButton("退出", (d, w) -> {
                     HgAccountStore.clear();
+                    // 账号数据随账号走（#22）：登出把本地账号镜像
+                    //（收藏/点赞/关注/预约四套）一并清掉，防换号串号
+                    // ——clearAccountMirrors 此前零调用、此处接上。
+                    HgStore.clearAccountMirrors();
                     refreshAccountRow();
                     Toast.makeText(this, "已退出登录", Toast.LENGTH_SHORT).show();
                 })

@@ -257,6 +257,11 @@ public class HongguoLandActivity extends AppCompatActivity {
         likeBtn.setPadding(dp(10), dp(10), dp(10), dp(10));
         likeBtn.setOnClickListener(v -> {
             if (seriesId == null) return;
+            // 账号终定口径（#22）：点赞绑账号，未登录跳登录页
+            if (!com.fongmi.android.tv.hongguo.api.HgAccountStore.isLoggedIn()) {
+                HongguoLoginActivity.start(this);
+                return;
+            }
             HgStore.toggleLiked(seriesId);
             if (detail != null) {
                 HgStore.putMeta(seriesId, detail.getTitle(), detail.getCoverUrl(),

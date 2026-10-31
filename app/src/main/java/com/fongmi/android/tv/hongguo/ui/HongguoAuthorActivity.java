@@ -723,9 +723,13 @@ public class HongguoAuthorActivity extends AppCompatActivity {
             h.meta.setText(m.toString());
             paintFavBtn(h.favBtn, HgStore.isFaved(al.albumId));
             h.favBtn.setOnClickListener(v -> {
+                // 账号终定口径（#22）：收藏绑账号，未登录跳登录页
+                if (!com.fongmi.android.tv.hongguo.api.HgAccountStore.isLoggedIn()) {
+                    HongguoLoginActivity.start(HongguoAuthorActivity.this);
+                    return;
+                }
                 boolean now = HgStore.toggleFaved(al.albumId);
                 paintFavBtn(h.favBtn, now);
-                // 登录态下同步上报追剧架（未登录空转、失败静默）
                 com.fongmi.android.tv.hongguo.api.HgAccountSync.reportShelf(al.albumId, now);
             });
             h.headerRow.setOnClickListener(v -> openAlbum(work, null));

@@ -2613,15 +2613,29 @@ public class HongguoFeedActivity extends AppCompatActivity {
             }
             String xml = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
             List<androidx.media3.ui.danmaku.Danmaku> out = new ArrayList<>();
+            // p 属性第四段是颜色（十进制 RGB）；屏蔽彩色弹幕开关
+            // （HgStore.getDanmakuBlockColorful）此前只写存档、解析
+            // 一律白字——开关白写。现在接上：颜色照 p 段还原，开屏蔽
+            // 时彩色条回落白字（判定走 HgPanelLogic.isColorfulDanmaku）。
+            boolean blockColorful = HgStore.getDanmakuBlockColorful();
             java.util.regex.Matcher m = java.util.regex.Pattern
-                    .compile("<d p=\"([0-9]+(?:\\.[0-9]+)?),[^\"]*\">(.*?)</d>", java.util.regex.Pattern.DOTALL)
+                    .compile("<d p=\"([0-9]+(?:\\.[0-9]+)?),[0-9]+,[0-9]+,([0-9]+)[^\"]*\">(.*?)</d>", java.util.regex.Pattern.DOTALL)
                     .matcher(xml);
             while (m.find()) {
                 long at = (long) (Double.parseDouble(m.group(1)) * 1000);
-                String text = android.text.Html.fromHtml(m.group(2), android.text.Html.FROM_HTML_MODE_LEGACY).toString();
+                String text = android.text.Html.fromHtml(m.group(3), android.text.Html.FROM_HTML_MODE_LEGACY).toString();
                 if (!text.isEmpty()) {
+                    int color = Color.WHITE;
+                    try {
+                        int rgb = Integer.parseInt(m.group(2));
+                        String hex = String.format("%06X", rgb & 0xFFFFFF);
+                        if (!blockColorful || !HgPanelLogic.isColorfulDanmaku(hex)) {
+                            color = 0xFF000000 | (rgb & 0xFFFFFF);
+                        }
+                    } catch (Exception ignored) {
+                    }
                     out.add(new androidx.media3.ui.danmaku.Danmaku(text, at,
-                            androidx.media3.ui.danmaku.Danmaku.TYPE_SCROLL, Color.WHITE, 0f, 0, null, 0));
+                            androidx.media3.ui.danmaku.Danmaku.TYPE_SCROLL, color, 0f, 0, null, 0));
                 }
             }
             return out;

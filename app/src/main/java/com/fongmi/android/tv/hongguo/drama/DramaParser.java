@@ -1556,6 +1556,13 @@ public final class DramaParser {
             if (intOf(vd, "album_serial_count", -1) >= 0) {
                 merged.addProperty("album_serial_count", intOf(vd, "album_serial_count", -1));
             }
+            // 集数同在 video_detail 里时一并抬（#20 乙：系列剧条目
+            // 顶层没带 episode_cnt、数只在 vd 里，观看完整条就只剩
+            // 「观看完整漫剧」没集数）——条目自带时不覆盖。
+            if (!merged.has("episode_cnt") && !merged.has("episode_count")
+                    && intOf(vd, "episode_cnt", -1) >= 0) {
+                merged.addProperty("episode_cnt", intOf(vd, "episode_cnt", -1));
+            }
             JsonObject ugc = obj(vd, "ugc_user_info");
             JsonObject ugcBase = ugc == null ? null : obj(ugc, "base_info");
             if (ugcBase != null) {

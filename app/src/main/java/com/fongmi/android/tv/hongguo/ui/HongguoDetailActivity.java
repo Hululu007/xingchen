@@ -99,6 +99,7 @@ public class HongguoDetailActivity extends AppCompatActivity {
     private boolean descExpanded;
     private FlowLayout tagsRow;
     private TextView publisherText;
+    private TextView dueText;
     private android.widget.HorizontalScrollView celebScroll;
     private LinearLayout celebRow;
     private TextView scoreCard;
@@ -303,6 +304,16 @@ public class HongguoDetailActivity extends AppCompatActivity {
         LinearLayout.LayoutParams rblp = new LinearLayout.LayoutParams(-1, -2);
         rblp.topMargin = dp(10);
         info.addView(reserveBtn, rblp);
+        // 上线时间行（普查接线）：dueStartText 回包已解析此前零
+        // 显示——未上线剧只见预约钮、不知道何时上。挂预约钮同列
+        // 下方，文案用回包原文，有预约且有文案才显。
+        dueText = new TextView(this);
+        dueText.setTextColor(0x99FFFFFF);
+        dueText.setTextSize(12);
+        dueText.setVisibility(View.GONE);
+        LinearLayout.LayoutParams dtlp = new LinearLayout.LayoutParams(-1, -2);
+        dtlp.topMargin = dp(6);
+        info.addView(dueText, dtlp);
 
         // 三格数据（有数据的格才建；上架时间无源恒不显，见账）
         statsRow = new LinearLayout(this);
@@ -862,8 +873,15 @@ public class HongguoDetailActivity extends AppCompatActivity {
             HgStore.setReserved(seriesId, d.isAppointmentSubscribed());
             reserveBtn.setVisibility(View.VISIBLE);
             styleReserve(HgStore.isReserved(seriesId));
+            if (d.getDueStartText() != null && !d.getDueStartText().isEmpty()) {
+                dueText.setText(d.getDueStartText());
+                dueText.setVisibility(View.VISIBLE);
+            } else {
+                dueText.setVisibility(View.GONE);
+            }
         } else {
             reserveBtn.setVisibility(View.GONE);
+            dueText.setVisibility(View.GONE);
         }
         loadComments();
         // 首开塌陷兜底（2026-10-31）：首遍布局会把整列摆错（顶栏

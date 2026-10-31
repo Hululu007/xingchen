@@ -683,6 +683,11 @@
             android:theme="@style/Theme.XingChen.HkPage"
             android:configChanges="screenSize|smallestScreenSize|screenLayout"
             android:screenOrientation="fullUser" />
+        <activity
+            android:name="com.fongmi.android.tv.hongguo.ui.HongguoLoginActivity"
+            android:theme="@style/Theme.XingChen.HkPage"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout"
+            android:screenOrientation="fullUser" />
 
         <!-- 红果横屏页（2026-10-30 重建阶段8）：真独立页，照官方清单
              userLandscape＋singleTop＋configChanges 全套＋PiP 声明 -->

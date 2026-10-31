@@ -219,7 +219,15 @@ public class VodConfig extends BaseConfig {
         Map<String, Site> items = Site.findAll().stream().collect(Collectors.toMap(Site::getKey, Function.identity()));
         getSites().forEach(site -> site.sync(items.get(site.getKey())));
         CustomCspSetting.Result custom = CustomCspSetting.inject(getSites());
-        Site home = !custom.home().isEmpty() ? custom.home() : getSites().stream().filter(item -> item.getKey().equals(config.getHome())).findFirst().orElse(getSites().isEmpty() ? new Site() : getSites().get(0));
+        Site home = !custom.home().isEmpty() ? custom.home() : getSites().stream().filter(item -> item.getKey().equals(config.getHome())).findFirst().orElse(null);
+        if (home == null) {
+            // 配置 sites 里没有这个主页 key：外部导入的动态脚本源（py_/js_）从不进
+            // sites，先经 getSite（含当前 home 与 dynamicSites）兜一手，兜不到才按
+            // 旧口径回第一个源/空 Site——别让配置重装填把导入的源静默顶掉
+            // （定根账 py-import-open-diag-20261031 三·4）。
+            Site dynamic = getSite(config.getHome());
+            home = TextUtils.isEmpty(dynamic.getKey()) ? (getSites().isEmpty() ? new Site() : getSites().get(0)) : dynamic;
+        }
         setHome(config, home, false);
     }
 

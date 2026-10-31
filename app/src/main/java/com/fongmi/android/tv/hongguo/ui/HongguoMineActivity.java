@@ -469,6 +469,8 @@ public class HongguoMineActivity extends AppCompatActivity {
         if (followTileDot != null) {
             followTileDot.setVisibility(anyFollowUpdate() ? View.VISIBLE : View.GONE);
         }
+        // 预约上线召回也挂在我的页入口（首触面只播种/标记，不重复弹）
+        maybePromptReserveRecall();
         list.setPadding(dp(12), dp(6), dp(12), dp(16));
         list.setLayoutManager(new GridLayoutManager(this, 3));
         list.setAdapter(gridAdapter);
@@ -569,6 +571,55 @@ public class HongguoMineActivity extends AppCompatActivity {
         list.setLayoutManager(new GridLayoutManager(this, 3));
         list.setAdapter(gridAdapter);
         applyFilter();
+        if (target == MODE_RESERVE) maybePromptReserveRecall();
+    }
+
+    /**
+     * 预约上线召回（终裁接线，普查#5）：官方是召回弹窗——预约剧新进
+     * 「已上线」档时弹一次。咱家无服务端下发，判定只用既有字段做
+     * 播种＋差集（HgStore 召回四法的落盘语义）：已上线集
+     * （reservedOnlineIds，同步回写）∩ 我的预约 − 已提示集；首轮
+     * 只播种存量不弹（存量已上线不是新上线）。已提示先落盘再弹窗，
+     * 弹窗失败/页面销毁也不重复打扰。提醒文案为功能文案，官方逐字
+     * 未抠到（待裁，见 rulings 账）。
+     */
+    private void maybePromptReserveRecall() {
+        java.util.Set<String> online = HgStore.reservedOnlineIds();
+        java.util.Set<String> mine = new java.util.HashSet<>(HgStore.reservedIds());
+        java.util.List<String> fresh = new java.util.ArrayList<>();
+        for (String id : online) {
+            if (mine.contains(id)) fresh.add(id);
+        }
+        if (!HgStore.recallSeeded()) {
+            HgStore.addRecallPrompted(fresh);
+            HgStore.markRecallSeeded();
+            return;
+        }
+        java.util.Set<String> prompted = HgStore.recallPromptedIds();
+        fresh.removeIf(prompted::contains);
+        if (fresh.isEmpty()) return;
+        HgStore.addRecallPrompted(fresh);
+        if (isFinishing() || isDestroyed()) return;
+        StringBuilder msg = new StringBuilder("你预约的剧已上线：");
+        for (int i = 0; i < fresh.size(); i++) {
+            String[] meta = HgStore.metaOf(fresh.get(i));
+            String t = meta == null || meta[0] == null || meta[0].isEmpty()
+                    ? "新剧" : meta[0];
+            if (i > 0) msg.append("、");
+            msg.append("《").append(t).append("》");
+        }
+        try {
+            new AlertDialog.Builder(this)
+                    .setTitle("预约上线提醒")
+                    .setMessage(msg.toString())
+                    .setNegativeButton("知道了", null)
+                    .setPositiveButton("去看看", (d, w) -> {
+                        if (mode != MODE_RESERVE) openList(MODE_RESERVE, "预约");
+                    })
+                    .show();
+        } catch (Exception ignored) {
+            // 销毁竞态下弹窗失败静默：已提示已落盘，不重复打扰
+        }
     }
 
     // ---------- 海报格（历史/收藏） ----------

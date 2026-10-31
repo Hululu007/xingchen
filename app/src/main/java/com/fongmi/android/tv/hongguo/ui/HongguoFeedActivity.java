@@ -218,7 +218,6 @@ public class HongguoFeedActivity extends AppCompatActivity {
     private TextView timeDurView;
     /** 清屏钮只在正剧播放页一面建（ImageView 图标钮，其余模式恒 null）。 */
     private ImageView cleanBtn;
-    private TextView boostPill;
     private ImageView centerFlash;
     private View stateView;
     private TextView stateText;
@@ -267,7 +266,6 @@ public class HongguoFeedActivity extends AppCompatActivity {
     private String windowSeriesId;
     private int windowStart = -1;
     private boolean cleanMode;
-    private boolean boosting;
     private boolean prefetchedNext;
     /** FEED 当前条实际在播的集序（被推集 vidIndex，D3 记账口径）。 */
     private int feedEpIndex = 1;
@@ -365,7 +363,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
         if (!land) return;
         boolean popup = (drawerPanel != null && drawerPanel.getVisibility() == View.VISIBLE)
                 || System.currentTimeMillis() < panelGuardUntil;
-        if (!DramaLandLogic.canEnterLand(pagerIdle, firstFrameForVid, boosting,
+        if (!DramaLandLogic.canEnterLand(pagerIdle, firstFrameForVid, false,
                 popup, fromButton)) return;
         DramaPlayerPool.Bag bag = new DramaPlayerPool.Bag();
         bag.seriesId = currentSeriesId != null ? currentSeriesId : item.getSeriesId();
@@ -920,20 +918,6 @@ public class HongguoFeedActivity extends AppCompatActivity {
             clp.bottomMargin = cleanBaseBottom;
             root.addView(cleanBtn, clp);
         }
-
-        // 长按倍速提示药丸（只播放页：长按快进是播放页规格，刷流已摘，
-        // 定根见 redo 账「2.0x 快进中」节）
-        boostPill = new TextView(this);
-        boostPill.setText("2.0x 快进中");
-        boostPill.setTextColor(Color.WHITE);
-        boostPill.setTextSize(12);
-        boostPill.setBackground(roundBg(0x88000000, dp(14)));
-        boostPill.setPadding(dp(12), dp(5), dp(12), dp(5));
-        boostPill.setVisibility(View.GONE);
-        FrameLayout.LayoutParams blp = new FrameLayout.LayoutParams(-2, -2);
-        blp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
-        blp.topMargin = dp(64) + statusBarHeight();
-        root.addView(boostPill, blp);
 
         // 中央播放/暂停闪标（定稿：暂停时显的 74dp 玻璃圆，此处是点按闪烁件）
         centerFlash = new ImageView(this);
@@ -1893,7 +1877,6 @@ public class HongguoFeedActivity extends AppCompatActivity {
             return;
         }
         ensurePlayer();
-        stopBoost();
         currentVid = vid;
         scrubbedCurrent = false;
         firstFrameForVid = false;
@@ -2313,42 +2296,14 @@ public class HongguoFeedActivity extends AppCompatActivity {
     }
 
     private void onPageLongPress(boolean center) {
-        // 长按整套（中部更多面板／其余 2 倍速快进）是播放页的官方规格，
-        // 只留 MODE_SERIES：刷流草稿只有「点画面播/暂停」、短片页草稿
-        // 也没定长按——共用手势层无门带进全模式是串线（他 21:24 点名
-        // 图 113733，定根见 redo 账「2.0x 快进中」节）
+        // 长按只留中部更多面板一件（播放页规格、只 MODE_SERIES）：
+        // 非中部的 2 倍速快进他 2026-10-31 亲令整支删除——普通触摸
+        // 就会被长按定时器武装挂上、松不开，不调阈值、整支摘除。
         if (mode != MODE_SERIES) return;
         if (cleanMode) return;
         if (center) {
             showMorePanel();
-        } else if (player != null && player.isPlaying()) {
-            boosting = true;
-            player.setPlaybackSpeed(2f);
-            boostPill.setVisibility(View.VISIBLE);
         }
-    }
-
-    private void stopBoost() {
-        if (!boosting) return;
-        boosting = false;
-        if (player != null) player.setPlaybackSpeed(HgStore.getSpeed());
-        boostPill.setVisibility(View.GONE);
-    }
-
-    /**
-     * 快进释放的正路：每个触摸事件必经 Activity 分发层，抬手/取消
-     * 无条件收 boost。原先释放检查只写在页面自己的触摸监听里——该
-     * 监听对每个事件都 return false、页面不持有触摸流，竖滑流归
-     * RecyclerView，抬手事件到不了它，长按（按下时定时器武装）却照样
-     * 触发，于是「触发了松不开、药丸不消失」（图 113733 定根）。
-     */
-    @Override
-    public boolean dispatchTouchEvent(MotionEvent ev) {
-        if (boosting && (ev.getAction() == MotionEvent.ACTION_UP
-                || ev.getAction() == MotionEvent.ACTION_CANCEL)) {
-            stopBoost();
-        }
-        return super.dispatchTouchEvent(ev);
     }
 
     private void setCleanMode(boolean on) {
@@ -2522,7 +2477,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
             @Override
             public void setSpeed(float speed) {
                 HgStore.setSpeed(speed);
-                if (player != null && !boosting) player.setPlaybackSpeed(speed);
+                if (player != null) player.setPlaybackSpeed(speed);
             }
 
             @Override
@@ -2616,7 +2571,6 @@ public class HongguoFeedActivity extends AppCompatActivity {
     protected void onPause() {
         super.onPause();
         if (orientationListener != null) orientationListener.disable();
-        stopBoost();
         saveProgressNow();
         saveFeedPos();
         if (player != null && !engineParked) {
@@ -3144,10 +3098,6 @@ public class HongguoFeedActivity extends AppCompatActivity {
             });
             page.setOnTouchListener((v, e) -> {
                 gd.onTouchEvent(e);
-                if ((e.getAction() == MotionEvent.ACTION_UP || e.getAction() == MotionEvent.ACTION_CANCEL)
-                        && boosting) {
-                    stopBoost();
-                }
                 return false;
             });
             return new Holder(page);

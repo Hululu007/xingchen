@@ -46,9 +46,6 @@ public final class HgPanelLogic {
     /** 横屏页倍速面板档表（官方 xr3.f 定版、自上而下）：与竖屏实拍档表是两张表，不混。 */
     public static final float[] LAND_SPEEDS = {2f, 1.75f, 1.5f, 1.25f, 1f, 0.75f};
 
-    /** 长按快进的临时倍速（官方 SpeedTipsView「2倍速快进中」定版）。 */
-    public static final float BOOST_SPEED = 2f;
-
     /** 档位标签：整数档去小数（1x/2x/3x），小数档直拼（0.75x/1.25x/1.5x）。 */
     public static String speedLabel(float speed) {
         if (speed == (int) speed) return (int) speed + "x";

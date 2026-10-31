@@ -196,7 +196,14 @@ public final class DramaResolver {
 
     /** 明文链直用；加密链用本回包 key_seed 解；缺 key_seed 返回 null 交上层走 fplay。 */
     private String plainUrl(DramaVideoModel model, DramaEntry entry) {
-        String raw = entry.getMainUrl();
+        String p = urlOf(model, entry, entry.getMainUrl());
+        if (p != null) return p;
+        // 主链拿不到回落备用链（backup_url 解析早已存档、此前零
+        // 消费——主链解密失败/为空时整条就判死，白白丢一条链）。
+        return urlOf(model, entry, entry.getBackupUrl());
+    }
+
+    private String urlOf(DramaVideoModel model, DramaEntry entry, String raw) {
         if (raw == null || raw.isEmpty()) return null;
         if (!entry.isUrlEncrypted()) return raw;
         if (model.getKeySeed() == null || model.getKeySeed().isEmpty()) return null;

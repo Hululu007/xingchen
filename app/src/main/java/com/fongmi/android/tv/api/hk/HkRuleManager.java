@@ -15,6 +15,7 @@ import com.google.gson.JsonParser;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -773,7 +774,14 @@ public class HkRuleManager {
     private String fetchCloudJson(String path, String version, String password) throws Exception {
         // 8.83 BailanImporter 用 DohProvidersKt.buildAutoClient(url)：走 App 的 DoH 客户端。
         // 裸 OkHttpClient 与海阔配置不一致，改走 HkHttp.client()（CookieJar/拦截器；DNS 系统默认照原版）。
-        OkHttpClient client = HkHttp.client();
+        // 取件专用派生：本体无 callTimeout 是规则请求的既定口径（规则长请求不许被总超时掐断），
+        // 但云口令取件是短操作，无总超时时站点连不上能长时间干等（云7 真机实案：note.ms
+        // 取不到时「正在从云端获取规则…」挂很久才失败）。只在此取件口派生一份带 30 秒
+        // 总超时的副本（连接池/分发器/拦截器与本体共享），HkHttp.client() 本体一字不动、
+        // 规则请求不受影响；各通道共用此取件口。
+        OkHttpClient client = HkHttp.client().newBuilder()
+                .callTimeout(30, TimeUnit.SECONDS)
+                .build();
         // 1) /apidb/{key} → textdb.online（官方云2分享通道，已验证可用）
         if (path.startsWith("/apidb/")) {
             String key = path.substring("/apidb/".length()).split("[\\s/]")[0];
@@ -841,15 +849,29 @@ public class HkRuleManager {
         if ("7".equals(version)) {
             String id = path.substring(1).split("[\\s/]")[0];
             if (id.isEmpty()) throw new IllegalArgumentException("口令中缺少便签ID");
-            Request req = new Request.Builder().url("https://note.ms/" + id)
-                    .header("User-Agent", "Mozilla/5.0").build();
-            try (Response resp = client.newCall(req).execute()) {
-                if (!resp.isSuccessful() || resp.body() == null)
-                    throw new IllegalArgumentException("云端请求失败（HTTP " + resp.code() + "）");
-                String json = unwrapShareText(extractTextarea(resp.body().string()));
-                if (json == null || json.isEmpty()) throw new IllegalArgumentException("云端未返回有效规则");
-                return json;
+            String noteUrl = "https://note.ms/" + id;
+            // 两姿势：先按 8.83 口径带浏览器 UA 取页面、textarea 提取；取不到再换非浏览器
+            // 问法——note.ms 对非浏览器 UA 直接回笔记原文，正文直接剥壳（本机实测成立）。
+            // 真机上第一姿势曾长时间取不到（潇洒哥实案），多一条路多一分成功率。
+            // 异常口径分清：两姿势都网络失败才冒泡 IOException（导入侧按网络问题报，
+            // 不误弹密码框）；取到响应但内容不对仍按旧口径报「未返回有效规则」。
+            String json = null;
+            IOException netErr = null;
+            try {
+                json = fetchNoteMs(client, noteUrl, true);
+            } catch (IOException e) {
+                netErr = e;
             }
+            if (json == null || json.isEmpty()) {
+                try {
+                    json = fetchNoteMs(client, noteUrl, false);
+                } catch (IOException e) {
+                    netErr = e;
+                }
+            }
+            if (json != null && !json.isEmpty()) return json;
+            if (netErr != null) throw netErr;
+            throw new IllegalArgumentException("云端未返回有效规则");
         }
         // 6) 云9 → txtpad.cn（官方云9通道）：云9oooole/{id}
         //    8.83 TxtPadImporter.parse 原文：code.replace("云9oooole","https://txtpbbd.cn") 后拉取。
@@ -873,6 +895,8 @@ public class HkRuleManager {
             String key = segs[segs.length - 1].split("\\s")[0];
             if (key.isEmpty()) throw new IllegalArgumentException("口令中缺少 key");
             String[] bases = {"https://hassdtebin.com/raw/", "https://hastebin.com/raw/"};
+            IOException netErr = null;
+            int ioFails = 0;
             for (String base : bases) {
                 try {
                     Request req = new Request.Builder().url(base + key)
@@ -882,9 +906,15 @@ public class HkRuleManager {
                         String json = unwrapShareText(resp.body().string());
                         if (json != null && !json.isEmpty()) return json;
                     }
+                } catch (IOException e) {
+                    // 网络失败单独记账：双 base 全是网络失败时冒泡 IOException，
+                    // 让导入侧按网络问题报，别被吞成内容失败误弹密码框（与云7同口径）
+                    netErr = e;
+                    ioFails++;
                 } catch (Exception ignored) {
                 }
             }
+            if (netErr != null && ioFails == bases.length) throw netErr;
             throw new IllegalArgumentException("云端未返回有效规则");
         }
         // 8) /p/{note_id} → netcut.cn：官方已下线该接口，通道失效，给明确提示
@@ -893,6 +923,22 @@ public class HkRuleManager {
                     + "请让分享者用「导出为云口令」重新分享，或索取规则文件导入。");
         }
         throw new IllegalArgumentException("暂不支持该云口令通道（当前支持：云1、云2/apidb、云5、云6、云7、云9、云10）");
+    }
+
+    /**
+     * note.ms 取一次：browserUa=true 带浏览器 UA 取页面、走 textarea 提取（8.83 口径）；
+     * false 不带浏览器 UA（OkHttp 默认 UA），note.ms 直接回笔记原文、正文直接剥壳。
+     * HTTP 失败/内容为空返回 null（由调用方决定换姿势重试或报错）；网络异常抛
+     * IOException 不吞——导入侧要靠它把网络失败与内容失败分开报。
+     */
+    private String fetchNoteMs(OkHttpClient client, String url, boolean browserUa) throws IOException {
+        Request.Builder rb = new Request.Builder().url(url);
+        if (browserUa) rb.header("User-Agent", "Mozilla/5.0");
+        try (Response resp = client.newCall(rb.build()).execute()) {
+            if (!resp.isSuccessful() || resp.body() == null) return null;
+            String body = resp.body().string();
+            return unwrapShareText(browserUa ? extractTextarea(body) : body);
+        }
     }
 
     /** 从 note.ms 页面中提取 textarea 文本（8.83 NotesImporter 用 "textarea&&Text" 选择器）。 */

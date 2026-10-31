@@ -1574,8 +1574,14 @@ public class HkPageActivity extends BaseActivity {
                 HkRuleManager.ParsedRule p = HkRuleManager.get().parseByCloudCode(code, password);
                 App.post(() -> showImportGroupPicker(p.rule.getTitle(), group -> finishCloudImport(p, group, code)));
             } catch (Exception e) {
-                // 没带密码、还没问过、开关开着：多半是分享设了密码，再问一次
-                if (TextUtils.isEmpty(password) && !prompted && importPwdPromptEnabled()) {
+                // 失败先分类：网络类失败（IOException 及其子类：连不上/超时/DNS/SSL）是
+                // 云端取不到，与密码无关，直接报网络问题——旧逻辑不分青红皂白弹密码补问框，
+                // 真机实案里 note.ms 取件超时后误弹密码框，纯属误导（潇洒哥亲点）。
+                // 只有取件成功但内容不对/通道明确要密码这类，才走下面的密码补问逻辑。
+                if (e instanceof java.io.IOException) {
+                    App.post(() -> Notify.show("导入失败：网络问题，云端取不到（站点连不上或超时），请稍后再试"));
+                } else if (TextUtils.isEmpty(password) && !prompted && importPwdPromptEnabled()) {
+                    // 没带密码、还没问过、开关开着：多半是分享设了密码，再问一次
                     App.post(() -> showImportPasswordDialog(code));
                 } else {
                     App.post(() -> Notify.show("导入失败：" + e.getMessage()));

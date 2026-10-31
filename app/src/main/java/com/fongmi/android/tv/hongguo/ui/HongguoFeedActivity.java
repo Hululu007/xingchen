@@ -3712,16 +3712,17 @@ public class HongguoFeedActivity extends AppCompatActivity {
             // 口径），没带才回落分类标签
             List<String> tags = item.infoChips != null && !item.infoChips.isEmpty()
                     ? item.infoChips : item.getTags();
+            // 宽度预算：整排只许占屏宽减左缩进与右列预留，放不下
+            // 的标签直接不加——此前无预算地全加，横排测宽时最后
+            // 一枚只剩一字宽、文字被逐字折成竖排（他 113816 实证）。
+            // 预算与已用宽提出来与后面的热度筹共用一本账。
+            int budget = getResources().getDisplayMetrics().widthPixels
+                    - dp(18) - dp(88);
+            int used = 0;
             if (tags != null && !tags.isEmpty()) {
                 h.tagsRow.setVisibility(View.VISIBLE);
-                // 宽度预算：整排只许占屏宽减左缩进与右列预留，放不下
-                // 的标签直接不加——此前无预算地全加，横排测宽时最后
-                // 一枚只剩一字宽、文字被逐字折成竖排（他 113816 实证）
-                int budget = getResources().getDisplayMetrics().widthPixels
-                        - dp(18) - dp(88);
                 android.graphics.Paint tagPaint = new android.graphics.Paint();
                 tagPaint.setTextSize(11.5f * getResources().getDisplayMetrics().scaledDensity);
-                int used = 0;
                 for (String tag : tags) {
                     int w = (int) Math.ceil(tagPaint.measureText(tag)) + dp(16) + dp(6);
                     if (used > 0 && used + w > budget) break;
@@ -3743,6 +3744,32 @@ public class HongguoFeedActivity extends AppCompatActivity {
                     lp.rightMargin = dp(6);
                     h.tagsRow.addView(chip, lp);
                     used += w;
+                }
+            }
+            // 热度筹（普查接线）：recText 剧场/搜索都在显、首页流
+            // 此前零调用——同排末尾补一枚原文筹（同形态同色），
+            // 宽度预算与标签共用、放不下不加。
+            if (item.getRecText() != null && !item.getRecText().isEmpty()) {
+                android.graphics.Paint heatPaint = new android.graphics.Paint();
+                heatPaint.setTextSize(11.5f * getResources().getDisplayMetrics().scaledDensity);
+                int heatW = (int) Math.ceil(heatPaint.measureText(item.getRecText()))
+                        + dp(16) + dp(6);
+                if (used + heatW <= budget) {
+                    h.tagsRow.setVisibility(View.VISIBLE);
+                    TextView heat = new TextView(HongguoFeedActivity.this);
+                    heat.setText(item.getRecText());
+                    heat.setTextColor(Color.WHITE);
+                    heat.setTextSize(11.5f);
+                    heat.setMaxLines(1);
+                    heat.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                    GradientDrawable heatBg = new GradientDrawable();
+                    heatBg.setColor(0xFF3A3A3F);
+                    heatBg.setCornerRadius(dp(5));
+                    heat.setBackground(heatBg);
+                    heat.setPadding(dp(8), dp(3), dp(8), dp(3));
+                    LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(-2, -2);
+                    hlp.rightMargin = dp(6);
+                    h.tagsRow.addView(heat, hlp);
                 }
             }
             if (item.getStatement() != null && !item.getStatement().isEmpty()) {

@@ -90,6 +90,13 @@ public class HongguoLandActivity extends AppCompatActivity {
     /** 评论入口（他 14:54 亲定落点赞原位）：图标＋计数竖排件。 */
     private LinearLayout commentBox;
     private TextView commentCount;
+    /** 横屏评论面板（官方形态：右侧框出、画面挤小）与画面框联动。 */
+    private FrameLayout stageRoot;
+    private HgLandCommentsPanel commentPanel;
+    private boolean commentPanelOpen;
+    private android.animation.ValueAnimator stageAnimator;
+    /** 当前挤占进度 0..1（0＝全宽、1＝面板全开），动画与落位共用。 */
+    private float stageSqueeze01;
     /** 实流尺寸（onVideoSizeChanged 回报，画面框计算的单一数据源）。 */
     private int videoW;
     private int videoH;
@@ -195,6 +202,7 @@ public class HongguoLandActivity extends AppCompatActivity {
         player.addListener(playerListener);
 
         FrameLayout root = new FrameLayout(this);
+        stageRoot = root;
         root.setBackgroundColor(Color.BLACK);
         androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(root, (v, insets) -> {
             androidx.core.graphics.Insets bars = insets.getInsets(
@@ -207,6 +215,8 @@ public class HongguoLandActivity extends AppCompatActivity {
             barsBottom = bars.bottom;
             cutoutLeft = cut.left;
             layoutChromeToFrame();
+            if (commentPanel != null) commentPanel.setBottomInset(barsBottom);
+            if (stageSqueeze01 > 0f) applyStage(stageSqueeze01);
             return insets;
         });
 
@@ -293,7 +303,9 @@ public class HongguoLandActivity extends AppCompatActivity {
         // 14:54 亲定：「评论按钮就放在点赞原来的位置」）。形态与
         // 竖屏右列评论件同款：裸图标 ic_drama_comment 白色化
         // 30dp＋计数签（12sp 粗体白字、有数显数、无数显「评论」），
-        // 点开 HgCommentsSheet。不许与底行再留第二个评论入口。
+        // 点开右侧停靠评论面板（官方横屏形态：框出＋画面挤小，
+        // 他 15:49 亲定，不再走底部弹层）。不许与底行再留第二个
+        // 评论入口。
         commentBox = new LinearLayout(this);
         commentBox.setOrientation(LinearLayout.VERTICAL);
         commentBox.setGravity(Gravity.CENTER_HORIZONTAL);
@@ -312,18 +324,7 @@ public class HongguoLandActivity extends AppCompatActivity {
         LinearLayout.LayoutParams ccLp = new LinearLayout.LayoutParams(-2, -2);
         ccLp.topMargin = dp(3);
         commentBox.addView(commentCount, ccLp);
-        commentBox.setOnClickListener(v -> {
-            if (seriesId == null || curVid == null) return;
-            HgCommentsSheet.show(this, seriesId, curVid, seriesTitle,
-                    total -> {
-                        if (commentCount != null) {
-                            commentCount.setText(total > 0
-                                    ? HongguoFeedActivity.HgTimeTextCount.format(total)
-                                    : "评论");
-                        }
-                    });
-            pokeChrome();
-        });
+        commentBox.setOnClickListener(v -> openCommentPanel());
         FrameLayout.LayoutParams commentLp = new FrameLayout.LayoutParams(-2, -2);
         commentLp.gravity = Gravity.END | Gravity.CENTER_VERTICAL;
         commentLp.rightMargin = dp(10);
@@ -514,6 +515,30 @@ public class HongguoLandActivity extends AppCompatActivity {
         dmlp.leftMargin = dp(16);
         dmlp.bottomMargin = dp(64);
         root.addView(dmSend, dmlp);
+
+        // 横屏评论面板（官方形态：右侧框出、画面挤小，他 15:49
+        // 亲定）：常驻 root 最上层、缺省藏起；开合经 applyStage
+        // 与播放面同宽联动，计数经 Host.onTotal 回写评论钮计数签
+        // （与此前评论单 OnTotal 同源同法）。
+        commentPanel = new HgLandCommentsPanel(this, new HgLandCommentsPanel.Host() {
+            @Override
+            public void onTotal(long total) {
+                if (commentCount != null) {
+                    commentCount.setText(total > 0
+                            ? HongguoFeedActivity.HgTimeTextCount.format(total)
+                            : "评论");
+                }
+            }
+
+            @Override
+            public void onClose() {
+                closeCommentPanel();
+            }
+        });
+        commentPanel.view().setVisibility(View.GONE);
+        FrameLayout.LayoutParams panelLp = new FrameLayout.LayoutParams(0, -1);
+        panelLp.gravity = Gravity.END;
+        root.addView(commentPanel.view(), panelLp);
 
         setContentView(root);
         androidx.core.view.ViewCompat.requestApplyInsets(root);
@@ -728,6 +753,10 @@ public class HongguoLandActivity extends AppCompatActivity {
         curVid = vid;
         epView.setText("第" + curEp + "集");
         refreshCommentCount();
+        // 评论面板跟随切集：绑过才跟（没开过的面板开时自会绑当前集）
+        if (commentPanel != null && commentPanel.isBound()) {
+            commentPanel.bind(seriesId, vid);
+        }
         gateSpinForSwitch(vid);
         failView.setVisibility(View.GONE);
         DramaResolver.Listener listener = new DramaResolver.Listener() {
@@ -925,7 +954,91 @@ public class HongguoLandActivity extends AppCompatActivity {
 
     // ---------- 显隐与退出 ----------
 
+    // ---------- 横屏评论面板（右侧框出、画面挤小） ----------
+
+    private void openCommentPanel() {
+        if (seriesId == null || curVid == null || commentPanel == null) return;
+        commentPanel.bind(seriesId, curVid);
+        if (commentPanelOpen) return;
+        commentPanelOpen = true;
+        setChrome(false);
+        animateStage(true);
+    }
+
+    private void closeCommentPanel() {
+        if (!commentPanelOpen) return;
+        commentPanelOpen = false;
+        animateStage(false);
+        pokeChrome();
+    }
+
+    /** 开合动画：挤占进度 0↔1，200ms 减速；播放面与面板同速联动。 */
+    private void animateStage(boolean open) {
+        if (stageAnimator != null) stageAnimator.cancel();
+        final float from = stageSqueeze01;
+        final float to = open ? 1f : 0f;
+        if (from == to) {
+            applyStage(to);
+            return;
+        }
+        if (open && commentPanel != null) {
+            commentPanel.view().setVisibility(View.VISIBLE);
+        }
+        android.animation.ValueAnimator va =
+                android.animation.ValueAnimator.ofFloat(from, to);
+        va.setDuration(200);
+        va.setInterpolator(new android.view.animation.DecelerateInterpolator());
+        va.addUpdateListener(a -> applyStage((float) a.getAnimatedValue()));
+        stageAnimator = va;
+        va.start();
+    }
+
+    /**
+     * 画面框联动落位：播放面（与切集冻结层）宽＝全宽−面板挤占，
+     * 面板自右滑入同速跟随，转圈中心同步左移。只改布局宽——不
+     * 重挂播放器、不动 Surface 归属，播放面在新框内按既有 FIT
+     * 自行重排（官方截图挤小后上下留黑即此形态）；顶/底行经
+     * playerView 布局监听走 layoutChromeToFrame 按新框重算。
+     */
+    private void applyStage(float frac) {
+        stageSqueeze01 = frac;
+        if (stageRoot == null || playerView == null) return;
+        int rootW = stageRoot.getWidth();
+        if (rootW <= 0) rootW = getResources().getDisplayMetrics().widthPixels;
+        int panelW = Math.round(rootW * HgLandCommentsPanel.WIDTH_RATIO);
+        int squeeze = Math.round(panelW * frac);
+        setStageWidth(playerView, rootW - squeeze);
+        setStageWidth(freezeView, rootW - squeeze);
+        if (spin != null) {
+            FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) spin.getLayoutParams();
+            if (lp.leftMargin != -squeeze) {
+                lp.leftMargin = -squeeze;
+                spin.setLayoutParams(lp);
+            }
+        }
+        if (commentPanel != null) {
+            View pv = commentPanel.view();
+            FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) pv.getLayoutParams();
+            if (lp.width != panelW) {
+                lp.width = panelW;
+                pv.setLayoutParams(lp);
+            }
+            pv.setTranslationX(panelW - squeeze);
+            pv.setVisibility(frac > 0f || commentPanelOpen ? View.VISIBLE : View.GONE);
+        }
+    }
+
+    private void setStageWidth(View v, int w) {
+        if (v == null) return;
+        ViewGroup.LayoutParams lp = v.getLayoutParams();
+        if (lp != null && lp.width != w) {
+            lp.width = w;
+            v.setLayoutParams(lp);
+        }
+    }
+
     private void onSurfaceTap() {
+        if (commentPanelOpen) return; // 面板开着时画面点按不翻 chrome（面板自有关闭口）
         if (suppressTap) {
             suppressTap = false;
             return;
@@ -941,6 +1054,8 @@ public class HongguoLandActivity extends AppCompatActivity {
     }
 
     private void setChrome(boolean show) {
+        // 评论面板开着时 chrome 恒隐（官方同形态：画面区只留视频）
+        if (commentPanelOpen) show = false;
         int vis = show ? View.VISIBLE : View.GONE;
         topBar.setVisibility(vis);
         bottomBar.setVisibility(vis);
@@ -1129,6 +1244,10 @@ public class HongguoLandActivity extends AppCompatActivity {
 
     @Override
     public void onBackPressed() {
+        if (commentPanelOpen) {
+            closeCommentPanel();
+            return;
+        }
         exitLand();
     }
 
@@ -1153,6 +1272,8 @@ public class HongguoLandActivity extends AppCompatActivity {
         main.removeCallbacks(ticker);
         main.removeCallbacks(hideChrome);
         cancelSpinDelay();
+        if (stageAnimator != null) stageAnimator.cancel();
+        if (commentPanel != null) commentPanel.destroy();
         clearFreezeBitmap();
         if (!exited) parkBack(); // 异常退出兜底：把播放器泊回，不许泄漏
         resolver.closeAll();

@@ -149,21 +149,24 @@ public final class HgAlbumSheet {
         root.addView(foot);
 
         dialog.setContentView(root);
-        dialog.show();
+        // 高度在 show 之前定死（2026-10-31 改，与选集单同口径）：
+        // 先按内容实量整单自然高、再封顶定稿 72% 写进 LayoutParams。
+        // 旧法 show 后 post 里才缩高，首量错位、真机面板空白
+        // （账 hongguo-panel-bisect-20261031）。合集行在开单时已
+        // 同步在手，实量即真高；超顶后列表在定高内滚。
+        android.util.DisplayMetrics dm = activity.getResources().getDisplayMetrics();
+        root.measure(View.MeasureSpec.makeMeasureSpec(dm.widthPixels, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        ViewGroup.LayoutParams rlp = root.getLayoutParams();
+        if (rlp != null) {
+            rlp.height = Math.min(root.getMeasuredHeight(), (int) (dm.heightPixels * 0.72f));
+            root.setLayoutParams(rlp);
+        }
         View sheet = dialog.findViewById(com.google.android.material.R.id.design_bottom_sheet);
         if (sheet != null) {
             sheet.setBackgroundColor(Color.TRANSPARENT);
-            root.post(() -> {
-                int max = (int) (activity.getResources().getDisplayMetrics().heightPixels * 0.72f);
-                if (root.getHeight() > max) {
-                    ViewGroup.LayoutParams lp = root.getLayoutParams();
-                    if (lp != null) {
-                        lp.height = max;
-                        root.setLayoutParams(lp);
-                    }
-                }
-            });
         }
+        dialog.show();
     }
 
     private static final class RowAdapter extends RecyclerView.Adapter<RowAdapter.H> {

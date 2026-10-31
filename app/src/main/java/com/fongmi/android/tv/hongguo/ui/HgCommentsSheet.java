@@ -206,22 +206,22 @@ public final class HgCommentsSheet {
         });
 
         dialog.setContentView(root);
-        dialog.show();
+        // 高度在 show 之前定死（2026-10-31 改，与选集/合集单同批）：
+        // 评论是异步增量到的，实量只量得到状态行，故照旧版定法
+        // 直接写死定稿 72% 高。旧法（1.4.64 重落引入）show 后在
+        // post 里才缩高——首量时权重列表在不定高的父里量错位，
+        // 真机面板只剩计数行、列表全白（账
+        // hongguo-panel-bisect-20261031）。定高后列表在内滚动加载。
+        ViewGroup.LayoutParams rlp = root.getLayoutParams();
+        if (rlp != null) {
+            rlp.height = (int) (activity.getResources().getDisplayMetrics().heightPixels * 0.72f);
+            root.setLayoutParams(rlp);
+        }
         View sheet = dialog.findViewById(com.google.android.material.R.id.design_bottom_sheet);
         if (sheet != null) {
             sheet.setBackgroundColor(Color.TRANSPARENT);
-            // 定稿 sheet max-height 72%：内容超高时整单限高、列表内滚
-            root.post(() -> {
-                int max = (int) (activity.getResources().getDisplayMetrics().heightPixels * 0.72f);
-                if (root.getHeight() > max) {
-                    ViewGroup.LayoutParams lp = root.getLayoutParams();
-                    if (lp != null) {
-                        lp.height = max;
-                        root.setLayoutParams(lp);
-                    }
-                }
-            });
         }
+        dialog.show();
         adapter.loadMore();
     }
 

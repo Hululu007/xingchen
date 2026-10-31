@@ -159,22 +159,25 @@ public final class HgEpisodeSheet {
         root.addView(foot);
 
         dialog.setContentView(root);
-        dialog.show();
+        // 高度在 show 之前定死（2026-10-31 改）：先按内容实量整单
+        // 自然高、再封顶定稿 72% 写进 LayoutParams。旧法是 show 后
+        // 在 post 里才缩高——首量时权重网格在不定高的父里量错位，
+        // 真机上单只剩标题行、网格全白（1.4.64 整件重落时引入，
+        // 账 hongguo-panel-bisect-20261031）。内容（集表）在开单时
+        // 已同步在手，实量即真高；超顶后网格在定高内滚。
+        android.util.DisplayMetrics dm = activity.getResources().getDisplayMetrics();
+        root.measure(View.MeasureSpec.makeMeasureSpec(dm.widthPixels, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        ViewGroup.LayoutParams rlp = root.getLayoutParams();
+        if (rlp != null) {
+            rlp.height = Math.min(root.getMeasuredHeight(), (int) (dm.heightPixels * 0.72f));
+            root.setLayoutParams(rlp);
+        }
         View sheet = dialog.findViewById(com.google.android.material.R.id.design_bottom_sheet);
         if (sheet != null) {
             sheet.setBackgroundColor(Color.TRANSPARENT);
-            // 定稿 sheet max-height 72%：内容超高时整单限高、网格内滚
-            root.post(() -> {
-                int max = (int) (activity.getResources().getDisplayMetrics().heightPixels * 0.72f);
-                if (root.getHeight() > max) {
-                    ViewGroup.LayoutParams lp = root.getLayoutParams();
-                    if (lp != null) {
-                        lp.height = max;
-                        root.setLayoutParams(lp);
-                    }
-                }
-            });
         }
+        dialog.show();
     }
 
     private static final class EpAdapter extends RecyclerView.Adapter<EpAdapter.H> {

@@ -3311,13 +3311,26 @@ public class HongguoFeedActivity extends AppCompatActivity {
                     ? item.infoChips : item.getTags();
             if (tags != null && !tags.isEmpty()) {
                 h.tagsRow.setVisibility(View.VISIBLE);
+                // 宽度预算：整排只许占屏宽减左缩进与右列预留，放不下
+                // 的标签直接不加——此前无预算地全加，横排测宽时最后
+                // 一枚只剩一字宽、文字被逐字折成竖排（他 113816 实证）
+                int budget = getResources().getDisplayMetrics().widthPixels
+                        - dp(18) - dp(88);
+                android.graphics.Paint tagPaint = new android.graphics.Paint();
+                tagPaint.setTextSize(11.5f * getResources().getDisplayMetrics().scaledDensity);
+                int used = 0;
                 for (String tag : tags) {
+                    int w = (int) Math.ceil(tagPaint.measureText(tag)) + dp(16) + dp(6);
+                    if (used > 0 && used + w > budget) break;
                     // 标签按官方（他 2026-10-31 点名）：深灰实底、无边、
                     // 小圆角方片（不是全圆药丸），官方图采样底色约 #3A3A3F
                     TextView chip = new TextView(HongguoFeedActivity.this);
                     chip.setText(tag);
                     chip.setTextColor(Color.WHITE);
                     chip.setTextSize(11.5f);
+                    chip.setMaxLines(1);
+                    chip.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                    chip.setMaxWidth(budget);
                     GradientDrawable chipBg = new GradientDrawable();
                     chipBg.setColor(0xFF3A3A3F);
                     chipBg.setCornerRadius(dp(5));
@@ -3326,6 +3339,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
                     LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
                     lp.rightMargin = dp(6);
                     h.tagsRow.addView(chip, lp);
+                    used += w;
                 }
             }
             if (item.getStatement() != null && !item.getStatement().isEmpty()) {

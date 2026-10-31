@@ -61,7 +61,11 @@ public final class HgStore {
     // ---------- 弹幕开关 ----------
 
     public static boolean isDanmakuOn() {
-        return Prefers.getBoolean(K_DANMAKU_ON, false);
+        // 缺省开（#21 定根）：弹幕显示是定案保留项，此前缺省 false、
+        // 两页（竖屏 Feed/横屏 Land）的取数与渲染又都以本开关为闸，
+        // 没主动开过抽屉开关的装机弹幕全无（横竖屏同断）。关的动作
+        // 仍照旧持久（抽屉/更多面板写 false 即关）。
+        return Prefers.getBoolean(K_DANMAKU_ON, true);
     }
 
     public static void setDanmakuOn(boolean on) {

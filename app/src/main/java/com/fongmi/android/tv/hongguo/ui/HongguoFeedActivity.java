@@ -224,6 +224,9 @@ public class HongguoFeedActivity extends AppCompatActivity {
     private ProgressBar stateSpin;
     private View drawerScrim;
     private View drawerPanel;
+    /** 抽屉两开关本体（openDrawer 每次按存档回读复位，防别处改键后显旧态）。 */
+    private HgSwitch drawerDirectSwitch;
+    private HgSwitch drawerDanmakuSwitch;
     /** 抽屉底部登录状态行（openDrawer 每次刷新，登录态可能在别处变）。 */
     private TextView drawerLoginText;
     /** 抽屉宽＝屏宽 79%（定稿 .drawer），开合位移按此值走。 */
@@ -999,12 +1002,13 @@ public class HongguoFeedActivity extends AppCompatActivity {
         // 点），无「我的」大卡、无小说历史行
         panel.addView(drawerHead("播放设置", true));
         panel.addView(drawerSwitch(R.drawable.ic_drama_play, "启动直达短剧",
-                HgStore.isLaunchDirect(), on -> HgStore.setLaunchDirect(on)));
+                HgStore.isLaunchDirect(), on -> HgStore.setLaunchDirect(on),
+                sw -> drawerDirectSwitch = sw));
         panel.addView(drawerSwitch(R.drawable.ic_drama_comment, "弹幕",
                 HgStore.isDanmakuOn(), on -> {
                     HgStore.setDanmakuOn(on);
                     applyDanmakuVisibility();
-                }));
+                }, sw -> drawerDanmakuSwitch = sw));
         // 「自动连播」开关行整行摘除（他 2026-10-30 21:42 亲令）：
         // 连播改内置常开、不再给开关（HgStore.isAutoNext 恒真）
         panel.addView(drawerAction(R.drawable.ic_drama_close, "清红果缓存", v -> {
@@ -1055,7 +1059,8 @@ public class HongguoFeedActivity extends AppCompatActivity {
         return box;
     }
 
-    private View drawerSwitch(int icon, String label, boolean initial, BoolSetter setter) {
+    private View drawerSwitch(int icon, String label, boolean initial, BoolSetter setter,
+                              java.util.function.Consumer<HgSwitch> capture) {
         LinearLayout outer = new LinearLayout(this);
         outer.setOrientation(LinearLayout.VERTICAL);
         LinearLayout row = new LinearLayout(this);
@@ -1073,6 +1078,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
         HgSwitch sw = new HgSwitch(this);
         sw.setChecked(initial, false);
         sw.setOnToggleListener(setter::set);
+        if (capture != null) capture.accept(sw);
         row.addView(sw, new LinearLayout.LayoutParams(dp(46), dp(27)));
         outer.addView(row);
         View div = new View(this);
@@ -1127,6 +1133,15 @@ public class HongguoFeedActivity extends AppCompatActivity {
     /** 抽屉开合不许硬切：面板左滑入＋暗幕淡入，关时反向（HgTransition 同族口径）。 */
     private void openDrawer() {
         refreshDrawerLoginText();
+        // 开关状态回读（#21）：抽屉只在 onCreate 建一次，更多面板等
+        // 别处改过同一键后抽屉里的开关会停在旧态、点下去写的与眼
+        // 见的相反（全域账 D 片 4.4）。开抽屉时按存档值复位两开关。
+        if (drawerDirectSwitch != null) {
+            drawerDirectSwitch.setChecked(HgStore.isLaunchDirect(), false);
+        }
+        if (drawerDanmakuSwitch != null) {
+            drawerDanmakuSwitch.setChecked(HgStore.isDanmakuOn(), false);
+        }
         drawerScrim.animate().cancel();
         drawerPanel.animate().cancel();
         drawerScrim.setVisibility(View.VISIBLE);
@@ -2570,6 +2585,11 @@ public class HongguoFeedActivity extends AppCompatActivity {
             public void onDanmakuOptionsChanged() {
                 applyDanmakuConfig();
                 applyDanmakuVisibility();
+                // 关着起播时根本没发取数请求，面板里刚打开必须补拉
+                // 当前条，否则层亮了也没货（#21 同链断点）。
+                if (HgStore.isDanmakuOn() && currentVid != null && danmakuItems.isEmpty()) {
+                    startDanmaku(currentVid);
+                }
             }
         };
     }

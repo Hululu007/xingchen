@@ -124,8 +124,10 @@ public class HongguoFeedActivity extends AppCompatActivity {
     public static void startVideoAlbum(Context context, DramaItem item) {
         Intent intent = new Intent(context, HongguoFeedActivity.class);
         intent.putExtra(EXTRA_MODE, MODE_VIDEO);
-        String albumId = item.getAlbumId() != null ? item.getAlbumId() : item.getSeriesId();
-        intent.putExtra(EXTRA_ALBUM_ID, albumId);
+        // #10：albumId 缺失不许拿 seriesId 顶替——顶替后 fetchAlbumDetail
+        // 拿剧 id 当专辑 id 拉回空/错详情，合集整页假死。缺 id 就传
+        // null，视频页按单条路（入口 vid）起播，是诚实降级。
+        intent.putExtra(EXTRA_ALBUM_ID, item.getAlbumId());
         intent.putExtra(EXTRA_UGC_VID, item.getVid());
         intent.putExtra(EXTRA_TITLE, item.getTitle());
         intent.putExtra(EXTRA_COVER, item.getCoverUrl());

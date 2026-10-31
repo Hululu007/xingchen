@@ -486,12 +486,32 @@ public final class DramaParser {
             JsonObject r = el.getAsJsonObject();
             String sid = firstStr(r, "series_id_str", "series_id");
             if (sid == null) continue;
-            seasons.add(new DramaItem(sid, str(r, "series_title"), str(r, "series_cover"),
+            // 行内 vid 必须抽（#10）：此前恒传 null，合集页逐行起播
+            // 无从取链、入口 vid 也对不上落点。抽取顺序照条目归一
+            // 的同序：行顶层 → video_detail 子对象 → video_data 首元。
+            String rowVid = firstStr(r, "vid", "video_id");
+            if (rowVid == null) {
+                JsonObject rvd = obj(r, "video_detail");
+                if (rvd != null) rowVid = firstStr(rvd, "vid", "video_id");
+            }
+            if (rowVid == null) {
+                JsonArray vdata = arr(r, "video_data");
+                if (vdata != null && vdata.size() > 0 && vdata.get(0).isJsonObject()) {
+                    rowVid = firstStr(vdata.get(0).getAsJsonObject(), "vid", "video_id");
+                }
+            }
+            DramaItem rowItem = new DramaItem(sid, str(r, "series_title"), str(r, "series_cover"),
                     null, intOf(r, "episode_cnt", -1), false, false, null,
-                    null, null, null, subTitleList(r), null, false,
+                    rowVid, null, null, subTitleList(r), null, false,
                     firstStr(album, "album_id_str", "album_id"), intOf(album, "season_cnt", -1),
                     Collections.emptyList(), -1, -1, intOrNull(r, "series_status"), null, null, null,
-                    null, null, null));
+                    null, null, null);
+            // 行的类型码（取链按它分口，缺了 fetchModelForPlay 拿
+            // -1 恒取空）：行自带优先、合集本体兜底，都没有保持 -1。
+            int rowType = intOf(r, "content_type", -1);
+            if (rowType < 0) rowType = intOf(album, "content_type", -1);
+            if (rowType > 0) rowItem.contentType = rowType;
+            seasons.add(rowItem);
         }
         final JsonArray seasonRows = rows;
         if (seasonRows != null) {

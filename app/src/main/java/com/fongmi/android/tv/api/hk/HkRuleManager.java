@@ -69,7 +69,19 @@ public class HkRuleManager {
      * 用 find() 而非 matches()，从任意文本中提取口令子串。
      */
     private static final Pattern CLOUD_CODE_FIND =
-            Pattern.compile("云([1-9]|10)oooole/\\S+");
+            Pattern.compile("云([1-9]|10)oooole/?\\S+");
+
+    /**
+     * 粘连口令归一：分享文本里常有「云7ooooleqctf/x/y」这种 oooole 后漏斜杠的写法，
+     * 提取后补回斜杠，下游各通道仍按带斜杠的规范形解析（2026-10-31 潇洒哥点定放宽）。
+     */
+    private static String normalizeCloudCode(String raw) {
+        int i = raw.indexOf("oooole");
+        if (i < 0) return raw;
+        int j = i + "oooole".length();
+        if (j < raw.length() && raw.charAt(j) != '/') return raw.substring(0, j) + "/" + raw.substring(j);
+        return raw;
+    }
     private static final String TEXTDB_API_UPDATE = "https://api.textdb.online/update/";
     private static final String TEXTDB_GET = "https://textdb.online/";
     private static final String PASTEME_API = "https://pasteme.tyrantg.com/api/getContent/";
@@ -675,7 +687,7 @@ public class HkRuleManager {
         // 先从文本中提取口令子串（兼容"云6oooole/xxxxxx/xxx 小程序：yyy"这类带后缀的输入）
         Matcher f = CLOUD_CODE_FIND.matcher(code);
         if (!f.find()) throw new IllegalArgumentException("不是有效的云口令（需云1~云10开头）");
-        String raw = f.group();
+        String raw = normalizeCloudCode(f.group());
         Matcher m = CLOUD_CODE_PATTERN.matcher(raw);
         if (!m.matches()) throw new IllegalArgumentException("不是有效的云口令（需云1~云10开头）");
         String version = m.group(1);
@@ -705,7 +717,7 @@ public class HkRuleManager {
         try {
             Matcher f = CLOUD_CODE_FIND.matcher(code);
             if (!f.find()) return null;
-            Matcher m = CLOUD_CODE_PATTERN.matcher(f.group());
+            Matcher m = CLOUD_CODE_PATTERN.matcher(normalizeCloudCode(f.group()));
             if (!m.matches()) return null;
             String version = m.group(1);
             String path = m.group(2);

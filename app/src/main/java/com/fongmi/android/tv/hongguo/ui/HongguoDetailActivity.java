@@ -99,6 +99,8 @@ public class HongguoDetailActivity extends AppCompatActivity {
     private boolean descExpanded;
     private FlowLayout tagsRow;
     private TextView publisherText;
+    private android.widget.HorizontalScrollView celebScroll;
+    private LinearLayout celebRow;
     private TextView scoreCard;
     private TextView scoreMidCount;
     private LinearLayout scoreBox;
@@ -337,6 +339,19 @@ public class HongguoDetailActivity extends AppCompatActivity {
         LinearLayout.LayoutParams pblp = new LinearLayout.LayoutParams(-1, -2);
         pblp.topMargin = dp(14);
         col.addView(publisherText, pblp);
+        // 演员段（普查接线）：celebrities 回包早已解析、此前零渲染。
+        // 横滑一排：圆头像＋昵称＋饰演行，没带整段不显。
+        celebScroll = new android.widget.HorizontalScrollView(this);
+        celebScroll.setHorizontalScrollBarEnabled(false);
+        celebScroll.setVisibility(View.GONE);
+        celebRow = new LinearLayout(this);
+        celebRow.setOrientation(LinearLayout.HORIZONTAL);
+        celebScroll.addView(celebRow, new ViewGroup.LayoutParams(-2, -2));
+        LinearLayout.LayoutParams celp = new LinearLayout.LayoutParams(-1, -2);
+        celp.leftMargin = dp(18);
+        celp.rightMargin = dp(18);
+        celp.topMargin = dp(14);
+        col.addView(celebScroll, celp);
 
         // 剧评（定稿）：段头右带「全部剧评」入口（开全量评论面）；
         // 分数卡＝大分＋左线中列（红果分＋N 人评分）。右注两行是
@@ -684,6 +699,54 @@ public class HongguoDetailActivity extends AppCompatActivity {
         });
     }
 
+    /** 演员段渲染：圆头像＋昵称＋饰演行（subTitle 优先、roleName 兜底拼「饰 X」）。 */
+    private void renderCelebrities(DramaDetail d) {
+        celebRow.removeAllViews();
+        java.util.List<DramaDetail.Celebrity> cast = d.getCelebrities();
+        if (cast == null || cast.isEmpty()) {
+            celebScroll.setVisibility(View.GONE);
+            return;
+        }
+        celebScroll.setVisibility(View.VISIBLE);
+        for (DramaDetail.Celebrity c : cast) {
+            if (c.getNickname() == null || c.getNickname().isEmpty()) continue;
+            LinearLayout unit = new LinearLayout(this);
+            unit.setOrientation(LinearLayout.VERTICAL);
+            unit.setGravity(Gravity.CENTER_HORIZONTAL);
+            ImageView av = new ImageView(this);
+            av.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            if (c.getAvatar() != null && !c.getAvatar().isEmpty()) {
+                Glide.with(this).load(c.getAvatar()).circleCrop().into(av);
+            }
+            unit.addView(av, new LinearLayout.LayoutParams(dp(52), dp(52)));
+            TextView nm = new TextView(this);
+            nm.setText(c.getNickname());
+            nm.setTextColor(0xEBFFFFFF);
+            nm.setTextSize(12);
+            nm.setMaxLines(1);
+            LinearLayout.LayoutParams nmlp = new LinearLayout.LayoutParams(-2, -2);
+            nmlp.topMargin = dp(5);
+            unit.addView(nm, nmlp);
+            String role = c.getSubTitle();
+            if ((role == null || role.isEmpty()) && c.getRoleName() != null
+                    && !c.getRoleName().isEmpty()) {
+                role = "饰 " + c.getRoleName();
+            }
+            if (role != null && !role.isEmpty()) {
+                TextView rl = new TextView(this);
+                rl.setText(role);
+                rl.setTextColor(0x80FFFFFF);
+                rl.setTextSize(10.5f);
+                rl.setMaxLines(1);
+                unit.addView(rl);
+            }
+            LinearLayout.LayoutParams ulp = new LinearLayout.LayoutParams(dp(64), -2);
+            ulp.rightMargin = dp(6);
+            celebRow.addView(unit, ulp);
+        }
+        if (celebRow.getChildCount() == 0) celebScroll.setVisibility(View.GONE);
+    }
+
     private void bind(DramaDetail d) {
         detail = d;
         renderRelated();
@@ -787,6 +850,7 @@ public class HongguoDetailActivity extends AppCompatActivity {
         } else {
             publisherText.setVisibility(View.GONE);
         }
+        renderCelebrities(d);
 
         HgStore.Progress p = HgStore.progressOf(seriesId);
         currentEpisode = p != null ? Math.max(1, p.episodeIndex) : 1;

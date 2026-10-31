@@ -18,7 +18,7 @@ public final class PluginFileJudge {
 
     public static final class Verdict {
         public final Kind kind;
-        /** 落盘文件名（已清洗）；原名缺失/不可用时为 null，调用方按 import_<时间戳> 生成 */
+        /** 落盘文件名（已清洗、扩展名已归一小写）；原名缺失/不可用时为 null，调用方按内容定名生成 */
         public final String targetName;
 
         Verdict(Kind kind, String targetName) {
@@ -33,8 +33,8 @@ public final class PluginFileJudge {
     public static Verdict judge(String rawName, byte[] content) {
         String name = sanitize(rawName);
         String ext = extensionOf(name);
-        if ("py".equals(ext)) return new Verdict(Kind.PY, name);
-        if ("js".equals(ext) || "wv".equals(ext)) return new Verdict(Kind.JS, name);
+        if ("py".equals(ext)) return new Verdict(Kind.PY, normalizeExtCase(name));
+        if ("js".equals(ext) || "wv".equals(ext)) return new Verdict(Kind.JS, normalizeExtCase(name));
         Kind sniffed = sniff(content);
         if (sniffed == Kind.UNKNOWN) return new Verdict(Kind.UNKNOWN, null);
         String suffix = sniffed == Kind.PY ? ".py" : ".js";
@@ -54,6 +54,17 @@ public final class PluginFileJudge {
         if (s.isEmpty() || ".".equals(s)) return null;
         if (s.lastIndexOf('.') == 0) return null; // 只有后缀没基名（".py"/".js" 这种）
         return s;
+    }
+
+    /**
+     * 落盘名扩展名归一小写（基名原样）：「鲍鱼盒子.PY」与「鲍鱼盒子.py」是同一个
+     * 脚本，不归一会在大小写敏感的文件系统上落成两个文件、列表双份——他
+     * 2026-10-31 亲令同名直接覆盖，落盘名先归一才谈得上同名。
+     */
+    static String normalizeExtCase(String name) {
+        String ext = extensionOf(name);
+        if (ext == null) return name;
+        return name.substring(0, name.length() - ext.length()) + ext;
     }
 
     /** 小写扩展名（不含点）；无扩展名返回 null */

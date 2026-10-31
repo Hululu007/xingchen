@@ -143,7 +143,7 @@ public class ImportActivity extends AppCompatActivity {
         }
         boolean py = verdict.kind == PluginFileJudge.Kind.PY;
         String targetName = verdict.targetName != null ? verdict.targetName
-                : "import_" + System.currentTimeMillis() + (py ? ".py" : ".js");
+                : fallbackScriptName(bytes, py);
         File dir = new File(getFilesDir(), py ? "plugins/py" : "plugins/js");
         File dest = new File(dir, targetName);
         try {
@@ -160,6 +160,24 @@ public class ImportActivity extends AppCompatActivity {
         }
         RefreshEvent.home();
         runOnUiThread(() -> openImported(dest, py, bytes));
+    }
+
+    /**
+     * 无名导入的落盘名：按内容定名（import_＋SHA-256 前 10 位 hex）——同一脚本
+     * 经无名通道反复导入必落同一文件、走 landFile 覆盖原地生效，列表仍是一条；
+     * 不再按时间戳每次生新文件堆重复条目（他 2026-10-31 亲令「同名直接覆盖」）。
+     * 定名失败兜底退回时间戳命名，保导入不死。
+     */
+    private static String fallbackScriptName(byte[] bytes, boolean py) {
+        String suffix = py ? ".py" : ".js";
+        try {
+            byte[] digest = java.security.MessageDigest.getInstance("SHA-256").digest(bytes);
+            StringBuilder sb = new StringBuilder("import_");
+            for (int i = 0; i < 5; i++) sb.append(String.format("%02x", digest[i] & 0xff));
+            return sb.append(suffix).toString();
+        } catch (Exception e) {
+            return "import_" + System.currentTimeMillis() + suffix;
+        }
     }
 
     /** 先写临时文件再改名（同名覆盖原子换，不留半截文件）；改名不成退回直写 */

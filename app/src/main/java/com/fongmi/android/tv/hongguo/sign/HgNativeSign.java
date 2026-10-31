@@ -23,8 +23,13 @@ import dalvik.system.DexClassLoader;
  * 原版 metasec 签名（随包 libmetasec_ml.so＋assets/hg-metasec/metasec.dex，
  * 同出官方 7.2.5.32 包、SDK 自报 v04.09.09.01-bugfix）接入自家面签名路：
  * HgSign 仿算组好最终 URL＋头之后，由本类调原生 SDK 重签六头
- * （x-argus/x-gorgon/x-helios/x-khronos/x-ladon/x-medusa），原生有产出
- * 的键换上、缺的键保留仿算值。接入设计与逐项证据见
+ * （x-argus/x-gorgon/x-helios/x-khronos/x-ladon/x-medusa）。采纳纪律
+ * 是全有或全无（2026-10-31 签名收口，审计账 hongguo-signer-map-
+ * 20261031.md 第三节）：原生头须六头成套且 x-khronos 与 URL 的 ts
+ * 同字串，才整套替换仿算六头；不成套整发回退全套仿算——一发请求
+ * 内不许出现两个实现的头混编（旧逐键采纳已废：混编时 medusa 的
+ * 设备快照/内嵌时刻与公参、与其余头可能来自两台设备两个时刻）。
+ * 接入设计与逐项证据见
  * metasec-integration-design-20261031.md（用法结构抠自官方 7.3.9.32
  * 反编译树，字面量取 unidbg proof 实证能 init 本 .so 的 7.2.5.32 件套；
  * 反射签名以 metasec-kit/smali 为准，与随包 dex 同源）。
@@ -117,20 +122,20 @@ public final class HgNativeSign {
                 collect(nativeHeads, invokeMap(mGetFeatureHash, url, body));
                 if (!nativeHeads.containsKey("x-medusa")) {
                     // 后备路：仅补主路缺的键，不覆盖主路产出（设计表 §3 合并纪律）。
+                    // 补完仍按下面的成套闸统一裁决，不单独采纳。
                     Map<String, String> back = new LinkedHashMap<>();
                     collect(back, invokeMap(mFrameSign, url, 0));
                     for (Map.Entry<String, String> e : back.entrySet()) {
                         nativeHeads.putIfAbsent(e.getKey(), e.getValue());
                     }
                 }
-                // x-khronos 闸：须与 URL 查询串 ts= 同字串才采纳，防原生
-                // 时钟与票据错秒（worker 校验实证，设计表 §3）。
-                String khronos = nativeHeads.get("x-khronos");
-                if (khronos != null && !khronos.equals(queryValue(url, "ts"))) {
-                    nativeHeads.remove("x-khronos");
-                }
-                for (Map.Entry<String, String> e : nativeHeads.entrySet()) {
-                    putIgnoreCase(out, e.getKey(), e.getValue());
+                // 全有或全无成套闸（2026-10-31 签名收口）：六头齐全且
+                // x-khronos 与 URL 查询串 ts= 同字串（防原生时钟与票据
+                // 错秒，worker 校验实证、设计表 §3），才整套替换仿算
+                // 六头；任一不满足，整发保留仿算头、原生头一个不采。
+                if (!isCompleteNativeSet(url, nativeHeads)) return out;
+                for (String h : SIX_HEADERS) {
+                    putIgnoreCase(out, h, nativeHeads.get(h));
                 }
                 return out;
             } catch (Throwable t) {
@@ -269,6 +274,21 @@ public final class HgNativeSign {
     private static Map<String, String> invokeMap(Method m, Object... args) throws Exception {
         Object r = m.invoke(msManager, args);
         return r instanceof Map ? (Map<String, String>) r : null;
+    }
+
+    /**
+     * 原生头成套判定（全有或全无的「全有」侧）：六头全在、非空，且
+     * x-khronos 与 URL 查询串 ts= 同字串。URL 无 ts 时判不成套——
+     * 自家面 URL 恒带 ts（HgSign 组串尾加），缺 ts 说明这发不经
+     * 仿算打底，不拿原生头去拼一个来路不明的组合。
+     */
+    private static boolean isCompleteNativeSet(String url, Map<String, String> nativeHeads) {
+        for (String h : SIX_HEADERS) {
+            String v = nativeHeads.get(h);
+            if (v == null || v.isEmpty()) return false;
+        }
+        String ts = queryValue(url, "ts");
+        return ts != null && ts.equals(nativeHeads.get("x-khronos"));
     }
 
     /** 只收六头中有产出的键（键名大小写不敏感匹配、统一小写；空值视为无产出）。 */

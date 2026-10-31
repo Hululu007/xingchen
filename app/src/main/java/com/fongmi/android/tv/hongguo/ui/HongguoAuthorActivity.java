@@ -260,7 +260,8 @@ public class HongguoAuthorActivity extends AppCompatActivity {
         // 数据行右侧「＋关注」浅底橙字胶囊）
         socialRow = new LinearLayout(this);
         socialRow.setOrientation(LinearLayout.HORIZONTAL);
-        socialRow.setGravity(Gravity.CENTER_VERTICAL);
+        // END 兜底：三数行未显（计数没到）时关注钮仍靠右，不贴左
+        socialRow.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
         socialRow.setVisibility(View.GONE);
         socialRow.addView(statsRow, new LinearLayout.LayoutParams(0, -2, 1f));
         followBtn = new TextView(this);

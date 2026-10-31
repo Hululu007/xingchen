@@ -35,8 +35,8 @@ import java.util.List;
  * 也是首页面——白底、无橙框、无设置行、无右上齿轮；账号行白底直排
  * （头像＋昵称＋红果号＋右侧浅橙底钮，未登录→短信登录页、已登录→
  * 退出登录）；五格（历史/收藏/点赞/预约/追更，追更在预约之后）；
- * 五格下整片历史海报墙（三列格，与历史列表同口径、断点续播）；
- * 墙下 slim 行保小说历史入口。底栏白色三签只此页、只 tab 入口显。
+ * 五格下整片历史海报墙（三列格，与历史列表同口径、断点续播）。
+ * 底栏白色三签只此页、只 tab 入口显。
  *
  * <p>列表模式：历史/收藏/点赞/预约/追更＝白底三列 3:4 海报格（圆角、
  * 右上类型角标、海报下剧名一行＋灰字子行）、顶行筹单选过滤（历史＝
@@ -100,7 +100,6 @@ public class HongguoMineActivity extends AppCompatActivity {
     private RowAdapter adapter;
     private GridAdapter gridAdapter;
     private TextView emptyText;
-    private LinearLayout novelRow;
     private LinearLayout tabBar;
     private ImageView accountAvatar;
     private TextView accountName;
@@ -210,25 +209,6 @@ public class HongguoMineActivity extends AppCompatActivity {
         emptyText.setGravity(Gravity.CENTER);
         emptyText.setVisibility(View.GONE);
         root.addView(emptyText, new LinearLayout.LayoutParams(-1, 0, 1f));
-
-        novelRow = new LinearLayout(this);
-        novelRow.setOrientation(LinearLayout.HORIZONTAL);
-        novelRow.setGravity(Gravity.CENTER_VERTICAL);
-        novelRow.setPadding(dp(16), dp(12), dp(16), dp(12));
-        novelRow.setVisibility(View.GONE);
-        TextView novelLabel = new TextView(this);
-        novelLabel.setText("小说历史");
-        novelLabel.setTextColor(0xFF8E8E96);
-        novelLabel.setTextSize(13);
-        novelRow.addView(novelLabel, new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView novelArrow = new TextView(this);
-        novelArrow.setText("›");
-        novelArrow.setTextColor(0xFFB9B9BF);
-        novelArrow.setTextSize(15);
-        novelRow.addView(novelArrow);
-        novelRow.setOnClickListener(v -> HgTransition.fadeSwap(
-                () -> openList(MODE_NOVEL, "小说历史"), homeBox, list, emptyText));
-        root.addView(novelRow);
 
         tabBar = buildTabBar();
         root.addView(tabBar);
@@ -453,7 +433,6 @@ public class HongguoMineActivity extends AppCompatActivity {
         applyChrome(true);
         chipsBar.setVisibility(View.GONE);
         homeBox.setVisibility(View.VISIBLE);
-        novelRow.setVisibility(View.VISIBLE);
         tabBar.setVisibility(tabEntry ? View.VISIBLE : View.GONE);
         refreshAccountRow();
         list.setPadding(dp(12), dp(6), dp(12), dp(16));
@@ -518,12 +497,11 @@ public class HongguoMineActivity extends AppCompatActivity {
     private void openList(int target, String title) {
         mode = target;
         titleText.setText(title);
-        // 列表模式恢复现行顶栏形态（返回钮＋18sp 标题），底栏与小说 slim 行退场
+        // 列表模式恢复现行顶栏形态（返回钮＋18sp 标题），底栏退场
         titleText.setTextSize(18);
         backBtn.setVisibility(View.VISIBLE);
         topBar.setPadding(dp(6), statusBarHeight() + dp(6), dp(16), dp(8));
         homeBox.setVisibility(View.GONE);
-        novelRow.setVisibility(View.GONE);
         tabBar.setVisibility(View.GONE);
         if (target == MODE_NOVEL) {
             applyChrome(false);

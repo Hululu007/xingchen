@@ -46,7 +46,8 @@ import java.util.concurrent.Executors;
  * 走 DramaPlayerPool 迁移：进页领走竖屏页泊出的同一播放器同流续播，
  * 退出（返回键/传感器转竖）写回交接单泊回，竖屏页领回对位。
  * 横屏锁只活在本页实例内（官方跨页单例，已知差异记账）。页面构成
- * 从简：画面＋顶行（返回/剧名/集号）＋底行（播停/进度/选集）＋锁钮。
+ * 从简：画面＋顶行（返回/剧名/集号）＋底行（播停/进度/选集）＋锁钮
+ * ＋右侧点赞钮（右列点赞位的横屏落点，与竖屏页同走 HgStore liked 集）。
  */
 public class HongguoLandActivity extends AppCompatActivity {
 
@@ -78,6 +79,7 @@ public class HongguoLandActivity extends AppCompatActivity {
     private View topBar;
     private View bottomBar;
     private ImageView lockBtn;
+    private ImageView likeBtn;
     private ImageView playBtn;
     private TextView titleView;
     private TextView epView;
@@ -192,6 +194,11 @@ public class HongguoLandActivity extends AppCompatActivity {
                 lp.leftMargin = dp(10) + bars.left;
                 lockBtn.setLayoutParams(lp);
             }
+            if (likeBtn != null) {
+                FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) likeBtn.getLayoutParams();
+                lp.rightMargin = dp(10) + bars.right;
+                likeBtn.setLayoutParams(lp);
+            }
             return insets;
         });
 
@@ -237,6 +244,27 @@ public class HongguoLandActivity extends AppCompatActivity {
         lockLp.gravity = Gravity.START | Gravity.CENTER_VERTICAL;
         lockLp.leftMargin = dp(10);
         root.addView(lockBtn, lockLp);
+
+        // 点赞钮（右侧中部、与锁钮对称；横屏无右列整列，只落点赞一颗，
+        // 与竖屏页共用 HgStore liked 集与激活红，显隐跟 chrome 走）
+        likeBtn = new ImageView(this);
+        likeBtn.setImageResource(R.drawable.ic_mine_heart);
+        likeBtn.setPadding(dp(10), dp(10), dp(10), dp(10));
+        likeBtn.setOnClickListener(v -> {
+            if (seriesId == null) return;
+            HgStore.toggleLiked(seriesId);
+            if (detail != null) {
+                HgStore.putMeta(seriesId, detail.getTitle(), detail.getCoverUrl(),
+                        detail.getEpisodeCount());
+            }
+            paintLike();
+            pokeChrome();
+        });
+        FrameLayout.LayoutParams likeLp = new FrameLayout.LayoutParams(dp(44), dp(44));
+        likeLp.gravity = Gravity.END | Gravity.CENTER_VERTICAL;
+        likeLp.rightMargin = dp(10);
+        root.addView(likeBtn, likeLp);
+        paintLike();
 
         // 顶行
         LinearLayout top = new LinearLayout(this);
@@ -635,6 +663,14 @@ public class HongguoLandActivity extends AppCompatActivity {
         topBar.setVisibility(vis);
         bottomBar.setVisibility(vis);
         if (!locked) lockBtn.setVisibility(vis);
+        if (likeBtn != null) likeBtn.setVisibility(locked ? View.GONE : vis);
+    }
+
+    /** 点赞态回显：已赞激活红、未赞白（与竖屏页 LIKE_ON_COLOR 同值）。 */
+    private void paintLike() {
+        if (likeBtn == null) return;
+        boolean liked = seriesId != null && HgStore.isLiked(seriesId);
+        likeBtn.setColorFilter(liked ? HongguoFeedActivity.LIKE_ON_COLOR : Color.WHITE);
     }
 
     private void pokeChrome() {

@@ -92,6 +92,8 @@ public class HongguoDetailActivity extends AppCompatActivity {
     private LinearLayout bigFavBtn;
     private ImageView bigFavStar;
     private TextView bigFavText;
+    private LinearLayout reserveBtn;
+    private TextView reserveText;
     private LinearLayout statsRow;
     private TextView descText;
     private String descFull;
@@ -281,6 +283,25 @@ public class HongguoDetailActivity extends AppCompatActivity {
         bigFavBtn.addView(bigFavText, bftlp);
         bigFavBtn.setOnClickListener(v -> toggleFav());
         info.addView(bigFavBtn);
+
+        // 预约钮（未上线剧专属，缺省藏、bind 见 hasAppointment 才亮）：
+        // 官方未上线剧整页形态未抠到（批三 A 账 R2），落点取头部信息
+        // 列收藏大钮下方同列同宽，是全页唯一预约动作；文案 预约/已预约
+        // 与状态色对借官方本体钮 ks3 色对（橘底白字/透明白底＋#66FFFFFF 字）。
+        reserveBtn = new LinearLayout(this);
+        reserveBtn.setOrientation(LinearLayout.HORIZONTAL);
+        reserveBtn.setGravity(Gravity.CENTER);
+        reserveBtn.setPadding(0, dp(11), 0, dp(11));
+        reserveText = new TextView(this);
+        reserveText.setTextSize(15);
+        reserveText.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        reserveText.setLetterSpacing(0.06f);
+        reserveBtn.addView(reserveText);
+        reserveBtn.setOnClickListener(v -> toggleReserve());
+        reserveBtn.setVisibility(View.GONE);
+        LinearLayout.LayoutParams rblp = new LinearLayout.LayoutParams(-1, -2);
+        rblp.topMargin = dp(10);
+        info.addView(reserveBtn, rblp);
 
         // 三格数据（有数据的格才建；上架时间无源恒不显，见账）
         statsRow = new LinearLayout(this);
@@ -544,6 +565,34 @@ public class HongguoDetailActivity extends AppCompatActivity {
         // 其余不写、留给流条目在手的写点补（putType 判不出不冲已有值）。
         HgStore.putType(seriesId, detail.hasAppointment() ? HgStore.TYPE_PREVIEW : null);
         styleFav(now);
+        // 登录态下同步上报追剧架（未登录空转、失败静默，本地镜像为准）
+        com.fongmi.android.tv.hongguo.api.HgAccountSync.reportShelf(seriesId, now);
+    }
+
+    /** 预约钮点击：翻转 reserved 集＋落元信息/预告类型码＋登录态上报。 */
+    private void toggleReserve() {
+        if (detail == null || seriesId == null) return;
+        boolean now = HgStore.toggleReserved(seriesId);
+        HgStore.putMeta(seriesId, detail.getTitle(), detail.getCoverUrl(),
+                detail.getEpisodeCount());
+        HgStore.putType(seriesId, HgStore.TYPE_PREVIEW);
+        styleReserve(now);
+        com.fongmi.android.tv.hongguo.api.HgAccountSync.reportReserve(seriesId, now);
+    }
+
+    /** 预约钮两态（官方本体钮 ks3 色对）：未预约橘底白字、已预约透明白底＋#66FFFFFF 字。 */
+    private void styleReserve(boolean reserved) {
+        if (reserveBtn == null) return;
+        reserveText.setText(reserved ? "已预约" : "预约");
+        if (reserved) {
+            GradientDrawable g = roundBg(0x26FFFFFF, dp(11));
+            g.setStroke(dp(1), 0x59FFFFFF);
+            reserveBtn.setBackground(g);
+            reserveText.setTextColor(0x66FFFFFF);
+        } else {
+            reserveBtn.setBackground(roundBg(0xFFF07D13, dp(11)));
+            reserveText.setTextColor(Color.WHITE);
+        }
     }
 
     private void styleFav(boolean faved) {
@@ -739,6 +788,15 @@ public class HongguoDetailActivity extends AppCompatActivity {
         currentEpisode = p != null ? Math.max(1, p.episodeIndex) : 1;
         if (total > 0) currentEpisode = Math.min(currentEpisode, total);
         styleFav(HgStore.isFaved(seriesId));
+        if (d.hasAppointment()) {
+            // 预约态以回包 appointment.is_subscribed 校准回写本地镜像
+            // （批二 followed 校准同型，批三 A 账 §2 定版）
+            HgStore.setReserved(seriesId, d.isAppointmentSubscribed());
+            reserveBtn.setVisibility(View.VISIBLE);
+            styleReserve(HgStore.isReserved(seriesId));
+        } else {
+            reserveBtn.setVisibility(View.GONE);
+        }
         loadComments();
         // 首开塌陷兜底（2026-10-31）：首遍布局会把整列摆错（顶栏
         // 钮落到屏高近半、糊底满屏），切后台回前台经系统全量重排

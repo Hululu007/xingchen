@@ -83,8 +83,9 @@ import java.util.concurrent.Executors;
  * 弹幕只看不发，账 triage2 §4.1/§4.2）。</p>
  *
  * <p>数据：频道/详情走 DramaClient（共享优先＋冷却降级）；解链走
- * DramaResolver；历史/断点/收藏走 HgStore 本地。无登录/追更/点赞/
- * 预约/关注任何入口。</p>
+ * DramaResolver；历史/断点/收藏走 HgStore 本地。右列点赞已接
+ * （HgStore 本地镜像，登录后 HgAccountSync 拉取对齐）；追更/预约
+ * 入口在详情页，本页不设。</p>
  */
 public class HongguoFeedActivity extends AppCompatActivity {
 
@@ -2567,6 +2568,30 @@ public class HongguoFeedActivity extends AppCompatActivity {
         boolean faved = key != null && HgStore.isFaved(key);
         h.favIcon.setColorFilter(faved ? 0xFFFFB03A : Color.WHITE);
         if (h.favLabel != null) h.favLabel.setText(faved ? "已收藏" : "收藏");
+        bindLikeState(h, item);
+    }
+
+    /** 点赞心激活色（树内激活红，与横屏锁钮激活同值）。 */
+    static final int LIKE_ON_COLOR = 0xFFE63A2E;
+
+    /**
+     * 右列点赞态重绑（官方右列序：头像/收藏星/评论/点赞心/分享——
+     * 分享已按定案摘除，点赞落在评论之后）：已赞红心、未赞白心；
+     * 计数＝服务端 digg 数＋本地已赞补 1，无 digg 数据整行不显
+     * （官方「计数有数据才显」同口径）。
+     */
+    private void bindLikeState(FeedAdapter.Holder h, DramaItem item) {
+        if (h.likeIcon == null) return;
+        String key = favKeyOf(item);
+        boolean liked = key != null && HgStore.isLiked(key);
+        h.likeIcon.setColorFilter(liked ? LIKE_ON_COLOR : Color.WHITE);
+        long digg = item.getDiggCount();
+        if (digg >= 0) {
+            h.likeCount.setText(HgTimeTextCount.format(digg + (liked ? 1 : 0)));
+            h.likeCount.setVisibility(View.VISIBLE);
+        } else {
+            h.likeCount.setVisibility(View.GONE);
+        }
     }
 
     // ---------- 生命周期 ----------
@@ -2682,6 +2707,8 @@ public class HongguoFeedActivity extends AppCompatActivity {
             final ImageView favIcon;
             final TextView favCount;
             final TextView commentCount;
+            final ImageView likeIcon;
+            final TextView likeCount;
             /** 圆形态（播放页/视频页）两签：裸形态无此件、为 null。 */
             final TextView favLabel;
             final TextView commentLabel;
@@ -2713,6 +2740,8 @@ public class HongguoFeedActivity extends AppCompatActivity {
                 favIcon = page.findViewWithTag("fav");
                 favCount = page.findViewWithTag("fcount");
                 commentCount = page.findViewWithTag("ccount");
+                likeIcon = page.findViewWithTag("like");
+                likeCount = page.findViewWithTag("lcount");
                 favLabel = page.findViewWithTag("favlab");
                 commentLabel = page.findViewWithTag("cmtlab");
                 fullPill = page.findViewWithTag("fullpill");
@@ -3015,6 +3044,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
                 LinearLayout.LayoutParams cclp = new LinearLayout.LayoutParams(-2, -2);
                 cclp.topMargin = dp(3);
                 rail.addView(ccount, cclp);
+                addRailLike(rail);
             } else {
                 // 右列与首页统一（他 2026-10-31 点名「首页跟播放页还
                 // 不一样」）：裸图标＋计数，与刷流形态同一套装配，
@@ -3049,6 +3079,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
                 LinearLayout.LayoutParams cclp = new LinearLayout.LayoutParams(-2, -2);
                 cclp.topMargin = dp(3);
                 rail.addView(ccount, cclp);
+                addRailLike(rail);
                 ImageView dummyAvatar = new ImageView(HongguoFeedActivity.this);
                 dummyAvatar.setTag("avatar");
                 dummyAvatar.setVisibility(View.GONE);
@@ -3114,6 +3145,26 @@ public class HongguoFeedActivity extends AppCompatActivity {
             return iv;
         }
 
+        /** 右列点赞件（官方序在评论之后）：心形裸图标＋计数，与评论件同装配口径。 */
+        private void addRailLike(LinearLayout rail) {
+            ImageView like = railIcon(R.drawable.ic_mine_heart, 0);
+            like.setTag("like");
+            LinearLayout.LayoutParams likelp = new LinearLayout.LayoutParams(dp(30), dp(30));
+            likelp.topMargin = dp(19);
+            rail.addView(like, likelp);
+            TextView lcount = new TextView(HongguoFeedActivity.this);
+            lcount.setTag("lcount");
+            lcount.setTextColor(Color.WHITE);
+            lcount.setTextSize(12);
+            lcount.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            lcount.setGravity(Gravity.CENTER);
+            lcount.setShadowLayer(dp(2), 0, dp(1), 0xB3000000);
+            lcount.setVisibility(View.GONE);
+            LinearLayout.LayoutParams lclp = new LinearLayout.LayoutParams(-2, -2);
+            lclp.topMargin = dp(3);
+            rail.addView(lcount, lclp);
+        }
+
 
         @Override
         public void onBindViewHolder(@NonNull Holder h, int position) {
@@ -3136,6 +3187,8 @@ public class HongguoFeedActivity extends AppCompatActivity {
             boolean faved = favKey != null && HgStore.isFaved(favKey);
             h.favIcon.setColorFilter(faved ? 0xFFFFB03A : Color.WHITE);
             h.favIcon.setOnClickListener(v -> toggleFav(item, h));
+            bindLikeState(h, item);
+            h.likeIcon.setOnClickListener(v -> toggleLike(item, h));
             // 圆形态两签（定稿 JS 口径）：评论签填计数（cmtWan）、
             // 收藏签有「已收藏」态；无计数数据时回「评论」原文
             if (h.favLabel != null) h.favLabel.setText(faved ? "已收藏" : "收藏");
@@ -3200,6 +3253,25 @@ public class HongguoFeedActivity extends AppCompatActivity {
             h.favIcon.setColorFilter(now ? 0xFFFFB03A : Color.WHITE);
             if (h.favLabel != null) h.favLabel.setText(now ? "已收藏" : "收藏");
             styleFavPill(h, now);
+            // 登录态下同步上报追剧架（未登录空转、失败静默，本地镜像为准）
+            com.fongmi.android.tv.hongguo.api.HgAccountSync.reportShelf(key, now);
+        }
+
+        /** 点赞键：与收藏同 key 口径（视频页合集按 album、其余按剧 id），落 liked 集＋元信息。 */
+        private void toggleLike(DramaItem item, Holder h) {
+            String key = favKeyOf(item);
+            if (key == null) return;
+            HgStore.toggleLiked(key);
+            if (mode == MODE_VIDEO && videoAlbum != null) {
+                HgStore.putMeta(key, videoAlbum.title, videoAlbum.cover,
+                        videoAlbum.episodeCount);
+                HgStore.putType(key, HgStore.TYPE_ALBUM);
+            } else {
+                HgStore.putMeta(key, item.getTitle(), item.getCoverUrl(),
+                        item.getEpisodeCount());
+                HgStore.putType(key, HgStore.typeCodeOf(item));
+            }
+            bindLikeState(h, item);
         }
 
         private void styleFavPill(Holder h, boolean faved) {

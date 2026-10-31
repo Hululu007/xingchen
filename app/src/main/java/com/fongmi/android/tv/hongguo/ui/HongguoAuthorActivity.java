@@ -712,8 +712,12 @@ public class HongguoAuthorActivity extends AppCompatActivity {
                     : "更新至" + work.episodeCount + "集");
             h.meta.setText(m.toString());
             paintFavBtn(h.favBtn, HgStore.isFaved(al.albumId));
-            h.favBtn.setOnClickListener(v ->
-                    paintFavBtn(h.favBtn, HgStore.toggleFaved(al.albumId)));
+            h.favBtn.setOnClickListener(v -> {
+                boolean now = HgStore.toggleFaved(al.albumId);
+                paintFavBtn(h.favBtn, now);
+                // 登录态下同步上报追剧架（未登录空转、失败静默）
+                com.fongmi.android.tv.hongguo.api.HgAccountSync.reportShelf(al.albumId, now);
+            });
             h.headerRow.setOnClickListener(v -> openAlbum(work, null));
             h.stripRow.removeAllViews();
             for (int i = 0; i < al.episodes.size(); i++) {

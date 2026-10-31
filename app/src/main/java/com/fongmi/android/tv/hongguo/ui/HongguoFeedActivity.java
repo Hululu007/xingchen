@@ -347,20 +347,34 @@ public class HongguoFeedActivity extends AppCompatActivity {
      * （DramaLandLogic.canEnterLand）双过，才把播放器泊进
      * DramaPlayerPool 并拉起独立横屏页同流续播。无剧短片不进横屏。
      */
+    /**
+     * 横屏资格三分支（#11：全屏钮显隐与进横屏的门共用同一判定，
+     * 不许再各写一套）：条目 vertical 旗优先——FALSE 横版、TRUE
+     * 竖版；旗缺失时回落解码实测画幅（lastVideoW/H）。短片恒无资格。
+     */
+    private boolean isLandItem(DramaItem item) {
+        if (item == null || item.kind == DramaItemKind.UGC_CLIP) return false;
+        if (Boolean.FALSE.equals(item.getVertical())) return true;
+        if (Boolean.TRUE.equals(item.getVertical())) return false;
+        return DramaLandLogic.isLandEligible(lastVideoW, lastVideoH);
+    }
+
+    /** 尺寸落定后补一次全屏钮显隐复核（旗缺失的条目靠实测画幅定，
+     * 绑定时尺寸可能还没到，到了必须补显——#11 钉死点）。 */
+    private void refreshFullPillVisibility() {
+        FeedAdapter.Holder h = currentHolder();
+        if (h == null || h.fullPill == null) return;
+        DramaItem item = currentIndex >= 0 && currentIndex < items.size()
+                ? items.get(currentIndex) : null;
+        h.fullPill.setVisibility(isLandItem(item) && mode != MODE_VIDEO
+                ? View.VISIBLE : View.GONE);
+    }
+
     private void enterLand(boolean fromButton) {
         if (engineParked || player == null || currentVid == null) return;
         if (currentIndex < 0 || currentIndex >= items.size()) return;
         DramaItem item = items.get(currentIndex);
-        if (item.kind == DramaItemKind.UGC_CLIP) return;
-        boolean land;
-        if (Boolean.FALSE.equals(item.getVertical())) {
-            land = true;
-        } else if (Boolean.TRUE.equals(item.getVertical())) {
-            return;
-        } else {
-            land = DramaLandLogic.isLandEligible(lastVideoW, lastVideoH);
-        }
-        if (!land) return;
+        if (!isLandItem(item)) return;
         boolean popup = (drawerPanel != null && drawerPanel.getVisibility() == View.VISIBLE)
                 || System.currentTimeMillis() < panelGuardUntil;
         if (!DramaLandLogic.canEnterLand(pagerIdle, firstFrameForVid, false,
@@ -1891,6 +1905,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
                 if (!videoId.equals(currentVid) || player == null) return;
                 lastVideoW = w;
                 lastVideoH = h;
+                refreshFullPillVisibility();
                 player.setMediaItem(MediaItem.fromUri(localUrl));
                 // 短片一律按原始比例 fit（留黑边可以，不许裁满全屏）；
                 // 正剧维持定稿：横版 fit 居中黑边、竖屏 ZOOM 满屏。
@@ -3183,7 +3198,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
             h.itemView.findViewWithTag("comment").setOnClickListener(v -> {
                 if (position == currentIndex) openComments();
             });
-            boolean landscape = Boolean.FALSE.equals(item.getVertical());
+            boolean landscape = isLandItem(item);
             h.fullPill.setVisibility(landscape && mode != MODE_VIDEO ? View.VISIBLE : View.GONE);
             h.fullPill.setOnClickListener(v -> {
                 if (position == currentIndex) enterLand(true);

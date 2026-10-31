@@ -38,8 +38,9 @@ public final class DramaItem {
     /** 评论数（cell video_data.comment_count，2026-10-28 频道真回包实证）；没带为 -1。
      * 非 final：评论面板拉到真实 total 后回写本条（D6 两面同源）。 */
     private long commentCount;
-    /** 点赞数（cell video_data.digged_count，同上实证）；没带为 -1。 */
-    private final long diggCount;
+    /** 点赞数（cell video_data.digged_count，同上实证）；没带为 -1。
+     * 非 final：详情/模型路后到时回写本条（#15，与评论数同口径）。 */
+    private long diggCount;
     /**
      * 完结态（series_status：1＝已完结；频道回包在 video_detail 或
      * video_detail_list 卡上，2026-10-28 存档逐层实证）；没带为 null。
@@ -256,14 +257,16 @@ public final class DramaItem {
         this.publisher = publisher;
     }
 
-    /** 由详情面拼一个流页条目（集流页首条/详情页入流用）：字段取详情口径。 */
+    /** 由详情面拼一个流页条目（集流页首条/详情页入流用）：字段取详情口径。
+     * diggCount＝本条（集）的点赞数，调用方有则带入、无则 -1（#15：
+     * 此前恒 -1，播放页点赞行永远没数）。 */
     public static DramaItem fromDetail(String seriesId, String title, String coverUrl, String desc,
                                        int episodeCount, String firstVid, Integer seriesStatus,
                                        String authorName, String authorAvatar, String authorUid,
-                                       int contentType, long commentCount) {
+                                       int contentType, long commentCount, long diggCount) {
         DramaItem item = new DramaItem(seriesId, title, coverUrl, desc, episodeCount,
                 false, false, null, firstVid, null, null, Collections.emptyList(), null,
-                false, null, -1, Collections.emptyList(), commentCount, -1, seriesStatus,
+                false, null, -1, Collections.emptyList(), commentCount, diggCount, seriesStatus,
                 null, authorName, authorAvatar, authorUid, null, null);
         item.contentType = contentType;
         return item;
@@ -313,6 +316,8 @@ public final class DramaItem {
     /** 评论面板真实 total 回写（D6）；只接受正数回写，不拿 0 冲掉下发值。 */
     public void setCommentCount(long total) { if (total > 0) commentCount = total; }
     public long getDiggCount() { return diggCount; }
+    /** 点赞数回写（#15）：只接受正数，不拿 0 冲掉下发值（与评论数回写同口径）。 */
+    public void setDiggCount(long total) { if (total > 0) diggCount = total; }
     /** 完结态原值（series_status）；没带为 null。 */
     public Integer getSeriesStatus() { return seriesStatus; }
     /** 条目级已完结判定：只认下发值＝1（cell 面不套详情的 null 默认口径）。 */

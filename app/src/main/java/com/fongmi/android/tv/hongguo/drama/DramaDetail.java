@@ -114,17 +114,25 @@ public final class DramaDetail {
         private final String videoId;
         private final int index;
         private final String title;
+        /** 本集点赞数（回包 video_list[i].digged_count）；没带为 -1。 */
+        private final long diggCount;
 
         Episode(String videoId, int index, String title) {
+            this(videoId, index, title, -1);
+        }
+
+        Episode(String videoId, int index, String title, long diggCount) {
             this.videoId = videoId;
             this.index = index;
             this.title = title;
+            this.diggCount = diggCount;
         }
 
         public String getVideoId() { return videoId; }
         /** 集序号（从回包顺序或字段取，未知为 -1）。 */
         public int getIndex() { return index; }
         public String getTitle() { return title; }
+        public long getDiggCount() { return diggCount; }
     }
 
     private final String seriesId;

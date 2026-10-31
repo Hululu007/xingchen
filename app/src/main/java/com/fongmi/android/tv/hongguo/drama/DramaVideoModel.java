@@ -21,6 +21,8 @@ public final class DramaVideoModel {
     private final String fallbackApi;
     private final int videoWidth;
     private final int videoHeight;
+    /** 点赞数（模型 JSON digged_count）；没带为 -1（#15）。 */
+    private final long diggCount;
     private final List<DramaEntry> entries;
     /** 构建本模型的 video_model 原始 JSON 串（buildModel 入参原文）；模型缓存落盘时存它、读回经 DramaParser.restoreModel 同路重建，保证字段零漂移。 */
     private final String sourceJson;
@@ -28,7 +30,7 @@ public final class DramaVideoModel {
     DramaVideoModel(String requestedId, String videoId, int status, String message,
                  double durationSec, String mediaType, long urlExpire, String posterUrl,
                  String keySeed, String fallbackApi, int videoWidth, int videoHeight,
-                 List<DramaEntry> entries, String sourceJson) {
+                 long diggCount, List<DramaEntry> entries, String sourceJson) {
         this.requestedId = requestedId;
         this.videoId = videoId;
         this.status = status;
@@ -41,6 +43,7 @@ public final class DramaVideoModel {
         this.fallbackApi = fallbackApi;
         this.videoWidth = videoWidth;
         this.videoHeight = videoHeight;
+        this.diggCount = diggCount;
         this.entries = Collections.unmodifiableList(entries);
         this.sourceJson = sourceJson;
     }
@@ -56,6 +59,8 @@ public final class DramaVideoModel {
     /** 直链过期时间戳（秒）；0 表示回包未给。 */
     public long getUrlExpire() { return urlExpire; }
     public String getPosterUrl() { return posterUrl; }
+    /** 点赞数；模型没带为 -1。 */
+    public long getDiggCount() { return diggCount; }
     /** fplay 形态才有：URL 解密用的 key_seed（Base64，32 字节）；multi 明文链形态为 null。 */
     public String getKeySeed() { return keySeed; }
     /** multi 形态才有：fplay 兜底取址地址；无则 null。 */

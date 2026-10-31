@@ -1318,7 +1318,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
         items.add(DramaItem.fromDetail(sid == null ? vid : sid,
                 getIntent().getStringExtra(EXTRA_TITLE),
                 getIntent().getStringExtra(EXTRA_COVER), null, 0, vid, null,
-                null, null, null, getIntent().getIntExtra(EXTRA_CONTENT_TYPE, 1001), -1));
+                null, null, null, getIntent().getIntExtra(EXTRA_CONTENT_TYPE, 1001), -1, -1));
         adapter.notifyDataSetChanged();
         feedStartPending = true;
         pager.scrollToPosition(0);
@@ -1397,7 +1397,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
                 getIntent().getStringExtra(EXTRA_TITLE),
                 getIntent().getStringExtra(EXTRA_COVER), null, 0, vid, null,
                 videoAuthorName, videoAuthorAvatar, videoAuthorUid,
-                getIntent().getIntExtra(EXTRA_CONTENT_TYPE, 1001), -1);
+                getIntent().getIntExtra(EXTRA_CONTENT_TYPE, 1001), -1, -1);
         // 文案：单条入口没有 desc 附加，标题即文案（bind 时 desc 空回退标题）
         items.add(item);
         adapter.notifyDataSetChanged();
@@ -1469,13 +1469,14 @@ public class HongguoFeedActivity extends AppCompatActivity {
                         items.add(DramaItem.fromDetail(detail.getSeriesId(), detail.getTitle(),
                                 detail.getCoverUrl(), detail.getDesc(), detail.getEpisodeCount(),
                                 ep.getVideoId(), detail.getSeriesStatus(), detail.getAuthorName(),
-                                null, detail.getAuthorUid(), detail.getContentType(), -1));
+                                null, detail.getAuthorUid(), detail.getContentType(), -1,
+                                ep.getDiggCount()));
                     }
                     if (items.isEmpty()) {
                         items.add(DramaItem.fromDetail(detail.getSeriesId(), detail.getTitle(),
                                 detail.getCoverUrl(), detail.getDesc(), detail.getEpisodeCount(),
                                 null, detail.getSeriesStatus(), detail.getAuthorName(),
-                                null, detail.getAuthorUid(), detail.getContentType(), -1));
+                                null, detail.getAuthorUid(), detail.getContentType(), -1, -1));
                     }
                     adapter.notifyDataSetChanged();
                     hideState();

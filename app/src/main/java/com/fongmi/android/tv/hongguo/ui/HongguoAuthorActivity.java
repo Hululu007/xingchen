@@ -509,13 +509,23 @@ public class HongguoAuthorActivity extends AppCompatActivity {
     /** 打开合集（点卡头进首集、点集缩略落那集；走合集页全队列）。 */
     private void openAlbum(DramaWork work, String vid) {
         if (work.album == null) return;
+        // 点赞数带入本集的（#15）：集缩略自带 digg_cnt，找不到对
+        // 应集时回落作品级计数，都没有为 -1。
+        long digg = -1;
+        for (DramaWork.AlbumEp e : work.album.episodes) {
+            if (e != null && vid != null && vid.equals(e.vid)) {
+                digg = e.diggCount;
+                break;
+            }
+        }
+        if (digg < 0) digg = work.diggCount;
         com.fongmi.android.tv.hongguo.drama.DramaItem item =
                 com.fongmi.android.tv.hongguo.drama.DramaItem.fromDetail(
                         work.album.albumId, work.title, work.cover, work.intro,
                         work.episodeCount, vid == null ? "" : vid,
                         work.album.seriesStatus,
                         nameView.getText() == null ? "" : nameView.getText().toString(),
-                        getIntent().getStringExtra(EXTRA_AVATAR), uid, 1001, -1);
+                        getIntent().getStringExtra(EXTRA_AVATAR), uid, 1001, -1, digg);
         HongguoFeedActivity.startVideoAlbum(this, item);
     }
 

@@ -170,6 +170,7 @@ public final class DramaParser {
                 str(vm, "key_seed"),
                 fallback,
                 vw, vh,
+                longOf(vm, "digged_count", -1),
                 entries,
                 vm.toString());
     }
@@ -252,7 +253,8 @@ public final class DramaParser {
                 int idx = intOf(eo, "index", -1);
                 if (idx < 0) idx = intOf(eo, "episode_index", -1);
                 if (idx < 0) idx = intOf(eo, "vid_index", i + 1);
-                episodes.add(new DramaDetail.Episode(vid, idx, firstStr(eo, "title", "name")));
+                episodes.add(new DramaDetail.Episode(vid, idx, firstStr(eo, "title", "name"),
+                        longOf(eo, "digged_count", -1)));
                 i++;
             }
         }

@@ -256,6 +256,10 @@ public class HkPageActivity extends BaseActivity {
     private HkDetail currentDetail;
     // 8.83 原版：详情页走通用列表渲染器，不再用专用线路/选集模型
     private final List<HkItem> detailItems = new ArrayList<>();
+    // 内容列表里当前那一块「自绘详情」的条目（.rule() 页面函数 detailFn merge 进来的整块，
+    // 按对象身份认）：切线路重渲时 merge 前先摘掉旧块，防越点越叠（橘汁实案，
+    // 诊断账 juzhi-hk-diag-20261031.md）。普通加载更多追加不进此表。
+    private final List<HkItem> detailBlockItems = new ArrayList<>();
     private ContentAdapter detailAdapter;
     private GridLayoutManager detailGrid;
 
@@ -4253,6 +4257,90 @@ public class HkPageActivity extends BaseActivity {
         }).start();
     }
 
+    /**
+     * 内容列表状态下点 @lazyRule= 选集（8.83 dealLazyRule 无条件优先，诊断账
+     * juzhi-hk-diag-20261031.md）：详情靠 .rule() 页面函数自绘的 fypage 型规则页面永不进
+     * V_DETAIL，选集只能从当前内容列表收集同组条目进播放器。解析与起播零件同
+     * playDetailEpisode，数据源从 detailItems（老详情链、已无人写入）换成当前内容列表；
+     * 剧名/封面取详情块头部条目，无头部时用被点条目自身。懒函数取流失败会返回
+     * toast:// 等动作串（HkRouter.play 会把它当地址塞回），先过 handleActionUrl 弹提示，
+     * 不进播放器。
+     */
+    private void playContentEpisode(HkItem it, String url) {
+        // 先快照当前列表：解析在后台线程跑，期间列表可能被刷新替换，迭代活列表会并发改错
+        final List<HkItem> snapshot = new ArrayList<>(videos);
+        new Thread(() -> {
+            String playUrl = url;
+            try {
+                HkPlay play = getRouter().play(url);
+                if (!play.getUrl().isEmpty()) playUrl = play.getUrl();
+            } catch (Throwable ignored) {
+            }
+            // 8.83 getChapters 同口径（同 playDetailEpisode）：按被点条目的 cls 只收同组，
+            // 跳过 header 型、空 URL、含 @rule=/ignoreVideo/ignoreMusic 的条目
+            String clickedCls = it.getExtra("cls");
+            org.json.JSONArray arr = new org.json.JSONArray();
+            int selIdx = 0;
+            int idx = 0;
+            for (HkItem di : snapshot) {
+                String du = di.getUrl() == null ? "" : di.getUrl().trim();
+                String dl = du.toLowerCase();
+                boolean isClicked = (di == it);
+                if (!isClicked) {
+                    if (du.isEmpty()) continue;
+                    if (dl.startsWith("javascript:") || dl.equals("hiker://empty")) continue;
+                    String dct = di.getColType() == null ? "" : di.getColType().toLowerCase();
+                    if (dct.contains("header")) continue;
+                    if (du.contains("@rule=")) continue;
+                    if (dl.contains("ignorevideo") || dl.contains("ignoremusic")) continue;
+                    if (!clickedCls.isEmpty() && !clickedCls.equals(di.getExtra("cls"))) continue;
+                }
+                // 只收可播条目：http 链接或含 @lazyRule=/js: 的解析型地址（@rule= 已在上排除）
+                boolean playable = isClicked || dl.startsWith("http")
+                        || du.contains("@lazyRule=") || du.startsWith("js:");
+                if (!playable) continue;
+                try {
+                    org.json.JSONObject o = new org.json.JSONObject();
+                    o.put("name", stripHtml(di.getTitle()));
+                    o.put("url", du);
+                    o.put("pic", di.getPic() == null ? "" : di.getPic());
+                    arr.put(o);
+                    if (di == it) selIdx = idx;
+                    idx++;
+                } catch (Throwable ignored) {
+                }
+            }
+            // 剧名/封面：详情块头部条目（movie_1_left_pic 等）优先，否则被点条目自身
+            String title = it.getTitle() == null ? "" : it.getTitle();
+            String pic = it.getPic() == null ? "" : it.getPic();
+            for (HkItem di : snapshot) {
+                if (isHeaderColType(di.getColType())) {
+                    if (!TextUtils.isEmpty(di.getTitle())) title = di.getTitle();
+                    if (!TextUtils.isEmpty(di.getPic())) pic = di.getPic();
+                    break;
+                }
+            }
+            final String pu = playUrl;
+            final String eps = arr.toString();
+            final int sel = selIdx;
+            final String vTitle = title;
+            final String vPic = pic;
+            App.post(() -> {
+                if (TextUtils.isEmpty(pu)) {
+                    ToastUtil.show(HkPageActivity.this, "解析失败，换一条试试",
+                            android.widget.Toast.LENGTH_SHORT);
+                    return;
+                }
+                // 懒函数失败返回的 toast:// 等动作串先过动作协议（弹提示），不当播放地址
+                if (HkRouter.isActionUrl(pu) && handleActionUrl(pu, it)) return;
+                String lineName = it.getLine() == null || it.getLine().isEmpty() ? "默认" : it.getLine();
+                VideoActivity.startHkPlay(HkPageActivity.this,
+                        currentRule == null ? "" : currentRule.getTitle(), lineName,
+                        pu, it.getTitle(), vTitle, vPic, eps, sel);
+            });
+        }).start();
+    }
+
     // ================= 通用组件 =================
 
     private int dp(int v) {
@@ -4645,6 +4733,18 @@ public class HkPageActivity extends BaseActivity {
         boolean hasLazy = preRule.contains("@lazyRule=");
         // 官方 clickItem：@rule= 条目进子列表页（dealRule 新建 ArticleListRule 打开 FilmListActivity），不进 V4
         if (ar >= 0 && !hasLazy && openSubList(it, url)) return;
+        // 8.83 clickItem：@lazyRule= 无条件优先走 dealLazyRule，不看页面状态（官方 :1369）。
+        // fypage 自绘详情（detail_find_rule 为空、详情摊在内容列表里）的页面永不进 V_DETAIL，
+        // 旧分发让这类选集穿过全部分支落进 openDetail 空壳、点集不起播（橘汁实案，
+        // 诊断账 juzhi-hk-diag-20261031.md）。本支只接管内容列表状态：解析+同组选集走
+        // playContentEpisode；V_DETAIL 内仍走原 playDetailEpisode，老详情链一字不动。
+        // 动作协议（handleActionUrl）在本支之前已处理，优先级不变。
+        if (hasLazy && (stack.isEmpty() || stack.peek() != V_DETAIL)) {
+            lastEpKey = epKey(it);
+            if (contentAdapter != null) contentAdapter.notifyDataSetChanged();
+            playContentEpisode(it, url);
+            return;
+        }
         // 8.83 原版 dealWithUrl：详情页内可播 URL 直接播放，不套娃进详情
         if (!stack.isEmpty() && stack.peek() == V_DETAIL) {
             // 8.83 H2：@lazyRule= 优先走 lazy 解析（dealLazyRule），绝不进 webview；
@@ -4908,13 +5008,41 @@ public class HkPageActivity extends BaseActivity {
      */
     private void mergeActionItems(HkItem button, List<HkItem> after) {
         if (after == null || after.isEmpty() || contentAdapter == null) return;
+        // 详情块重渲（结果里带详情头部条目＝detailFn 整块重画，如橘汁切线路）：
+        // 先摘掉上一块详情条目、新块插回旧块原位，防越点越叠、整表反复重刷。
+        // 只认带头部条目的整块重渲；普通「加载更多」追加（无头部条目）不走此路，口径不变。
+        boolean detailRender = false;
+        for (HkItem a : after) {
+            if (a != null && isHeaderColType(a.getColType())) { detailRender = true; break; }
+        }
+        int blockAt = -1;
+        List<HkItem> removedBlock = null;
+        if (detailRender) {
+            if (!detailBlockItems.isEmpty()) {
+                for (int i = 0; i < videos.size(); i++) {
+                    if (detailBlockItems.contains(videos.get(i))) { blockAt = i; break; }
+                }
+                if (blockAt >= 0) {
+                    removedBlock = new ArrayList<>(detailBlockItems);
+                    videos.removeAll(detailBlockItems);
+                }
+            }
+            detailBlockItems.clear();
+        }
         java.util.Set<String> seen = new java.util.HashSet<>();
         for (HkItem v : videos) seen.add(itemKey(v));
         List<HkItem> delta = new ArrayList<>();
         for (HkItem it : after) {
             if (seen.add(itemKey(it))) delta.add(it);
         }
-        if (delta.isEmpty()) return;
+        if (delta.isEmpty()) {
+            // 摘完旧块却没有新条目可落：原样还回旧块，不让详情凭空消失
+            if (removedBlock != null) {
+                videos.addAll(Math.min(blockAt, videos.size()), removedBlock);
+                detailBlockItems.addAll(removedBlock);
+            }
+            return;
+        }
         int at = -1;
         if (button != null) {
             String bk = itemKey(button);
@@ -4922,8 +5050,11 @@ public class HkPageActivity extends BaseActivity {
                 if (bk.equals(itemKey(videos.get(i)))) { at = i; break; }
             }
         }
+        // 被点的是旧块内的线路 tab（已随旧块摘除）：新块插回旧块原位
+        if (at < 0 && blockAt >= 0) at = Math.min(blockAt, videos.size());
         if (at < 0) videos.addAll(delta);
         else videos.addAll(at, delta);
+        if (detailRender) detailBlockItems.addAll(delta);
         contentAdapter.refreshGroups();
         contentAdapter.notifyDataSetChanged();
         updateFooter();

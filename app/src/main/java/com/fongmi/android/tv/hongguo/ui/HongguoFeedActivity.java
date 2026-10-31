@@ -302,6 +302,10 @@ public class HongguoFeedActivity extends AppCompatActivity {
     private static final long FEED_WATCHDOG_MS = 20_000;
     // 横屏交接（阶段8）：泊出旗/列表静止旗/最近一集画幅/弹窗守卫/朝向监视
     private boolean engineParked;
+    /** 流→播放页承接（切换手感头号缝）：入站时池里泊着的包（同剧同 vid 才领）。 */
+    private DramaPlayerPool.Bag inboundBag;
+    /** 本实例领过承接引擎，退出时要在 finish 前泊回给流页。 */
+    private boolean tookHandoff;
     /** 离开本页前是否在播（回来续播守卫，见 onPause/onResume）。 */
     private boolean resumeOnReturn;
     private boolean pagerIdle = true;
@@ -323,6 +327,14 @@ public class HongguoFeedActivity extends AppCompatActivity {
         buildUi();
         setContentView(root);
         watchNavInsets();
+        if (mode == MODE_SERIES && seriesIdArg != null) {
+            // 承接入站预检：流页泊来的包同剧且带 vid 才认（领取引擎
+            // 延到 settleTo 落点对上那一集时，见 adoptHandoff）。
+            DramaPlayerPool.Bag bag = DramaPlayerPool.peekBag();
+            if (bag != null && seriesIdArg.equals(bag.seriesId) && bag.vid != null) {
+                inboundBag = bag;
+            }
+        }
         if (mode == MODE_FEED) {
             seriesBar.setVisibility(View.GONE);
             loadChannel(true);
@@ -489,6 +501,13 @@ public class HongguoFeedActivity extends AppCompatActivity {
      */
     @Override
     public void finish() {
+        // 承接来的引擎先泊回再退场：流页 onResume 领回时包已在池
+        // 里（泊回晚于 resume 就会领空、被迫另起引擎——横屏
+        // exitLand 先泊后 finish 是同一条教训）。
+        if (mode == MODE_SERIES && tookHandoff && !engineParked
+                && engine != null && player != null) {
+            parkBackToFeed();
+        }
         super.finish();
         HgTransition.applyPushExit(this);
     }
@@ -886,8 +905,48 @@ public class HongguoFeedActivity extends AppCompatActivity {
         if (item.kind == DramaItemKind.ALBUM) {
             startVideoAlbum(this, item);
         } else if (item.kind == DramaItemKind.SERIES && item.getSeriesId() != null) {
-            startSeries(this, item.getSeriesId(), item.getTitle(), 0);
+            openSeries(item, 0);
         }
+    }
+
+    /**
+     * 进播放页（承接版）：点的就是流里正在播的这条时，先把引擎
+     * 泊进池里再开页——播放页领同一台引擎同 vid 续播，不重起、
+     * 不重取链、不闪封面（与横屏 park/take 同口径；此前此路直
+     * 接开新实例另起引擎重取链，是切换手感头号硬切）。不是当前
+     * 条或引擎不在手时走原路。
+     */
+    private void openSeries(DramaItem item, int episodeIndex) {
+        openSeries(item, episodeIndex, -1);
+    }
+
+    private void openSeries(DramaItem item, int episodeIndex, long startMs) {
+        if (item == null || item.getSeriesId() == null) return;
+        if (mode == MODE_FEED && !engineParked && player != null && currentVid != null
+                && currentIndex >= 0 && currentIndex < items.size()
+                && items.get(currentIndex) == item) {
+            parkForSeries(item);
+        }
+        startSeries(this, item.getSeriesId(), item.getTitle(), episodeIndex, startMs);
+    }
+
+    /** 泊出给播放页领（enterLand 泊车同形）。 */
+    private void parkForSeries(DramaItem item) {
+        DramaPlayerPool.Bag bag = new DramaPlayerPool.Bag();
+        bag.seriesId = item.getSeriesId();
+        bag.vid = currentVid;
+        bag.episodeIndex = currentEpisodeIndex;
+        bag.positionMs = player.getCurrentPosition();
+        bag.playWhenReady = player.getPlayWhenReady();
+        bag.danmakuOn = HgStore.isDanmakuOn();
+        bag.speed = player.getPlaybackParameters().speed;
+        bag.seriesTitle = item.getTitle();
+        bag.contentType = item.contentType;
+        saveProgressNow();
+        player.removeListener(playerListener);
+        playerView.setPlayer(null);
+        DramaPlayerPool.park(bag, engine);
+        engineParked = true;
     }
 
     /** 当前条的观看完整条文案（短片条无「完整」概念，整条隐藏）。 */
@@ -1587,7 +1646,19 @@ public class HongguoFeedActivity extends AppCompatActivity {
             boolean fromHead = sheetJumpEp == index + 1 || autoNextEp == index + 1;
             sheetJumpEp = 0;
             autoNextEp = 0;
-            playEpisode(index + 1, !fromHead);
+            if (inboundBag != null && inboundBag.vid != null
+                    && inboundBag.vid.equals(item.getVid())) {
+                // 承接落点对上：领引擎续播这一集，不走 playEpisode
+                // 的重取链（切换手感头号缝的入站半程）。
+                adoptHandoff(index);
+            } else {
+                if (inboundBag != null) {
+                    // 落点集与泊来 vid 对不上：泊车作废、走常路起播
+                    DramaPlayerPool.releaseParked();
+                    inboundBag = null;
+                }
+                playEpisode(index + 1, !fromHead);
+            }
         } else if (mode == MODE_VIDEO && videoAlbumId != null) {
             currentEpisodeIndex = 1;
             playAlbumRow(item);
@@ -1780,6 +1851,58 @@ public class HongguoFeedActivity extends AppCompatActivity {
             showPlayFailure();
         };
         main.postDelayed(feedWatchdog, FEED_WATCHDOG_MS);
+    }
+
+    /**
+     * 承接落点：领池中引擎续播当前 vid。播放器里正播的就是这一
+     * 集——不 stop、不重取链、不重挂媒体项，只把本页的记账
+     * （集序/当前 vid/首帧旗/弹幕/条）对上。领不到（池被别人动
+     * 过）退回常路 playEpisode。
+     */
+    private void adoptHandoff(int index) {
+        DramaPlayerPool.Bag bag = inboundBag;
+        inboundBag = null;
+        entrySeekEp = -1;
+        entrySeekMs = -1;
+        ExoPlayerEngine taken = bag == null ? null : DramaPlayerPool.takeEngine();
+        if (taken == null || bag == null) {
+            playEpisode(index + 1, false);
+            return;
+        }
+        engine = taken;
+        player = engine.getPlayer();
+        player.addListener(playerListener);
+        playerView.setPlayer(player);
+        tookHandoff = true;
+        currentVid = bag.vid;
+        currentEpisodeIndex = index + 1;
+        firstFrameForVid = true;
+        if (bag.speed > 0) player.setPlaybackSpeed(bag.speed);
+        player.setPlayWhenReady(bag.playWhenReady);
+        applyDanmakuVisibility();
+        startDanmaku(currentVid);
+        refreshStrip();
+    }
+
+    /** 退出播放页前把承接来的引擎泊回给流页领（先泊后 finish，与横屏 exitLand 同序）。 */
+    private void parkBackToFeed() {
+        DramaPlayerPool.Bag bag = new DramaPlayerPool.Bag();
+        bag.seriesId = seriesIdArg;
+        bag.vid = currentVid;
+        bag.episodeIndex = currentEpisodeIndex;
+        bag.positionMs = player.getCurrentPosition();
+        bag.playWhenReady = player.getPlayWhenReady();
+        bag.danmakuOn = HgStore.isDanmakuOn();
+        bag.speed = player.getPlaybackParameters().speed;
+        bag.seriesTitle = seriesTitleView == null ? null
+                : seriesTitleView.getText().toString();
+        DramaDetail d = detailCache.get(seriesIdArg);
+        bag.contentType = d == null ? 0 : d.getContentType();
+        saveProgressNow();
+        player.removeListener(playerListener);
+        playerView.setPlayer(null);
+        DramaPlayerPool.park(bag, engine);
+        engineParked = true;
     }
 
     private void playEpisode(int episodeIndex, boolean resume) {
@@ -2167,8 +2290,9 @@ public class HongguoFeedActivity extends AppCompatActivity {
                     if (item.isHighlightFragment()) {
                         long ms = player != null
                                 ? Math.max(0, player.getCurrentPosition()) : 0;
-                        startSeries(this, item.getSeriesId(), item.getTitle(),
-                                pushed, ms);
+                        // 高光片段同集续进：走承接口（同 vid 泊领、
+                        // 位置天然连续），领不到才按 startMs 钉位。
+                        openSeries(item, pushed, ms);
                     } else if (total > 0 && pushed >= total) {
                         startSeries(this, item.getSeriesId(), item.getTitle(), pushed);
                     } else {
@@ -3588,9 +3712,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
                 // 系列药丸带 › 形、本就是进剧入口（#20 甲：此前不挂
                 // 点击点了没反应）——接与观看完整条同路的进剧口。
                 if (item.getSeriesId() != null) {
-                    pill.setOnClickListener(v -> startSeries(
-                            HongguoFeedActivity.this, item.getSeriesId(),
-                            item.getTitle(), 0));
+                    pill.setOnClickListener(v -> openSeries(item, 0));
                 }
                 ImageView chev = new ImageView(HongguoFeedActivity.this);
                 chev.setImageResource(R.drawable.ic_drama_chev);

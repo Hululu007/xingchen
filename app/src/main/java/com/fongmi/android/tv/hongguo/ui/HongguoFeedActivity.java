@@ -2,6 +2,7 @@ package com.fongmi.android.tv.hongguo.ui;
 
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
@@ -294,6 +295,12 @@ public class HongguoFeedActivity extends AppCompatActivity {
     private boolean firstFrameForVid;
     /** 切集转圈延迟显的待发任务（切集顺滑：快切不许转圈闪）。 */
     private Runnable spinDelayRunnable;
+    /** 切集末帧冻结：上一集帧图＋展示层＋代次（切集顺滑）。 */
+    private ImageView freezeView;
+    private Bitmap freezeBitmap;
+    private int freezeSeq;
+    private int freezeForIndex = -1;
+    private boolean freezeArmed;
     private boolean feedStartPending = true;
     /** 首页流起播失败记账（条目键＝seriesId/vid）：失败条只呈失败态，封面不许回潮当内容（账 hongguo-feed-noposter-20261030）。 */
     private final java.util.Set<String> feedFailedKeys = new java.util.HashSet<>();
@@ -1628,7 +1635,16 @@ public class HongguoFeedActivity extends AppCompatActivity {
         if (index < 0 || index >= items.size()) return;
         if (index == currentIndex && currentVid != null && player != null) return;
         saveProgressNow();
+        int prevIndex = currentIndex;
         currentIndex = index;
+        if (mode == MODE_SERIES && prevIndex != index
+                && firstFrameForVid && player != null) {
+            // 切集顺滑（末帧冻结）：趁播放面还挂在上一集的页上、
+            // 还留着上一集的帧，先抓下来；mount 搬面之后由
+            // playVid 把冻结图挂到新页（抓帧点必须在搬面之前）。
+            initiateFreezeCapture(index);
+            freezeArmed = true;
+        }
         if (mode == MODE_FEED) {
             // D7：流内线是本条的历史进度线，先清零，时长到手后按
             // 存档定版（tick 内一次性），不跟实时播放走
@@ -1734,6 +1750,9 @@ public class HongguoFeedActivity extends AppCompatActivity {
             if (mode == MODE_FEED && index >= 0 && index < items.size()) {
                 feedFailedKeys.remove(feedKeyOf(items.get(index)));
             }
+            // 切集冻结图若已先到（同步抓帧），搬面后重新提到
+            // playerView 之上（addView 后到者在上）
+            if (freezeBitmap != null && freezeForIndex == index) attachFreeze();
         }
     }
 
@@ -1832,6 +1851,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
      */
     private void showPlayFailure() {
         cancelSpinDelay();
+        hideFreeze();
         FeedAdapter.Holder h = currentHolder();
         if (h != null) {
             h.spin.setVisibility(View.GONE);
@@ -2032,6 +2052,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
         @Override
         public void onRenderedFirstFrame() {
             cancelSpinDelay();
+            hideFreeze();
             FeedAdapter.Holder h = currentHolder();
             if (h != null) {
                 h.cover.setVisibility(View.GONE);
@@ -2129,10 +2150,80 @@ public class HongguoFeedActivity extends AppCompatActivity {
         }
     }
 
+    /**
+     * 发起一次抓帧：把播放面当前这一帧（上一集的末帧）复制下来，
+     * 到手后暂存并尝试挂到目标页。代次对位——连切只认最后一发；
+     * 新集首帧已先到（预取集快切）则弃图不挂。
+     */
+    private void initiateFreezeCapture(int targetIndex) {
+        if (playerView == null || player == null) return;
+        freezeForIndex = targetIndex;
+        final int seq = ++freezeSeq;
+        HgFrameCapture.capture(playerView, main, bmp -> {
+            if (bmp == null) return;
+            if (seq != freezeSeq || firstFrameForVid) {
+                bmp.recycle();
+                return;
+            }
+            clearFreezeBitmap();
+            freezeBitmap = bmp;
+            attachFreeze();
+        });
+    }
+
+    /** 把暂存的冻结图挂到目标页的画面层（playerView 之上）。 */
+    private void attachFreeze() {
+        if (freezeBitmap == null || freezeForIndex != currentIndex) return;
+        FeedAdapter.Holder h = currentHolder();
+        if (h == null) return;
+        if (freezeView == null) {
+            freezeView = new ImageView(this);
+            // 帧图就是播放面原尺寸的像素复刻，FIT_XY 逐点对位
+            freezeView.setScaleType(ImageView.ScaleType.FIT_XY);
+        }
+        if (freezeView.getParent() != null) {
+            ((ViewGroup) freezeView.getParent()).removeView(freezeView);
+        }
+        freezeView.setImageBitmap(freezeBitmap);
+        h.surface.addView(freezeView, match());
+        freezeView.setVisibility(View.VISIBLE);
+    }
+
+    private void clearFreezeBitmap() {
+        if (freezeView != null) {
+            freezeView.setImageBitmap(null);
+            if (freezeView.getParent() != null) {
+                ((ViewGroup) freezeView.getParent()).removeView(freezeView);
+            }
+        }
+        if (freezeBitmap != null) {
+            freezeBitmap.recycle();
+            freezeBitmap = null;
+        }
+        freezeForIndex = -1;
+    }
+
+    /** 新集首帧已接上（或失败收口）：冻结帧撤下回收、在途抓帧作废。 */
+    private void hideFreeze() {
+        freezeSeq++;
+        freezeArmed = false;
+        clearFreezeBitmap();
+    }
+
     private void playVid(String vid, int contentType, long seekMs) {
         if (vid == null || vid.isEmpty()) {
             showPlayFailure();
             return;
+        }
+        if (mode == MODE_SERIES && firstFrameForVid && player != null) {
+            // 末帧冻结抓帧点：settle 路已在搬面之前发起（freezeArmed
+            // 只消费不重发）；同页直切（选集同集重播等）在此补发。
+            // 两路都必须赶在下面的 player.stop() 之前。
+            if (freezeArmed) {
+                freezeArmed = false;
+            } else {
+                initiateFreezeCapture(currentIndex);
+            }
         }
         ensurePlayer();
         // 切集顺滑（转圈延迟）：播放页内切集时，若是从正在播的
@@ -2144,6 +2235,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
         scrubbedCurrent = false;
         firstFrameForVid = false;
         if (switching) gateSpinForSwitch(vid);
+        if (mode == MODE_SERIES) attachFreeze();
         if (mode == MODE_FEED) armFeedWatchdog(vid);
         prefetchedNext = false;
         danmakuVid = null;

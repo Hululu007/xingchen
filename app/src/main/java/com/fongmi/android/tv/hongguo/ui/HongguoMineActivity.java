@@ -98,6 +98,8 @@ public class HongguoMineActivity extends AppCompatActivity {
     private LinearLayout homeBox;
     private LinearLayout chipsBar;
     private TextView editBtn;
+    /** 追更入口砖右上红点（官方 id_mine_follow 同位），showHome 时重算。 */
+    private View followTileDot;
     private RecyclerView list;
     private RowAdapter adapter;
     private GridAdapter gridAdapter;
@@ -135,6 +137,10 @@ public class HongguoMineActivity extends AppCompatActivity {
         String badge;
         String typeCode;
         boolean finished;
+        /** 追更格：本地最新已知集数（meta 口径），点开标已见用。 */
+        int latestCount;
+        /** 追更格：最新集数越过已见快照——有新集未看，挂更新红点。 */
+        boolean hasUpdate;
     }
 
     private int dp(float v) {
@@ -376,6 +382,18 @@ public class HongguoMineActivity extends AppCompatActivity {
             FrameLayout.LayoutParams ilp = new FrameLayout.LayoutParams(dp(26), dp(26));
             ilp.gravity = Gravity.CENTER;
             brick.addView(icon, ilp);
+            if (target == MODE_FOLLOW) {
+                // 追更入口红点（官方 MineRedDotManager 的 id_mine_follow
+                // POINT 态同位）：有任一追更剧越过已见快照才亮
+                followTileDot = new View(this);
+                followTileDot.setBackground(roundBg(0xFFFF3B30, dp(5)));
+                FrameLayout.LayoutParams dlp = new FrameLayout.LayoutParams(dp(10), dp(10));
+                dlp.gravity = Gravity.TOP | Gravity.END;
+                dlp.topMargin = dp(6);
+                dlp.rightMargin = dp(6);
+                followTileDot.setVisibility(View.GONE);
+                brick.addView(followTileDot, dlp);
+            }
             cell.addView(brick, new LinearLayout.LayoutParams(dp(48), dp(48)));
             TextView text = new TextView(this);
             text.setText(label);
@@ -448,6 +466,9 @@ public class HongguoMineActivity extends AppCompatActivity {
         homeBox.setVisibility(View.VISIBLE);
         tabBar.setVisibility(tabEntry ? View.VISIBLE : View.GONE);
         refreshAccountRow();
+        if (followTileDot != null) {
+            followTileDot.setVisibility(anyFollowUpdate() ? View.VISIBLE : View.GONE);
+        }
         list.setPadding(dp(12), dp(6), dp(12), dp(16));
         list.setLayoutManager(new GridLayoutManager(this, 3));
         list.setAdapter(gridAdapter);
@@ -601,6 +622,20 @@ public class HongguoMineActivity extends AppCompatActivity {
                     row.sub = row.sub == null || row.sub.isEmpty()
                             ? "已上线" : "已上线 · " + row.sub;
                 }
+                // 追更更新判定（终裁接线，普查#4）：已见快照
+                // （followSeenCount）之后有新集即挂更新红点。计数源
+                // 只用既有字段——最新集数＝meta 最新已知值（同步/
+                // 详情/播放回写刷新）；从没落过快照的先按字段语义
+                // 播种基线（进面时的最新集数）、本轮不报更新。
+                if (target == MODE_FOLLOW) {
+                    row.latestCount = count;
+                    int seen = HgStore.followSeenCount(id);
+                    if (count > 0 && seen < 0) {
+                        HgStore.markFollowSeen(id, count);
+                    } else if (count > 0 && count > seen) {
+                        row.hasUpdate = true;
+                    }
+                }
                 allRows.add(row);
             }
         }
@@ -727,11 +762,33 @@ public class HongguoMineActivity extends AppCompatActivity {
     }
 
     private void openGridRow(GridRow row) {
+        // 追更格点开即标已见（终裁接线）：已见快照推进到当前最新
+        // 集数，本条的更新红点下次进面即灭
+        if (mode == MODE_FOLLOW && row.latestCount > 0) {
+            HgStore.markFollowSeen(row.id, row.latestCount);
+        }
         // 首页面墙与历史列表同路：带断点续播
         HgStore.Progress p = mode == MODE_HISTORY || mode == MODE_HOME
                 ? HgStore.progressOf(row.id) : null;
         int ep = p == null ? 0 : p.episodeIndex;
         HongguoFeedActivity.startSeries(this, row.id, row.title, ep);
+    }
+
+    /** 任一追更剧有越过已见快照的新集（只读判定，不播种基线）。 */
+    private boolean anyFollowUpdate() {
+        for (String id : HgStore.followedIds()) {
+            String[] meta = HgStore.metaOf(id);
+            if (meta == null) continue;
+            int count = -1;
+            try {
+                count = Integer.parseInt(meta[2]);
+            } catch (Exception ignored) {
+            }
+            if (count <= 0) continue;
+            int seen = HgStore.followSeenCount(id);
+            if (seen >= 0 && count > seen) return true;
+        }
+        return false;
     }
 
     private GradientDrawable roundBg(int color, float radius) {
@@ -755,6 +812,7 @@ public class HongguoMineActivity extends AppCompatActivity {
         class H extends RecyclerView.ViewHolder {
             final ImageView cover;
             final TextView badge;
+            final View updateDot;
             final TextView title;
             final TextView sub;
 
@@ -762,6 +820,7 @@ public class HongguoMineActivity extends AppCompatActivity {
                 super(cell);
                 cover = cell.findViewWithTag("cover");
                 badge = cell.findViewWithTag("badge");
+                updateDot = cell.findViewWithTag("udot");
                 title = cell.findViewWithTag("title");
                 sub = cell.findViewWithTag("sub");
             }
@@ -792,6 +851,17 @@ public class HongguoMineActivity extends AppCompatActivity {
             blp.topMargin = dp(5);
             blp.rightMargin = dp(5);
             posterBox.addView(badge, blp);
+            // 更新红点（追更格专用，官方红点 POINT 态）：落封面左上，
+            // 与右上类型角标错开；其余模式恒隐
+            View udot = new View(HongguoMineActivity.this);
+            udot.setTag("udot");
+            udot.setBackground(roundBg(0xFFFF3B30, dp(5)));
+            udot.setVisibility(View.GONE);
+            FrameLayout.LayoutParams ulp = new FrameLayout.LayoutParams(dp(10), dp(10));
+            ulp.gravity = Gravity.TOP | Gravity.START;
+            ulp.topMargin = dp(6);
+            ulp.leftMargin = dp(6);
+            posterBox.addView(udot, ulp);
             cell.addView(posterBox, new LinearLayout.LayoutParams(posterW, posterH));
             TextView title = new TextView(HongguoMineActivity.this);
             title.setTag("title");
@@ -830,6 +900,7 @@ public class HongguoMineActivity extends AppCompatActivity {
             } else {
                 h.badge.setVisibility(View.GONE);
             }
+            h.updateDot.setVisibility(row.hasUpdate ? View.VISIBLE : View.GONE);
             h.title.setText(row.title);
             h.sub.setText(row.sub == null ? "" : row.sub);
             h.itemView.setOnClickListener(v -> openGridRow(row));

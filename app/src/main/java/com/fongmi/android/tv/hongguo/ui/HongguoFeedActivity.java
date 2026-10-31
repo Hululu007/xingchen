@@ -3034,6 +3034,18 @@ public class HongguoFeedActivity extends AppCompatActivity {
                         android.graphics.Typeface.SERIF, android.graphics.Typeface.BOLD));
                 title.setTextSize(19);
                 title.setMaxLines(1);
+                // #16 剧名加框（他 13:47–13:50 亲定，只播放页）：透明
+                // 白薄底＋方形带圆角＋边缘亮边，框连右侧小箭头一起包
+                // ——底挂在标题行上、行宽改贴合内容（下方 addView 处
+                // 按模式给宽），内距留字呼吸位。白字本色不动，透明
+                // 度压在不抢画面、字仍清楚一档。
+                android.graphics.drawable.GradientDrawable titleFrame =
+                        new android.graphics.drawable.GradientDrawable();
+                titleFrame.setColor(0x2EFFFFFF);
+                titleFrame.setCornerRadius(dp(8));
+                titleFrame.setStroke(dp(1), 0x8CFFFFFF);
+                titleRow.setBackground(titleFrame);
+                titleRow.setPadding(dp(10), dp(5), dp(10), dp(5));
             } else if (mode == MODE_VIDEO) {
                 // 定稿 .s-title：15.5/700
                 title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
@@ -3069,7 +3081,10 @@ public class HongguoFeedActivity extends AppCompatActivity {
             LinearLayout.LayoutParams tclp2 = new LinearLayout.LayoutParams(dp(17), dp(17));
             tclp2.leftMargin = dp(5);
             titleRow.addView(titleChev, tclp2);
-            info.addView(titleRow, new LinearLayout.LayoutParams(-1, -2));
+            // #16：播放页标题行带框、宽只贴合内容（剧名＋箭头），
+            // 其余模式维持整行宽。
+            info.addView(titleRow, new LinearLayout.LayoutParams(
+                    mode == MODE_SERIES ? -2 : -1, -2));
             // 题材标签筹排（仅首页，bind 时按数据填）
             LinearLayout tags = new LinearLayout(HongguoFeedActivity.this);
             tags.setTag("tags");

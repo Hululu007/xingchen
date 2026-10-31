@@ -10,7 +10,9 @@ package com.fongmi.android.tv.hongguo.drama;
  * <p>消费面：「我的」头部关系行（HongguoMineRelationLayout b98 三组拼法）
  * 与作者主页数据行（SeriesProfileSocialRecordLayout ct0 三组拼法）同源；
  * 作者页关注钮初态以 relation_type 为准（Follow=2/MutualFollow=4 记已关注，
- * 枚举值 UserRelationType 定版），本地镜像只作回源前的占位与失败兜底。</p>
+ * 枚举值 UserRelationType 定版），本地镜像只作回源前的占位与失败兜底。
+ * 关注钮显隐另从同对象 can_follow 读（canFollow，官方卡 23 定版：
+ * canFollow=false 不显钮；回包无此键按可关注计）。</p>
  */
 public final class DramaUserProfile {
 
@@ -25,6 +27,8 @@ public final class DramaUserProfile {
     public final String relationType;
     /** 我已关注他（relation_type＝Follow/MutualFollow）；判读不出为 null。 */
     public final Boolean followedByMe;
+    /** 是否可关注（user_relation.can_follow；回包无此键按 true 计）。 */
+    public final boolean canFollow;
     /**
      * 副标题行（user_tag.sub_title_list 各段 text 以「 | 」拼＋末段
      * 「红果号：biz_user_id」，官方作者页「出品方 | 红果号：数字」那行
@@ -90,7 +94,7 @@ public final class DramaUserProfile {
         this(userId, name, avatar, desc, followUserNum, fansNum, recvDiggedCount,
                 relationType, followedByMe, subTitleLine, hongguoId,
                 titleBadge, titleBadgeIcon, 0, 0,
-                bgColor, bgCover, shelfOpen, diggOpen, blueVip, vipIconUrl);
+                bgColor, bgCover, shelfOpen, diggOpen, blueVip, vipIconUrl, true);
     }
 
     public DramaUserProfile(String userId, String name, String avatar, String desc,
@@ -101,7 +105,7 @@ public final class DramaUserProfile {
                          int titleBadgeIconW, int titleBadgeIconH,
                          String bgColor, String bgCover,
                          boolean shelfOpen, boolean diggOpen,
-                         boolean blueVip, String vipIconUrl) {
+                         boolean blueVip, String vipIconUrl, boolean canFollow) {
         this.userId = userId;
         this.name = name;
         this.avatar = avatar;
@@ -123,6 +127,7 @@ public final class DramaUserProfile {
         this.diggOpen = diggOpen;
         this.blueVip = blueVip;
         this.vipIconUrl = vipIconUrl;
+        this.canFollow = canFollow;
     }
 
     /** 计数三组齐备才算有数据行（任一计数缺失时整行不显，不摆半份数）。 */

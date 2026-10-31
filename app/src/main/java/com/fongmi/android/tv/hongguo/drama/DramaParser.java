@@ -2506,6 +2506,11 @@ public final class DramaParser {
         boolean blueVip = tag != null && boolOf(tag, "is_blue_vip");
         String vipIconUrl = tag == null ? null : str(tag, "vip_icon_url");
         if (vipIconUrl != null && vipIconUrl.isEmpty()) vipIconUrl = null;
+        // 可关注旗与 relation_type 同在 user_relation 对象（字段名在树内
+        // 专辑解析/频道归一两路已用，非新字段）；无此键按可关注计
+        // （官方卡 23：canFollow=false 才不显关注钮）。
+        boolean canFollow = rel == null || !rel.has("can_follow")
+                || boolOf(rel, "can_follow");
         return new DramaUserProfile(
                 firstStr(ugc, "user_id"),
                 base == null ? null : firstStr(base, "user_name"),
@@ -2518,7 +2523,7 @@ public final class DramaParser {
                 titleBadge, titleBadgeIcon, titleBadgeIconW, titleBadgeIconH,
                 bgColor == null || bgColor.isEmpty() ? null : bgColor,
                 bgCover == null || bgCover.isEmpty() ? null : bgCover,
-                shelfOpen, diggOpen, blueVip, vipIconUrl);
+                shelfOpen, diggOpen, blueVip, vipIconUrl, canFollow);
     }
 
     /** sub_title_list 段文抽取（元素两形并存：对象取 text/content、纯字符串直用；空段跳过）。 */

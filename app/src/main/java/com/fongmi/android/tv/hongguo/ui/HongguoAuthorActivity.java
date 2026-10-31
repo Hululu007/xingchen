@@ -29,8 +29,14 @@ import java.util.List;
 
 /**
  * 作者页（2026-10-30 从零重建，简单口径）：头像/名字/简介＋作品
- * 网格，一页一件事。**没有关注钮**（纯本地口径，他定版：关注整件
- * 摘除）。作品点开：成剧的进详情页、单条 UGC 进集流直播。
+ * 网格，一页一件事。作品点开：成剧的进详情页、单条 UGC 进集流直播。
+ *
+ * <p>关注钮：没登录时代曾整件摘除；2026-10-31 15:07 他终裁加回——
+ * 官方形态（普查卡 23）＝三数行右侧「＋关注」浅底橙字胶囊、已关注
+ * 灰态、canFollow=false 与本人页不显。账号口径同当日终定：未登录
+ * 点关注跳登录页；登录态初态以资料回包 relation_type 校准本地镜像
+ * （HgStore 作者关注三法），关注提交口未验到、只落本地态（见
+ * hongguo-rulings-20261031.md）。</p>
  */
 public class HongguoAuthorActivity extends AppCompatActivity {
 
@@ -69,6 +75,14 @@ public class HongguoAuthorActivity extends AppCompatActivity {
     private TextView statFollow;
     private TextView statFans;
     private TextView statDigg;
+    private LinearLayout socialRow;
+    private TextView followBtn;
+    /** 本人页（会话 uid＝本页 uid）：官方口径不显关注钮。 */
+    private boolean selfPage;
+    /** 关注态：开页先以本地镜像占位，资料回包 followedByMe 到后校准。 */
+    private boolean authorFollowed;
+    /** 可关注旗：回包前按可关注计，回包 canFollow=false 收钮。 */
+    private boolean authorCanFollow = true;
     private LinearLayout tabRow;
     private android.widget.HorizontalScrollView tabScrollView;
     private TextView stateText;
@@ -242,7 +256,22 @@ public class HongguoAuthorActivity extends AppCompatActivity {
         statFollow = addStatCell(statsRow, "关注");
         statFans = addStatCell(statsRow, "粉丝");
         statDigg = addStatCell(statsRow, "获赞");
-        head.addView(statsRow, srlp);
+        // 社交行：三数（权 1）＋右侧关注钮（官方卡 23 页头形态：
+        // 数据行右侧「＋关注」浅底橙字胶囊）
+        socialRow = new LinearLayout(this);
+        socialRow.setOrientation(LinearLayout.HORIZONTAL);
+        socialRow.setGravity(Gravity.CENTER_VERTICAL);
+        socialRow.setVisibility(View.GONE);
+        socialRow.addView(statsRow, new LinearLayout.LayoutParams(0, -2, 1f));
+        followBtn = new TextView(this);
+        followBtn.setTextSize(13.5f);
+        followBtn.setGravity(Gravity.CENTER);
+        followBtn.setPadding(dp(16), dp(7), dp(16), dp(7));
+        followBtn.setOnClickListener(v -> onFollowClicked());
+        LinearLayout.LayoutParams fblp = new LinearLayout.LayoutParams(-2, -2);
+        fblp.leftMargin = dp(12);
+        socialRow.addView(followBtn, fblp);
+        head.addView(socialRow, srlp);
         root.addView(head);
 
         LinearLayout worksHead = new LinearLayout(this);
@@ -323,8 +352,48 @@ public class HongguoAuthorActivity extends AppCompatActivity {
         if (avatar != null && !avatar.isEmpty()) {
             Glide.with(this).load(avatar).circleCrop().into(avatarView);
         }
+        // 关注钮初态：本人页判定（会话 uid 对本页 uid）＋本地镜像
+        // 占位上屏，资料回包 followedByMe 到后再校准（见 loadProfile）
+        com.fongmi.android.tv.hongguo.api.HgAccountStore.Session session =
+                com.fongmi.android.tv.hongguo.api.HgAccountStore.load();
+        selfPage = session != null && session.userId != null
+                && uid != null && uid.equals(session.userId);
+        authorFollowed = HgStore.isAuthorFollowed(uid);
+        paintFollowBtn();
+        refreshSocialRow();
         loadProfile();
         loadWorks(true);
+    }
+
+    /** 关注钮两态上色（与本页收藏钮同色板：橙胶囊／灰胶囊）。 */
+    private void paintFollowBtn() {
+        followBtn.setText(authorFollowed ? "已关注" : "＋关注");
+        followBtn.setTextColor(authorFollowed ? 0xFF8A8A93 : 0xFFE86A17);
+        followBtn.setBackground(roundBg(authorFollowed ? 0xFFF0EFED : 0xFFFFEFE3, dp(15)));
+    }
+
+    /**
+     * 社交行显隐：关注钮（非本人页＋可关注＋uid 在）或三数任一在才整行显。
+     * 三数行自身的显隐仍由资料回包计数决定，本法只管行容器与钮。
+     */
+    private void refreshSocialRow() {
+        boolean btnOn = uid != null && !selfPage && authorCanFollow;
+        followBtn.setVisibility(btnOn ? View.VISIBLE : View.GONE);
+        boolean rowOn = btnOn || statsRow.getVisibility() == View.VISIBLE;
+        socialRow.setVisibility(rowOn ? View.VISIBLE : View.GONE);
+    }
+
+    private void onFollowClicked() {
+        if (uid == null) return;
+        // 账号终定口径（与收藏/点赞五入口同门）：未登录跳登录页、不落本地
+        if (!com.fongmi.android.tv.hongguo.api.HgAccountStore.isLoggedIn()) {
+            HongguoLoginActivity.start(this);
+            return;
+        }
+        authorFollowed = !authorFollowed;
+        HgStore.setAuthorFollowed(uid, authorFollowed);
+        paintFollowBtn();
+        // 关注提交口未验到：只落本地镜像态，不猜接口（见 rulings 账）
     }
 
     private void loadProfile() {
@@ -388,6 +457,16 @@ public class HongguoAuthorActivity extends AppCompatActivity {
                         statDigg.setText(statText(p.recvDiggedCount));
                         statsRow.setVisibility(View.VISIBLE);
                     }
+                    // 关注钮校准：服务端关系态（followedByMe）判读得出
+                    // 才算数——覆盖开页的本地镜像占位，并把镜像同步成
+                    // 服务端态；canFollow=false 收钮（官方卡 23 口径）
+                    authorCanFollow = p.canFollow;
+                    if (p.followedByMe != null) {
+                        authorFollowed = p.followedByMe;
+                        HgStore.setAuthorFollowed(uid, authorFollowed);
+                    }
+                    paintFollowBtn();
+                    refreshSocialRow();
                     // 页头暖色底（服务端 bg_color：顶暖渐变到页底色）
                     if (p.bgColor != null && !p.bgColor.isEmpty() && rootView != null) {
                         try {

@@ -3016,11 +3016,16 @@ public class HongguoFeedActivity extends AppCompatActivity {
             title.setEllipsize(android.text.TextUtils.TruncateAt.END);
             title.setShadowLayer(dp(2), 0, dp(1), 0xB3000000);
             if (mode == MODE_FEED) {
-                // 定稿 .feed-name：Serif 27/900；行数他 2026-10-31 定：
-                // 官方剧名再长也只一行、超出隐藏，不开第二行（全模式同）
-                title.setTypeface(android.graphics.Typeface.create(
-                        android.graphics.Typeface.SERIF, android.graphics.Typeface.BOLD));
-                title.setTextSize(27);
+                // #3：27sp Serif 是重建自选、官方无此值。官方原值包内
+                // 与普查分册均未抠到字号，按他发的官方全帧量图推定：
+                // 官方帧 113561 剧名字高 59.4px（930 宽帧）÷ 咱家同
+                // 设备 113742 的 27sp 字高 55.3px → ≈29sp；官方字形
+                // 为无衬线粗体（帧内可见），Serif 一并摘掉。此为量图
+                // 推定值、非官方原值，出处见修复账 #3。
+                // 行数他 2026-10-31 定：官方剧名再长也只一行、超出
+                // 隐藏，不开第二行（全模式同）
+                title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+                title.setTextSize(29);
                 title.setLineSpacing(0, 1.02f);
                 title.setMaxLines(1);
             } else if (mode == MODE_SERIES) {

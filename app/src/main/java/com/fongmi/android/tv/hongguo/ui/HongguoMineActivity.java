@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.hongguo.ui;
 
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
@@ -24,25 +25,25 @@ import com.bumptech.glide.Glide;
 import com.bumptech.glide.load.resource.bitmap.RoundedCorners;
 import com.bumptech.glide.request.RequestOptions;
 import com.fongmi.android.tv.R;
-import com.fongmi.android.tv.hongguo.api.HgApiClient;
-import com.fongmi.android.tv.hongguo.api.HgCallback;
-import com.fongmi.android.tv.hongguo.drama.DramaCache;
+import com.fongmi.android.tv.hongguo.api.HgAccountStore;
 
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 我的页（2026-10-30 从零重建）：入口在首页抽屉顶部一行（他亲定）。
- * 只放三格——观看历史/我的收藏（本地 HgStore）/小说历史（小说线既有
- * 本地口径）——加两件必要设置：刷新设备档案、清红果缓存。无登录、
- * 无账号区。点历史/收藏条目带断点回竖屏流；点小说条目进小说详情。
+ * 我的页（2026-10-31 按定稿 mine_tab_v6 恢复）：白色底栏第三签的落点
+ * 也是首页面——白底、无橙框、无设置行、无右上齿轮；账号行白底直排
+ * （头像＋昵称＋红果号＋右侧浅橙底钮，未登录→短信登录页、已登录→
+ * 退出登录）；五格（历史/收藏/点赞/预约/追更，追更在预约之后）；
+ * 五格下整片历史海报墙（三列格，与历史列表同口径、断点续播）；
+ * 墙下 slim 行保小说历史入口。底栏白色三签只此页、只 tab 入口显。
  *
- * <p>历史/收藏两页的呈现（2026-10-30 海报格批，照官方实图 113705/
- * 113706）：白底、三列 3:4 海报格（圆角、右上类型角标、海报下剧名
- * 一行＋灰字子行）、顶行筹单选过滤（历史＝全部/已看完/未看完，
- * 收藏＝全部/真人剧/漫剧/AI剧）、右上「编辑」进独立编辑页
- * （HongguoMineEditActivity），长按任意一格同落点且该格预勾。
- * 小说历史维持原列表行与深底，不在本批范围。</p>
+ * <p>列表模式：历史/收藏/点赞/预约/追更＝白底三列 3:4 海报格（圆角、
+ * 右上类型角标、海报下剧名一行＋灰字子行）、顶行筹单选过滤（历史＝
+ * 全部/已看完/未看完，其余＝全部/真人剧/漫剧/AI剧）、右上「编辑」进
+ * 独立编辑页（HongguoMineEditActivity，仅历史/收藏/追更——编辑页只认
+ * 历史与收藏架两套删法），长按任意一格同落点且该格预勾。
+ * 小说历史维持原列表行与深底。</p>
  */
 public class HongguoMineActivity extends AppCompatActivity {
 
@@ -50,9 +51,15 @@ public class HongguoMineActivity extends AppCompatActivity {
     static final int MODE_HISTORY = 1;
     static final int MODE_FAV = 2;
     private static final int MODE_NOVEL = 3;
+    private static final int MODE_LIKE = 4;
+    private static final int MODE_RESERVE = 5;
+    static final int MODE_FOLLOW = 6;
 
     /** 直达入口（定稿：历史页/收藏页是两个独立页）：带此附加打开即落列表、返回即退页。 */
     public static final String EXTRA_INITIAL = "hg_mine_initial";
+
+    /** 底栏第三签入口标记：带此附加打开落定稿首页面并显白色三签底栏。 */
+    public static final String EXTRA_TAB = "hg_mine_tab";
 
     private static final int REQ_EDIT = 41;
 
@@ -68,6 +75,13 @@ public class HongguoMineActivity extends AppCompatActivity {
         HgTransition.push(context, intent);
     }
 
+    /** 底栏第三签入口：无 EXTRA_INITIAL、带 tab 标记，落首页面＋白色三签底栏。 */
+    public static void startTab(android.content.Context context) {
+        android.content.Intent intent = new android.content.Intent(context, HongguoMineActivity.class);
+        intent.putExtra(EXTRA_TAB, true);
+        HgTransition.push(context, intent);
+    }
+
     @Override
     public void finish() {
         super.finish();
@@ -75,6 +89,7 @@ public class HongguoMineActivity extends AppCompatActivity {
     }
 
     private LinearLayout root;
+    private LinearLayout topBar;
     private TextView backBtn;
     private TextView titleText;
     private LinearLayout homeBox;
@@ -84,6 +99,14 @@ public class HongguoMineActivity extends AppCompatActivity {
     private RowAdapter adapter;
     private GridAdapter gridAdapter;
     private TextView emptyText;
+    private LinearLayout novelRow;
+    private LinearLayout tabBar;
+    private ImageView accountAvatar;
+    private TextView accountName;
+    private TextView accountSub;
+    private TextView accountBtn;
+    /** 底栏第三签入口进来：首页面底下挂白色三签底栏（只此页、只 home 态显）。 */
+    private boolean tabEntry;
     private int mode = MODE_HOME;
     /** 直达列表模式（抽屉两行进入）：返回直接退页，不回「我的」格。 */
     private boolean directList;
@@ -130,13 +153,16 @@ public class HongguoMineActivity extends AppCompatActivity {
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         HgWindowStyle.apply(this, false, false);
+        tabEntry = getIntent().getBooleanExtra(EXTRA_TAB, false);
 
         root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(0xFF111114);
-        root.setPadding(0, 0, 0, navBarHeight());
+        // tab 入口时底部让位由三签底栏自己带（56dp＋导航区底衬），root 不再叠垫
+        root.setPadding(0, 0, 0, tabEntry ? 0 : navBarHeight());
 
-        LinearLayout top = new LinearLayout(this);
+        topBar = new LinearLayout(this);
+        LinearLayout top = topBar;
         top.setOrientation(LinearLayout.HORIZONTAL);
         top.setGravity(Gravity.CENTER_VERTICAL);
         top.setPadding(dp(6), statusBarHeight() + dp(6), dp(16), dp(8));
@@ -165,25 +191,8 @@ public class HongguoMineActivity extends AppCompatActivity {
         homeBox = new LinearLayout(this);
         homeBox.setOrientation(LinearLayout.VERTICAL);
         homeBox.setPadding(dp(16), dp(6), dp(16), 0);
-        homeBox.addView(entryRow("观看历史", v -> HgTransition.fadeSwap(
-                () -> openList(MODE_HISTORY, "观看历史"), homeBox, list, emptyText)));
-        homeBox.addView(entryRow("我的收藏", v -> HgTransition.fadeSwap(
-                () -> openList(MODE_FAV, "我的收藏"), homeBox, list, emptyText)));
-        homeBox.addView(entryRow("小说历史", v -> HgTransition.fadeSwap(
-                () -> openList(MODE_NOVEL, "小说历史"), homeBox, list, emptyText)));
-        TextView settingsLabel = new TextView(this);
-        settingsLabel.setText("设置");
-        settingsLabel.setTextColor(0xFF8E8E96);
-        settingsLabel.setTextSize(12.5f);
-        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(-1, -2);
-        slp.topMargin = dp(22);
-        slp.bottomMargin = dp(2);
-        homeBox.addView(settingsLabel, slp);
-        homeBox.addView(entryRow("刷新设备档案", v -> refreshDevice()));
-        homeBox.addView(entryRow("清红果缓存", v -> {
-            DramaCache.clear();
-            Toast.makeText(this, "缓存已清", Toast.LENGTH_SHORT).show();
-        }));
+        homeBox.addView(buildAccountRow());
+        homeBox.addView(buildTilesRow());
         root.addView(homeBox);
 
         list = new RecyclerView(this);
@@ -201,6 +210,28 @@ public class HongguoMineActivity extends AppCompatActivity {
         emptyText.setVisibility(View.GONE);
         root.addView(emptyText, new LinearLayout.LayoutParams(-1, 0, 1f));
 
+        novelRow = new LinearLayout(this);
+        novelRow.setOrientation(LinearLayout.HORIZONTAL);
+        novelRow.setGravity(Gravity.CENTER_VERTICAL);
+        novelRow.setPadding(dp(16), dp(12), dp(16), dp(12));
+        novelRow.setVisibility(View.GONE);
+        TextView novelLabel = new TextView(this);
+        novelLabel.setText("小说历史");
+        novelLabel.setTextColor(0xFF8E8E96);
+        novelLabel.setTextSize(13);
+        novelRow.addView(novelLabel, new LinearLayout.LayoutParams(0, -2, 1f));
+        TextView novelArrow = new TextView(this);
+        novelArrow.setText("›");
+        novelArrow.setTextColor(0xFFB9B9BF);
+        novelArrow.setTextSize(15);
+        novelRow.addView(novelArrow);
+        novelRow.setOnClickListener(v -> HgTransition.fadeSwap(
+                () -> openList(MODE_NOVEL, "小说历史"), homeBox, list, emptyText));
+        root.addView(novelRow);
+
+        tabBar = buildTabBar();
+        root.addView(tabBar);
+
         setContentView(root);
         int initial = getIntent().getIntExtra(EXTRA_INITIAL, MODE_HOME);
         if (initial == MODE_HISTORY) {
@@ -209,41 +240,259 @@ public class HongguoMineActivity extends AppCompatActivity {
         } else if (initial == MODE_FAV) {
             directList = true;
             openList(MODE_FAV, "我的收藏");
+        } else {
+            showHome();
         }
     }
 
-    private View entryRow(String label, View.OnClickListener click) {
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // 登录页回来/退出登录后：账号行按落盘会话重画（墙格不在此重拉）
+        refreshAccountRow();
+    }
+
+    // ---------- 定稿首页面：账号行 ----------
+
+    /** 账号行：56dp 圆头像＋昵称/红果号两行＋右侧浅橙底钮（白底直排、无橙框）。 */
+    private View buildAccountRow() {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(2), dp(15), dp(2), dp(15));
-        TextView t = new TextView(this);
-        t.setText(label);
-        t.setTextColor(0xFFF2F2F4);
-        t.setTextSize(15);
-        row.addView(t, new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView arrow = new TextView(this);
-        arrow.setText("›");
-        arrow.setTextColor(0xFF6E6E76);
-        arrow.setTextSize(17);
-        row.addView(arrow);
-        row.setOnClickListener(click);
+        row.setPadding(0, dp(10), 0, dp(16));
+        accountAvatar = new ImageView(this);
+        accountAvatar.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        row.addView(accountAvatar, new LinearLayout.LayoutParams(dp(56), dp(56)));
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        accountName = new TextView(this);
+        accountName.setTextColor(0xFF1B1B1E);
+        accountName.setTextSize(17);
+        accountName.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        accountName.setMaxLines(1);
+        accountName.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        texts.addView(accountName);
+        accountSub = new TextView(this);
+        accountSub.setTextColor(0xFF9B9BA1);
+        accountSub.setTextSize(13);
+        accountSub.setMaxLines(1);
+        accountSub.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(-1, -2);
+        subLp.topMargin = dp(4);
+        texts.addView(accountSub, subLp);
+        LinearLayout.LayoutParams textsLp = new LinearLayout.LayoutParams(0, -2, 1f);
+        textsLp.leftMargin = dp(12);
+        row.addView(texts, textsLp);
+        accountBtn = new TextView(this);
+        accountBtn.setTextSize(14);
+        accountBtn.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        accountBtn.setTextColor(0xFFF07D13);
+        accountBtn.setGravity(Gravity.CENTER);
+        accountBtn.setPadding(dp(16), dp(8), dp(16), dp(8));
+        accountBtn.setBackground(roundBg(0xFFFFF0DB, dp(20)));
+        accountBtn.setOnClickListener(v -> onAccountBtn());
+        row.addView(accountBtn);
         return row;
+    }
+
+    /** 账号行按落盘会话重画：onCreate 尾与 onResume 各调一次（登录回来即新态）。 */
+    private void refreshAccountRow() {
+        if (accountAvatar == null) return;
+        HgAccountStore.Session session = HgAccountStore.load();
+        if (HgAccountStore.isLoggedIn() && session != null) {
+            accountName.setText(session.name == null || session.name.isEmpty()
+                    ? "用户" : session.name);
+            accountSub.setText("红果号：" + (session.userId == null ? "" : session.userId));
+            accountBtn.setText("退出登录");
+            if (session.avatar != null && !session.avatar.isEmpty()) {
+                accountAvatar.setBackground(null);
+                accountAvatar.setPadding(0, 0, 0, 0);
+                accountAvatar.setColorFilter(null);
+                Glide.with(this).load(session.avatar).circleCrop().into(accountAvatar);
+            } else {
+                setAvatarPlaceholder();
+            }
+        } else {
+            accountName.setText("未登录");
+            accountSub.setText("登录后同步收藏与观看历史");
+            accountBtn.setText("立即登录");
+            setAvatarPlaceholder();
+        }
+    }
+
+    /** 未登录/无头像：浅米圆底＋ic_drama_mine 橙色垫底。 */
+    private void setAvatarPlaceholder() {
+        Glide.with(this).clear(accountAvatar);
+        GradientDrawable oval = new GradientDrawable();
+        oval.setShape(GradientDrawable.OVAL);
+        oval.setColor(0xFFFBEFD5);
+        accountAvatar.setBackground(oval);
+        accountAvatar.setImageResource(R.drawable.ic_drama_mine);
+        accountAvatar.setColorFilter(0xFFF59E0B);
+        accountAvatar.setPadding(dp(13), dp(13), dp(13), dp(13));
+    }
+
+    private void onAccountBtn() {
+        if (!HgAccountStore.isLoggedIn()) {
+            HongguoLoginActivity.start(this);
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setMessage("退出登录？")
+                .setNegativeButton("取消", null)
+                .setPositiveButton("退出", (d, w) -> {
+                    HgAccountStore.clear();
+                    refreshAccountRow();
+                    Toast.makeText(this, "已退出登录", Toast.LENGTH_SHORT).show();
+                })
+                .show();
+    }
+
+    // ---------- 定稿首页面：五格 ----------
+
+    /** 五格行：48dp 浅色砖（圆角 12）＋字形＋下方 13sp 标签，签序历史/收藏/点赞/预约/追更。 */
+    private View buildTilesRow() {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setPadding(0, dp(2), 0, dp(14));
+        int[] modes = {MODE_HISTORY, MODE_FAV, MODE_LIKE, MODE_RESERVE, MODE_FOLLOW};
+        String[] labels = {"历史", "收藏", "点赞", "预约", "追更"};
+        int[] icons = {R.drawable.ic_mine_clock, R.drawable.ic_drama_star,
+                R.drawable.ic_mine_heart, R.drawable.ic_mine_calendar, R.drawable.ic_mine_bell};
+        int[] brickColors = {0xFFFDF0DC, 0xFFFDECEC, 0xFFFDE8F1, 0xFFE7EFFD, 0xFFE4F5EC};
+        int[] iconColors = {0xFFF59E0B, 0xFFE8501C, 0xFFE75480, 0xFF3B82F6, 0xFF1FA97A};
+        for (int i = 0; i < labels.length; i++) {
+            final int target = modes[i];
+            final String label = labels[i];
+            LinearLayout cell = new LinearLayout(this);
+            cell.setOrientation(LinearLayout.VERTICAL);
+            cell.setGravity(Gravity.CENTER_HORIZONTAL);
+            FrameLayout brick = new FrameLayout(this);
+            brick.setBackground(roundBg(brickColors[i], dp(12)));
+            ImageView icon = new ImageView(this);
+            icon.setImageResource(icons[i]);
+            icon.setColorFilter(iconColors[i]);
+            FrameLayout.LayoutParams ilp = new FrameLayout.LayoutParams(dp(26), dp(26));
+            ilp.gravity = Gravity.CENTER;
+            brick.addView(icon, ilp);
+            cell.addView(brick, new LinearLayout.LayoutParams(dp(48), dp(48)));
+            TextView text = new TextView(this);
+            text.setText(label);
+            text.setTextColor(0xFF1B1B1E);
+            text.setTextSize(13);
+            LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(-2, -2);
+            tlp.topMargin = dp(6);
+            cell.addView(text, tlp);
+            cell.setOnClickListener(v -> HgTransition.fadeSwap(
+                    () -> openList(target, label), homeBox, list, emptyText));
+            row.addView(cell, new LinearLayout.LayoutParams(0, -2, 1f));
+        }
+        return row;
+    }
+
+    // ---------- 定稿首页面：白色三签底栏 ----------
+
+    /** 白色三签底栏：纯文字格，选中（我的）黑粗＋文字上方 6dp 橙点；只 tab 入口的 home 态显。 */
+    private LinearLayout buildTabBar() {
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.VERTICAL);
+        bar.setBackgroundColor(Color.WHITE);
+        bar.setPadding(0, 0, 0, navBarHeight());
+        bar.setVisibility(View.GONE);
+        View divider = new View(this);
+        divider.setBackgroundColor(0x14000000);
+        bar.addView(divider, new LinearLayout.LayoutParams(-1, dp(1)));
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.addView(tabCell("首页", false, v -> {
+            HongguoFeedActivity.start(this);
+            finish();
+        }), new LinearLayout.LayoutParams(0, dp(56), 1f));
+        row.addView(tabCell("剧场", false, v -> {
+            HongguoTheaterActivity.start(this);
+            finish();
+        }), new LinearLayout.LayoutParams(0, dp(56), 1f));
+        row.addView(tabCell("我的", true, null), new LinearLayout.LayoutParams(0, dp(56), 1f));
+        bar.addView(row);
+        return bar;
+    }
+
+    private View tabCell(String label, boolean selected, View.OnClickListener click) {
+        LinearLayout cell = new LinearLayout(this);
+        cell.setOrientation(LinearLayout.VERTICAL);
+        cell.setGravity(Gravity.CENTER);
+        View dot = new View(this);
+        GradientDrawable oval = new GradientDrawable();
+        oval.setShape(GradientDrawable.OVAL);
+        oval.setColor(0xFFF07D13);
+        dot.setBackground(oval);
+        dot.setVisibility(selected ? View.VISIBLE : View.INVISIBLE);
+        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(dp(6), dp(6));
+        dlp.bottomMargin = dp(3);
+        cell.addView(dot, dlp);
+        TextView text = new TextView(this);
+        text.setText(label);
+        text.setTextSize(15);
+        text.setTextColor(selected ? 0xFF1B1B1E : 0xFF8A8A93);
+        if (selected) text.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        cell.addView(text);
+        if (click != null) cell.setOnClickListener(click);
+        return cell;
+    }
+
+    // ---------- 首页面装配 ----------
+
+    /** 落首页面（定稿面）：浅色 chrome、顶栏无返回＋大字「我的」、墙走历史全量格。 */
+    private void showHome() {
+        mode = MODE_HOME;
+        titleText.setText("我的");
+        titleText.setTextSize(23);
+        backBtn.setVisibility(View.GONE);
+        topBar.setPadding(dp(16), statusBarHeight() + dp(6), dp(16), dp(8));
+        applyChrome(true);
+        chipsBar.setVisibility(View.GONE);
+        homeBox.setVisibility(View.VISIBLE);
+        novelRow.setVisibility(View.VISIBLE);
+        tabBar.setVisibility(tabEntry ? View.VISIBLE : View.GONE);
+        refreshAccountRow();
+        list.setPadding(dp(12), dp(6), dp(12), dp(16));
+        list.setLayoutManager(new GridLayoutManager(this, 3));
+        list.setAdapter(gridAdapter);
+        loadHomeWall();
+    }
+
+    /** 海报墙＝历史全量（不挂 chips/过滤）：allRows→viewRows 直通，空则「暂无历史」。 */
+    private void loadHomeWall() {
+        loadGridRows(MODE_HISTORY);
+        viewRows.clear();
+        viewRows.addAll(allRows);
+        gridAdapter.notifyDataSetChanged();
+        list.setVisibility(viewRows.isEmpty() ? View.GONE : View.VISIBLE);
+        emptyText.setVisibility(viewRows.isEmpty() ? View.VISIBLE : View.GONE);
+        if (viewRows.isEmpty()) emptyText.setText("暂无历史");
+    }
+
+    /** 海报格模式空文案（历史/收藏保持旧文案，三新模式各一份）。 */
+    private static String emptyTextFor(int target) {
+        switch (target) {
+            case MODE_HISTORY:
+                return "暂无历史";
+            case MODE_LIKE:
+                return "暂无点赞";
+            case MODE_RESERVE:
+                return "暂无预约";
+            case MODE_FOLLOW:
+                return "暂无追更";
+            default:
+                return "暂无收藏";
+        }
     }
 
     private void onBackRow() {
         if (mode != MODE_HOME && directList) {
             finish();
         } else if (mode != MODE_HOME) {
-            mode = MODE_HOME;
-            titleText.setText("我的");
-            HgTransition.fadeSwap(() -> {
-                applyChrome(false);
-                chipsBar.setVisibility(View.GONE);
-                list.setVisibility(View.GONE);
-                emptyText.setVisibility(View.GONE);
-                homeBox.setVisibility(View.VISIBLE);
-            }, homeBox, list, emptyText);
+            HgTransition.fadeSwap(this::showHome, homeBox, list, emptyText);
         } else {
             finish();
         }
@@ -268,7 +517,13 @@ public class HongguoMineActivity extends AppCompatActivity {
     private void openList(int target, String title) {
         mode = target;
         titleText.setText(title);
+        // 列表模式恢复现行顶栏形态（返回钮＋18sp 标题），底栏与小说 slim 行退场
+        titleText.setTextSize(18);
+        backBtn.setVisibility(View.VISIBLE);
+        topBar.setPadding(dp(6), statusBarHeight() + dp(6), dp(16), dp(8));
         homeBox.setVisibility(View.GONE);
+        novelRow.setVisibility(View.GONE);
+        tabBar.setVisibility(View.GONE);
         if (target == MODE_NOVEL) {
             applyChrome(false);
             chipsBar.setVisibility(View.GONE);
@@ -321,7 +576,11 @@ public class HongguoMineActivity extends AppCompatActivity {
                 allRows.add(row);
             }
         } else {
-            for (String id : HgStore.favedIds()) {
+            // 收藏架同路四模式：各自 id 集＋同一 metaOf 分支（收藏/点赞/预约/追更）
+            java.util.List<String> ids = target == MODE_LIKE ? HgStore.likedIds()
+                    : target == MODE_RESERVE ? HgStore.reservedIds()
+                    : target == MODE_FOLLOW ? HgStore.followedIds() : HgStore.favedIds();
+            for (String id : ids) {
                 String[] meta = HgStore.metaOf(id);
                 GridRow row = new GridRow();
                 row.id = id;
@@ -400,7 +659,9 @@ public class HongguoMineActivity extends AppCompatActivity {
                     : android.graphics.Typeface.DEFAULT);
         }
         if (editBtn != null) {
-            editBtn.setVisibility(allRows.isEmpty() ? View.GONE : View.VISIBLE);
+            // 编辑页只认历史与收藏架两套删法：点赞/预约不给编辑口
+            boolean editable = mode == MODE_HISTORY || mode == MODE_FAV || mode == MODE_FOLLOW;
+            editBtn.setVisibility(editable && !allRows.isEmpty() ? View.VISIBLE : View.GONE);
         }
     }
 
@@ -410,7 +671,8 @@ public class HongguoMineActivity extends AppCompatActivity {
             if (mode == MODE_HISTORY) {
                 if (filterIndex == 1 && !row.finished) continue;
                 if (filterIndex == 2 && row.finished) continue;
-            } else if (mode == MODE_FAV && filterIndex > 0) {
+            } else if (mode != MODE_HISTORY && filterIndex > 0) {
+                // 类型过滤泛化到全部非历史海报格模式（收藏/点赞/预约/追更同筹）
                 String want = filterIndex == 1 ? HgStore.TYPE_LIVE
                         : filterIndex == 2 ? HgStore.TYPE_COMIC : HgStore.TYPE_AI;
                 if (!want.equals(row.typeCode)) continue;
@@ -421,14 +683,19 @@ public class HongguoMineActivity extends AppCompatActivity {
         list.setVisibility(viewRows.isEmpty() ? View.GONE : View.VISIBLE);
         emptyText.setVisibility(viewRows.isEmpty() ? View.VISIBLE : View.GONE);
         if (viewRows.isEmpty()) {
-            emptyText.setText(mode == MODE_HISTORY ? "暂无历史" : "暂无收藏");
+            emptyText.setText(emptyTextFor(mode));
         }
     }
 
     /** 进独立编辑页（点「编辑」与长按一格同一个落点，长按的那格预勾）。 */
     private void openEditPage(@Nullable String preselectId) {
+        openEditPageFor(mode, preselectId);
+    }
+
+    /** 指定编辑模式进编辑页：首页面墙格长按走历史删法（墙即历史）。 */
+    private void openEditPageFor(int editMode, @Nullable String preselectId) {
         Intent intent = new Intent(this, HongguoMineEditActivity.class);
-        intent.putExtra(HongguoMineEditActivity.EXTRA_MODE, mode);
+        intent.putExtra(HongguoMineEditActivity.EXTRA_MODE, editMode);
         if (preselectId != null) {
             intent.putExtra(HongguoMineEditActivity.EXTRA_PRESELECT, preselectId);
         }
@@ -440,27 +707,14 @@ public class HongguoMineActivity extends AppCompatActivity {
     protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         // 编辑页删完回来：本地记录已变，整表按现行过滤重读（删的要消失）
-        if (requestCode == REQ_EDIT && (mode == MODE_HISTORY || mode == MODE_FAV)) {
+        if (requestCode == REQ_EDIT && mode == MODE_HOME) {
+            loadHomeWall();
+        } else if (requestCode == REQ_EDIT
+                && (mode == MODE_HISTORY || mode == MODE_FAV || mode == MODE_FOLLOW)) {
             loadGridRows(mode);
             styleChips();
             applyFilter();
         }
-    }
-
-    private void refreshDevice() {
-        HgApiClient.getInstance().resetDeviceProfile(new HgCallback<Boolean>() {
-            @Override
-            public void onSuccess(Boolean ok) {
-                runOnUiThread(() -> Toast.makeText(HongguoMineActivity.this,
-                        "设备档案已刷新", Toast.LENGTH_SHORT).show());
-            }
-
-            @Override
-            public void onError(int code, String msg) {
-                runOnUiThread(() -> Toast.makeText(HongguoMineActivity.this,
-                        "刷新失败，请重试", Toast.LENGTH_SHORT).show());
-            }
-        });
     }
 
     private void openRow(Row row) {
@@ -471,7 +725,9 @@ public class HongguoMineActivity extends AppCompatActivity {
     }
 
     private void openGridRow(GridRow row) {
-        HgStore.Progress p = mode == MODE_HISTORY ? HgStore.progressOf(row.id) : null;
+        // 首页面墙与历史列表同路：带断点续播
+        HgStore.Progress p = mode == MODE_HISTORY || mode == MODE_HOME
+                ? HgStore.progressOf(row.id) : null;
         int ep = p == null ? 0 : p.episodeIndex;
         HongguoFeedActivity.startSeries(this, row.id, row.title, ep);
     }
@@ -576,7 +832,10 @@ public class HongguoMineActivity extends AppCompatActivity {
             h.sub.setText(row.sub == null ? "" : row.sub);
             h.itemView.setOnClickListener(v -> openGridRow(row));
             h.itemView.setOnLongClickListener(v -> {
-                openEditPage(row.id);
+                // 点赞/预约无编辑删法，长按不落编辑页；墙格长按走历史编辑
+                if (mode == MODE_LIKE || mode == MODE_RESERVE) return true;
+                if (mode == MODE_HOME) openEditPageFor(MODE_HISTORY, row.id);
+                else openEditPage(row.id);
                 return true;
             });
         }

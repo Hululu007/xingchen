@@ -443,7 +443,8 @@ public class HongguoFeedActivity extends AppCompatActivity {
      * 期间 SurfaceView 的画面层被销毁、或播放视图还挂在旧 holder 上，
      * 声音能续上、画面却回不来（#1 黑屏、#18 落竖屏条只剩封面）。
      * resume 路径此前只续播不重挂，这里强制把播放视图重挂进当前条
-     * 的 holder，首帧旗复位——封面留到下一次首帧渲染时再摘。
+     * 的 holder，首帧旗复位——重挂后走黑场＋转圈，首帧渲染时收口
+     *（与 #8 的起播占位形态同口径，不亮封面）。
      */
     private void remountSurfaceAfterReturn() {
         if (player == null || playerView == null) return;
@@ -1603,7 +1604,9 @@ public class HongguoFeedActivity extends AppCompatActivity {
                 ((ViewGroup) playerView.getParent()).removeView(playerView);
             }
             h.surface.addView(playerView, match());
-            h.cover.setVisibility(View.VISIBLE);
+            // #8：起播空窗不许亮封面——挂载只亮转圈，画面出来前是
+            // 黑场；封面只给未起播条目作静态呈现（绑定侧管）。
+            h.cover.setVisibility(View.GONE);
             h.spin.setVisibility(View.VISIBLE);
             h.fail.setVisibility(View.GONE);
             // 停稳即是一次新起播尝试：旧失败记账摘除，成败由本次判定
@@ -2667,13 +2670,14 @@ public class HongguoFeedActivity extends AppCompatActivity {
 
     public void retryCurrent() {
         if (mode == MODE_FEED && currentIndex >= 0 && currentIndex < items.size()) {
-            // 首页流重试走整条重播路（含无 vid 正剧的详情定首集），并恢复封面作过渡帧
+            // 首页流重试走整条重播路（含无 vid 正剧的详情定首集）；
+            // 过渡走黑场＋转圈，不亮封面（#8 同口径）
             DramaItem it = items.get(currentIndex);
             feedFailedKeys.remove(feedKeyOf(it));
             FeedAdapter.Holder h = currentHolder();
             if (h != null) {
                 h.fail.setVisibility(View.GONE);
-                h.cover.setVisibility(View.VISIBLE);
+                h.cover.setVisibility(View.GONE);
                 h.spin.setVisibility(View.VISIBLE);
             }
             playFeedItem(it);
@@ -3205,7 +3209,9 @@ public class HongguoFeedActivity extends AppCompatActivity {
             } else {
                 h.cover.setImageDrawable(null);
             }
-            h.cover.setVisibility(position == currentIndex && firstFrameForVid ? View.GONE : View.VISIBLE);
+            // #8：当前条（起播中/在播）永不露封面，空窗走黑场＋转圈；
+            // 非当前条封面作静态呈现保留（刷流浏览形态）。
+            h.cover.setVisibility(position == currentIndex ? View.GONE : View.VISIBLE);
             h.spin.setVisibility(View.GONE);
             h.fail.setVisibility(View.GONE);
             if (mode == MODE_FEED && position != currentIndex

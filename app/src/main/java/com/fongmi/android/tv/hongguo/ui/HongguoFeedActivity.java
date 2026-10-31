@@ -322,6 +322,7 @@ public class HongguoFeedActivity extends AppCompatActivity {
         videoAuthorAvatar = getIntent().getStringExtra(EXTRA_AUTHOR_AVATAR);
         buildUi();
         setContentView(root);
+        watchNavInsets();
         if (mode == MODE_FEED) {
             seriesBar.setVisibility(View.GONE);
             loadChannel(true);
@@ -1221,9 +1222,23 @@ public class HongguoFeedActivity extends AppCompatActivity {
         return id > 0 ? getResources().getDimensionPixelSize(id) : dp(24);
     }
 
+    /** 真实手势区高（窗口 insets 捕获，未捕获前为 -1）。 */
+    private int realNavInset = -1;
+
     private int navBarHeight() {
+        // #4b：让位优先读真实手势区高——静态 dimen 在手势导航下
+        // 与真值对不上；insets 未到时才回落 dimen。
+        if (realNavInset >= 0) return realNavInset;
         int id = getResources().getIdentifier("navigation_bar_height", "dimen", "android");
         return id > 0 ? getResources().getDimensionPixelSize(id) : 0;
+    }
+
+    /** 捕获窗口底部真实 insets（bind 期 bottomBlockH 等活算处随即用真值）。 */
+    private void watchNavInsets() {
+        getWindow().getDecorView().setOnApplyWindowInsetsListener((v, insets) -> {
+            realNavInset = insets.getSystemWindowInsetBottom();
+            return insets;
+        });
     }
 
     private void showState(String text, boolean spin) {

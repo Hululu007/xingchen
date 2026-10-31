@@ -149,6 +149,19 @@ public class HongguoMineActivity extends AppCompatActivity {
         return id > 0 ? getResources().getDimensionPixelSize(id) : 0;
     }
 
+    /**
+     * 底栏让位改读真实手势区（#4b）：navigation_bar_height 是静态
+     * dimen、手势导航下与真实值对不上。窗口 insets 一到就把真值
+     * 回填到 tabBar 底部 padding（tabBar 是常驻字段、可直接重设）。
+     */
+    private void watchNavInsets() {
+        getWindow().getDecorView().setOnApplyWindowInsetsListener((v, insets) -> {
+            int real = insets.getSystemWindowInsetBottom();
+            if (tabBar != null) tabBar.setPadding(0, 0, 0, real);
+            return insets;
+        });
+    }
+
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -211,6 +224,7 @@ public class HongguoMineActivity extends AppCompatActivity {
         root.addView(emptyText, new LinearLayout.LayoutParams(-1, 0, 1f));
 
         tabBar = buildTabBar();
+        watchNavInsets();
         root.addView(tabBar);
 
         setContentView(root);
@@ -377,7 +391,7 @@ public class HongguoMineActivity extends AppCompatActivity {
 
     // ---------- 定稿首页面：白色三签底栏 ----------
 
-    /** 白色三签底栏：纯文字格，选中（我的）黑粗＋文字上方 6dp 橙点；只 tab 入口的 home 态显。 */
+    /** 白色三签底栏：纯文字格，选中（我的）黑粗、无橙点；只 tab 入口的 home 态显。 */
     private LinearLayout buildTabBar() {
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.VERTICAL);
@@ -406,18 +420,11 @@ public class HongguoMineActivity extends AppCompatActivity {
         LinearLayout cell = new LinearLayout(this);
         cell.setOrientation(LinearLayout.VERTICAL);
         cell.setGravity(Gravity.CENTER);
-        View dot = new View(this);
-        GradientDrawable oval = new GradientDrawable();
-        oval.setShape(GradientDrawable.OVAL);
-        oval.setColor(0xFFF07D13);
-        dot.setBackground(oval);
-        dot.setVisibility(selected ? View.VISIBLE : View.INVISIBLE);
-        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(dp(6), dp(6));
-        dlp.bottomMargin = dp(3);
-        cell.addView(dot, dlp);
+        // 定稿收口（#4b）：橙点删净（含未选中格的隐形占位），字号
+        // 按定稿 16.5；选中仍黑粗、未选灰。
         TextView text = new TextView(this);
         text.setText(label);
-        text.setTextSize(15);
+        text.setTextSize(16.5f);
         text.setTextColor(selected ? 0xFF1B1B1E : 0xFF8A8A93);
         if (selected) text.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         cell.addView(text);

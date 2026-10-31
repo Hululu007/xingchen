@@ -718,6 +718,10 @@ public class HongguoLandActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        // #18：横屏是本页自己强制的（机主系统自动旋转关着也一样）；
+        // 切后台再回来时把强制横屏重新申明一遍，不许被竖屏页带回去。
+        setRequestedOrientation(
+                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_USER_LANDSCAPE);
         if (orientationListener != null) orientationListener.enable();
     }
 

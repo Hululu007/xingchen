@@ -81,6 +81,7 @@ public class HongguoDetailActivity extends AppCompatActivity {
     private int currentEpisode = 1;
 
     private FrameLayout rootFrame;
+    private ScrollView scroll;
     private ImageView backdropView;
     private TextView titleText;
     private TextView countText;
@@ -173,7 +174,7 @@ public class HongguoDetailActivity extends AppCompatActivity {
         }
         rootFrame.addView(backdropView, new FrameLayout.LayoutParams(-1, -1));
 
-        ScrollView scroll = new ScrollView(this);
+        scroll = new ScrollView(this);
         scroll.setFillViewport(true);
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
@@ -739,6 +740,16 @@ public class HongguoDetailActivity extends AppCompatActivity {
         if (total > 0) currentEpisode = Math.min(currentEpisode, total);
         styleFav(HgStore.isFaved(seriesId));
         loadComments();
+        // 首开塌陷兜底（2026-10-31）：首遍布局会把整列摆错（顶栏
+        // 钮落到屏高近半、糊底满屏），切后台回前台经系统全量重排
+        // 即归位（双图实证，账 hongguo-detail-check-20261031）。
+        // bind 把作者行/标签行等初始 GONE 件转 VISIBLE 后，主动对
+        // scroll 子树请求一次同样的全量重排，不等系统停启。
+        if (scroll != null) {
+            scroll.post(() -> {
+                if (scroll != null) scroll.requestLayout();
+            });
+        }
     }
 
     private void addStat(String value, String label) {

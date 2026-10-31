@@ -2622,15 +2622,11 @@ public class HongguoFeedActivity extends AppCompatActivity {
         // 记账集序：播放页＝当前集；刷流＝被推集集序（D3，旧实现
         // 恒记第 1 集、把被推集进度记错集）；其余面维持当前集序
         int epForSave = mode == MODE_FEED ? feedEpIndex : currentEpisodeIndex;
-        // #14：落盘分口——正片（正剧/合集）走带历史索引的正口，
-        // 看过的才进得去历史页；纯短片（UGC_CLIP）维持 Quiet 口
-        // （只记断点、不进历史，HgStore 类注原意）。此前全走 Quiet，
-        // 索引恒空、历史页永远空白。
-        if (item != null && item.kind == DramaItemKind.UGC_CLIP) {
-            HgStore.saveProgressQuiet(currentSeriesId, epForSave, pos);
-        } else {
-            HgStore.saveProgress(currentSeriesId, epForSave, pos);
-        }
+        // #14：落盘全进口（他 2026-10-31 15:07 终裁「短片进历史」）——
+        // 5241cb1c0 的分口（正剧/合集走正口、纯短片 UGC_CLIP 走 Quiet）
+        // 就此取消：全内容走带历史索引的 saveProgress，看过的都进得去
+        // 历史页。此前全走 Quiet 时索引恒空、历史页永远空白。
+        HgStore.saveProgress(currentSeriesId, epForSave, pos);
         if (watchAccumMs > 0) {
             HgStore.addWatchMs(currentSeriesId, watchAccumMs);
             watchAccumMs = 0;

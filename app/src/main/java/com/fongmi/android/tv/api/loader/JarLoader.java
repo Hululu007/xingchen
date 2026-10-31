@@ -84,7 +84,7 @@ public class JarLoader {
         String cachePath = Path.jar().getAbsolutePath();
         SpiderDebug.log("jar-loader", "load start key=%s file=%s size=%s cache=%s", key, file.getAbsolutePath(), file.length(), cachePath);
         DexClassLoader loader = new CspDexClassLoader(file.getAbsolutePath(), cachePath, cachePath, App.get().getClassLoader());
-        invokeInit(key, loader);
+        invokeInit(key, loader, file);
         invokeNetworkCompat(key, loader);
         invokeProxy(key, loader, file);
         loaders.put(key, loader);
@@ -147,13 +147,20 @@ public class JarLoader {
         }
     }
 
-    private void invokeInit(String key, DexClassLoader loader) {
+    private void invokeInit(String key, DexClassLoader loader, File file) {
         long start = System.currentTimeMillis();
         try {
             SpiderDebug.log("jar-loader", "jar init start key=%s", key);
             Class<?> clz = loader.loadClass("com.github.catvod.spider.Init");
             Method method = clz.getMethod("init", Context.class);
-            method.invoke(clz, App.get());
+            // 只有潇洒包（本地仓 pkg3，内容键逐字对上）递宿主身份门面过它的包名白名单；
+            // 其余 jar 一律仍递真 App，行为零变化（账 pkg3-whitelist-chain-20261031）。
+            Context context = App.get();
+            if (Pkg3HostFacade.matches(file)) {
+                context = Pkg3HostFacade.create();
+                SpiderDebug.log("jar-loader", "pkg3 host facade applied key=%s", key);
+            }
+            method.invoke(clz, context);
             SpiderDebug.log("jar-loader", "jar init done key=%s cost=%sms", key, System.currentTimeMillis() - start);
         } catch (Throwable e) {
             // jar 装载初始化失败走强制通道：调试开关没开也必须落盘（断点判别靠它）。

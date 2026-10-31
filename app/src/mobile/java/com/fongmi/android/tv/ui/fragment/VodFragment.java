@@ -132,7 +132,10 @@ public class VodFragment extends BaseFragment implements ConfigListener, SiteLis
         updateToolbarMenu();
         // 首屏自拉兜底：配置已就绪（例如旋转重建、切回首页时 fragment 重建）直接拉首页，
         // 不用等配置事件；冷启动配置尚未就绪时不拉，等成功事件经 HomeActivity 转发而来。
-        if (!VodConfig.get().getSites().isEmpty()) loadHome();
+        // 外部导入的本地脚本动态源不在配置 sites 里（只活在 VodConfig 的动态映射中），
+        // 但它就是当前 home：导入落地新建 Fragment 时事件已在未注册窗口期丢光，
+        // 这一发自拉就是它唯一的开跑路（定根账 py-import-open-diag-20261031 三·2）。
+        if (!VodConfig.get().getSites().isEmpty() || getCurrentScriptFile() != null) loadHome();
     }
 
     @Override
@@ -729,7 +732,15 @@ public class VodFragment extends BaseFragment implements ConfigListener, SiteLis
         // 兜底（深挖 L-14）：首页刷新只有 RefreshEvent 单通路，事件在未注册窗口期
         // 丢了就永远陈旧。回前台时比对首页签名（cid＋主页 key＋主页脚本戳，与
         // refreshHome 入口闸同一份口径），变了才按 HOME 口径补刷一次；没变不动作。
-        if (loadedHomeSig != null && !loadedHomeSig.equals(homeSignature())) refreshHome();
+        if (loadedHomeSig != null) {
+            if (!loadedHomeSig.equals(homeSignature())) refreshHome();
+        } else if (!getHome().getKey().isEmpty() && !getHome().getApi().isEmpty()) {
+            // 还没成功加载过：新 Fragment 若连 initView 自拉也没命中（如外部导入
+            // 落地、事件在未注册窗口期丢光），home 本身有效就补刷一发——refreshHome
+            // 入口闸仍管「已加载且签名一致」的重复拉，补成后 markHomeLoaded 赋值，
+            // 后续回前台自动回到上面的签名比对支，不会发发都补。
+            refreshHome();
+        }
     }
 
     @Override

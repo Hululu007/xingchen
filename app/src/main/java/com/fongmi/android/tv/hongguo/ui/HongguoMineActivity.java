@@ -589,6 +589,14 @@ public class HongguoMineActivity extends AppCompatActivity {
                 } else {
                     row.sub = count > 0 ? "共" + count + "集" : "";
                 }
+                // 预约分档消费（普查接线）：同步早已把「已上线」集
+                // 写进 reservedOnlineIds、此前零读者——预约格里给
+                // 已上线条目在副行领起标出来，与待上线分开。
+                if (target == MODE_RESERVE
+                        && HgStore.reservedOnlineIds().contains(id)) {
+                    row.sub = row.sub == null || row.sub.isEmpty()
+                            ? "已上线" : "已上线 · " + row.sub;
+                }
                 allRows.add(row);
             }
         }

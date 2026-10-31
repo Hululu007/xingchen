@@ -1863,6 +1863,32 @@ public class HongguoFeedActivity extends AppCompatActivity {
             firstFrameForVid = true;
         }
 
+        /**
+         * #7：FIT/ZOOM 选支改认解码实测尺寸。此前只有 resolver 预报
+         * 的模型宽高参与判定，预报与实流不一致时整支选反（裁了不该
+         * 裁的、或留了不该留的边）；实测一到就以实测为准重选，并把
+         * lastVideoW/H 更新为实测值（横屏资格判定同源）。
+         */
+        @Override
+        public void onVideoSizeChanged(@NonNull androidx.media3.common.VideoSize size) {
+            int w = size.width;
+            int h = size.height;
+            if (size.unappliedRotationDegrees == 90
+                    || size.unappliedRotationDegrees == 270) {
+                int t = w;
+                w = h;
+                h = t;
+            }
+            if (size.pixelWidthHeightRatio > 0f && size.pixelWidthHeightRatio != 1f) {
+                w = Math.round(w * size.pixelWidthHeightRatio);
+            }
+            if (w <= 0 || h <= 0) return;
+            lastVideoW = w;
+            lastVideoH = h;
+            applyResizeModeFor(w, h);
+            refreshFullPillVisibility();
+        }
+
         @Override
         public void onPlayerError(@NonNull androidx.media3.common.PlaybackException error) {
             android.util.Log.w("HongguoFeed", "player error vid=" + currentVid
@@ -1877,6 +1903,19 @@ public class HongguoFeedActivity extends AppCompatActivity {
      * 正剧条目不算。短剧播放页（MODE_SERIES）播的是剧集，恒不算。
      * 短片按原始比例 fit 播；正剧的竖屏满屏、横版 fit 是定稿，不走本判定。
      */
+    /**
+     * 画面适配选支（#7）：短片一律按原始比例 fit（留黑边可以，不许
+     * 裁满全屏）；正剧维持定稿——横版 fit 居中黑边、竖版 ZOOM 满屏。
+     * 无任何拉伸模式。onReady（预报尺寸）与 onVideoSizeChanged
+     *（实测尺寸）共用本口，实测到后以实测重选为准。
+     */
+    private void applyResizeModeFor(int w, int h) {
+        if (playerView == null || w <= 0 || h <= 0) return;
+        playerView.setResizeMode(playingClipContent() || w >= h
+                ? AspectRatioFrameLayout.RESIZE_MODE_FIT
+                : AspectRatioFrameLayout.RESIZE_MODE_ZOOM);
+    }
+
     private boolean playingClipContent() {
         if (mode == MODE_VIDEO || mode == MODE_UGC) return true;
         if (mode == MODE_SERIES) return false;
@@ -1898,7 +1937,6 @@ public class HongguoFeedActivity extends AppCompatActivity {
         prefetchedNext = false;
         danmakuVid = null;
         player.stop();
-        final boolean fitClip = playingClipContent();
         DramaResolver.Listener playListener = new DramaResolver.Listener() {
             @Override
             public void onReady(String videoId, String localUrl, int w, int h) {
@@ -1907,11 +1945,9 @@ public class HongguoFeedActivity extends AppCompatActivity {
                 lastVideoH = h;
                 refreshFullPillVisibility();
                 player.setMediaItem(MediaItem.fromUri(localUrl));
-                // 短片一律按原始比例 fit（留黑边可以，不许裁满全屏）；
-                // 正剧维持定稿：横版 fit 居中黑边、竖屏 ZOOM 满屏。
-                playerView.setResizeMode(fitClip || (w >= h && h > 0)
-                        ? AspectRatioFrameLayout.RESIZE_MODE_FIT
-                        : AspectRatioFrameLayout.RESIZE_MODE_ZOOM);
+                // 选支先按预报尺寸落，实测尺寸一到由 onVideoSizeChanged
+                // 以实测重选（#7）。
+                applyResizeModeFor(w, h);
                 player.prepare();
                 if (seekMs > 0) player.seekTo(seekMs);
                 player.setPlayWhenReady(true);

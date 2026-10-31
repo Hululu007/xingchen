@@ -36,6 +36,7 @@ import com.bumptech.glide.Glide;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.HongguoDanmakuApi;
 import com.fongmi.android.tv.bean.Danmaku;
+import com.fongmi.android.tv.hongguo.api.HgAccountStore;
 import com.fongmi.android.tv.hongguo.api.HgApiClient;
 import com.fongmi.android.tv.hongguo.api.HgCallback;
 import com.fongmi.android.tv.hongguo.drama.DramaAlbumDetail;
@@ -223,6 +224,8 @@ public class HongguoFeedActivity extends AppCompatActivity {
     private ProgressBar stateSpin;
     private View drawerScrim;
     private View drawerPanel;
+    /** 抽屉底部登录状态行（openDrawer 每次刷新，登录态可能在别处变）。 */
+    private TextView drawerLoginText;
     /** 抽屉宽＝屏宽 79%（定稿 .drawer），开合位移按此值走。 */
     private int drawerWidthPx;
 
@@ -705,6 +708,8 @@ public class HongguoFeedActivity extends AppCompatActivity {
             bar.addView(bottomCell("首页", true, null), cell);
             bar.addView(bottomCell("剧场", false,
                     v -> HongguoTheaterActivity.start(this)), cell);
+            bar.addView(bottomCell("我的", false,
+                    v -> HongguoMineActivity.startTab(this)), cell);
             stack.addView(bar, new LinearLayout.LayoutParams(-1, dp(56) + nav));
             bottomStack = stack;
             cleanBaseBottom = bottomBlockH() + dp(12);
@@ -972,17 +977,10 @@ public class HongguoFeedActivity extends AppCompatActivity {
         panelBg.setCornerRadii(new float[]{0, 0, pr, pr, pr, pr, 0, 0});
         panel.setBackground(panelBg);
         panel.setPadding(dp(20), statusBarHeight() + dp(32), dp(20), dp(18));
-        // 台面只许他定的几样：片库两行＋播放设置两开关＋清缓存，
-        // 无「我的」大卡、无小说历史行
-        panel.addView(drawerHead("片库", false));
-        panel.addView(drawerAction(R.drawable.ic_drama_mine, "观看历史", v -> {
-            closeDrawerNow();
-            HongguoMineActivity.startHistory(this);
-        }));
-        panel.addView(drawerAction(R.drawable.ic_drama_star, "我的收藏", v -> {
-            closeDrawerNow();
-            HongguoMineActivity.startFav(this);
-        }));
+        // 台面只许他定的几样（昨夜最终定版）：播放设置三项（启动
+        // 直达短剧/弹幕两开关＋清红果缓存）＋底部登录状态行；片库
+        // 两行（观看历史/我的收藏）已撤——与我的页五格重复（他亲口
+        // 点），无「我的」大卡、无小说历史行
         panel.addView(drawerHead("播放设置", true));
         panel.addView(drawerSwitch(R.drawable.ic_drama_play, "启动直达短剧",
                 HgStore.isLaunchDirect(), on -> HgStore.setLaunchDirect(on)));
@@ -1000,24 +998,13 @@ public class HongguoFeedActivity extends AppCompatActivity {
         }));
         View spacer = new View(this);
         panel.addView(spacer, new LinearLayout.LayoutParams(-1, 0, 1f));
-        // 定稿 .d-foot：绿点＋本地模式说明
-        LinearLayout foot = new LinearLayout(this);
-        foot.setOrientation(LinearLayout.HORIZONTAL);
-        foot.setGravity(Gravity.CENTER_VERTICAL);
-        View dot = new View(this);
-        GradientDrawable dotBg = new GradientDrawable();
-        dotBg.setShape(GradientDrawable.OVAL);
-        dotBg.setColor(0xFF3E8E6E);
-        dot.setBackground(dotBg);
-        foot.addView(dot, new LinearLayout.LayoutParams(dp(6), dp(6)));
-        TextView footText = new TextView(this);
-        footText.setText("本地模式 · 记录只存这台手机");
-        footText.setTextColor(0xFF8A8A93);
-        footText.setTextSize(12);
-        LinearLayout.LayoutParams ftlp = new LinearLayout.LayoutParams(-2, -2);
-        ftlp.leftMargin = dp(7);
-        foot.addView(footText, ftlp);
-        panel.addView(foot);
+        // 面板最底：登录状态行（字号/灰度照旧 foot 文案口径 12sp、
+        // #8A8A93）；未登录可点进登录页，已登录纯状态显示不响应
+        drawerLoginText = new TextView(this);
+        drawerLoginText.setTextColor(0xFF8A8A93);
+        drawerLoginText.setTextSize(12);
+        refreshDrawerLoginText();
+        panel.addView(drawerLoginText);
         drawerPanel = panel;
         panel.setVisibility(View.GONE);
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(drawerWidthPx, -1);
@@ -1101,8 +1088,29 @@ public class HongguoFeedActivity extends AppCompatActivity {
         return outer;
     }
 
+    /** 登录状态行刷新：未登录恒「登录状态：未登录」且可点进登录页；
+     * 已登录显「登录状态：已登录」，会话 name 非空时显 name，不响应点击。 */
+    private void refreshDrawerLoginText() {
+        if (drawerLoginText == null) return;
+        if (!HgAccountStore.isLoggedIn()) {
+            drawerLoginText.setText("登录状态：未登录");
+            drawerLoginText.setOnClickListener(v -> {
+                closeDrawer();
+                HongguoLoginActivity.start(this);
+            });
+        } else {
+            HgAccountStore.Session session = HgAccountStore.load();
+            String name = session == null ? null : session.name;
+            drawerLoginText.setText(name != null && !name.isEmpty()
+                    ? "登录状态：" + name : "登录状态：已登录");
+            drawerLoginText.setOnClickListener(null);
+            drawerLoginText.setClickable(false);
+        }
+    }
+
     /** 抽屉开合不许硬切：面板左滑入＋暗幕淡入，关时反向（HgTransition 同族口径）。 */
     private void openDrawer() {
+        refreshDrawerLoginText();
         drawerScrim.animate().cancel();
         drawerPanel.animate().cancel();
         drawerScrim.setVisibility(View.VISIBLE);

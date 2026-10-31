@@ -332,6 +332,9 @@ public class HongguoTheaterActivity extends AppCompatActivity {
                 new LinearLayout.LayoutParams(0, -2, 1f));
         bar.addView(bottomCell("剧场", true, null),
                 new LinearLayout.LayoutParams(0, -2, 1f));
+        bar.addView(bottomCell("我的", false,
+                        v -> HongguoMineActivity.startTab(this)),
+                new LinearLayout.LayoutParams(0, -2, 1f));
         wrap.addView(bar);
         return wrap;
     }

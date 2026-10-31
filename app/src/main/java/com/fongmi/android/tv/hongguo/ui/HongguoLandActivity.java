@@ -48,7 +48,7 @@ import java.util.concurrent.Executors;
  * 退出（返回键/传感器转竖）写回交接单泊回，竖屏页领回对位。
  * 横屏锁只活在本页实例内（官方跨页单例，已知差异记账）。页面构成
  * 从简：画面＋顶行（返回/剧名/集号）＋底行（播停/进度/选集）＋锁钮
- * ＋右侧点赞钮（右列点赞位的横屏落点，与竖屏页同走 HgStore liked 集）。
+ * ＋右侧评论入口（点赞原位，他 2026-10-31 14:54 亲定；点赞已摘）。
  */
 public class HongguoLandActivity extends AppCompatActivity {
 
@@ -87,7 +87,9 @@ public class HongguoLandActivity extends AppCompatActivity {
     private ImageView lockBtn;
     private ImageView playBtn;
     private TextView epView;
-    private TextView commentBtn;
+    /** 评论入口（他 14:54 亲定落点赞原位）：图标＋计数竖排件。 */
+    private LinearLayout commentBox;
+    private TextView commentCount;
     /** 实流尺寸（onVideoSizeChanged 回报，画面框计算的单一数据源）。 */
     private int videoW;
     private int videoH;
@@ -286,7 +288,46 @@ public class HongguoLandActivity extends AppCompatActivity {
         lockLp.leftMargin = dp(10);
         root.addView(lockBtn, lockLp);
 
-        // 点赞钮已按 #17 亲定整颗摘除（横屏不要点赞）。
+        // 点赞钮已按 #17 亲定整颗摘除（横屏不要点赞）；它原来的
+        // 位置（右中、与锁钮对称）现归评论入口（他 2026-10-31
+        // 14:54 亲定：「评论按钮就放在点赞原来的位置」）。形态与
+        // 竖屏右列评论件同款：裸图标 ic_drama_comment 白色化
+        // 30dp＋计数签（12sp 粗体白字、有数显数、无数显「评论」），
+        // 点开 HgCommentsSheet。不许与底行再留第二个评论入口。
+        commentBox = new LinearLayout(this);
+        commentBox.setOrientation(LinearLayout.VERTICAL);
+        commentBox.setGravity(Gravity.CENTER_HORIZONTAL);
+        commentBox.setPadding(dp(7), dp(7), dp(7), dp(7));
+        ImageView commentIcon = new ImageView(this);
+        commentIcon.setImageResource(R.drawable.ic_drama_comment);
+        commentIcon.setColorFilter(Color.WHITE);
+        commentBox.addView(commentIcon, new LinearLayout.LayoutParams(dp(30), dp(30)));
+        commentCount = new TextView(this);
+        commentCount.setText("评论");
+        commentCount.setTextColor(Color.WHITE);
+        commentCount.setTextSize(12);
+        commentCount.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        commentCount.setGravity(Gravity.CENTER);
+        commentCount.setShadowLayer(dp(2), 0, dp(1), 0xB3000000);
+        LinearLayout.LayoutParams ccLp = new LinearLayout.LayoutParams(-2, -2);
+        ccLp.topMargin = dp(3);
+        commentBox.addView(commentCount, ccLp);
+        commentBox.setOnClickListener(v -> {
+            if (seriesId == null || curVid == null) return;
+            HgCommentsSheet.show(this, seriesId, curVid, seriesTitle,
+                    total -> {
+                        if (commentCount != null) {
+                            commentCount.setText(total > 0
+                                    ? HongguoFeedActivity.HgTimeTextCount.format(total)
+                                    : "评论");
+                        }
+                    });
+            pokeChrome();
+        });
+        FrameLayout.LayoutParams commentLp = new FrameLayout.LayoutParams(-2, -2);
+        commentLp.gravity = Gravity.END | Gravity.CENTER_VERTICAL;
+        commentLp.rightMargin = dp(10);
+        root.addView(commentBox, commentLp);
 
         // 顶行
         LinearLayout top = new LinearLayout(this);
@@ -425,26 +466,8 @@ public class HongguoLandActivity extends AppCompatActivity {
         eps.setPadding(dp(14), dp(8), dp(6), dp(8));
         eps.setOnClickListener(v -> showEpisodes());
         bottom.addView(eps);
-        // 评论入口（#17 横屏补数）：此前横屏根本没有评论入口、更
-        // 无数字。文案与竖屏同口径——有数显数（竖屏 HgTimeTextCount
-        // 格式化）、没数先显「评论」，数随集补拉（refreshCommentCount）。
-        commentBtn = new TextView(this);
-        commentBtn.setText("评论");
-        commentBtn.setTextColor(Color.WHITE);
-        commentBtn.setTextSize(13.5f);
-        commentBtn.setPadding(dp(14), dp(8), dp(6), dp(8));
-        commentBtn.setOnClickListener(v -> {
-            if (seriesId == null || curVid == null) return;
-            HgCommentsSheet.show(this, seriesId, curVid, seriesTitle,
-                    total -> {
-                        if (commentBtn != null && total > 0) {
-                            commentBtn.setText("评论 "
-                                    + HongguoFeedActivity.HgTimeTextCount.format(total));
-                        }
-                    });
-            pokeChrome();
-        });
-        bottom.addView(commentBtn);
+        // 评论入口不在底行——在他亲定的点赞原位（右中，见锁钮后
+        // 的装配），此处不许再留第二个。
         bottomBar = bottom;
         FrameLayout.LayoutParams bottomLp = new FrameLayout.LayoutParams(-1, -2);
         bottomLp.gravity = Gravity.BOTTOM;
@@ -809,6 +832,7 @@ public class HongguoLandActivity extends AppCompatActivity {
         int vis = show ? View.VISIBLE : View.GONE;
         topBar.setVisibility(vis);
         bottomBar.setVisibility(vis);
+        if (commentBox != null) commentBox.setVisibility(vis);
         if (!locked) lockBtn.setVisibility(vis);
         if (dmSend != null) {
             dmSend.setVisibility(show && HgStore.isDanmakuOn() && !locked
@@ -885,7 +909,6 @@ public class HongguoLandActivity extends AppCompatActivity {
         dialog.show();
     }
 
-    /** 点赞态回显：已赞激活红、未赞白（与竖屏页 LIKE_ON_COLOR 同值）。 */
     /**
      * 控件按画面框落位（#17）：视频显示矩形是单一坐标源——实流
      * 尺寸（onVideoSizeChanged）与播放面尺寸算出 FIT 后的画面框，
@@ -933,19 +956,23 @@ public class HongguoLandActivity extends AppCompatActivity {
         }
     }
 
-    /** 评论数随集补拉（与竖屏 ensureCommentCount 同口同法）。 */
+    /**
+     * 评论数随集补拉（与竖屏 ensureCommentCount 同口同法）：计数签
+     * 有数显数、无数回「评论」原文（竖屏右列计数签同口径）。
+     */
     private void refreshCommentCount() {
-        if (commentBtn == null || seriesId == null || curVid == null) return;
+        if (commentCount == null || seriesId == null || curVid == null) return;
         final String sid = seriesId;
         final String vid = curVid;
-        commentBtn.setText("评论");
+        commentCount.setText("评论");
         worker.execute(() -> {
             com.fongmi.android.tv.api.HongguoCommentApi.Page page =
                     com.fongmi.android.tv.api.HongguoCommentApi.episodeComments(sid, vid, "");
             runOnUiThread(() -> {
-                if (commentBtn == null || !vid.equals(curVid)) return;
+                if (commentCount == null || !vid.equals(curVid)) return;
                 if (page != null && page.total > 0) {
-                    commentBtn.setText("评论 " + HongguoFeedActivity.HgTimeTextCount.format(page.total));
+                    commentCount.setText(
+                            HongguoFeedActivity.HgTimeTextCount.format(page.total));
                 }
             });
         });

@@ -115,6 +115,62 @@ public final class HgAlbumSheet {
                 dp.applyAsInt(38), dp.applyAsInt(38)));
         root.addView(head);
 
+        // 页头信息行（普查接线）：封面＋简介＋热度/播放/收藏。
+        // DramaAlbumDetail 的 cover/intro/hotScoreText/playCnt/
+        // followedCnt 早已解析，此前头部只用 title＋集数、整组
+        // 字段零读取。有任一才建行。
+        java.util.List<String> metaParts = new java.util.ArrayList<>();
+        if (album.hotScoreText != null && !album.hotScoreText.isEmpty()) {
+            metaParts.add(album.hotScoreText);
+        }
+        if (album.playCnt > 0) {
+            metaParts.add("播放 " + HongguoFeedActivity.HgTimeTextCount.format(album.playCnt));
+        }
+        if (album.followedCnt >= 0) {
+            metaParts.add("收藏 " + HongguoFeedActivity.HgTimeTextCount.format(album.followedCnt));
+        }
+        boolean hasCover = album.cover != null && !album.cover.isEmpty();
+        boolean hasIntro = album.intro != null && !album.intro.isEmpty();
+        if (hasCover || hasIntro || !metaParts.isEmpty()) {
+            LinearLayout meta = new LinearLayout(activity);
+            meta.setOrientation(LinearLayout.HORIZONTAL);
+            meta.setPadding(dp.applyAsInt(18), dp.applyAsInt(4),
+                    dp.applyAsInt(18), dp.applyAsInt(8));
+            if (hasCover) {
+                ImageView cov = new ImageView(activity);
+                cov.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                HgCoverClip.round(cov, dp.applyAsInt(6));
+                Glide.with(activity).load(album.cover).into(cov);
+                meta.addView(cov, new LinearLayout.LayoutParams(
+                        dp.applyAsInt(54), dp.applyAsInt(72)));
+            }
+            LinearLayout texts = new LinearLayout(activity);
+            texts.setOrientation(LinearLayout.VERTICAL);
+            if (hasIntro) {
+                TextView intro = new TextView(activity);
+                intro.setText(album.intro);
+                intro.setTextColor(0xFF55555C);
+                intro.setTextSize(12.5f);
+                intro.setMaxLines(2);
+                intro.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                texts.addView(intro);
+            }
+            if (!metaParts.isEmpty()) {
+                TextView metaText = new TextView(activity);
+                metaText.setText(String.join(" · ", metaParts));
+                metaText.setTextColor(0xFF8A8A93);
+                metaText.setTextSize(12);
+                metaText.setMaxLines(1);
+                LinearLayout.LayoutParams mlp = new LinearLayout.LayoutParams(-2, -2);
+                if (hasIntro) mlp.topMargin = dp.applyAsInt(5);
+                texts.addView(metaText, mlp);
+            }
+            LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(0, -2, 1f);
+            if (hasCover) tlp.leftMargin = dp.applyAsInt(10);
+            meta.addView(texts, tlp);
+            root.addView(meta);
+        }
+
         RecyclerView list = new RecyclerView(activity);
         list.setLayoutManager(new LinearLayoutManager(activity));
         list.setPadding(dp.applyAsInt(18), dp.applyAsInt(2),

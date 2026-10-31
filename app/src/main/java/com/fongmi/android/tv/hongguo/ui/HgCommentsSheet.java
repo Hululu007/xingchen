@@ -141,7 +141,7 @@ public final class HgCommentsSheet {
         list.setPadding(dp.applyAsInt(18), dp.applyAsInt(2),
                 dp.applyAsInt(18), dp.applyAsInt(10));
         list.setClipToPadding(false);
-        root.addView(list, new LinearLayout.LayoutParams(-1, 0, 1f));
+        root.addView(list, new LinearLayout.LayoutParams(-1, -2));
 
         // 脚（定稿 .s-foot）：仅供浏览注脚，#FBFAF8 底＋顶线＋手势区让位
         LinearLayout foot = new LinearLayout(activity);
@@ -205,18 +205,12 @@ public final class HgCommentsSheet {
             }
         });
 
+        // 几何收口（#2，与选集单同口径）：列表定高、根 wrap，摘
+        // weight 直挂与根高度回写。评论是异步增量到的、实量只有
+        // 状态行，故列表直接拿满可用高（fillCap），行在定高内滚
+        // 动加载。
+        HgEpisodeSheet.fitListHeight(activity, root, list, true);
         dialog.setContentView(root);
-        // 高度在 show 之前定死（2026-10-31 改，与选集/合集单同批）：
-        // 评论是异步增量到的，实量只量得到状态行，故照旧版定法
-        // 直接写死定稿 72% 高。旧法（1.4.64 重落引入）show 后在
-        // post 里才缩高——首量时权重列表在不定高的父里量错位，
-        // 真机面板只剩计数行、列表全白（账
-        // hongguo-panel-bisect-20261031）。定高后列表在内滚动加载。
-        ViewGroup.LayoutParams rlp = root.getLayoutParams();
-        if (rlp != null) {
-            rlp.height = (int) (activity.getResources().getDisplayMetrics().heightPixels * 0.72f);
-            root.setLayoutParams(rlp);
-        }
         View sheet = dialog.findViewById(com.google.android.material.R.id.design_bottom_sheet);
         if (sheet != null) {
             sheet.setBackgroundColor(Color.TRANSPARENT);

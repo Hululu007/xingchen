@@ -125,7 +125,7 @@ public final class HgAlbumSheet {
             dialog.dismiss();
             onPick.onPick(idx);
         }, dp));
-        root.addView(list, new LinearLayout.LayoutParams(-1, 0, 1f));
+        root.addView(list, new LinearLayout.LayoutParams(-1, -2));
         if (currentIndex > 0) list.scrollToPosition(currentIndex);
 
         // 脚（定稿 .s-foot）：合集条文案＝collBarText 口径
@@ -148,20 +148,10 @@ public final class HgAlbumSheet {
         foot.addView(footText);
         root.addView(foot);
 
+        // 几何收口（#2，与选集单同口径）：列表按内容实量定高、
+        // 根按内容 wrap，摘 weight 直挂与根高度回写。
+        HgEpisodeSheet.fitListHeight(activity, root, list, false);
         dialog.setContentView(root);
-        // 高度在 show 之前定死（2026-10-31 改，与选集单同口径）：
-        // 先按内容实量整单自然高、再封顶定稿 72% 写进 LayoutParams。
-        // 旧法 show 后 post 里才缩高，首量错位、真机面板空白
-        // （账 hongguo-panel-bisect-20261031）。合集行在开单时已
-        // 同步在手，实量即真高；超顶后列表在定高内滚。
-        android.util.DisplayMetrics dm = activity.getResources().getDisplayMetrics();
-        root.measure(View.MeasureSpec.makeMeasureSpec(dm.widthPixels, View.MeasureSpec.EXACTLY),
-                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
-        ViewGroup.LayoutParams rlp = root.getLayoutParams();
-        if (rlp != null) {
-            rlp.height = Math.min(root.getMeasuredHeight(), (int) (dm.heightPixels * 0.72f));
-            root.setLayoutParams(rlp);
-        }
         View sheet = dialog.findViewById(com.google.android.material.R.id.design_bottom_sheet);
         if (sheet != null) {
             sheet.setBackgroundColor(Color.TRANSPARENT);
